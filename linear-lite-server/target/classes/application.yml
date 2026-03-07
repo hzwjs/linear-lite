@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: linear-lite-server
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:8.148.189.106}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:linear_lite}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:Password1!}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+server:
+  port: ${SERVER_PORT:8080}
+
+# CORS：Vite 默认开发地址，多源用逗号分隔
+cors:
+  allowed-origins: http://localhost:5173,http://127.0.0.1:5173
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+
+# JWT
+jwt:
+  secret: ${JWT_SECRET:linear-lite-default-secret-change-in-production}
+  expiration-ms: ${JWT_EXPIRATION_MS:86400000}
