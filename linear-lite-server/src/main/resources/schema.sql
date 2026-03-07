@@ -1,0 +1,44 @@
+-- Linear Lite 表结构
+-- 执行前请先创建数据库：CREATE DATABASE IF NOT EXISTS linear_lite DEFAULT CHARACTER SET utf8mb4;
+
+USE linear_lite;
+
+-- 用户表
+CREATE TABLE IF NOT EXISTS users (
+    id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    username    VARCHAR(64)  NOT NULL UNIQUE,
+    password    VARCHAR(255) NOT NULL,
+    avatar_url  VARCHAR(512) DEFAULT NULL,
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 项目表
+CREATE TABLE IF NOT EXISTS projects (
+    id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    name        VARCHAR(128) NOT NULL,
+    identifier  VARCHAR(16)  NOT NULL UNIQUE COMMENT 'Issue ID 前缀，如 ENG, PROD',
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 任务表（task_key 为对外展示的任务 ID，格式：项目 identifier + '-' + 项目内序号，如 ENG-1, PROD-2）
+CREATE TABLE IF NOT EXISTS tasks (
+    id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    task_key    VARCHAR(32)  NOT NULL UNIQUE COMMENT '带项目前缀的任务 ID，如 ENG-1',
+    title       VARCHAR(256) NOT NULL,
+    description TEXT         DEFAULT NULL,
+    status      VARCHAR(32)  NOT NULL DEFAULT 'backlog',
+    priority    VARCHAR(16)  DEFAULT 'medium',
+    project_id  BIGINT       NOT NULL,
+    creator_id  BIGINT       NOT NULL,
+    assignee_id BIGINT       DEFAULT NULL,
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_tasks_project  FOREIGN KEY (project_id)  REFERENCES projects (id) ON DELETE CASCADE,
+    CONSTRAINT fk_tasks_creator  FOREIGN KEY (creator_id)   REFERENCES users (id),
+    CONSTRAINT fk_tasks_assignee FOREIGN KEY (assignee_id)  REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE INDEX idx_tasks_project_id ON tasks (project_id);
+CREATE INDEX idx_tasks_task_key ON tasks (task_key);
+CREATE INDEX idx_tasks_creator_id  ON tasks (creator_id);
+CREATE INDEX idx_tasks_assignee_id ON tasks (assignee_id);
