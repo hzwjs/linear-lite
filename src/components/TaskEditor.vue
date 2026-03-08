@@ -1,17 +1,37 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
 import { userApi } from '../services/api/user'
+import CustomSelect from './ui/CustomSelect.vue'
+import CustomDatePicker from './ui/CustomDatePicker.vue'
+import type { CustomSelectOption } from './ui/CustomSelect.vue'
+import {
+  Circle,
+  Loader2,
+  CheckCircle,
+  ArrowDown,
+  Minus,
+  ArrowUp,
+  Flame,
+  User as UserIcon
+} from 'lucide-vue-next'
 
 const props = defineProps<{
   mode: 'create' | 'edit'
   task?: Task | null
+  /** P4-6.5: 列头 + 新建时的默认状态 */
+  defaultStatus?: Status
+  previousTaskId?: string | null
+  nextTaskId?: string | null
+  position?: number | null
+  total?: number
 }>()
 
 const emit = defineEmits<{
   close: []
+  navigate: [taskId: string]
 }>()
 
 const store = useTaskStore()
@@ -24,6 +44,25 @@ const formAssigneeId = ref<string | number>('')
 const formDueDate = ref('') // YYYY-MM-DD for input[type=date]
 const isSaving = ref(false)
 const userList = ref<User[]>([])
+
+const statusOptions: CustomSelectOption[] = [
+  { value: 'todo', label: 'Todo', icon: Circle },
+  { value: 'in_progress', label: 'In Progress', icon: Loader2 },
+  { value: 'done', label: 'Done', icon: CheckCircle }
+]
+const priorityOptions: CustomSelectOption[] = [
+  { value: 'low', label: 'Low', icon: ArrowDown },
+  { value: 'medium', label: 'Medium', icon: Minus },
+  { value: 'high', label: 'High', icon: ArrowUp },
+  { value: 'urgent', label: 'Urgent', icon: Flame }
+]
+const assigneeOptions = computed<CustomSelectOption[]>(() => {
+  const list: CustomSelectOption[] = [{ value: '', label: 'Unassigned', icon: UserIcon }]
+  for (const u of userList.value) {
+    list.push({ value: u.id, label: u.username, icon: UserIcon })
+  }
+  return list
+})
 
 onMounted(async () => {
   try {
@@ -50,7 +89,7 @@ const loadForm = () => {
   } else {
     formTitle.value = ''
     formDescription.value = ''
-    formStatus.value = 'todo'
+    formStatus.value = props.defaultStatus ?? 'todo'
     formPriority.value = 'medium'
     formAssigneeId.value = ''
     formDueDate.value = ''
@@ -59,6 +98,9 @@ const loadForm = () => {
 
 watch(() => props.task, loadForm, { immediate: true })
 watch(() => props.mode, loadForm)
+watch(() => props.defaultStatus, () => {
+  if (props.mode === 'create') formStatus.value = props.defaultStatus ?? 'todo'
+})
 
 const handleSave = async () => {
   if (!formTitle.value.trim()) return
@@ -100,199 +142,445 @@ const handleSave = async () => {
 const closeEditor = () => {
   emit('close')
 }
+
+const createdAtText = computed(() =>
+  props.task?.createdAt ? new Date(props.task.createdAt).toLocaleString() : null
+)
+const updatedAtText = computed(() =>
+  props.task?.updatedAt ? new Date(props.task.updatedAt).toLocaleString() : null
+)
+const dueDateSummary = computed(() =>
+  props.task?.dueDate ? new Date(props.task.dueDate).toLocaleDateString() : 'No due date'
+)
+
+function navigateTo(taskId: string | null | undefined) {
+  if (!taskId) return
+  emit('navigate', taskId)
+}
 </script>
 
 <template>
-  <div class="editor-overlay" @click.self="closeEditor">
-    <div class="editor-drawer">
-      <div class="editor-header">
-        <h2>{{ mode === 'create' ? 'New Task' : 'Edit Task' }}</h2>
-        <button class="close-btn" @click="closeEditor">×</button>
+  <aside class="editor-panel" aria-label="Issue workspace">
+    <div class="editor-header">
+      <div class="editor-header-meta">
+        <span v-if="task?.id" class="issue-id">{{ task.id }}</span>
+        <h2>{{ mode === 'create' ? 'New issue' : 'Issue' }}</h2>
       </div>
-      
-      <div class="editor-body">
-        <input 
-          v-model="formTitle" 
-          class="title-input" 
-          placeholder="Task title" 
-          autofocus 
-          @keydown.enter="handleSave"
-        />
-        
-        <textarea 
-          v-model="formDescription" 
-          class="description-input" 
-          placeholder="Add description..."
-          rows="5"
-        ></textarea>
-        
-        <div class="form-row">
-          <div class="form-group">
-            <label for="task-status">Status</label>
-            <select id="task-status" v-model="formStatus" class="select-input">
-              <option value="todo">Todo</option>
-              <option value="in_progress">In Progress</option>
-              <option value="done">Done</option>
-            </select>
-          </div>
-          
-          <div class="form-group">
-            <label for="task-priority">Priority</label>
-            <select id="task-priority" v-model="formPriority" class="select-input">
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-group">
-          <label for="task-assignee">Assignee</label>
-          <select id="task-assignee" v-model="formAssigneeId" class="select-input">
-            <option value="">Unassigned</option>
-            <option v-for="u in userList" :key="u.id" :value="u.id">{{ u.username }}</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="task-due">Due Date</label>
-          <input
-            id="task-due"
-            v-model="formDueDate"
-            type="date"
-            class="select-input"
-          />
-        </div>
-        <div v-if="mode === 'edit' && task?.completedAt" class="form-group read-only">
-          <label>Completed at</label>
-          <span class="read-only-value">{{ new Date(task.completedAt).toLocaleString() }}</span>
-        </div>
-      </div>
-      
-      <div class="editor-footer">
-        <button class="btn-cancel" @click="closeEditor">Cancel</button>
-        <button 
-          class="btn-save" 
-          :disabled="!formTitle.trim() || isSaving" 
-          @click="handleSave"
+      <div class="editor-header-actions">
+        <div v-if="position && total" class="issue-position">{{ position }} / {{ total }}</div>
+        <button
+          class="nav-btn"
+          :disabled="!previousTaskId"
+          aria-label="Previous issue"
+          @click="navigateTo(previousTaskId)"
         >
-          {{ isSaving ? 'Saving...' : 'Save' }}
+          ←
         </button>
+        <button
+          class="nav-btn"
+          :disabled="!nextTaskId"
+          aria-label="Next issue"
+          @click="navigateTo(nextTaskId)"
+        >
+          →
+        </button>
+        <button class="close-btn" @click="closeEditor" aria-label="Close">×</button>
       </div>
     </div>
-  </div>
+
+    <div class="editor-body">
+      <div class="editor-content">
+        <section class="content-meta">
+          <div class="meta-chip">Created {{ createdAtText ?? 'Unknown' }}</div>
+          <div class="meta-chip">Updated {{ updatedAtText ?? 'Unknown' }}</div>
+          <div class="meta-chip">Due {{ dueDateSummary }}</div>
+        </section>
+
+        <section class="content-section">
+          <textarea
+            v-model="formTitle"
+            class="title-textarea"
+            placeholder="Issue title"
+            rows="2"
+            autofocus
+            @keydown.enter.exact.prevent="handleSave"
+          />
+        </section>
+
+        <section class="content-section">
+          <textarea
+            v-model="formDescription"
+            class="description-input"
+            placeholder="Add description"
+            rows="8"
+          />
+        </section>
+
+        <section class="content-section subdued">
+          <div class="section-head">
+            <span class="section-kicker">Context</span>
+            <span class="section-note">Resources and activity structure for this issue.</span>
+          </div>
+          <div class="context-grid">
+            <div class="context-card">
+              <div class="context-card-title">Resources</div>
+              <p>Links, PRs, and attachments will surface here without leaving the issue.</p>
+            </div>
+            <div class="context-card">
+              <div class="context-card-title">Activity</div>
+              <p>Status changes and assignment history will become a readable timeline here.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="editor-props">
+        <div class="props-card">
+          <div class="props-title">Details</div>
+          <div class="prop-row">
+            <span class="prop-label">Status</span>
+            <CustomSelect
+              id="task-status"
+              v-model="formStatus"
+              :options="statusOptions"
+              aria-label="Status"
+              trigger-class="prop-trigger"
+            />
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Priority</span>
+            <CustomSelect
+              id="task-priority"
+              v-model="formPriority"
+              :options="priorityOptions"
+              aria-label="Priority"
+              trigger-class="prop-trigger"
+            />
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Assignee</span>
+            <CustomSelect
+              id="task-assignee"
+              v-model="formAssigneeId"
+              :options="assigneeOptions"
+              placeholder="Unassigned"
+              aria-label="Assignee"
+              trigger-class="prop-trigger"
+            />
+          </div>
+          <div class="prop-row">
+            <span class="prop-label">Due Date</span>
+            <CustomDatePicker
+              id="task-due"
+              v-model="formDueDate"
+              placeholder="Select date"
+              aria-label="Due date"
+              trigger-class="prop-trigger"
+            />
+          </div>
+          <div v-if="mode === 'edit' && task?.completedAt" class="prop-row read-only">
+            <span class="prop-label">Completed at</span>
+            <span class="read-only-value">{{ new Date(task.completedAt).toLocaleString() }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="editor-footer">
+      <button class="btn-cancel" @click="closeEditor">Back</button>
+      <button
+        class="btn-save"
+        :disabled="!formTitle.trim() || isSaving"
+        @click="handleSave"
+      >
+        {{ isSaving ? 'Saving...' : 'Save' }}
+      </button>
+    </div>
+  </aside>
 </template>
 
 <style scoped>
-.editor-overlay {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 100;
-  display: flex;
-  justify-content: flex-end;
-}
-.editor-drawer {
-  width: 400px;
-  background: var(--color-bg-primary);
-  border-left: 1px solid var(--color-border);
+.editor-panel {
+  width: min(1040px, calc(100vw - 320px));
+  min-width: 840px;
+  max-width: 1120px;
+  max-height: calc(100vh - 52px);
+  height: 100%;
+  background: var(--color-bg-main);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 18px;
   display: flex;
   flex-direction: column;
-  box-shadow: -4px 0 15px rgba(0,0,0,0.3);
-  animation: slideIn var(--transition-normal);
-}
-@keyframes slideIn {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.14);
+  overflow: hidden;
 }
 .editor-header {
-  height: var(--header-height);
+  min-height: 56px;
   border-bottom: 1px solid var(--color-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 20px;
+  padding: 0 16px 0 18px;
+  flex-shrink: 0;
+}
+.editor-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.editor-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.issue-id {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--color-text-secondary);
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.04);
+}
+.issue-position {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+.nav-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+}
+.nav-btn:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text-primary);
+}
+.nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 .editor-header h2 {
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   margin: 0;
 }
 .close-btn {
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1;
   color: var(--color-text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 3px 5px;
 }
 .close-btn:hover { color: var(--color-text-primary); }
+
 .editor-body {
   flex: 1;
-  padding: 20px;
+  display: flex;
+  gap: 0;
+  min-height: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 249, 250, 0.9));
+}
+.editor-content {
+  flex: 1;
+  min-width: 0;
+  padding: 22px 22px 24px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 22px;
   overflow-y: auto;
 }
-.title-input {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-.title-input::placeholder { color: var(--color-text-secondary); }
-.description-input {
-  font-size: 14px;
-  color: var(--color-text-primary);
-  resize: vertical;
-  line-height: 1.5;
-}
-.form-row {
+.content-meta {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 6px;
 }
-.form-group {
-  flex: 1;
+.meta-chip {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  background: rgba(17, 24, 39, 0.04);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+.content-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.form-group label {
+.section-kicker {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+.section-note {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+.subdued {
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+}
+.title-textarea {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  border: none;
+  resize: none;
+  padding: 0;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  background: transparent;
+}
+.title-textarea::placeholder {
+  color: var(--color-text-secondary);
+}
+.description-input {
+  font-size: 13px;
+  color: var(--color-text-primary);
+  resize: vertical;
+  line-height: 1.55;
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+.description-input::placeholder {
+  color: var(--color-text-secondary);
+}
+.context-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.context-card {
+  border: 1px dashed var(--color-border);
+  border-radius: 10px;
+  padding: 14px;
+  background: linear-gradient(180deg, rgba(250, 250, 250, 0.78), rgba(255, 255, 255, 0.9));
+}
+.context-card-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-bottom: 6px;
+}
+.context-card p {
+  margin: 0;
+  color: var(--color-text-secondary);
   font-size: 12px;
+  line-height: 1.55;
+}
+.editor-props {
+  width: 228px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--color-border);
+  padding: 14px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.props-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(250, 250, 250, 0.55), rgba(255, 255, 255, 0.9));
+}
+.props-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+.prop-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.prop-label {
+  font-size: 11px;
   color: var(--color-text-secondary);
   font-weight: 500;
 }
-.select-input {
-  background: var(--color-bg-elevated);
+.editor-props :deep(.prop-trigger) {
+  background: var(--color-bg-main);
   border: 1px solid var(--color-border);
   color: var(--color-text-primary);
-  padding: 8px;
-  border-radius: var(--border-radius-sm);
-  outline: none;
+  padding: 6px 8px;
+  border-radius: 8px;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.editor-props :deep(.prop-trigger:hover) {
+  background: var(--color-hover);
 }
 .read-only .read-only-value {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--color-text-secondary);
 }
 .editor-footer {
-  padding: 16px 20px;
+  padding: 12px 18px;
   border-top: 1px solid var(--color-border);
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 8px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.78);
 }
 .btn-cancel {
-  padding: 8px 16px;
-  border-radius: var(--border-radius-sm);
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.btn-cancel:hover {
+  background: var(--color-hover);
   color: var(--color-text-primary);
 }
-.btn-cancel:hover { background: var(--color-bg-hover); }
 .btn-save {
-  padding: 8px 16px;
-  border-radius: var(--border-radius-sm);
-  background: var(--color-accent);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--color-status-done);
   color: white;
   font-weight: 500;
+  font-size: 12px;
 }
 .btn-save:hover:not(:disabled) { background: var(--color-accent-hover); }
 .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
+@media (max-width: 1100px) {
+  .editor-panel {
+    min-width: 0;
+    width: min(960px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+  }
+
+  .editor-body {
+    flex-direction: column;
+  }
+
+  .editor-props {
+    width: auto;
+    border-left: none;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .context-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

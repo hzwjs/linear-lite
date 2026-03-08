@@ -1,0 +1,293 @@
+<script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+
+const props = withDefaults(
+  defineProps<{
+    modelValue: string
+    placeholder?: string
+    ariaLabel?: string
+    triggerClass?: string
+  }>(),
+  { placeholder: 'Select date', ariaLabel: 'Due date', triggerClass: '' }
+)
+
+const emit = defineEmits<{
+  'update:modelValue': [value: string]
+}>()
+
+const isOpen = ref(false)
+const triggerRef = ref<HTMLElement | null>(null)
+const panelRef = ref<HTMLElement | null>(null)
+const viewYear = ref(new Date().getFullYear())
+const viewMonth = ref(new Date().getMonth())
+
+const displayText = computed(() => {
+  if (!props.modelValue) return props.placeholder
+  const d = new Date(props.modelValue + 'T00:00:00')
+  if (isNaN(d.getTime())) return props.placeholder
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+})
+
+function open() {
+  isOpen.value = true
+  if (props.modelValue) {
+    const d = new Date(props.modelValue + 'T00:00:00')
+    if (!isNaN(d.getTime())) {
+      viewYear.value = d.getFullYear()
+      viewMonth.value = d.getMonth()
+    }
+  }
+}
+function close() {
+  isOpen.value = false
+}
+function selectDay(y: number, m: number, day: number) {
+  const d = new Date(y, m, day)
+  const yy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  emit('update:modelValue', `${yy}-${mm}-${dd}`)
+  close()
+  triggerRef.value?.focus()
+}
+
+const calendarDays = computed(() => {
+  const y = viewYear.value
+  const m = viewMonth.value
+  const first = new Date(y, m, 1)
+  const last = new Date(y, m + 1, 0)
+  const startPad = (first.getDay() + 6) % 7
+  const daysInMonth = last.getDate()
+  const cells: { type: 'pad' | 'day'; day?: number }[] = []
+  for (let i = 0; i < startPad; i++) cells.push({ type: 'pad' })
+  for (let d = 1; d <= daysInMonth; d++) cells.push({ type: 'day', day: d })
+  return cells
+})
+
+const monthLabel = computed(() => {
+  const d = new Date(viewYear.value, viewMonth.value, 1)
+  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+})
+
+function prevMonth() {
+  if (viewMonth.value === 0) {
+    viewMonth.value = 11
+    viewYear.value--
+  } else viewMonth.value--
+}
+function nextMonth() {
+  if (viewMonth.value === 11) {
+    viewMonth.value = 0
+    viewYear.value++
+  } else viewMonth.value++
+}
+
+function onTriggerKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault()
+    if (isOpen.value) close()
+    else open()
+  }
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    close()
+  }
+}
+
+function onPanelKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    close()
+    triggerRef.value?.focus()
+  }
+}
+
+function handleClickOutside(e: MouseEvent) {
+  const el = e.target as Node
+  if (
+    isOpen.value &&
+    triggerRef.value &&
+    !triggerRef.value.contains(el) &&
+    panelRef.value &&
+    !panelRef.value.contains(el)
+  ) {
+    close()
+  }
+}
+
+onMounted(() => document.addEventListener('click', handleClickOutside))
+onUnmounted(() => document.removeEventListener('click', handleClickOutside))
+</script>
+
+<template>
+  <div class="custom-date-picker">
+    <button
+      ref="triggerRef"
+      type="button"
+      class="custom-date-picker-trigger"
+      :class="triggerClass"
+      :aria-label="ariaLabel"
+      :aria-expanded="isOpen"
+      :aria-haspopup="'dialog'"
+      :aria-controls="isOpen ? 'date-picker-panel' : undefined"
+      @click="isOpen ? close() : open()"
+      @keydown="onTriggerKeydown"
+    >
+      <span class="trigger-label" :class="{ placeholder: !modelValue }">{{ displayText }}</span>
+      <span class="trigger-chevron" aria-hidden="true">▼</span>
+    </button>
+    <div
+      v-show="isOpen"
+      id="date-picker-panel"
+      ref="panelRef"
+      class="custom-date-picker-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Choose date"
+      tabindex="-1"
+      @keydown="onPanelKeydown"
+    >
+      <div class="calendar-header">
+        <button type="button" class="nav-btn" aria-label="Previous month" @click="prevMonth">
+          ‹
+        </button>
+        <span class="calendar-month">{{ monthLabel }}</span>
+        <button type="button" class="nav-btn" aria-label="Next month" @click="nextMonth">›</button>
+      </div>
+      <div class="calendar-weekdays">
+        <span v-for="w in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']" :key="w" class="weekday">
+          {{ w }}
+        </span>
+      </div>
+      <div class="calendar-grid">
+        <template v-for="(cell, i) in calendarDays" :key="i">
+          <button
+            v-if="cell.type === 'day' && cell.day != null"
+            type="button"
+            class="calendar-day"
+            :class="{
+              selected:
+                modelValue &&
+                viewYear === new Date(modelValue + 'T00:00:00').getFullYear() &&
+                viewMonth === new Date(modelValue + 'T00:00:00').getMonth() &&
+                cell.day === new Date(modelValue + 'T00:00:00').getDate()
+            }"
+            @click="selectDay(viewYear, viewMonth, cell.day)"
+          >
+            {{ cell.day }}
+          </button>
+          <span v-else class="calendar-day pad"></span>
+        </template>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.custom-date-picker {
+  position: relative;
+  display: inline-block;
+}
+.custom-date-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+  padding: 6px 10px;
+  font-size: var(--font-size-body, 14px);
+  color: var(--color-text-primary);
+  background: var(--color-bg-main);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  box-shadow: none;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+.custom-date-picker-trigger:hover {
+  background: var(--color-hover);
+}
+.custom-date-picker-trigger:focus {
+  outline: none;
+  border-color: var(--color-status-done);
+}
+.trigger-label.placeholder {
+  color: var(--color-text-secondary);
+}
+.trigger-chevron {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+}
+.custom-date-picker-panel {
+  position: absolute;
+  z-index: 1000;
+  top: calc(100% + 4px);
+  left: 0;
+  padding: 12px;
+  background: var(--color-bg-main);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-popover);
+  outline: none;
+  min-width: 240px;
+}
+.calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.nav-btn {
+  padding: 4px 8px;
+  font-size: 18px;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: var(--border-radius-sm);
+}
+.nav-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-text-primary);
+}
+.calendar-month {
+  font-size: var(--font-size-body, 14px);
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 8px;
+  font-size: var(--font-size-caption, 12px);
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.calendar-day {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-body, 14px);
+  color: var(--color-text-primary);
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.calendar-day:hover {
+  background: var(--color-hover);
+}
+.calendar-day.selected {
+  background: var(--color-status-done);
+  color: white;
+}
+.calendar-day.pad {
+  cursor: default;
+}
+</style>
