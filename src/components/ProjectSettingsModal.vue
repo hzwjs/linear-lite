@@ -97,18 +97,19 @@ function close() {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.2);
   z-index: 200;
   display: flex;
   align-items: center;
   justify-content: center;
 }
+/* P4-9.1: 减轻浮层感 */
 .modal {
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius-lg);
+  border-radius: var(--border-radius-sm);
   min-width: 360px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 .modal-header {
   display: flex;

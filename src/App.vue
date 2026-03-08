@@ -1,25 +1,91 @@
 <script setup lang="ts">
-import { computed, watch, onMounted, ref } from 'vue'
+import { computed, watch, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from './store/authStore'
 import { useProjectStore } from './store/projectStore'
 import { useTaskStore } from './store/taskStore'
+import { useOverlayStore } from './store/overlayStore'
+import { useViewModeStore } from './store/viewModeStore'
 import CreateProjectModal from './components/CreateProjectModal.vue'
 import ProjectSettingsModal from './components/ProjectSettingsModal.vue'
+import CommandPalette from './components/CommandPalette.vue'
+import type { CommandItem } from './components/CommandPalette.vue'
 import type { Project } from './types/domain'
+import { Plus, LayoutGrid, List, Settings, Search } from 'lucide-vue-next'
 
 const route = useRoute()
 const authStore = useAuthStore()
 const projectStore = useProjectStore()
 const taskStore = useTaskStore()
+const overlayStore = useOverlayStore()
+const viewModeStore = useViewModeStore()
 
 const createProjectOpen = ref(false)
 const settingsProject = ref<Project | null>(null)
+const commandPaletteOpen = ref(false)
 
 function openProjectSettings(e: Event, p: Project) {
   e.stopPropagation()
   settingsProject.value = p
 }
+
+function openActiveProjectSettings() {
+  const id = projectStore.activeProjectId
+  if (id == null) return
+  const p = projectStore.projects.find((x) => x.id === id)
+  if (p) settingsProject.value = p
+}
+
+function triggerNewTask() {
+  window.dispatchEvent(new CustomEvent('command-palette:new-task'))
+}
+
+function triggerFocusSearch() {
+  window.dispatchEvent(new CustomEvent('command-palette:focus-search'))
+}
+
+const paletteCommands = computed<CommandItem[]>(() => [
+  {
+    id: 'new-task',
+    label: 'New task',
+    keywords: ['new', 'task', 'issue', 'create'],
+    icon: Plus,
+    run: () => {
+      commandPaletteOpen.value = false
+      triggerNewTask()
+    }
+  },
+  {
+    id: 'view-board',
+    label: 'Switch to Board view',
+    keywords: ['board', 'view', 'kanban'],
+    icon: LayoutGrid,
+    run: () => viewModeStore.setView('board')
+  },
+  {
+    id: 'view-list',
+    label: 'Switch to List view',
+    keywords: ['list', 'view'],
+    icon: List,
+    run: () => viewModeStore.setView('list')
+  },
+  {
+    id: 'project-settings',
+    label: 'Open project settings',
+    keywords: ['project', 'settings', 'open'],
+    icon: Settings,
+    run: openActiveProjectSettings
+  },
+  {
+    id: 'focus-search',
+    label: 'Focus search',
+    keywords: ['search', 'focus', 'filter'],
+    icon: Search,
+    run: () => {
+      triggerFocusSearch()
+    }
+  }
+])
 
 const isLoginRoute = computed(() => route.path === '/login')
 
@@ -43,6 +109,61 @@ const showEmptyProjects = computed(
     authStore.isLoggedIn &&
     projectStore.projects.length === 0
 )
+
+// P4-7.4: 浮层注册，供 Esc 关闭
+watch(createProjectOpen, (open) => {
+  if (open) {
+    overlayStore.push('create-project-modal', () => {
+      createProjectOpen.value = false
+    })
+  } else {
+    overlayStore.remove('create-project-modal')
+  }
+})
+watch(
+  () => settingsProject.value != null,
+  (open) => {
+    if (open) {
+      overlayStore.push('project-settings-modal', () => {
+        settingsProject.value = null
+      })
+    } else {
+      overlayStore.remove('project-settings-modal')
+    }
+  }
+)
+
+// P4-7.1 / P4-7.3 / P4-7.4: 全局快捷键 ⌘K、C、Esc
+function isInputElement(el: EventTarget | null): boolean {
+  if (!el || !(el instanceof HTMLElement)) return false
+  const tag = el.tagName.toLowerCase()
+  return tag === 'input' || tag === 'textarea' || (el as HTMLElement).isContentEditable
+}
+
+function onGlobalKeydown(e: KeyboardEvent) {
+  if (isLoginRoute.value) return
+  if (e.key === 'Escape') {
+    overlayStore.popAndClose()
+    return
+  }
+  if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault()
+    commandPaletteOpen.value = !commandPaletteOpen.value
+    return
+  }
+  if (e.key === 'c' && !e.metaKey && !e.ctrlKey && !e.altKey && !isInputElement(e.target)) {
+    e.preventDefault()
+    if (commandPaletteOpen.value) commandPaletteOpen.value = false
+    triggerNewTask()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', onGlobalKeydown)
+})
+onUnmounted(() => {
+  document.removeEventListener('keydown', onGlobalKeydown)
+})
 </script>
 
 <template>
@@ -94,6 +215,11 @@ const showEmptyProjects = computed(
       :project="settingsProject"
       @close="settingsProject = null"
       @updated="() => {}"
+    />
+    <CommandPalette
+      :open="commandPaletteOpen"
+      :commands="paletteCommands"
+      @close="commandPaletteOpen = false"
     />
     <main class="main">
       <div v-if="showEmptyProjects" class="empty-projects">
@@ -150,6 +276,7 @@ const showEmptyProjects = computed(
   overflow-y: auto;
   padding: 8px 0;
 }
+/* P4-6.2: Sidebar 激活项 150ms 动效 */
 .sidebar-item {
   display: flex;
   align-items: center;
@@ -159,7 +286,7 @@ const showEmptyProjects = computed(
   text-align: left;
   color: var(--color-text-primary);
   font-size: 14px;
-  transition: background var(--transition-fast);
+  transition: background 150ms ease, color 150ms ease;
 }
 .sidebar-item:hover {
   background: var(--color-bg-hover);
@@ -208,5 +335,12 @@ const showEmptyProjects = computed(
   justify-content: center;
   color: var(--color-text-secondary);
   font-size: 14px;
+}
+</style>
+
+<!-- P4-6.2: 视图切换（Board/List）150ms 动效，仅样式不改业务 -->
+<style>
+.view-toggle button {
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
 }
 </style>

@@ -1,36 +1,52 @@
-/* src/style.css */
+/* Phase 4: 浅色主题设计令牌 (Sprint 1) */
 :root {
-  --color-bg-primary: #121212;
-  --color-bg-secondary: #1e1e1e;
-  --color-bg-elevated: #282828;
-  --color-bg-hover: #2c2c2c;
-  --color-text-primary: #e0e0e0;
-  --color-text-secondary: #8e8e93;
-  --color-border: #333333;
+  /* 浅色主题 - 主色 */
+  --color-bg-main: #ffffff;
+  --color-bg-sidebar: #f7f8f9;
+  --color-text-primary: #111827;
+  --color-text-secondary: #6b7280;
+  --color-border: #e5e7eb;
+  --color-hover: #f9fafb;
 
-  --color-accent: #5e6ad2;
+  /* 状态色 */
+  --color-status-done: #5e6ad2;
+  --color-status-in-progress: #f2c94c;
+  --color-status-warning: #e07373;
+
+  /* 兼容旧变量名，供现有组件过渡 */
+  --color-bg-primary: var(--color-bg-main);
+  --color-bg-secondary: var(--color-bg-sidebar);
+  --color-bg-elevated: var(--color-hover);
+  --color-bg-hover: var(--color-hover);
+  --color-accent: var(--color-status-done);
   --color-accent-hover: #7e8ae2;
-  --color-danger: #e5484d;
+  --color-danger: var(--color-status-warning);
 
   --font-family:
     "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
     Arial, sans-serif;
+  --font-size-body: 14px;
+  --font-size-caption: 12px;
+  --letter-spacing: -0.01em;
+
   --border-radius-sm: 4px;
   --border-radius-md: 6px;
   --border-radius-lg: 8px;
-
   --transition-fast: 150ms ease;
   --transition-normal: 250ms ease;
-
-  /* Layout */
   --header-height: 56px;
+
+  /* Popover/Dropdown 统一阴影 */
+  --shadow-popover: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
 
 body {
   margin: 0;
   padding: 0;
   font-family: var(--font-family);
-  background-color: var(--color-bg-primary);
+  font-size: var(--font-size-body);
+  letter-spacing: var(--letter-spacing);
+  background-color: var(--color-bg-main);
   color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -48,19 +64,36 @@ body {
   flex-direction: column;
 }
 
-/* Base utility for reset */
 button {
   font-family: inherit;
+  font-size: var(--font-size-body);
   cursor: pointer;
   border: none;
   background: none;
   color: inherit;
 }
+
 input,
-textarea {
+textarea,
+select {
   font-family: inherit;
+  font-size: var(--font-size-body);
   border: none;
   background: none;
   color: inherit;
   outline: none;
+}
+
+/* 全局按钮/输入内边距收紧 (P4-3.2) */
+button:not(.no-tight),
+[role="button"]:not(.no-tight) {
+  padding: 6px 12px;
+}
+input[type="text"],
+input[type="search"],
+textarea,
+[role="combobox"],
+.p-input-trigger {
+  padding: 6px 10px;
+  min-height: 32px;
 }
