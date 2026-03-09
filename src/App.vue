@@ -11,9 +11,11 @@ import ProjectSettingsModal from './components/ProjectSettingsModal.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import type { CommandItem } from './components/CommandPalette.vue'
 import type { Project } from './types/domain'
-import { Plus, LayoutGrid, List, Settings, Search } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+import { Plus, LayoutGrid, List, Settings, Search, MoreVertical, LogOut, Folder } from 'lucide-vue-next'
 
 const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
 const projectStore = useProjectStore()
 const taskStore = useTaskStore()
@@ -27,6 +29,11 @@ const commandPaletteOpen = ref(false)
 function openProjectSettings(e: Event, p: Project) {
   e.stopPropagation()
   settingsProject.value = p
+}
+
+function onLogout() {
+  authStore.logout()
+  router.push('/login')
 }
 
 function openActiveProjectSettings() {
@@ -181,9 +188,10 @@ onUnmounted(() => {
           type="button"
           class="sidebar-btn-new"
           title="New project"
+          aria-label="New project"
           @click="createProjectOpen = true"
         >
-          New
+          <Plus class="sidebar-btn-new-icon" />
         </button>
       </div>
       <nav class="sidebar-nav">
@@ -193,20 +201,34 @@ onUnmounted(() => {
           type="button"
           class="sidebar-item"
           :class="{ active: projectStore.activeProjectId === p.id }"
+          :title="p.identifier"
           @click="selectProject(p.id)"
         >
+          <Folder class="sidebar-item-icon" />
           <span class="sidebar-item-name">{{ p.name }}</span>
-          <span class="sidebar-item-id">{{ p.identifier }}</span>
           <button
             type="button"
-            class="sidebar-item-settings"
+            class="sidebar-item-menu"
             title="Project settings"
             @click="openProjectSettings($event, p)"
           >
-            ⚙
+            <MoreVertical class="icon-14" />
           </button>
         </button>
       </nav>
+      <div class="sidebar-footer">
+        <span class="sidebar-user" :title="authStore.currentUser?.username">
+          {{ authStore.currentUser?.username ?? '—' }}
+        </span>
+        <button
+          type="button"
+          class="sidebar-logout"
+          title="Sign out"
+          @click="onLogout"
+        >
+          <LogOut class="icon-14" />
+        </button>
+      </div>
     </aside>
     <CreateProjectModal
       :open="createProjectOpen"
@@ -243,13 +265,11 @@ onUnmounted(() => {
   width: 240px;
   flex-shrink: 0;
   background: var(--color-bg-secondary);
-  border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
 }
 .sidebar-brand {
-  padding: 14px 16px 10px;
-  border-bottom: 1px solid var(--color-border);
+  padding: 16px 16px 20px;
 }
 .sidebar-brand-name {
   font-size: 15px;
@@ -258,49 +278,58 @@ onUnmounted(() => {
   letter-spacing: -0.01em;
 }
 .sidebar-header {
-  padding: 10px 16px 12px;
-  border-bottom: 1px solid var(--color-border);
+  padding: 0 16px 6px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
 .sidebar-title {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
 }
 .sidebar-btn-new {
-  padding: 4px 8px;
-  font-size: 12px;
-  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--color-text-muted);
   background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: var(--border-radius-sm);
+  border: none;
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
 }
 .sidebar-btn-new:hover {
-  background: var(--color-bg-hover);
   color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.sidebar-btn-new-icon {
+  width: 16px;
+  height: 16px;
 }
 .sidebar-nav {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 0;
+  padding: 0 16px 12px 28px;
 }
-/* P4-6.2: Sidebar 激活项 150ms 动效 */
 .sidebar-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 10px 16px;
+  padding: 6px 0;
   text-align: left;
   color: var(--color-text-primary);
-  font-size: 14px;
+  font-size: 13px;
   transition: background 150ms ease, color 150ms ease;
+  gap: 8px;
+  border-radius: var(--radius-sm);
 }
 .sidebar-item:hover {
   background: var(--color-bg-hover);
@@ -310,32 +339,80 @@ onUnmounted(() => {
   color: var(--color-text-primary);
   font-weight: var(--font-weight-medium);
 }
+.sidebar-item-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+}
+.sidebar-item.active .sidebar-item-icon {
+  color: var(--color-text-secondary);
+}
 .sidebar-item-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sidebar-item-id {
-  margin-left: 8px;
-  font-size: 12px;
-  color: var(--color-text-secondary);
+.sidebar-item-menu {
   flex-shrink: 0;
-}
-.sidebar-item-settings {
   margin-left: 4px;
-  padding: 2px 6px;
-  font-size: 12px;
-  color: var(--color-text-secondary);
+  padding: 4px;
+  color: var(--color-text-muted);
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  opacity: 0.7;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
 }
-.sidebar-item-settings:hover {
+.sidebar-item:hover .sidebar-item-menu {
   opacity: 1;
-  background: var(--color-bg-hover);
+}
+.sidebar-item-menu:hover {
+  background: var(--color-bg-active);
   color: var(--color-text-primary);
+}
+.sidebar-item .icon-14 {
+  width: 14px;
+  height: 14px;
+}
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 16px 18px;
+  margin-top: auto;
+  background: var(--color-bg-subtle);
+}
+.sidebar-user {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-logout {
+  flex-shrink: 0;
+  padding: 4px;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.sidebar-logout:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.sidebar-logout .icon-14 {
+  width: 14px;
+  height: 14px;
 }
 .main {
   flex: 1;
