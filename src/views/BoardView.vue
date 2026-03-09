@@ -339,10 +339,6 @@ function navigateWorkspace(taskId: string) {
   <div class="board-view">
     <header class="app-header">
       <div class="header-left">
-        <div class="header-title-block">
-          <h1>Linear Lite</h1>
-          <p class="header-subtitle">Issues</p>
-        </div>
         <button class="btn-create" @click="() => openCreateEditor()">New issue</button>
         <div class="view-toggle">
           <button
@@ -533,7 +529,7 @@ function navigateWorkspace(taskId: string) {
       </div>
     </div>
 
-    <main class="board-content">
+    <main class="board-content" :class="{ 'board-content--list': viewType === 'list' }">
       <div v-if="store.error" class="error-state">
         <p>{{ store.error }}</p>
         <button class="btn-retry" @click="store.fetchTasks()">Retry</button>
@@ -552,7 +548,7 @@ function navigateWorkspace(taskId: string) {
         <p>No tasks match your filters.</p>
         <button class="btn-text" @click="searchQuery = ''; filterStatus = null; filterPriority = null; viewModeStore.setCompletedVisibility('all')">Clear filters</button>
       </div>
-      <div v-else class="workspace-shell">
+      <div v-else class="workspace-shell" :class="{ 'workspace-shell--list': viewType === 'list' }">
         <section class="workspace-primary" tabindex="0" @keydown="onWorkspaceKeydown">
           <div v-if="viewType === 'board'" class="board-columns">
             <div
@@ -634,41 +630,25 @@ function navigateWorkspace(taskId: string) {
   flex-direction: column;
   height: 100vh;
 }
-/* 命令带：收紧高度与间距，内容优先 */
+/* 顶栏：与命令带统一为一条浅带，主操作仅保留 New issue */
 .app-header {
-  min-height: 44px;
+  min-height: 40px;
   border-bottom: 1px solid var(--color-border-subtle);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
+  gap: 10px;
+  padding: 6px 12px;
   flex-wrap: wrap;
-  background: var(--color-bg-base);
+  background: var(--color-bg-subtle);
 }
 .header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
   flex: 1;
   min-width: 0;
-}
-.header-title-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-.header-left h1 {
-  font-size: var(--font-size-subhead);
-  font-weight: var(--font-weight-semibold);
-  margin: 0;
-  letter-spacing: var(--letter-spacing);
-}
-.header-subtitle {
-  margin: 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
 }
 .btn-create {
   background: var(--color-accent);
@@ -686,26 +666,28 @@ function navigateWorkspace(taskId: string) {
 
 .search-input {
   margin-left: auto;
-  min-width: 160px;
+  min-width: 180px;
+  max-width: 240px;
+  height: 26px;
+  box-sizing: border-box;
   background: var(--color-bg-muted);
-  border: 1px solid var(--color-border-subtle);
+  border: 1px solid var(--color-border);
   color: var(--color-text-primary);
-  padding: 4px 8px;
-  min-height: 26px;
+  padding: 0 8px;
   border-radius: var(--radius-sm);
   font-size: var(--font-size-caption);
   transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 .search-input::placeholder {
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
 }
 .search-input:focus {
   outline: none;
-  border-color: var(--color-border);
+  border-color: var(--color-border-strong);
   background: var(--color-bg-base);
 }
 
-/* 命令带：Tab + Filter + Display */
+/* 命令带：与顶栏同背景，Tab 弱化 */
 .command-bar {
   display: flex;
   justify-content: space-between;
@@ -713,7 +695,7 @@ function navigateWorkspace(taskId: string) {
   padding: 4px 12px 6px;
   border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-bg-subtle);
-  min-height: 36px;
+  min-height: 32px;
 }
 .command-bar-left {
   display: flex;
@@ -741,8 +723,8 @@ function navigateWorkspace(taskId: string) {
   background: var(--color-bg-hover);
 }
 .scope-tab.active {
-  color: var(--color-accent);
-  background: var(--color-accent-muted);
+  color: var(--color-text-primary);
+  background: var(--color-bg-muted);
   font-weight: var(--font-weight-medium);
 }
 .command-bar-add {
@@ -898,6 +880,9 @@ function navigateWorkspace(taskId: string) {
   flex-direction: column;
   position: relative;
 }
+.board-content--list {
+  padding: 0;
+}
 .workspace-shell {
   flex: 1;
   min-height: 0;
@@ -906,6 +891,10 @@ function navigateWorkspace(taskId: string) {
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-lg);
   background: var(--color-bg-base);
+}
+.workspace-shell--list {
+  border: none;
+  border-radius: 0;
 }
 .workspace-primary {
   flex: 1;
@@ -931,7 +920,7 @@ function navigateWorkspace(taskId: string) {
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
   overflow: hidden;
-  background: var(--color-bg-muted);
+  background: var(--color-bg-base);
 }
 .toggle-btn {
   padding: var(--control-padding-y) var(--control-padding-x);
@@ -948,8 +937,9 @@ function navigateWorkspace(taskId: string) {
   background: var(--color-bg-hover);
 }
 .toggle-btn.active {
-  background: var(--color-accent);
-  color: white;
+  background: var(--color-bg-muted);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
 }
 .list-wrap {
   flex: 1;

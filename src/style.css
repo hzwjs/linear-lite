@@ -17,14 +17,14 @@
   --color-border: #e8e8e8;
   --color-border-strong: #ddd;
 
-  /* 主色仅用于关键动作与选中态 */
-  --color-accent: #5e6ad2;
-  --color-accent-hover: #4c5bc4;
-  --color-accent-muted: rgba(94, 106, 210, 0.12);
-  --color-accent-muted-border: rgba(94, 106, 210, 0.25);
+  /* 主色：灰蓝（slate），弱化存在感、不抢任务列表的注意力 */
+  --color-accent: #475569;
+  --color-accent-hover: #334155;
+  --color-accent-muted: rgba(71, 85, 105, 0.08);
+  --color-accent-muted-border: rgba(71, 85, 105, 0.18);
 
   /* 状态色 */
-  --color-status-done: #5e6ad2;
+  --color-status-done: #475569;
   --color-status-in-progress: #c9a227;
   --color-status-warning: #c94a4a;
   --color-danger: var(--color-status-warning);
@@ -144,7 +144,7 @@ textarea,
   color: var(--color-text-primary);
 }
 .u-focus-ring:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-border-strong);
   outline-offset: 2px;
 }
 .u-active-bg:active {
@@ -157,5 +157,5 @@ textarea,
   color: var(--color-accent);
 }
 .u-selected-accent.u-focus-ring:focus-visible {
-  outline-color: var(--color-accent);
+  outline-color: var(--color-border-strong);
 }

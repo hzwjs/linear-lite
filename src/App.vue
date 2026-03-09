@@ -172,6 +172,9 @@ onUnmounted(() => {
   </template>
   <div v-else class="app-layout">
     <aside class="sidebar">
+      <div class="sidebar-brand">
+        <span class="sidebar-brand-name">Linear Lite</span>
+      </div>
       <div class="sidebar-header">
         <span class="sidebar-title">Projects</span>
         <button
@@ -244,8 +247,18 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
 }
+.sidebar-brand {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+.sidebar-brand-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
 .sidebar-header {
-  padding: 16px 16px 12px;
+  padding: 10px 16px 12px;
   border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: center;
@@ -262,14 +275,15 @@ onUnmounted(() => {
 .sidebar-btn-new {
   padding: 4px 8px;
   font-size: 12px;
-  color: var(--color-accent);
+  color: var(--color-text-secondary);
   background: transparent;
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--color-border);
   border-radius: var(--border-radius-sm);
   cursor: pointer;
 }
 .sidebar-btn-new:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 .sidebar-nav {
   flex: 1;
@@ -293,7 +307,8 @@ onUnmounted(() => {
 }
 .sidebar-item.active {
   background: var(--color-bg-elevated);
-  color: var(--color-accent);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
 }
 .sidebar-item-name {
   overflow: hidden;

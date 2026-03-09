@@ -215,12 +215,14 @@ function setHoveredId(id: string | null) {
 </template>
 
 <style scoped>
+/* 任务列表区：统一表面、弱化分割与选中色块，减少干扰 */
 .list-view {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  --list-row-border: #f5f5f5;
 }
 
 .list-view-scroll {
@@ -229,10 +231,10 @@ function setHoveredId(id: string | null) {
   overflow: auto;
 }
 
-/* 分组：结构标题感，sticky */
+/* 分组：轻底 + 稍重边框 + 字重，让标题更易辨认 */
 .group {
   background: transparent;
-  border-bottom: 1px solid var(--color-border-subtle);
+  border-bottom: 1px solid var(--list-row-border);
 }
 .group:last-child {
   border-bottom: none;
@@ -245,9 +247,9 @@ function setHoveredId(id: string | null) {
   align-items: center;
   gap: 6px;
   padding: 0 12px;
-  min-height: 32px;
+  min-height: 36px;
   background: var(--color-bg-subtle);
-  border-bottom: 1px solid var(--color-border-subtle);
+  border-bottom: 1px solid var(--color-border);
   transition: background var(--transition-fast);
 }
 .group-header:hover {
@@ -259,9 +261,9 @@ function setHoveredId(id: string | null) {
   align-items: center;
   gap: 6px;
   text-align: left;
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-secondary);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
   background: transparent;
   border: none;
   cursor: pointer;
@@ -278,7 +280,7 @@ function setHoveredId(id: string | null) {
 .group-count {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
-  margin-left: 2px;
+  margin-left: 4px;
 }
 .group-create {
   width: 20px;
@@ -298,7 +300,7 @@ function setHoveredId(id: string | null) {
   flex-direction: column;
 }
 
-/* 行：表格式列，32px 行高，选中态左侧竖线 */
+/* 行：分割线更轻；选中态仅左侧条，背景与 hover 一致不抢眼 */
 .task-row {
   display: flex;
   align-items: center;
@@ -307,7 +309,7 @@ function setHoveredId(id: string | null) {
   height: 32px;
   padding: 0 12px;
   cursor: pointer;
-  border-bottom: 1px solid var(--color-border-subtle);
+  border-bottom: 1px solid var(--list-row-border);
   transition: background-color var(--transition-fast), box-shadow var(--transition-fast);
   outline: none;
 }
@@ -318,11 +320,11 @@ function setHoveredId(id: string | null) {
   background: var(--color-bg-hover);
 }
 .task-row.selected {
-  background: var(--color-accent-muted);
+  background: var(--color-bg-hover);
   box-shadow: inset 2px 0 0 var(--color-accent);
 }
 .task-row.selected:hover {
-  background: var(--color-accent-muted);
+  background: var(--color-bg-hover);
 }
 .task-row:focus-visible {
   box-shadow: inset 2px 0 0 var(--color-accent);
