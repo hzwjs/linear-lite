@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
+
+const AUTO_SAVE_DEBOUNCE_MS = 600
+const SAVED_INDICATOR_MS = 2000
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
@@ -16,7 +19,14 @@ import {
   Minus,
   ArrowUp,
   Flame,
-  User as UserIcon
+  User as UserIcon,
+  Star,
+  Paperclip,
+  Link2,
+  Eye,
+  Tag,
+  Folder,
+  Send
 } from 'lucide-vue-next'
 
 const props = withDefaults(
@@ -49,8 +59,9 @@ const formStatus = ref<Status>('todo')
 const formPriority = ref<Priority>('medium')
 const formAssigneeId = ref<string | number>('')
 const formDueDate = ref('') // YYYY-MM-DD for input[type=date]
-const isSaving = ref(false)
 const userList = ref<User[]>([])
+const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 const statusOptions: CustomSelectOption[] = [
   { value: 'todo', label: 'Todo', icon: Circle },
@@ -83,6 +94,32 @@ const breadcrumbScopeName = computed(() => {
 const breadcrumbText = computed(() => {
   if (props.mode !== 'edit' || !props.task) return ''
   return `${breadcrumbScopeName.value} > ${props.task.id} ${props.task.title}`
+})
+
+const creatorName = computed(() => {
+  if (props.mode !== 'edit' || !props.task?.creatorId) return null
+  const u = userList.value.find((x) => x.id === props.task!.creatorId)
+  return u?.username ?? 'Someone'
+})
+
+const createdAgoText = computed(() => {
+  if (!props.task?.createdAt) return ''
+  const sec = Math.floor((Date.now() - props.task.createdAt) / 1000)
+  if (sec < 60) return 'just now'
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}m ago`
+  const h = Math.floor(min / 60)
+  if (h < 24) return `${h}h ago`
+  const d = Math.floor(h / 24)
+  if (d < 30) return `${d}d ago`
+  const mo = Math.floor(d / 30)
+  return `${mo}mo ago`
+})
+
+const taskProjectName = computed(() => {
+  if (!props.task?.projectId) return null
+  const p = projectStore.projects.find((x) => x.id === props.task!.projectId)
+  return p?.name ?? null
 })
 
 onMounted(async () => {
@@ -123,56 +160,95 @@ watch(() => props.defaultStatus, () => {
   if (props.mode === 'create') formStatus.value = props.defaultStatus ?? 'todo'
 })
 
-const handleSave = async () => {
-  if (!formTitle.value.trim()) return
-
-  isSaving.value = true
+function getPayload() {
   const dueDateMs =
     formDueDate.value
       ? new Date(formDueDate.value + 'T00:00:00').getTime()
       : undefined
-
-  try {
-    if (props.mode === 'create') {
-      await store.createTask({
-        title: formTitle.value.trim(),
-        description: formDescription.value.trim() || undefined,
-        status: formStatus.value,
-        priority: formPriority.value,
-        assigneeId: formAssigneeId.value === '' ? null : Number(formAssigneeId.value),
-        dueDate: dueDateMs
-      })
-    } else if (props.mode === 'edit' && props.task) {
-      await store.updateTask(props.task.id, {
-        title: formTitle.value.trim(),
-        description: formDescription.value.trim() || undefined,
-        status: formStatus.value,
-        priority: formPriority.value,
-        assigneeId: formAssigneeId.value === '' ? null : Number(formAssigneeId.value),
-        dueDate: dueDateMs
-      })
-    }
-    closeEditor()
-  } catch (error) {
-    console.error('Failed to save task:', error)
-  } finally {
-    isSaving.value = false
+  return {
+    title: formTitle.value.trim(),
+    description: formDescription.value.trim() || undefined,
+    status: formStatus.value,
+    priority: formPriority.value,
+    assigneeId: formAssigneeId.value === '' ? null : Number(formAssigneeId.value),
+    dueDate: dueDateMs
   }
 }
+
+function isPayloadEqual(
+  a: { title: string; description?: string; status: Status; priority: Priority; assigneeId: number | null; dueDate?: number },
+  b: { title: string; description?: string; status: Status; priority: Priority; assigneeId?: number | null; dueDate?: number | null }
+) {
+  return (
+    a.title === (b.title ?? '') &&
+    (a.description ?? '') === (b.description ?? '') &&
+    a.status === b.status &&
+    a.priority === b.priority &&
+    (a.assigneeId ?? null) === (b.assigneeId ?? null) &&
+    (a.dueDate ?? null) === (b.dueDate ?? null)
+  )
+}
+
+async function performAutoSave() {
+  if (props.mode !== 'edit' || !props.task) return
+  const payload = getPayload()
+  if (!payload.title) return
+  const current = {
+    title: props.task.title,
+    description: props.task.description,
+    status: props.task.status,
+    priority: props.task.priority,
+    assigneeId: props.task.assigneeId ?? null,
+    dueDate: props.task.dueDate ?? null
+  }
+  if (isPayloadEqual(payload, current)) return
+
+  saveStatus.value = 'saving'
+  try {
+    await store.updateTask(props.task.id, {
+      title: payload.title,
+      description: payload.description,
+      status: payload.status,
+      priority: payload.priority,
+      assigneeId: payload.assigneeId,
+      dueDate: payload.dueDate
+    })
+    saveStatus.value = 'saved'
+    setTimeout(() => {
+      saveStatus.value = 'idle'
+    }, SAVED_INDICATOR_MS)
+  } catch (error) {
+    console.error('Auto-save failed:', error)
+    saveStatus.value = 'idle'
+  }
+}
+
+function scheduleAutoSave() {
+  if (autoSaveTimer) clearTimeout(autoSaveTimer)
+  autoSaveTimer = setTimeout(() => {
+    autoSaveTimer = null
+    performAutoSave()
+  }, AUTO_SAVE_DEBOUNCE_MS)
+}
+
+watch(
+  () => [
+    formTitle.value,
+    formDescription.value,
+    formStatus.value,
+    formPriority.value,
+    formAssigneeId.value,
+    formDueDate.value
+  ],
+  () => {
+    if (props.mode === 'edit' && props.task) scheduleAutoSave()
+  },
+  { deep: true }
+)
 
 const closeEditor = () => {
   emit('close')
 }
-
-const createdAtText = computed(() =>
-  props.task?.createdAt ? new Date(props.task.createdAt).toLocaleString() : null
-)
-const updatedAtText = computed(() =>
-  props.task?.updatedAt ? new Date(props.task.updatedAt).toLocaleString() : null
-)
-const dueDateSummary = computed(() =>
-  props.task?.dueDate ? new Date(props.task.dueDate).toLocaleDateString() : 'No due date'
-)
 
 function navigateTo(taskId: string | null | undefined) {
   if (!taskId) return
@@ -191,8 +267,18 @@ function navigateTo(taskId: string | null | undefined) {
           <span v-if="task?.id" class="issue-id">{{ task.id }}</span>
           <h2>{{ mode === 'create' ? 'New issue' : 'Issue' }}</h2>
         </template>
+        <button
+          v-if="breadcrumbText"
+          type="button"
+          class="header-icon-btn"
+          aria-label="Add to favorites"
+        >
+          <Star class="icon-16" />
+        </button>
       </div>
       <div class="editor-header-actions">
+        <span v-if="saveStatus === 'saved'" class="save-indicator save-indicator--saved">Saved</span>
+        <span v-else-if="saveStatus === 'saving'" class="save-indicator save-indicator--saving">Saving...</span>
         <div v-if="position && total" class="issue-position">{{ position }} / {{ total }}</div>
         <button
           class="nav-btn"
@@ -216,20 +302,14 @@ function navigateTo(taskId: string | null | undefined) {
 
     <div class="editor-body">
       <div class="editor-content">
-        <section class="content-meta">
-          <div class="meta-chip">Created {{ createdAtText ?? 'Unknown' }}</div>
-          <div class="meta-chip">Updated {{ updatedAtText ?? 'Unknown' }}</div>
-          <div class="meta-chip">Due {{ dueDateSummary }}</div>
-        </section>
-
-        <section class="content-section">
+        <section class="content-section content-section--title">
           <textarea
             v-model="formTitle"
             class="title-textarea"
             placeholder="Issue title"
             rows="2"
             autofocus
-            @keydown.enter.exact.prevent="handleSave"
+            @keydown.enter.exact.prevent
           />
         </section>
 
@@ -238,23 +318,60 @@ function navigateTo(taskId: string | null | undefined) {
             v-model="formDescription"
             class="description-input"
             placeholder="Add description"
-            rows="8"
+            rows="6"
           />
         </section>
 
-        <section class="content-section subdued">
-          <div class="section-head">
-            <span class="section-kicker">Context</span>
-            <span class="section-note">Resources and activity structure for this issue.</span>
+        <div class="content-actions">
+          <button type="button" class="content-action-btn" aria-label="Attach">
+            <Paperclip class="icon-14" />
+          </button>
+          <button type="button" class="content-action-btn" aria-label="Link">
+            <Link2 class="icon-14" />
+          </button>
+          <button type="button" class="content-action-btn" aria-label="Watchers">
+            <Eye class="icon-14" />
+          </button>
+        </div>
+
+        <section class="content-section subdued linear-section">
+          <button type="button" class="linear-section-head" aria-expanded="true">
+            <span class="linear-section-title">Sub-issues</span>
+            <span class="linear-section-count">0/0</span>
+          </button>
+          <div class="linear-section-body">
+            <p class="linear-placeholder">No sub-issues. Add one to break down this task.</p>
           </div>
-          <div class="context-grid">
-            <div class="context-card">
-              <div class="context-card-title">Resources</div>
-              <p>Links, PRs, and attachments will surface here without leaving the issue.</p>
+        </section>
+
+        <section class="content-section subdued linear-section">
+          <div class="linear-section-head linear-section-head--static">
+            <span class="linear-section-title">Activity</span>
+            <button type="button" class="linear-unsubscribe">Unsubscribe</button>
+          </div>
+          <div class="linear-section-body">
+            <div v-if="creatorName && createdAgoText" class="activity-item">
+              <div class="activity-avatar" />
+              <div class="activity-text">
+                <strong>{{ creatorName }}</strong> created the issue · {{ createdAgoText }}
+              </div>
             </div>
-            <div class="context-card">
-              <div class="context-card-title">Activity</div>
-              <p>Status changes and assignment history will become a readable timeline here.</p>
+            <div class="comment-input-wrap">
+              <input
+                type="text"
+                class="comment-input"
+                placeholder="Leave a comment..."
+                readonly
+                aria-label="Comment"
+              />
+              <div class="comment-input-actions">
+                <button type="button" class="comment-action-btn" aria-label="Attach">
+                  <Paperclip class="icon-14" />
+                </button>
+                <button type="button" class="comment-action-btn" aria-label="Send">
+                  <Send class="icon-14" />
+                </button>
+              </div>
             </div>
           </div>
         </section>
@@ -262,7 +379,6 @@ function navigateTo(taskId: string | null | undefined) {
 
       <div class="editor-props">
         <div class="props-card">
-          <div class="props-title">Details</div>
           <div class="prop-row">
             <span class="prop-label">Status</span>
             <CustomSelect
@@ -270,17 +386,17 @@ function navigateTo(taskId: string | null | undefined) {
               v-model="formStatus"
               :options="statusOptions"
               aria-label="Status"
-              trigger-class="prop-trigger"
+              trigger-class="prop-trigger prop-trigger--linear"
             />
           </div>
           <div class="prop-row">
-            <span class="prop-label">Priority</span>
+            <span class="prop-label">Set priority</span>
             <CustomSelect
               id="task-priority"
               v-model="formPriority"
               :options="priorityOptions"
               aria-label="Priority"
-              trigger-class="prop-trigger"
+              trigger-class="prop-trigger prop-trigger--linear"
             />
           </div>
           <div class="prop-row">
@@ -289,10 +405,24 @@ function navigateTo(taskId: string | null | undefined) {
               id="task-assignee"
               v-model="formAssigneeId"
               :options="assigneeOptions"
-              placeholder="Unassigned"
+              placeholder="Assign"
               aria-label="Assignee"
-              trigger-class="prop-trigger"
+              trigger-class="prop-trigger prop-trigger--linear"
             />
+          </div>
+          <div class="prop-row prop-row--linear-action">
+            <span class="prop-label">Labels</span>
+            <button type="button" class="prop-action-trigger" aria-label="Add label">
+              <Tag class="icon-14" />
+              <span>Add label</span>
+            </button>
+          </div>
+          <div class="prop-row prop-row--linear-action">
+            <span class="prop-label">Project</span>
+            <button type="button" class="prop-action-trigger" aria-label="Add to project">
+              <Folder class="icon-14" />
+              <span>{{ taskProjectName ?? 'Add to project' }}</span>
+            </button>
           </div>
           <div class="prop-row">
             <span class="prop-label">Due Date</span>
@@ -301,7 +431,7 @@ function navigateTo(taskId: string | null | undefined) {
               v-model="formDueDate"
               placeholder="Select date"
               aria-label="Due date"
-              trigger-class="prop-trigger"
+              trigger-class="prop-trigger prop-trigger--linear"
             />
           </div>
           <div v-if="mode === 'edit' && task?.completedAt" class="prop-row read-only">
@@ -310,17 +440,6 @@ function navigateTo(taskId: string | null | undefined) {
           </div>
         </div>
       </div>
-    </div>
-
-    <div class="editor-footer">
-      <button class="btn-cancel" @click="closeEditor">Back</button>
-      <button
-        class="btn-save"
-        :disabled="!formTitle.trim() || isSaving"
-        @click="handleSave"
-      >
-        {{ isSaving ? 'Saving...' : 'Save' }}
-      </button>
     </div>
   </aside>
 </template>
@@ -374,10 +493,45 @@ function navigateTo(taskId: string | null | undefined) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.header-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.header-icon-btn:hover {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-hover);
+}
+.icon-14 {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.icon-16 {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
 .editor-header-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+}
+.save-indicator {
+  font-size: var(--font-size-xs);
+}
+.save-indicator--saved {
+  color: var(--color-text-muted);
+}
+.save-indicator--saving {
+  color: var(--color-text-secondary);
 }
 .issue-id {
   font-size: var(--font-size-xs);
@@ -462,6 +616,149 @@ function navigateTo(taskId: string | null | undefined) {
   flex-direction: column;
   gap: 6px;
 }
+.content-section--title .title-textarea {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+.content-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: -8px;
+}
+.content-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.content-action-btn:hover {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-hover);
+}
+.linear-section {
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.linear-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0;
+  margin-bottom: 8px;
+  border: none;
+  background: transparent;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+.linear-section-head--static {
+  cursor: default;
+}
+.linear-section-title {
+  flex-shrink: 0;
+}
+.linear-section-count {
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text-muted);
+  margin-left: 6px;
+}
+.linear-section-body {
+  padding-left: 0;
+}
+.linear-placeholder {
+  margin: 0;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+.activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.activity-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-bg-muted);
+  flex-shrink: 0;
+}
+.activity-text {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+.activity-text strong {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+}
+.linear-unsubscribe {
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+.linear-unsubscribe:hover {
+  color: var(--color-text-secondary);
+}
+.comment-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-base);
+}
+.comment-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-primary);
+}
+.comment-input::placeholder {
+  color: var(--color-text-muted);
+}
+.comment-input:focus {
+  outline: none;
+}
+.comment-input-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.comment-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.comment-action-btn:hover {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-hover);
+}
 .section-kicker {
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
@@ -509,29 +806,6 @@ function navigateTo(taskId: string | null | undefined) {
 .description-input::placeholder {
   color: var(--color-text-muted);
 }
-.context-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-.context-card {
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 12px;
-  background: var(--color-bg-base);
-}
-.context-card-title {
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
-  margin-bottom: 4px;
-}
-.context-card p {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
-  line-height: 1.45;
-}
 .editor-props {
   width: 220px;
   flex-shrink: 0;
@@ -569,7 +843,30 @@ function navigateTo(taskId: string | null | undefined) {
   color: var(--color-text-muted);
   font-weight: var(--font-weight-normal);
 }
-.editor-props :deep(.prop-trigger) {
+.prop-row--linear-action .prop-label {
+  margin-bottom: 2px;
+}
+.prop-action-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: var(--control-padding-y) var(--control-padding-x);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.prop-action-trigger:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.editor-props :deep(.prop-trigger),
+.editor-props :deep(.prop-trigger--linear) {
   background: var(--color-bg-muted);
   border: 1px solid var(--color-border-subtle);
   color: var(--color-text-primary);
@@ -589,42 +886,6 @@ function navigateTo(taskId: string | null | undefined) {
   font-size: var(--font-size-caption);
   color: var(--color-text-secondary);
 }
-.editor-footer {
-  padding: 8px 14px;
-  border-top: 1px solid var(--color-border-subtle);
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  flex-shrink: 0;
-  background: var(--color-bg-base);
-}
-.btn-cancel {
-  padding: var(--control-padding-y) var(--control-padding-x);
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-caption);
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-.btn-cancel:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-.btn-save {
-  padding: var(--control-padding-y) var(--control-padding-x);
-  border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  color: white;
-  font-weight: var(--font-weight-medium);
-  font-size: var(--font-size-caption);
-  transition: background var(--transition-fast);
-}
-.btn-save:hover:not(:disabled) {
-  background: var(--color-accent-hover);
-}
-.btn-save:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 
 @media (max-width: 1100px) {
   .editor-panel {
@@ -641,10 +902,6 @@ function navigateTo(taskId: string | null | undefined) {
     width: auto;
     border-left: none;
     border-top: 1px solid var(--color-border-subtle);
-  }
-
-  .context-grid {
-    grid-template-columns: 1fr;
   }
 }
 </style>
