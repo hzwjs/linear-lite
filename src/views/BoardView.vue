@@ -15,7 +15,7 @@ import type { CustomSelectOption } from '../components/ui/CustomSelect.vue'
 import { userApi } from '../services/api/user'
 import type { User } from '../types/domain'
 import type { Status } from '../types/domain'
-import { Circle, Loader2, CheckCircle, ArrowDown, Minus, ArrowUp, Flame } from 'lucide-vue-next'
+import { Circle, Loader2, CheckCircle, ArrowDown, Minus, ArrowUp, Flame, Filter, LayoutList, Plus } from 'lucide-vue-next'
 import { buildTaskGroups, getAdjacentTaskIds } from '../utils/taskView'
 import { resolveWorkspacePresentation } from '../utils/workspacePresentation'
 import type { CompletedVisibility, GroupBy, OrderBy, VisibleProperty } from '../utils/viewPreference'
@@ -70,6 +70,12 @@ const route = useRoute()
 const router = useRouter()
 const users = ref<User[]>([])
 const searchInputRef = ref<HTMLInputElement | null>(null)
+const filterPopoverOpen = ref(false)
+const displayPopoverOpen = ref(false)
+const filterTriggerRef = ref<HTMLElement | null>(null)
+const displayTriggerRef = ref<HTMLElement | null>(null)
+const filterPopoverRef = ref<HTMLElement | null>(null)
+const displayPopoverRef = ref<HTMLElement | null>(null)
 const DRAWER_OVERLAY_ID = 'task-editor-drawer'
 const COMPOSER_OVERLAY_ID = 'issue-composer'
 
@@ -216,10 +222,14 @@ function onFocusSearchCommand() {
 onMounted(() => {
   window.addEventListener('command-palette:new-task', onNewTaskCommand)
   window.addEventListener('command-palette:focus-search', onFocusSearchCommand)
+  window.addEventListener('click', onClickOutsideFilter, true)
+  window.addEventListener('click', onClickOutsideDisplay, true)
 })
 onUnmounted(() => {
   window.removeEventListener('command-palette:new-task', onNewTaskCommand)
   window.removeEventListener('command-palette:focus-search', onFocusSearchCommand)
+  window.removeEventListener('click', onClickOutsideFilter, true)
+  window.removeEventListener('click', onClickOutsideDisplay, true)
   overlayStore.remove(DRAWER_OVERLAY_ID)
 })
 
@@ -243,6 +253,52 @@ function toggleOrderDirection() {
   viewModeStore.setOrderDirection(
     viewModeStore.viewConfig.orderDirection === 'asc' ? 'desc' : 'asc'
   )
+}
+
+// Scope tab: All issues / Active / Backlog (Linear command bar)
+type ScopeTab = 'all' | 'active' | 'backlog'
+const scopeTab = computed({
+  get(): ScopeTab {
+    if (viewModeStore.viewConfig.completedVisibility === 'open_only') return 'active'
+    if (store.filterStatus === 'todo') return 'backlog'
+    return 'all'
+  },
+  set(tab: ScopeTab) {
+    if (tab === 'active') {
+      store.filterStatus = null
+      viewModeStore.setCompletedVisibility('open_only')
+    } else if (tab === 'backlog') {
+      store.filterStatus = 'todo'
+      viewModeStore.setCompletedVisibility('all')
+    } else {
+      store.filterStatus = null
+      viewModeStore.setCompletedVisibility('all')
+    }
+  }
+})
+
+function setScopeTab(tab: ScopeTab) {
+  scopeTab.value = tab
+}
+
+function closeFilterPopover() {
+  filterPopoverOpen.value = false
+}
+function closeDisplayPopover() {
+  displayPopoverOpen.value = false
+}
+
+function onClickOutsideFilter(event: MouseEvent) {
+  const el = filterPopoverRef.value
+  const trigger = filterTriggerRef.value
+  if (el?.contains(event.target as Node) || trigger?.contains(event.target as Node)) return
+  closeFilterPopover()
+}
+function onClickOutsideDisplay(event: MouseEvent) {
+  const el = displayPopoverRef.value
+  const trigger = displayTriggerRef.value
+  if (el?.contains(event.target as Node) || trigger?.contains(event.target as Node)) return
+  closeDisplayPopover()
 }
 
 watch(
@@ -288,9 +344,6 @@ function navigateWorkspace(taskId: string) {
           <p class="header-subtitle">Issues</p>
         </div>
         <button class="btn-create" @click="() => openCreateEditor()">New issue</button>
-      </div>
-      
-      <div class="header-controls">
         <div class="view-toggle">
           <button
             type="button"
@@ -314,65 +367,169 @@ function navigateWorkspace(taskId: string) {
           v-model="searchQuery"
           placeholder="Search issues..."
           class="search-input"
+          aria-label="Search issues"
         />
-        <CustomSelect
-          v-model="filterStatus"
-          :options="filterStatusOptions"
-          placeholder="All Status"
-          aria-label="Filter by status"
-          trigger-class="filter-select"
-        />
-        <CustomSelect
-          v-model="filterPriority"
-          :options="filterPriorityOptions"
-          placeholder="All Priorities"
-          aria-label="Filter by priority"
-          trigger-class="filter-select"
-        />
-        <CustomSelect
-          v-model="groupBy"
-          :options="groupingOptions"
-          placeholder="Group"
-          aria-label="Group tasks"
-          trigger-class="filter-select"
-        />
-        <CustomSelect
-          v-model="orderBy"
-          :options="orderOptions"
-          placeholder="Sort"
-          aria-label="Order tasks"
-          trigger-class="filter-select"
-        />
-        <CustomSelect
-          v-model="completedVisibility"
-          :options="completedOptions"
-          placeholder="Completed"
-          aria-label="Completed visibility"
-          trigger-class="filter-select"
-        />
-        <button type="button" class="filter-btn" @click="toggleOrderDirection">
-          {{ viewModeStore.viewConfig.orderDirection === 'asc' ? '↑' : '↓' }}
-        </button>
-        <label class="filter-check">
-          <input v-model="showEmptyGroups" type="checkbox" />
-          <span>Empty</span>
-        </label>
       </div>
     </header>
 
-    <div class="display-bar">
-      <span class="display-label">Display</span>
-      <div class="display-chips">
+    <div class="command-bar">
+      <div class="command-bar-left">
+        <div class="scope-tabs">
+          <button
+            type="button"
+            class="scope-tab"
+            :class="{ active: scopeTab === 'all' }"
+            @click="setScopeTab('all')"
+          >
+            All issues
+          </button>
+          <button
+            type="button"
+            class="scope-tab"
+            :class="{ active: scopeTab === 'active' }"
+            @click="setScopeTab('active')"
+          >
+            Active
+          </button>
+          <button
+            type="button"
+            class="scope-tab"
+            :class="{ active: scopeTab === 'backlog' }"
+            @click="setScopeTab('backlog')"
+          >
+            Backlog
+          </button>
+        </div>
         <button
-          v-for="option in visiblePropertyOptions"
-          :key="option.value"
           type="button"
-          class="display-chip"
-          :class="{ active: isVisibleProperty(option.value) }"
-          @click="toggleVisibleProperty(option.value)"
+          class="command-bar-add"
+          aria-label="New issue"
+          @click="() => openCreateEditor()"
         >
-          {{ option.label }}
+          <Plus class="icon-14" />
         </button>
+      </div>
+      <div class="command-bar-right">
+        <div ref="filterTriggerRef" class="popover-anchor popover-anchor-right">
+          <button
+            type="button"
+            class="command-btn"
+            :class="{ active: filterPopoverOpen }"
+            aria-label="Filter"
+            aria-haspopup="true"
+            :aria-expanded="filterPopoverOpen"
+            @click="filterPopoverOpen = !filterPopoverOpen"
+          >
+            <Filter class="icon-14" />
+            <span>Filter</span>
+          </button>
+          <div
+            v-show="filterPopoverOpen"
+            ref="filterPopoverRef"
+            class="popover popover-filter"
+            role="dialog"
+            aria-label="Filter options"
+          >
+            <div class="popover-section">
+              <label class="popover-label">Status</label>
+              <CustomSelect
+                v-model="filterStatus"
+                :options="filterStatusOptions"
+                placeholder="All Status"
+                aria-label="Filter by status"
+                trigger-class="popover-select"
+              />
+            </div>
+            <div class="popover-section">
+              <label class="popover-label">Priority</label>
+              <CustomSelect
+                v-model="filterPriority"
+                :options="filterPriorityOptions"
+                placeholder="All Priorities"
+                aria-label="Filter by priority"
+                trigger-class="popover-select"
+              />
+            </div>
+            <div class="popover-section">
+              <label class="popover-label">Group by</label>
+              <CustomSelect
+                v-model="groupBy"
+                :options="groupingOptions"
+                placeholder="Group"
+                aria-label="Group tasks"
+                trigger-class="popover-select"
+              />
+            </div>
+            <div class="popover-section">
+              <label class="popover-label">Sort</label>
+              <CustomSelect
+                v-model="orderBy"
+                :options="orderOptions"
+                placeholder="Sort"
+                aria-label="Order tasks"
+                trigger-class="popover-select"
+              />
+            </div>
+            <div class="popover-section">
+              <label class="popover-label">Completed</label>
+              <CustomSelect
+                v-model="completedVisibility"
+                :options="completedOptions"
+                placeholder="Completed"
+                aria-label="Completed visibility"
+                trigger-class="popover-select"
+              />
+            </div>
+            <div class="popover-section popover-section-row">
+              <button type="button" class="command-btn small" @click="toggleOrderDirection">
+                {{ viewModeStore.viewConfig.orderDirection === 'asc' ? '↑ Asc' : '↓ Desc' }}
+              </button>
+              <label class="filter-check">
+                <input v-model="showEmptyGroups" type="checkbox" />
+                <span>Empty groups</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div ref="displayTriggerRef" class="popover-anchor popover-anchor-right">
+          <button
+            type="button"
+            class="command-btn"
+            :class="{ active: displayPopoverOpen }"
+            aria-label="Display"
+            aria-haspopup="true"
+            :aria-expanded="displayPopoverOpen"
+            @click="displayPopoverOpen = !displayPopoverOpen"
+          >
+            <LayoutList class="icon-14" />
+            <span>Display</span>
+          </button>
+          <div
+            v-show="displayPopoverOpen"
+            ref="displayPopoverRef"
+            class="popover popover-display"
+            role="dialog"
+            aria-label="Display options"
+          >
+            <div class="popover-section">
+              <span class="popover-label">Show on issue</span>
+            </div>
+            <div class="popover-display-options">
+              <label
+                v-for="option in visiblePropertyOptions"
+                :key="option.value"
+                class="popover-display-option"
+              >
+                <input
+                  type="checkbox"
+                  :checked="isVisibleProperty(option.value)"
+                  @change="toggleVisibleProperty(option.value)"
+                />
+                <span>{{ option.label }}</span>
+              </label>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -393,7 +550,7 @@ function navigateWorkspace(taskId: string) {
 
       <div v-else-if="store.isFilterEmpty" class="empty-state">
         <p>No tasks match your filters.</p>
-        <button class="btn-text" @click="searchQuery = ''; filterStatus = null; filterPriority = null">Clear filters</button>
+        <button class="btn-text" @click="searchQuery = ''; filterStatus = null; filterPriority = null; viewModeStore.setCompletedVisibility('all')">Clear filters</button>
       </div>
       <div v-else class="workspace-shell">
         <section class="workspace-primary" tabindex="0" @keydown="onWorkspaceKeydown">
@@ -471,140 +628,284 @@ function navigateWorkspace(taskId: string) {
 </template>
 
 <style scoped>
+/* P6-2: 顶部工具栏与页面层级 — 命令带化、内容优先 */
 .board-view {
   display: flex;
   flex-direction: column;
   height: 100vh;
 }
+/* 命令带：收紧高度与间距，内容优先 */
 .app-header {
-  border-bottom: 1px solid var(--color-border);
+  min-height: 44px;
+  border-bottom: 1px solid var(--color-border-subtle);
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 12px 18px 10px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  flex-wrap: wrap;
+  background: var(--color-bg-base);
 }
 .header-left {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
 }
 .header-title-block {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
 }
 .header-left h1 {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
   margin: 0;
-  letter-spacing: -0.01em;
+  letter-spacing: var(--letter-spacing);
 }
 .header-subtitle {
   margin: 0;
-  font-size: 11px;
-  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }
 .btn-create {
   background: var(--color-accent);
   color: white;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
+  padding: 4px 10px;
+  min-height: 26px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
   transition: background var(--transition-fast);
 }
-.btn-create:hover { background: var(--color-accent-hover); }
+.btn-create:hover {
+  background: var(--color-accent-hover);
+}
 
-.header-controls {
+.search-input {
+  margin-left: auto;
+  min-width: 160px;
+  background: var(--color-bg-muted);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-primary);
+  padding: 4px 8px;
+  min-height: 26px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-caption);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+.search-input::placeholder {
+  color: var(--color-text-muted);
+}
+.search-input:focus {
+  outline: none;
+  border-color: var(--color-border);
+  background: var(--color-bg-base);
+}
+
+/* 命令带：Tab + Filter + Display */
+.command-bar {
   display: flex;
-  gap: 6px;
+  justify-content: space-between;
   align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  padding: 4px 12px 6px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-subtle);
+  min-height: 36px;
 }
-.search-input, .filter-select {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-primary);
-  padding: 6px 9px;
-  border-radius: 8px;
-  font-size: 11px;
+.command-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-.filter-btn {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
+.scope-tabs {
+  display: flex;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--color-bg-base);
+}
+.scope-tab {
+  padding: 4px 10px;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.scope-tab:hover {
   color: var(--color-text-secondary);
-  padding: 6px 8px;
-  border-radius: 8px;
-  font-size: 11px;
-  min-width: 30px;
+  background: var(--color-bg-hover);
 }
-.filter-btn:hover {
+.scope-tab.active {
+  color: var(--color-accent);
+  background: var(--color-accent-muted);
+  font-weight: var(--font-weight-medium);
+}
+.command-bar-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.command-bar-add:hover {
   color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.icon-14 {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.command-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.popover-anchor {
+  position: relative;
+}
+.popover-anchor-right .popover {
+  left: auto;
+  right: 0;
+}
+.command-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  min-height: 26px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.command-btn:hover {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-hover);
+}
+.command-btn.active {
+  color: var(--color-accent);
+  background: var(--color-accent-muted);
+}
+.command-btn.small {
+  padding: 2px 6px;
+  font-size: var(--font-size-xs);
+}
+
+.popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 200px;
+  padding: 8px 10px;
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  z-index: 50;
+}
+.popover-filter {
+  min-width: 220px;
+}
+.popover-display {
+  min-width: 180px;
+}
+.popover-section {
+  margin-bottom: 8px;
+}
+.popover-section:last-child {
+  margin-bottom: 0;
+}
+.popover-section-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.popover-label {
+  display: block;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+}
+.popover-select {
+  width: 100%;
+  background: var(--color-bg-muted);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-primary);
+  padding: 4px 8px;
+  min-height: 26px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-caption);
+}
+.popover-select:focus {
+  outline: none;
+  border-color: var(--color-border);
+  background: var(--color-bg-base);
+}
+.popover-display-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.popover-display-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+.popover-display-option input {
+  margin: 0;
 }
 .filter-check {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   padding: 0 2px;
-  color: var(--color-text-secondary);
-  font-size: 11px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+.filter-check input {
+  margin: 0;
 }
 
 .board-content {
   flex: 1;
-  padding: 14px 18px 18px;
+  padding: 8px 12px 12px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   position: relative;
-}
-.display-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 18px 0;
-}
-.display-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-text-secondary);
-}
-.display-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.display-chip {
-  padding: 3px 8px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 10px;
-  line-height: 1;
-  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
-}
-.display-chip:hover {
-  color: var(--color-text-primary);
-  background: var(--color-hover);
-}
-.display-chip.active {
-  background: rgba(94, 106, 210, 0.1);
-  border-color: rgba(94, 106, 210, 0.35);
-  color: var(--color-status-done);
 }
 .workspace-shell {
   flex: 1;
   min-height: 0;
   display: flex;
   overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(247, 248, 249, 0.75));
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-base);
 }
 .workspace-primary {
   flex: 1;
@@ -627,14 +928,16 @@ function navigateWorkspace(taskId: string) {
 
 .view-toggle {
   display: flex;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
   overflow: hidden;
+  background: var(--color-bg-muted);
 }
 .toggle-btn {
-  padding: 6px 10px;
-  font-size: 11px;
-  background: var(--color-bg-elevated);
+  padding: var(--control-padding-y) var(--control-padding-x);
+  min-height: var(--input-min-height);
+  font-size: var(--font-size-caption);
+  background: transparent;
   color: var(--color-text-secondary);
   border: none;
   cursor: pointer;
@@ -642,6 +945,7 @@ function navigateWorkspace(taskId: string) {
 }
 .toggle-btn:hover {
   color: var(--color-text-primary);
+  background: var(--color-bg-hover);
 }
 .toggle-btn.active {
   background: var(--color-accent);
@@ -652,7 +956,7 @@ function navigateWorkspace(taskId: string) {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg-main);
+  background: var(--color-bg-base);
 }
 /* P4-6.4: 线分栏，主区统一画布；列间 1px 竖线，去掉独立圆角卡片 */
 .board-columns {
@@ -666,54 +970,54 @@ function navigateWorkspace(taskId: string) {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 0 14px;
-  border-left: 1px solid var(--color-border);
+  padding: 0 12px;
+  border-left: 1px solid var(--color-border-subtle);
   transition: background-color var(--transition-fast);
 }
 .column-first {
   border-left: none;
 }
 .column:hover {
-  background: var(--color-hover);
+  background: var(--color-bg-hover);
 }
 .column-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--color-border);
-  margin-bottom: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  margin-bottom: 8px;
 }
 .column-header h3 {
   margin: 0;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
   display: flex;
   align-items: center;
   gap: 6px;
 }
 .column-add-btn {
-  padding: 3px 8px;
-  font-size: 14px;
+  padding: 2px 6px;
+  font-size: var(--font-size-subhead);
   line-height: 1;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 .column-add-btn:hover {
   color: var(--color-accent);
-  background: var(--color-hover);
+  background: var(--color-bg-hover);
 }
 .column-header span {
-  font-size: 11px;
-  color: var(--color-text-secondary);
-  background: var(--color-bg-elevated);
-  padding: 2px 6px;
-  border-radius: 12px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  background: var(--color-bg-muted);
+  padding: 2px 5px;
+  border-radius: var(--radius-xs);
 }
 /* P4-6.2: 列区域 150ms 过渡（卡片 hover 在 TaskCard 中已用 --transition-fast） */
 .column-list {
@@ -725,7 +1029,7 @@ function navigateWorkspace(taskId: string) {
 }
 /* P4-6.3: 列区滚动条收敛，hover 列时显现 */
 .column:hover .column-list {
-  scrollbar-color: var(--color-border) transparent;
+  scrollbar-color: var(--color-border-subtle) transparent;
 }
 .column-list::-webkit-scrollbar {
   width: 6px;
@@ -734,15 +1038,15 @@ function navigateWorkspace(taskId: string) {
   background: transparent;
 }
 .column-list::-webkit-scrollbar-thumb {
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   background: transparent;
   transition: background var(--transition-fast);
 }
 .column:hover .column-list::-webkit-scrollbar-thumb {
-  background: var(--color-border);
+  background: var(--color-border-subtle);
 }
 .column:hover .column-list::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-secondary);
+  background: var(--color-text-muted);
 }
 
 .empty-state, .error-state, .loading-state {
@@ -759,21 +1063,23 @@ function navigateWorkspace(taskId: string) {
 }
 .btn-text:hover { text-decoration: underline; }
 .btn-retry {
-  border: 1px solid var(--color-border);
-  padding: 6px 12px;
-  border-radius: var(--border-radius-sm);
+  border: 1px solid var(--color-border-subtle);
+  padding: var(--control-padding-y) var(--control-padding-x);
+  border-radius: var(--radius-sm);
 }
-.btn-retry:hover { background: var(--color-bg-hover); }
+.btn-retry:hover {
+  background: var(--color-bg-hover);
+}
 
 @media (max-width: 1100px) {
   .display-bar {
-    padding: 10px 16px 0;
+    padding: 6px 16px 8px;
     align-items: flex-start;
     flex-direction: column;
   }
 
   .board-content {
-    padding: 16px;
+    padding: 12px 16px;
   }
 
   .workspace-shell {

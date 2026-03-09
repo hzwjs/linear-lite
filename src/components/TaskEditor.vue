@@ -300,28 +300,30 @@ function navigateTo(taskId: string | null | undefined) {
 </template>
 
 <style scoped>
+/* P6-5: Issue workspace — 工作上下文感，弱化表单 */
 .editor-panel {
   width: min(1040px, calc(100vw - 320px));
   min-width: 840px;
   max-width: 1120px;
   max-height: calc(100vh - 52px);
   height: 100%;
-  background: var(--color-bg-main);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 18px;
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.14);
+  box-shadow: var(--shadow-popover);
   overflow: hidden;
 }
 .editor-header {
-  min-height: 56px;
-  border-bottom: 1px solid var(--color-border);
+  min-height: var(--header-height);
+  border-bottom: 1px solid var(--color-border-subtle);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 16px 0 18px;
+  padding: 0 14px;
   flex-shrink: 0;
+  background: var(--color-bg-base);
 }
 .editor-header-meta {
   display: flex;
@@ -331,29 +333,30 @@ function navigateTo(taskId: string | null | undefined) {
 .editor-header-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 .issue-id {
-  font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-family: ui-monospace, monospace;
+  color: var(--color-text-muted);
   padding: 2px 5px;
-  border-radius: 999px;
-  background: rgba(17, 24, 39, 0.04);
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-muted);
 }
 .issue-position {
-  font-size: 11px;
-  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }
 .nav-btn {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  border-radius: 6px;
-  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 .nav-btn:hover:not(:disabled) {
-  background: var(--color-hover);
+  background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
 .nav-btn:disabled {
@@ -361,35 +364,41 @@ function navigateTo(taskId: string | null | undefined) {
   cursor: not-allowed;
 }
 .editor-header h2 {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
   margin: 0;
+  color: var(--color-text-primary);
 }
 .close-btn {
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   background: none;
   border: none;
   cursor: pointer;
-  padding: 3px 5px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast), background var(--transition-fast);
 }
-.close-btn:hover { color: var(--color-text-primary); }
+.close-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
 
 .editor-body {
   flex: 1;
   display: flex;
   gap: 0;
   min-height: 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 249, 250, 0.9));
+  background: var(--color-bg-subtle);
 }
 .editor-content {
   flex: 1;
   min-width: 0;
-  padding: 22px 22px 24px;
+  padding: 16px 20px 20px;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 18px;
   overflow-y: auto;
 }
 .content-meta {
@@ -398,22 +407,22 @@ function navigateTo(taskId: string | null | undefined) {
   gap: 6px;
 }
 .meta-chip {
-  font-size: 10px;
-  color: var(--color-text-secondary);
-  background: rgba(17, 24, 39, 0.04);
-  border-radius: 999px;
-  padding: 3px 8px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-xs);
+  padding: 2px 6px;
 }
 .content-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 .section-kicker {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.02em;
+  text-transform: none;
   color: var(--color-text-secondary);
 }
 .section-head {
@@ -423,144 +432,155 @@ function navigateTo(taskId: string | null | undefined) {
   align-items: baseline;
 }
 .section-note {
-  font-size: 11px;
-  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }
 .subdued {
-  padding-top: 10px;
-  border-top: 1px solid var(--color-border);
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-subtle);
 }
 .title-textarea {
-  font-size: 24px;
-  font-weight: 600;
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
   border: none;
   resize: none;
   padding: 0;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
+  line-height: 1.25;
+  letter-spacing: var(--letter-spacing);
   background: transparent;
 }
 .title-textarea::placeholder {
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 .description-input {
-  font-size: 13px;
+  font-size: var(--font-size-body);
   color: var(--color-text-primary);
   resize: vertical;
-  line-height: 1.55;
+  line-height: 1.5;
   border: none;
   padding: 0;
   background: transparent;
 }
 .description-input::placeholder {
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 .context-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 8px;
 }
 .context-card {
   border: 1px dashed var(--color-border);
-  border-radius: 10px;
-  padding: 14px;
-  background: linear-gradient(180deg, rgba(250, 250, 250, 0.78), rgba(255, 255, 255, 0.9));
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--color-bg-base);
 }
 .context-card-title {
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .context-card p {
   margin: 0;
   color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: var(--font-size-caption);
+  line-height: 1.45;
 }
 .editor-props {
-  width: 228px;
+  width: 220px;
   flex-shrink: 0;
-  border-left: 1px solid var(--color-border);
-  padding: 14px 14px 16px;
+  border-left: 1px solid var(--color-border-subtle);
+  padding: 12px 12px 14px;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  background: var(--color-bg-base);
 }
 .props-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(250, 250, 250, 0.55), rgba(255, 255, 255, 0.9));
+  gap: 10px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 .props-title {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--color-text-muted);
+  margin-bottom: 2px;
 }
 .prop-row {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 .prop-label {
-  font-size: 11px;
-  color: var(--color-text-secondary);
-  font-weight: 500;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-normal);
 }
 .editor-props :deep(.prop-trigger) {
-  background: var(--color-bg-main);
-  border: 1px solid var(--color-border);
+  background: var(--color-bg-muted);
+  border: 1px solid var(--color-border-subtle);
   color: var(--color-text-primary);
-  padding: 6px 8px;
-  border-radius: 8px;
+  padding: var(--control-padding-y) var(--control-padding-x);
+  min-height: var(--input-min-height);
+  border-radius: var(--radius-sm);
   text-align: left;
-  font-size: 13px;
+  font-size: var(--font-size-caption);
   cursor: pointer;
-  transition: background 150ms ease;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 .editor-props :deep(.prop-trigger:hover) {
-  background: var(--color-hover);
+  background: var(--color-bg-hover);
+  border-color: var(--color-border);
 }
 .read-only .read-only-value {
-  font-size: 13px;
+  font-size: var(--font-size-caption);
   color: var(--color-text-secondary);
 }
 .editor-footer {
-  padding: 12px 18px;
-  border-top: 1px solid var(--color-border);
+  padding: 8px 14px;
+  border-top: 1px solid var(--color-border-subtle);
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--color-bg-base);
 }
 .btn-cancel {
-  padding: 6px 10px;
-  border-radius: 8px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
+  padding: var(--control-padding-y) var(--control-padding-x);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 .btn-cancel:hover {
-  background: var(--color-hover);
+  background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
 .btn-save {
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: var(--color-status-done);
+  padding: var(--control-padding-y) var(--control-padding-x);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
   color: white;
-  font-weight: 500;
-  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-caption);
+  transition: background var(--transition-fast);
 }
-.btn-save:hover:not(:disabled) { background: var(--color-accent-hover); }
-.btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-save:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+.btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 @media (max-width: 1100px) {
   .editor-panel {
@@ -576,7 +596,7 @@ function navigateTo(taskId: string | null | undefined) {
   .editor-props {
     width: auto;
     border-left: none;
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--color-border-subtle);
   }
 
   .context-grid {
