@@ -3,6 +3,7 @@ import { ref, watch, onMounted, computed } from 'vue'
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
+import { useProjectStore } from '../store/projectStore'
 import { userApi } from '../services/api/user'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
@@ -18,16 +19,21 @@ import {
   User as UserIcon
 } from 'lucide-vue-next'
 
-const props = defineProps<{
-  mode: 'create' | 'edit'
-  task?: Task | null
-  /** P4-6.5: 列头 + 新建时的默认状态 */
-  defaultStatus?: Status
-  previousTaskId?: string | null
-  nextTaskId?: string | null
-  position?: number | null
-  total?: number
-}>()
+const props = withDefaults(
+  defineProps<{
+    mode: 'create' | 'edit'
+    task?: Task | null
+    /** P4-6.5: 列头 + 新建时的默认状态 */
+    defaultStatus?: Status
+    previousTaskId?: string | null
+    nextTaskId?: string | null
+    position?: number | null
+    total?: number
+    /** 内联时无遮罩、占满主区；overlay 为浮层（已废弃，保留兼容） */
+    variant?: 'inline' | 'overlay'
+  }>(),
+  { variant: 'inline' }
+)
 
 const emit = defineEmits<{
   close: []
@@ -35,6 +41,7 @@ const emit = defineEmits<{
 }>()
 
 const store = useTaskStore()
+const projectStore = useProjectStore()
 
 const formTitle = ref('')
 const formDescription = ref('')
@@ -62,6 +69,20 @@ const assigneeOptions = computed<CustomSelectOption[]>(() => {
     list.push({ value: u.id, label: u.username, icon: UserIcon })
   }
   return list
+})
+
+const breadcrumbScopeName = computed(() => {
+  if (props.mode !== 'edit' || !props.task?.projectId) {
+    const active = projectStore.projects.find((p) => p.id === projectStore.activeProjectId)
+    return active?.name ?? 'Workspace'
+  }
+  const project = projectStore.projects.find((p) => p.id === props.task!.projectId)
+  return project?.name ?? 'Workspace'
+})
+
+const breadcrumbText = computed(() => {
+  if (props.mode !== 'edit' || !props.task) return ''
+  return `${breadcrumbScopeName.value} > ${props.task.id} ${props.task.title}`
 })
 
 onMounted(async () => {
@@ -160,11 +181,16 @@ function navigateTo(taskId: string | null | undefined) {
 </script>
 
 <template>
-  <aside class="editor-panel" aria-label="Issue workspace">
+  <aside class="editor-panel" :class="{ 'editor-panel--inline': props.variant === 'inline' }" aria-label="Issue workspace">
     <div class="editor-header">
       <div class="editor-header-meta">
-        <span v-if="task?.id" class="issue-id">{{ task.id }}</span>
-        <h2>{{ mode === 'create' ? 'New issue' : 'Issue' }}</h2>
+        <nav v-if="breadcrumbText" class="editor-breadcrumb" aria-label="Breadcrumb">
+          {{ breadcrumbText }}
+        </nav>
+        <template v-else>
+          <span v-if="task?.id" class="issue-id">{{ task.id }}</span>
+          <h2>{{ mode === 'create' ? 'New issue' : 'Issue' }}</h2>
+        </template>
       </div>
       <div class="editor-header-actions">
         <div v-if="position && total" class="issue-position">{{ position }} / {{ total }}</div>
@@ -315,6 +341,16 @@ function navigateTo(taskId: string | null | undefined) {
   box-shadow: var(--shadow-popover);
   overflow: hidden;
 }
+.editor-panel--inline {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  max-height: none;
+  border-radius: 0;
+  box-shadow: none;
+  border: none;
+  border-left: 1px solid var(--color-border-subtle);
+}
 .editor-header {
   min-height: var(--header-height);
   border-bottom: 1px solid var(--color-border-subtle);
@@ -329,6 +365,14 @@ function navigateTo(taskId: string | null | undefined) {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+.editor-breadcrumb {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .editor-header-actions {
   display: flex;

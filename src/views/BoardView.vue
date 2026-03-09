@@ -17,7 +17,6 @@ import type { User } from '../types/domain'
 import type { Status } from '../types/domain'
 import { Circle, Loader2, CheckCircle, ArrowDown, Minus, ArrowUp, Flame, Filter, LayoutList, Plus } from 'lucide-vue-next'
 import { buildTaskGroups, getAdjacentTaskIds } from '../utils/taskView'
-import { resolveWorkspacePresentation } from '../utils/workspacePresentation'
 import type { CompletedVisibility, GroupBy, OrderBy, VisibleProperty } from '../utils/viewPreference'
 
 const filterStatusOptions: CustomSelectOption[] = [
@@ -204,9 +203,6 @@ const flatTaskIds = computed(() =>
 const adjacentTaskIds = computed(() =>
   getAdjacentTaskIds(flatTaskIds.value, store.currentTaskId)
 )
-const workspacePresentation = computed(() =>
-  resolveWorkspacePresentation(store.currentTaskId)
-)
 function setView(v: 'board' | 'list') {
   viewModeStore.setView(v)
 }
@@ -368,7 +364,7 @@ function navigateWorkspace(taskId: string) {
       </div>
     </header>
 
-    <div class="command-bar">
+    <div v-if="!isEditorOpen" class="command-bar">
       <div class="command-bar-left">
         <div class="scope-tabs">
           <button
@@ -548,6 +544,19 @@ function navigateWorkspace(taskId: string) {
         <p>No tasks match your filters.</p>
         <button class="btn-text" @click="searchQuery = ''; filterStatus = null; filterPriority = null; viewModeStore.setCompletedVisibility('all')">Clear filters</button>
       </div>
+      <div v-else-if="isEditorOpen" class="workspace-inline-editor">
+        <TaskEditor
+          variant="inline"
+          :mode="editorMode"
+          :task="store.currentTask"
+          :previous-task-id="adjacentTaskIds.previousTaskId"
+          :next-task-id="adjacentTaskIds.nextTaskId"
+          :position="adjacentTaskIds.position"
+          :total="adjacentTaskIds.total"
+          @close="closeEditor"
+          @navigate="navigateWorkspace"
+        />
+      </div>
       <div v-else class="workspace-shell" :class="{ 'workspace-shell--list': viewType === 'list' }">
         <section class="workspace-primary" tabindex="0" @keydown="onWorkspaceKeydown">
           <div v-if="viewType === 'board'" class="board-columns">
@@ -596,23 +605,6 @@ function navigateWorkspace(taskId: string) {
         </section>
       </div>
     </main>
-
-    <div
-      v-if="workspacePresentation.workspaceMode === 'overlay' && isEditorOpen"
-      class="workspace-overlay"
-      @click.self="closeEditor"
-    >
-      <TaskEditor
-        :mode="editorMode"
-        :task="store.currentTask"
-        :previous-task-id="adjacentTaskIds.previousTaskId"
-        :next-task-id="adjacentTaskIds.nextTaskId"
-        :position="adjacentTaskIds.position"
-        :total="adjacentTaskIds.total"
-        @close="closeEditor"
-        @navigate="navigateWorkspace"
-      />
-    </div>
 
     <IssueComposer
       :open="issuePanelStore.isComposerOpen"
@@ -895,6 +887,13 @@ function navigateWorkspace(taskId: string) {
 .workspace-shell--list {
   border: none;
   border-radius: 0;
+}
+.workspace-inline-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  background: var(--color-bg-base);
 }
 .workspace-primary {
   flex: 1;

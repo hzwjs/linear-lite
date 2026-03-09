@@ -1,11 +1,11 @@
 export interface WorkspacePresentation {
   preservePrimaryCanvas: boolean
-  workspaceMode: 'none' | 'overlay'
+  workspaceMode: 'none' | 'overlay' | 'inline'
 }
 
 export function resolveWorkspacePresentation(taskId: string | null | undefined): WorkspacePresentation {
   return {
     preservePrimaryCanvas: true,
-    workspaceMode: taskId ? 'overlay' : 'none'
+    workspaceMode: taskId ? 'inline' : 'none'
   }
 }

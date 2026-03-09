@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { resolveWorkspacePresentation } from './workspacePresentation'
 
 describe('resolveWorkspacePresentation', () => {
-  it('keeps the primary canvas full width and opens issues as an overlay', () => {
+  it('returns inline workspace mode when an issue is open', () => {
     expect(resolveWorkspacePresentation('LLT-101')).toEqual({
       preservePrimaryCanvas: true,
-      workspaceMode: 'overlay'
+      workspaceMode: 'inline'
     })
   })
 
