@@ -8,6 +8,7 @@ import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
 import { useProjectStore } from '../store/projectStore'
 import { userApi } from '../services/api/user'
+import TiptapEditor from './TiptapEditor.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
 import type { CustomSelectOption } from './ui/CustomSelect.vue'
@@ -61,6 +62,8 @@ const formAssigneeId = ref<string | number>('')
 const formDueDate = ref('') // YYYY-MM-DD for input[type=date]
 const userList = ref<User[]>([])
 const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
+/** 刚由本端保存的任务 id，避免 save 后 loadForm 用接口返回值覆盖编辑器内容 */
+const justSavedTaskId = ref<string | null>(null)
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 const statusOptions: CustomSelectOption[] = [
@@ -136,6 +139,15 @@ function toDateInputValue(ms: number | undefined | null): string {
   return d.toISOString().slice(0, 10)
 }
 
+/** 全选删除列表后可能留下仅空列表项（如 "- \n- "）。仅在保存时视为空，不往编辑器回写，避免可见的覆盖过程 */
+function descriptionForSave(desc: string | undefined): string {
+  const s = (desc ?? '').trim()
+  if (!s) return ''
+  const emptyListLine = /^\s*[-*+]\s*$|^\s*\d+\.\s*$/
+  const onlyEmptyLists = s.split(/\n/).every((line) => !line.trim() || emptyListLine.test(line.trim()))
+  return onlyEmptyLists ? '' : s
+}
+
 const loadForm = () => {
   if (props.mode === 'edit' && props.task) {
     formTitle.value = props.task.title
@@ -154,7 +166,17 @@ const loadForm = () => {
   }
 }
 
-watch(() => props.task, loadForm, { immediate: true })
+watch(
+  () => props.task,
+  () => {
+    if (justSavedTaskId.value !== null && props.task?.id === justSavedTaskId.value) {
+      justSavedTaskId.value = null
+      return
+    }
+    loadForm()
+  },
+  { immediate: true }
+)
 watch(() => props.mode, loadForm)
 watch(() => props.defaultStatus, () => {
   if (props.mode === 'create') formStatus.value = props.defaultStatus ?? 'todo'
@@ -167,12 +189,18 @@ function getPayload() {
       : undefined
   return {
     title: formTitle.value.trim(),
-    description: formDescription.value.trim() || undefined,
+    description: descriptionForSave(formDescription.value),
     status: formStatus.value,
     priority: formPriority.value,
     assigneeId: formAssigneeId.value === '' ? null : Number(formAssigneeId.value),
     dueDate: dueDateMs
   }
+}
+
+function dueDateKey(ms: number | undefined | null): string {
+  if (ms == null) return ''
+  const d = new Date(ms)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function isPayloadEqual(
@@ -181,11 +209,11 @@ function isPayloadEqual(
 ) {
   return (
     a.title === (b.title ?? '') &&
-    (a.description ?? '') === (b.description ?? '') &&
+    descriptionForSave(a.description) === descriptionForSave(b.description) &&
     a.status === b.status &&
     a.priority === b.priority &&
     (a.assigneeId ?? null) === (b.assigneeId ?? null) &&
-    (a.dueDate ?? null) === (b.dueDate ?? null)
+    dueDateKey(a.dueDate) === dueDateKey(b.dueDate ?? undefined)
   )
 }
 
@@ -204,6 +232,7 @@ async function performAutoSave() {
   if (isPayloadEqual(payload, current)) return
 
   saveStatus.value = 'saving'
+  justSavedTaskId.value = props.task.id
   try {
     await store.updateTask(props.task.id, {
       title: payload.title,
@@ -220,6 +249,7 @@ async function performAutoSave() {
   } catch (error) {
     console.error('Auto-save failed:', error)
     saveStatus.value = 'idle'
+    justSavedTaskId.value = null
   }
 }
 
@@ -241,7 +271,18 @@ watch(
     formDueDate.value
   ],
   () => {
-    if (props.mode === 'edit' && props.task) scheduleAutoSave()
+    if (props.mode !== 'edit' || !props.task) return
+    const payload = getPayload()
+    const current = {
+      title: props.task.title,
+      description: props.task.description,
+      status: props.task.status,
+      priority: props.task.priority,
+      assigneeId: props.task.assigneeId ?? null,
+      dueDate: props.task.dueDate ?? null
+    }
+    if (isPayloadEqual(payload, current)) return
+    scheduleAutoSave()
   },
   { deep: true }
 )
@@ -313,12 +354,11 @@ function navigateTo(taskId: string | null | undefined) {
           />
         </section>
 
-        <section class="content-section">
-          <textarea
+        <section class="content-section description-section">
+          <TiptapEditor
             v-model="formDescription"
-            class="description-input"
-            placeholder="Add description"
-            rows="6"
+            placeholder="Add description (Markdown supported)"
+            :min-height="160"
           />
         </section>
 
@@ -794,17 +834,8 @@ function navigateTo(taskId: string | null | undefined) {
 .title-textarea::placeholder {
   color: var(--color-text-muted);
 }
-.description-input {
-  font-size: var(--font-size-body);
-  color: var(--color-text-primary);
-  resize: vertical;
-  line-height: 1.5;
-  border: none;
-  padding: 0;
-  background: transparent;
-}
-.description-input::placeholder {
-  color: var(--color-text-muted);
+.description-section {
+  position: relative;
 }
 .editor-props {
   width: 220px;
