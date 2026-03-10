@@ -148,10 +148,10 @@ function onSelect(id: SlashMenuItemId) {
   z-index: 100;
   min-width: 180px;
   padding: 4px 0;
-  background: var(--color-bg-base);
+  background: var(--color-bg-subtle);
   border: 1px solid var(--color-border-subtle);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
   font-size: var(--font-size-body);
   color: var(--color-text-primary);
 }

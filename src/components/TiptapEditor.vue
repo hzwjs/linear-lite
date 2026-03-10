@@ -139,11 +139,16 @@ watch(
 </template>
 
 <style scoped>
+.tiptap-editor-wrap {
+  background: var(--color-bg-subtle);
+}
 .tiptap-editor-wrap :deep(.tiptap) {
   outline: none;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-body);
 }
 .tiptap-editor-wrap :deep(.tiptap p.is-editor-empty:first-child::before) {
-  color: var(--placeholder-color, #9ca3af);
+  color: var(--color-text-muted);
   content: var(--placeholder-text);
   float: left;
   height: 0;
