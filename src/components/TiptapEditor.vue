@@ -2,6 +2,14 @@
 import { watch } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
+import Heading from '@tiptap/extension-heading'
+import BulletList from '@tiptap/extension-bullet-list'
+import ListItem from '@tiptap/extension-list-item'
+import OrderedList from '@tiptap/extension-ordered-list'
+import TaskList from '@tiptap/extension-task-list'
+import TaskItem from '@tiptap/extension-task-item'
+import CodeBlock from '@tiptap/extension-code-block'
+import Blockquote from '@tiptap/extension-blockquote'
 import { mdToHtml, htmlToMd } from '../utils/editorMarkdown'
 
 const props = withDefaults(
@@ -22,7 +30,24 @@ const emit = defineEmits<{
 }>()
 
 const editor = useEditor({
-  extensions: [StarterKit],
+  extensions: [
+    StarterKit.configure({
+      codeBlock: false,
+      heading: false,
+      blockquote: false,
+      bulletList: false,
+      listItem: false,
+      orderedList: false,
+    }),
+    Heading.configure({ levels: [1, 2, 3] }),
+    BulletList,
+    ListItem,
+    OrderedList,
+    TaskList,
+    TaskItem,
+    CodeBlock,
+    Blockquote,
+  ],
   content: mdToHtml(props.modelValue ?? ''),
   onUpdate: ({ editor: ed }: { editor: { getHTML: () => string } }) => {
     emit('update:modelValue', htmlToMd(ed.getHTML()))
