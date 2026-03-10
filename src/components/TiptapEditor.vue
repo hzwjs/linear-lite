@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { watch } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
+import { mdToHtml, htmlToMd } from '../utils/editorMarkdown'
 
 const props = withDefaults(
   defineProps<{
@@ -21,11 +23,23 @@ const emit = defineEmits<{
 
 const editor = useEditor({
   extensions: [StarterKit],
-  content: props.modelValue || '<p></p>',
-  onUpdate: ({ editor }: { editor: { getHTML: () => string } }) => {
-    emit('update:modelValue', editor.getHTML())
+  content: mdToHtml(props.modelValue ?? ''),
+  onUpdate: ({ editor: ed }: { editor: { getHTML: () => string } }) => {
+    emit('update:modelValue', htmlToMd(ed.getHTML()))
   },
 })
+
+watch(
+  () => props.modelValue,
+  (newVal) => {
+    if (!editor.value) return
+    const currentMd = htmlToMd(editor.value.getHTML())
+    const newNorm = (newVal ?? '').trim()
+    if (currentMd.trim() !== newNorm) {
+      editor.value.commands.setContent(mdToHtml(newVal ?? ''), false)
+    }
+  }
+)
 </script>
 
 <template>
