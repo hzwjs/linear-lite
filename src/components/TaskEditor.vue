@@ -6,8 +6,10 @@ const SAVED_INDICATOR_MS = 2000
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
+import { useFavoriteStore } from '../store/favoriteStore'
 import { useProjectStore } from '../store/projectStore'
 import { useViewModeStore } from '../store/viewModeStore'
+import { useRouter } from 'vue-router'
 import { userApi } from '../services/api/user'
 import TiptapEditor from './TiptapEditor.vue'
 import CustomSelect from './ui/CustomSelect.vue'
@@ -53,8 +55,10 @@ const emit = defineEmits<{
 }>()
 
 const store = useTaskStore()
+const favoriteStore = useFavoriteStore()
 const projectStore = useProjectStore()
 const viewModeStore = useViewModeStore()
+const router = useRouter()
 
 const formTitle = ref('')
 const formDescription = ref('')
@@ -101,9 +105,10 @@ const breadcrumbScopeName = computed(() => {
   return project?.name ?? 'Workspace'
 })
 
-const breadcrumbText = computed(() => {
-  if (props.mode !== 'edit' || !props.task) return ''
-  return `${breadcrumbScopeName.value} > ${props.task.id} ${props.task.title}`
+const showBreadcrumb = computed(() => props.mode === 'edit' && !!props.task)
+const isFavorited = computed(() => {
+  if (!props.task?.id) return false
+  return favoriteStore.isFavorite(props.task.id) || props.task.favorited === true
 })
 
 const creatorName = computed(() => {
@@ -404,14 +409,30 @@ function navigateTo(taskId: string | null | undefined) {
   if (!taskId) return
   emit('navigate', taskId)
 }
+
+function navigateToProject() {
+  if (props.task?.projectId != null) {
+    projectStore.setActiveProject(props.task.projectId)
+  }
+  router.push('/')
+}
+
+async function toggleFavorite() {
+  if (!props.task) return
+  await favoriteStore.toggleFavorite(props.task)
+}
 </script>
 
 <template>
   <aside class="editor-panel" :class="{ 'editor-panel--inline': props.variant === 'inline' }" aria-label="Issue workspace">
     <div class="editor-header">
       <div class="editor-header-meta">
-        <nav v-if="breadcrumbText" class="editor-breadcrumb" aria-label="Breadcrumb">
-          {{ breadcrumbText }}
+        <nav v-if="showBreadcrumb" class="editor-breadcrumb" aria-label="Breadcrumb">
+          <button type="button" class="editor-breadcrumb-link" @click="navigateToProject">
+            {{ breadcrumbScopeName }}
+          </button>
+          <span class="editor-breadcrumb-separator">/</span>
+          <span class="editor-breadcrumb-current">{{ task?.id }}</span>
         </nav>
         <template v-else>
           <span v-if="task?.id" class="issue-id">{{ task.id }}</span>
@@ -427,12 +448,14 @@ function navigateTo(taskId: string | null | undefined) {
           <span v-if="(parentTask.subIssueCount ?? 0) > 0" class="editor-parent-count">{{ parentTask.completedSubIssueCount ?? 0 }}/{{ parentTask.subIssueCount }}</span>
         </a>
         <button
-          v-if="breadcrumbText"
+          v-if="showBreadcrumb"
           type="button"
           class="header-icon-btn"
-          aria-label="Add to favorites"
+          :class="{ 'header-icon-btn--active': isFavorited }"
+          :aria-label="isFavorited ? 'Remove from favorites' : 'Add to favorites'"
+          @click="toggleFavorite"
         >
-          <Star class="icon-16" />
+          <Star class="icon-16" :fill="isFavorited ? 'currentColor' : 'none'" />
         </button>
       </div>
       <div class="editor-header-actions">
@@ -733,11 +756,36 @@ function navigateTo(taskId: string | null | undefined) {
   min-width: 0;
 }
 .editor-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: var(--font-size-caption);
   color: var(--color-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.editor-breadcrumb-link {
+  color: inherit;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-breadcrumb-link:hover {
+  color: var(--color-text-primary);
+}
+.editor-breadcrumb-separator {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+.editor-breadcrumb-current {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+  flex-shrink: 0;
 }
 .editor-parent-link {
   display: block;
@@ -771,6 +819,12 @@ function navigateTo(taskId: string | null | undefined) {
 .header-icon-btn:hover {
   color: var(--color-text-secondary);
   background: var(--color-bg-hover);
+}
+.header-icon-btn--active {
+  color: #d4a106;
+}
+.header-icon-btn--active:hover {
+  color: #b58900;
 }
 .icon-14 {
   width: 14px;
@@ -1200,7 +1254,8 @@ function navigateTo(taskId: string | null | undefined) {
   position: relative;
 }
 .editor-props {
-  width: 220px;
+  min-width: 260px;
+  width: 260px;
   flex-shrink: 0;
   border-left: 1px solid var(--color-border-subtle);
   padding: 12px 12px 14px;
