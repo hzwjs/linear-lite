@@ -4,6 +4,8 @@ import type { Task, Status, Priority } from '../types/domain'
 import { taskApi } from '../services/api/task'
 import { useProjectStore } from './projectStore'
 import { useViewModeStore } from './viewModeStore'
+import { useFavoriteStore } from './favoriteStore'
+import { toApiDateTime } from '../utils/taskDate'
 
 /**
  * 任务状态。数据源为后端 API（按 activeProjectId 过滤），不再使用 localStorage。
@@ -122,7 +124,7 @@ export const useTaskStore = defineStore('taskStore', () => {
         status: data.status,
         priority: data.priority,
         assigneeId: data.assigneeId ?? null,
-        dueDate: data.dueDate != null ? new Date(data.dueDate).toISOString() : undefined,
+        dueDate: toApiDateTime(data.dueDate),
         parentId: data.parentId ?? undefined
       })
       tasks.value = [newTask, ...tasks.value]
@@ -147,17 +149,22 @@ export const useTaskStore = defineStore('taskStore', () => {
         status: updates.status,
         priority: updates.priority,
         assigneeId: updates.assigneeId,
-        dueDate:
-          updates.dueDate != null
-            ? new Date(updates.dueDate).toISOString()
-            : undefined,
+        dueDate: toApiDateTime(updates.dueDate),
         parentId: updates.parentId
       })
       const index = tasks.value.findIndex((t) => t.id === id)
-      if (index !== -1) tasks.value[index] = updated
+      const merged = {
+        ...existing,
+        ...updated,
+        favorited: updated.favorited ?? existing?.favorited ?? false
+      }
+      if (index !== -1) tasks.value[index] = merged
       recomputeParentSubIssueProgress(existing?.parentId)
       recomputeParentSubIssueProgress(updated.parentId)
-      return updated
+      if (merged.favorited) {
+        useFavoriteStore().syncTask(merged)
+      }
+      return merged
     } catch (err: unknown) {
       error.value =
         err instanceof Error ? err.message : 'Failed to update task.'

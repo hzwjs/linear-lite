@@ -34,6 +34,9 @@ public class Task {
     /** 已完成的直接子任务数量，仅响应时由后端填充，不持久化 */
     @TableField(exist = false)
     private Integer completedSubIssueCount;
+    /** 当前用户是否已收藏，仅响应时由后端填充，不持久化 */
+    @TableField(exist = false)
+    private Boolean favorited;
 
     public Long getId() {
         return id;
@@ -161,5 +164,13 @@ public class Task {
 
     public void setCompletedSubIssueCount(Integer completedSubIssueCount) {
         this.completedSubIssueCount = completedSubIssueCount;
+    }
+
+    public Boolean getFavorited() {
+        return favorited;
+    }
+
+    public void setFavorited(Boolean favorited) {
+        this.favorited = favorited;
     }
 }

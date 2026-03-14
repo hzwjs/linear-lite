@@ -29,24 +29,39 @@ const displayText = computed(() => {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 })
 
+const FALLBACK_PANEL_WIDTH = 240
+const FALLBACK_PANEL_HEIGHT = 280
+
 function updatePanelPosition() {
   if (!triggerRef.value || !panelRef.value || !isOpen.value) return
   const rect = triggerRef.value.getBoundingClientRect()
-  const panelWidth = 240
-  const panelHeight = 280
+  const panelRect = panelRef.value.getBoundingClientRect()
+  const panelWidth = panelRect.width > 0 ? panelRect.width : FALLBACK_PANEL_WIDTH
+  const panelHeight = panelRect.height > 0 ? panelRect.height : FALLBACK_PANEL_HEIGHT
   const viewportW = window.innerWidth
   const viewportH = window.innerHeight
   let left = rect.left
   let top = rect.bottom + 4
-  if (rect.left + panelWidth > viewportW) left = rect.right - panelWidth
+  // 触发器在视口右半侧时优先向左展开，避免日历超出右边界（典型如右侧属性栏）
+  const preferOpenLeft = rect.right > viewportW / 2
+  if (preferOpenLeft || rect.left + panelWidth > viewportW)
+    left = rect.right - panelWidth
+  // 下侧会溢出且上方有空间则向上展开
   if (rect.bottom + panelHeight > viewportH && rect.top >= panelHeight)
     top = rect.top - panelHeight - 4
+  // 严格限制在视口内，避免被裁或超出后无法通过滚动查看
+  left = Math.max(0, Math.min(left, viewportW - panelWidth))
+  top = Math.max(0, Math.min(top, viewportH - panelHeight))
   panelStyle.value = { top: `${top}px`, left: `${left}px` }
 }
 
 function open() {
   isOpen.value = true
-  nextTick(() => updatePanelPosition())
+  nextTick(() => {
+    updatePanelPosition()
+    // 首帧渲染后再用实际尺寸重算一次，避免初次 getBoundingClientRect 为 0
+    requestAnimationFrame(() => updatePanelPosition())
+  })
   if (props.modelValue) {
     const d = new Date(props.modelValue + 'T00:00:00')
     if (!isNaN(d.getTime())) {

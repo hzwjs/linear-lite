@@ -1,12 +1,14 @@
 package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.Task;
+import com.linearlite.server.entity.TaskFavorite;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.ProjectMapper;
+import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,10 +33,18 @@ public class TaskService {
 
     private final TaskMapper taskMapper;
     private final ProjectMapper projectMapper;
+    private final TaskFavoriteMapper taskFavoriteMapper;
+    private final TaskActivityService taskActivityService;
 
-    public TaskService(TaskMapper taskMapper, ProjectMapper projectMapper) {
+    public TaskService(
+            TaskMapper taskMapper,
+            ProjectMapper projectMapper,
+            TaskFavoriteMapper taskFavoriteMapper,
+            TaskActivityService taskActivityService) {
         this.taskMapper = taskMapper;
         this.projectMapper = projectMapper;
+        this.taskFavoriteMapper = taskFavoriteMapper;
+        this.taskActivityService = taskActivityService;
     }
 
     /**
@@ -44,7 +54,7 @@ public class TaskService {
      * @param topLevelOnly  true 时仅返回 parent_id IS NULL
      * @param parentId      非空时仅返回该父任务下的直接子任务（与 topLevelOnly 互斥，优先 parentId）
      */
-    public List<Task> listByProjectId(Long projectId, Boolean topLevelOnly, Long parentId) {
+    public List<Task> listByProjectId(Long projectId, Boolean topLevelOnly, Long parentId, Long userId) {
         if (projectId == null) {
             throw new IllegalArgumentException("projectId 不能为空");
         }
@@ -58,6 +68,7 @@ public class TaskService {
         }
         List<Task> list = taskMapper.selectList(wrapper);
         fillSubIssueCounts(list);
+        fillFavoriteState(list, userId);
         return list;
     }
 
@@ -110,7 +121,9 @@ public class TaskService {
 
         taskMapper.insert(task);
         Task inserted = taskMapper.selectById(task.getId());
+        taskActivityService.recordAction(inserted.getId(), creatorId, "created");
         fillSubIssueCounts(Collections.singletonList(inserted));
+        inserted.setFavorited(false);
         return inserted;
     }
 
@@ -145,6 +158,10 @@ public class TaskService {
      * 按 task_key（如 ENG-1）更新任务。仅更新请求体中非 null 的字段。
      */
     public Task update(String taskKey, UpdateTaskRequest request) {
+        return update(taskKey, request, null);
+    }
+
+    public Task update(String taskKey, UpdateTaskRequest request, Long userId) {
         if (taskKey == null || taskKey.isBlank()) {
             throw new IllegalArgumentException("任务 ID 不能为空");
         }
@@ -155,44 +172,58 @@ public class TaskService {
             throw new ResourceNotFoundException("任务不存在: " + taskKey);
         }
 
-        LambdaUpdateWrapper<Task> wrapper = new LambdaUpdateWrapper<Task>()
-                .eq(Task::getId, existing.getId());
+        UpdateWrapper<Task> wrapper = new UpdateWrapper<Task>()
+                .eq("id", existing.getId());
         boolean hasUpdate = false;
         if (request.getTitle() != null) {
-            wrapper.set(Task::getTitle, request.getTitle().trim());
-            hasUpdate = true;
+            String nextTitle = request.getTitle().trim();
+            if (!nextTitle.equals(existing.getTitle())) {
+                wrapper.set("title", nextTitle);
+                hasUpdate = true;
+            }
         }
         if (request.getDescription() != null) {
             String desc = request.getDescription().trim();
-            wrapper.set(Task::getDescription, desc.isEmpty() ? null : desc);
-            hasUpdate = true;
+            String nextDesc = desc.isEmpty() ? null : desc;
+            if (!equalsNullable(nextDesc, existing.getDescription())) {
+                wrapper.set("description", nextDesc);
+                hasUpdate = true;
+            }
         }
         if (request.getStatus() != null && !request.getStatus().isBlank()) {
             String newStatus = request.getStatus();
-            wrapper.set(Task::getStatus, newStatus);
-            hasUpdate = true;
-            boolean wasTerminal = isTerminalStatus(existing.getStatus());
-            boolean nowTerminal = isTerminalStatus(newStatus);
-            if (nowTerminal) {
-                wrapper.set(Task::getCompletedAt, LocalDateTime.now());
-            } else if (wasTerminal) {
-                wrapper.set(Task::getCompletedAt, null);
+            if (!newStatus.equals(existing.getStatus())) {
+                wrapper.set("status", newStatus);
+                hasUpdate = true;
+                boolean wasTerminal = isTerminalStatus(existing.getStatus());
+                boolean nowTerminal = isTerminalStatus(newStatus);
+                if (nowTerminal) {
+                    wrapper.set("completed_at", LocalDateTime.now());
+                } else if (wasTerminal) {
+                    wrapper.set("completed_at", null);
+                }
             }
         }
         if (request.getPriority() != null && !request.getPriority().isBlank()) {
-            wrapper.set(Task::getPriority, request.getPriority());
-            hasUpdate = true;
+            if (!request.getPriority().equals(existing.getPriority())) {
+                wrapper.set("priority", request.getPriority());
+                hasUpdate = true;
+            }
         }
         if (request.getAssigneeId() != null) {
-            wrapper.set(Task::getAssigneeId, request.getAssigneeId());
-            hasUpdate = true;
+            if (!equalsNullable(request.getAssigneeId(), existing.getAssigneeId())) {
+                wrapper.set("assignee_id", request.getAssigneeId());
+                hasUpdate = true;
+            }
         }
         if (request.getDueDate() != null) {
-            wrapper.set(Task::getDueDate, request.getDueDate());
-            hasUpdate = true;
+            if (!equalsNullable(request.getDueDate(), existing.getDueDate())) {
+                wrapper.set("due_date", request.getDueDate());
+                hasUpdate = true;
+            }
         }
         if (Boolean.TRUE.equals(request.getClearParent())) {
-            wrapper.set(Task::getParentId, null);
+            wrapper.set("parent_id", null);
             hasUpdate = true;
         } else if (request.getParentId() != null) {
             Long newParentId = request.getParentId();
@@ -210,7 +241,7 @@ public class TaskService {
             if (descendantIds.contains(newParentId)) {
                 throw new IllegalArgumentException("不能将父任务设为自己的后代，会形成环");
             }
-            wrapper.set(Task::getParentId, newParentId);
+            wrapper.set("parent_id", newParentId);
             hasUpdate = true;
         }
 
@@ -218,8 +249,70 @@ public class TaskService {
             taskMapper.update(null, wrapper);
         }
         Task updated = taskMapper.selectById(existing.getId());
+        recordActivityForTaskChanges(existing, updated, userId);
         fillSubIssueCounts(Collections.singletonList(updated));
+        fillFavoriteState(Collections.singletonList(updated), userId);
         return updated;
+    }
+
+    public List<Task> listFavorites(Long userId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("当前用户未登录");
+        }
+        List<TaskFavorite> favorites = taskFavoriteMapper.selectList(
+                new LambdaQueryWrapper<TaskFavorite>()
+                        .eq(TaskFavorite::getUserId, userId)
+                        .orderByDesc(TaskFavorite::getCreatedAt));
+        if (favorites.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Long> taskIds = favorites.stream().map(TaskFavorite::getTaskId).distinct().toList();
+        List<Task> tasks = taskMapper.selectList(
+                new LambdaQueryWrapper<Task>().in(Task::getId, taskIds));
+        Map<Long, Task> taskById = tasks.stream().collect(Collectors.toMap(Task::getId, task -> task));
+        List<Task> ordered = favorites.stream()
+                .map(favorite -> taskById.get(favorite.getTaskId()))
+                .filter(task -> task != null)
+                .collect(Collectors.toList());
+        fillSubIssueCounts(ordered);
+        fillFavoriteState(ordered, userId);
+        return ordered;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Task addFavorite(String taskKey, Long userId) {
+        Task task = requireTaskByKey(taskKey);
+        requireUserId(userId);
+        Long exists = taskFavoriteMapper.selectCount(
+                new LambdaQueryWrapper<TaskFavorite>()
+                        .eq(TaskFavorite::getUserId, userId)
+                        .eq(TaskFavorite::getTaskId, task.getId()));
+        if (exists == 0) {
+            TaskFavorite favorite = new TaskFavorite();
+            favorite.setUserId(userId);
+            favorite.setTaskId(task.getId());
+            taskFavoriteMapper.insert(favorite);
+            taskActivityService.recordAction(task.getId(), userId, "favorited");
+        }
+        Task refreshed = taskMapper.selectById(task.getId());
+        fillSubIssueCounts(Collections.singletonList(refreshed));
+        fillFavoriteState(Collections.singletonList(refreshed), userId);
+        return refreshed;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Task removeFavorite(String taskKey, Long userId) {
+        Task task = requireTaskByKey(taskKey);
+        requireUserId(userId);
+        taskFavoriteMapper.delete(
+                new LambdaQueryWrapper<TaskFavorite>()
+                        .eq(TaskFavorite::getUserId, userId)
+                        .eq(TaskFavorite::getTaskId, task.getId()));
+        taskActivityService.recordAction(task.getId(), userId, "unfavorited");
+        Task refreshed = taskMapper.selectById(task.getId());
+        fillSubIssueCounts(Collections.singletonList(refreshed));
+        fillFavoriteState(Collections.singletonList(refreshed), userId);
+        return refreshed;
     }
 
     /** 返回以 taskId 为根的所有后代任务 id（不含自身）。 */
@@ -242,5 +335,75 @@ public class TaskService {
 
     private static boolean isTerminalStatus(String status) {
         return status != null && TERMINAL_STATUSES.contains(status.toLowerCase());
+    }
+
+    private void fillFavoriteState(List<Task> tasks, Long userId) {
+        if (tasks == null || tasks.isEmpty()) {
+            return;
+        }
+        if (userId == null) {
+            for (Task task : tasks) {
+                task.setFavorited(false);
+            }
+            return;
+        }
+        List<Long> taskIds = tasks.stream().map(Task::getId).filter(id -> id != null).distinct().toList();
+        if (taskIds.isEmpty()) {
+            return;
+        }
+        List<TaskFavorite> favorites = taskFavoriteMapper.selectList(
+                new LambdaQueryWrapper<TaskFavorite>()
+                        .eq(TaskFavorite::getUserId, userId)
+                        .in(TaskFavorite::getTaskId, taskIds));
+        Set<Long> favoriteTaskIds = favorites.stream().map(TaskFavorite::getTaskId).collect(Collectors.toSet());
+        for (Task task : tasks) {
+            task.setFavorited(favoriteTaskIds.contains(task.getId()));
+        }
+    }
+
+    private Task requireTaskByKey(String taskKey) {
+        if (taskKey == null || taskKey.isBlank()) {
+            throw new IllegalArgumentException("任务 ID 不能为空");
+        }
+        Task task = taskMapper.selectOne(new LambdaQueryWrapper<Task>().eq(Task::getTaskKey, taskKey));
+        if (task == null) {
+            throw new ResourceNotFoundException("任务不存在: " + taskKey);
+        }
+        return task;
+    }
+
+    private void requireUserId(Long userId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("当前用户未登录");
+        }
+    }
+
+    private void recordActivityForTaskChanges(Task existing, Task updated, Long userId) {
+        if (userId == null || existing == null || updated == null) {
+            return;
+        }
+        recordFieldChange(existing.getId(), userId, "title", existing.getTitle(), updated.getTitle());
+        recordFieldChange(existing.getId(), userId, "description", existing.getDescription(), updated.getDescription());
+        recordFieldChange(existing.getId(), userId, "status", existing.getStatus(), updated.getStatus());
+        recordFieldChange(existing.getId(), userId, "priority", existing.getPriority(), updated.getPriority());
+        if (!equalsNullable(existing.getAssigneeId(), updated.getAssigneeId())) {
+            taskActivityService.recordAssigneeChange(existing.getId(), userId, existing.getAssigneeId(), updated.getAssigneeId());
+        }
+        recordFieldChange(existing.getId(), userId, "dueDate", stringify(existing.getDueDate()), stringify(updated.getDueDate()));
+    }
+
+    private void recordFieldChange(Long taskId, Long userId, String fieldName, String oldValue, String newValue) {
+        if (equalsNullable(oldValue, newValue)) {
+            return;
+        }
+        taskActivityService.recordFieldChange(taskId, userId, fieldName, oldValue, newValue);
+    }
+
+    private static String stringify(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private static boolean equalsNullable(Object left, Object right) {
+        return left == null ? right == null : left.equals(right);
     }
 }

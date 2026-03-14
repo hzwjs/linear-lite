@@ -23,6 +23,17 @@ export interface ApiTask {
   parentId?: number | string | null
   subIssueCount?: number
   completedSubIssueCount?: number
+  favorited?: boolean
+}
+
+export interface ApiTaskActivity {
+  id: number
+  actionType: 'created' | 'changed' | 'favorited' | 'unfavorited'
+  fieldName?: string | null
+  oldValue?: string | null
+  newValue?: string | null
+  actorName: string
+  createdAt: string
 }
 
 export interface LoginRequest {

@@ -2,9 +2,11 @@ package com.linearlite.server.controller;
 
 import com.linearlite.server.common.ApiResponse;
 import com.linearlite.server.dto.CreateTaskRequest;
+import com.linearlite.server.dto.TaskActivityResponse;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.filter.JwtAuthFilter;
+import com.linearlite.server.service.TaskActivityService;
 import com.linearlite.server.service.TaskService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
@@ -12,6 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -27,9 +30,11 @@ import java.util.List;
 public class TaskController {
 
     private final TaskService taskService;
+    private final TaskActivityService taskActivityService;
 
-    public TaskController(TaskService taskService) {
+    public TaskController(TaskService taskService, TaskActivityService taskActivityService) {
         this.taskService = taskService;
+        this.taskActivityService = taskActivityService;
     }
 
     /**
@@ -41,11 +46,24 @@ public class TaskController {
      */
     @GetMapping
     public ResponseEntity<ApiResponse<List<Task>>> list(
+            HttpServletRequest request,
             @RequestParam Long projectId,
             @RequestParam(required = false) Boolean topLevelOnly,
             @RequestParam(required = false) Long parentId) {
-        List<Task> list = taskService.listByProjectId(projectId, topLevelOnly, parentId);
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        List<Task> list = taskService.listByProjectId(projectId, topLevelOnly, parentId, userId);
         return ResponseEntity.ok(ApiResponse.success(list));
+    }
+
+    @GetMapping("/favorites")
+    public ResponseEntity<ApiResponse<List<Task>>> listFavorites(HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        return ResponseEntity.ok(ApiResponse.success(taskService.listFavorites(userId)));
+    }
+
+    @GetMapping("/{id}/activities")
+    public ResponseEntity<ApiResponse<List<TaskActivityResponse>>> listActivities(@PathVariable("id") String taskKey) {
+        return ResponseEntity.ok(ApiResponse.success(taskActivityService.listByTaskKey(taskKey)));
     }
 
     /**
@@ -74,9 +92,27 @@ public class TaskController {
      */
     @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<Task>> update(
+            HttpServletRequest request,
             @PathVariable("id") String taskKey,
             @RequestBody UpdateTaskRequest body) {
-        Task updated = taskService.update(taskKey, body);
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        Task updated = taskService.update(taskKey, body, userId);
         return ResponseEntity.ok(ApiResponse.success(updated));
+    }
+
+    @PostMapping("/{id}/favorite")
+    public ResponseEntity<ApiResponse<Task>> addFavorite(
+            HttpServletRequest request,
+            @PathVariable("id") String taskKey) {
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        return ResponseEntity.ok(ApiResponse.success(taskService.addFavorite(taskKey, userId)));
+    }
+
+    @DeleteMapping("/{id}/favorite")
+    public ResponseEntity<ApiResponse<Task>> removeFavorite(
+            HttpServletRequest request,
+            @PathVariable("id") String taskKey) {
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        return ResponseEntity.ok(ApiResponse.success(taskService.removeFavorite(taskKey, userId)));
     }
 }

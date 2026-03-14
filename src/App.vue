@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from './store/authStore'
 import { useProjectStore } from './store/projectStore'
 import { useTaskStore } from './store/taskStore'
+import { useFavoriteStore } from './store/favoriteStore'
 import { useOverlayStore } from './store/overlayStore'
 import { useViewModeStore } from './store/viewModeStore'
 import CreateProjectModal from './components/CreateProjectModal.vue'
@@ -12,13 +13,14 @@ import CommandPalette from './components/CommandPalette.vue'
 import type { CommandItem } from './components/CommandPalette.vue'
 import type { Project } from './types/domain'
 import { useRouter } from 'vue-router'
-import { Plus, LayoutGrid, List, Settings, Search, MoreVertical, LogOut, Folder } from 'lucide-vue-next'
+import { Plus, LayoutGrid, List, Settings, Search, MoreVertical, LogOut, Folder, Star } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const projectStore = useProjectStore()
 const taskStore = useTaskStore()
+const favoriteStore = useFavoriteStore()
 const overlayStore = useOverlayStore()
 const viewModeStore = useViewModeStore()
 
@@ -99,6 +101,7 @@ const isLoginRoute = computed(() => route.path === '/login')
 function ensureProjects() {
   if (authStore.isLoggedIn && !isLoginRoute.value) {
     projectStore.fetchProjects()
+    favoriteStore.fetchFavorites()
   }
 }
 
@@ -108,6 +111,17 @@ watch([() => route.path, () => authStore.isLoggedIn], ensureProjects, { immediat
 function selectProject(id: number) {
   projectStore.setActiveProject(id)
   taskStore.fetchTasks()
+  if (route.path !== '/') {
+    router.push('/')
+  }
+}
+
+async function openFavoriteTask(taskId: string, projectId?: number) {
+  if (projectId != null && projectStore.activeProjectId !== projectId) {
+    projectStore.setActiveProject(projectId)
+    await taskStore.fetchTasks()
+  }
+  router.push(`/tasks/${taskId}`)
 }
 
 const showEmptyProjects = computed(
@@ -182,6 +196,24 @@ onUnmounted(() => {
       <div class="sidebar-brand">
         <span class="sidebar-brand-name">Linear Lite</span>
       </div>
+      <section v-if="favoriteStore.favorites.length" class="sidebar-section">
+        <div class="sidebar-header sidebar-header--static">
+          <span class="sidebar-title">Favorites</span>
+        </div>
+        <nav class="sidebar-nav sidebar-nav--section">
+          <button
+            v-for="task in favoriteStore.favorites"
+            :key="task.id"
+            type="button"
+            class="sidebar-item"
+            :class="{ active: route.params.taskId === task.id }"
+            @click="openFavoriteTask(task.id, task.projectId)"
+          >
+            <Star class="sidebar-item-icon sidebar-item-icon--favorite" />
+            <span class="sidebar-item-name">{{ task.title }}</span>
+          </button>
+        </nav>
+      </section>
       <div class="sidebar-header">
         <span class="sidebar-title">Projects</span>
         <button
@@ -194,7 +226,7 @@ onUnmounted(() => {
           <Plus class="sidebar-btn-new-icon" />
         </button>
       </div>
-      <nav class="sidebar-nav">
+      <nav class="sidebar-nav sidebar-nav--projects">
         <button
           v-for="p in projectStore.projects"
           :key="p.id"
@@ -284,12 +316,18 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 8px;
 }
+.sidebar-header--static {
+  padding-top: 0;
+}
 .sidebar-title {
   font-size: 11px;
   font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+.sidebar-section {
+  padding-bottom: 8px;
 }
 .sidebar-btn-new {
   display: flex;
@@ -314,9 +352,14 @@ onUnmounted(() => {
   height: 16px;
 }
 .sidebar-nav {
-  flex: 1;
   overflow-y: auto;
   padding: 0 16px 12px 28px;
+}
+.sidebar-nav--section {
+  padding-bottom: 8px;
+}
+.sidebar-nav--projects {
+  flex: 1;
 }
 .sidebar-item {
   display: flex;
@@ -347,6 +390,9 @@ onUnmounted(() => {
 }
 .sidebar-item.active .sidebar-item-icon {
   color: var(--color-text-secondary);
+}
+.sidebar-item-icon--favorite {
+  color: #d4a106;
 }
 .sidebar-item-name {
   flex: 1;

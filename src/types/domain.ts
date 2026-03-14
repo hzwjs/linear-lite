@@ -22,6 +22,18 @@ export interface Task {
   subIssueCount?: number
   /** 已完成子任务数 */
   completedSubIssueCount?: number
+  /** 当前用户是否已收藏 */
+  favorited?: boolean
+}
+
+export interface TaskActivity {
+  id: number
+  actionType: 'created' | 'changed' | 'favorited' | 'unfavorited'
+  fieldName?: string | null
+  oldValue?: string | null
+  newValue?: string | null
+  actorName: string
+  createdAt: number
 }
 
 export interface Project {

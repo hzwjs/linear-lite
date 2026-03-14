@@ -15,7 +15,20 @@ import type { CustomSelectOption } from '../components/ui/CustomSelect.vue'
 import { userApi } from '../services/api/user'
 import type { User } from '../types/domain'
 import type { Status } from '../types/domain'
-import { Circle, Loader2, CheckCircle, ArrowDown, Minus, ArrowUp, Flame, Filter, LayoutList, Plus } from 'lucide-vue-next'
+import {
+  PriorityUrgentIcon,
+  PriorityHighIcon,
+  PriorityMediumIcon,
+  PriorityLowIcon
+} from '../components/icons/PriorityIcons'
+import {
+  Circle,
+  Loader2,
+  CheckCircle,
+  Filter,
+  LayoutList,
+  Plus
+} from 'lucide-vue-next'
 import { buildTaskGroups, getAdjacentTaskIds } from '../utils/taskView'
 import type { CompletedVisibility, GroupBy, OrderBy, VisibleProperty } from '../utils/viewPreference'
 
@@ -27,10 +40,10 @@ const filterStatusOptions: CustomSelectOption[] = [
 ]
 const filterPriorityOptions: CustomSelectOption[] = [
   { value: null, label: 'All Priorities' },
-  { value: 'urgent', label: 'Urgent', icon: Flame },
-  { value: 'high', label: 'High', icon: ArrowUp },
-  { value: 'medium', label: 'Medium', icon: Minus },
-  { value: 'low', label: 'Low', icon: ArrowDown }
+  { value: 'urgent', label: 'Urgent', icon: PriorityUrgentIcon },
+  { value: 'high', label: 'High', icon: PriorityHighIcon },
+  { value: 'medium', label: 'Medium', icon: PriorityMediumIcon },
+  { value: 'low', label: 'Low', icon: PriorityLowIcon }
 ]
 const groupingOptions: CustomSelectOption[] = [
   { value: 'status', label: 'Status' },

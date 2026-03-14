@@ -1,6 +1,17 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Circle, CheckCircle, Flame, ArrowUp, Minus, ArrowDown, Loader2, User as UserIcon } from 'lucide-vue-next'
+import {
+  PriorityUrgentIcon,
+  PriorityHighIcon,
+  PriorityMediumIcon,
+  PriorityLowIcon
+} from './icons/PriorityIcons'
+import {
+  Circle,
+  CheckCircle,
+  Loader2,
+  User as UserIcon
+} from 'lucide-vue-next'
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
@@ -27,11 +38,11 @@ const rowHoveredId = ref<string | null>(null)
 const subtaskRingRadius = 5
 const subtaskRingCircumference = 2 * Math.PI * subtaskRingRadius
 
-const priorityIcons: Record<Priority, typeof Flame> = {
-  urgent: Flame,
-  high: ArrowUp,
-  medium: Minus,
-  low: ArrowDown
+const priorityIcons: Record<Priority, typeof PriorityUrgentIcon> = {
+  urgent: PriorityUrgentIcon,
+  high: PriorityHighIcon,
+  medium: PriorityMediumIcon,
+  low: PriorityLowIcon
 }
 
 const statusIcons: Record<Status, typeof Circle> = {

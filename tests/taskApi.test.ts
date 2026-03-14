@@ -25,7 +25,8 @@ vi.mock('../src/services/api/index', () => ({
   api: {
     get: vi.fn(),
     post: vi.fn(),
-    put: vi.fn()
+    put: vi.fn(),
+    delete: vi.fn()
   },
   unwrap: vi.fn((res: { data: { data: unknown } }) => res.data.data)
 }))
@@ -36,6 +37,7 @@ beforeEach(() => {
   vi.mocked(api.get).mockReset()
   vi.mocked(api.post).mockReset()
   vi.mocked(api.put).mockReset()
+  vi.mocked(api.delete).mockReset()
 })
 
 describe('taskApi', () => {
@@ -98,5 +100,44 @@ describe('taskApi', () => {
 
     expect(api.put).toHaveBeenCalledWith('/tasks/ENG-1', { status: 'done' })
     expect(result.status).toBe('done')
+  })
+
+  it('maps favorited field from task payload', async () => {
+    vi.mocked(api.get).mockResolvedValue(mockApiResponse([{ ...mockApiTask, favorited: true }]))
+
+    const tasks = await taskApi.list(MOCK_PROJECT_ID)
+
+    expect(tasks[0].favorited).toBe(true)
+  })
+
+  it('listFavorites: GET /tasks/favorites', async () => {
+    vi.mocked(api.get).mockResolvedValue(mockApiResponse([{ ...mockApiTask, favorited: true }]))
+
+    const tasks = await taskApi.listFavorites()
+
+    expect(api.get).toHaveBeenCalledWith('/tasks/favorites')
+    expect(tasks[0]).toMatchObject({
+      id: 'ENG-1',
+      title: 'Seed',
+      favorited: true
+    })
+  })
+
+  it('addFavorite: POST /tasks/ENG-1/favorite', async () => {
+    vi.mocked(api.post).mockResolvedValue(mockApiResponse({ ...mockApiTask, favorited: true }))
+
+    const task = await taskApi.addFavorite('ENG-1')
+
+    expect(api.post).toHaveBeenCalledWith('/tasks/ENG-1/favorite')
+    expect(task.favorited).toBe(true)
+  })
+
+  it('removeFavorite: DELETE /tasks/ENG-1/favorite', async () => {
+    vi.mocked(api.delete).mockResolvedValue(mockApiResponse({ ...mockApiTask, favorited: false }))
+
+    const task = await taskApi.removeFavorite('ENG-1')
+
+    expect(api.delete).toHaveBeenCalledWith('/tasks/ENG-1/favorite')
+    expect(task.favorited).toBe(false)
   })
 })

@@ -20,7 +20,8 @@ function toTask(t: ApiTask): Task {
     updatedAt: t.updatedAt ? new Date(t.updatedAt).getTime() : 0,
     parentId: t.parentId != null ? String(t.parentId) : undefined,
     subIssueCount: t.subIssueCount,
-    completedSubIssueCount: t.completedSubIssueCount
+    completedSubIssueCount: t.completedSubIssueCount,
+    favorited: t.favorited ?? false
   }
 }
 
@@ -43,6 +44,24 @@ export const taskApi = {
   update(taskKey: string, body: UpdateTaskRequest): Promise<Task> {
     return api
       .put<ApiResponse<ApiTask>>(`/tasks/${taskKey}`, body)
+      .then((res) => toTask(unwrap(res)))
+  },
+
+  listFavorites(): Promise<Task[]> {
+    return api
+      .get<ApiResponse<ApiTask[]>>('/tasks/favorites')
+      .then((res) => unwrap(res).map(toTask))
+  },
+
+  addFavorite(taskKey: string): Promise<Task> {
+    return api
+      .post<ApiResponse<ApiTask>>(`/tasks/${taskKey}/favorite`)
+      .then((res) => toTask(unwrap(res)))
+  },
+
+  removeFavorite(taskKey: string): Promise<Task> {
+    return api
+      .delete<ApiResponse<ApiTask>>(`/tasks/${taskKey}/favorite`)
       .then((res) => toTask(unwrap(res)))
   }
 }

@@ -3,26 +3,30 @@ import { ref, watch, onMounted, computed, nextTick } from 'vue'
 
 const AUTO_SAVE_DEBOUNCE_MS = 600
 const SAVED_INDICATOR_MS = 2000
-import type { Task, Status, Priority } from '../types/domain'
-import type { User } from '../types/domain'
+import type { Task, Status, Priority, TaskActivity, User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
 import { useFavoriteStore } from '../store/favoriteStore'
 import { useProjectStore } from '../store/projectStore'
 import { useViewModeStore } from '../store/viewModeStore'
 import { useRouter } from 'vue-router'
 import { userApi } from '../services/api/user'
+import { activityApi } from '../services/api/activity'
+import { formatTaskActivity, getActivityAvatarLabel } from '../utils/taskActivity'
+import { formatDateInputValue, parseDateInputValue } from '../utils/taskDate'
 import TiptapEditor from './TiptapEditor.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
 import type { CustomSelectOption } from './ui/CustomSelect.vue'
 import {
+  PriorityUrgentIcon,
+  PriorityHighIcon,
+  PriorityMediumIcon,
+  PriorityLowIcon
+} from './icons/PriorityIcons'
+import {
   Circle,
   Loader2,
   CheckCircle,
-  ArrowDown,
-  Minus,
-  ArrowUp,
-  Flame,
   User as UserIcon,
   Star,
   Paperclip,
@@ -73,6 +77,8 @@ const formAssigneeId = ref<string | number>('')
 const formDueDate = ref('') // YYYY-MM-DD for input[type=date]
 const userList = ref<User[]>([])
 const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
+const activities = ref<TaskActivity[]>([])
+const activitiesLoading = ref(false)
 /** 刚由本端保存的任务 id，避免 save 后 loadForm 用接口返回值覆盖编辑器内容 */
 const justSavedTaskId = ref<string | null>(null)
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -83,10 +89,10 @@ const statusOptions: CustomSelectOption[] = [
   { value: 'done', label: 'Done', icon: CheckCircle }
 ]
 const priorityOptions: CustomSelectOption[] = [
-  { value: 'low', label: 'Low', icon: ArrowDown },
-  { value: 'medium', label: 'Medium', icon: Minus },
-  { value: 'high', label: 'High', icon: ArrowUp },
-  { value: 'urgent', label: 'Urgent', icon: Flame }
+  { value: 'low', label: 'Low', icon: PriorityLowIcon },
+  { value: 'medium', label: 'Medium', icon: PriorityMediumIcon },
+  { value: 'high', label: 'High', icon: PriorityHighIcon },
+  { value: 'urgent', label: 'Urgent', icon: PriorityUrgentIcon }
 ]
 const assigneeOptions = computed<CustomSelectOption[]>(() => {
   const list: CustomSelectOption[] = [{ value: '', label: 'Unassigned', icon: UserIcon }]
@@ -117,9 +123,8 @@ const creatorName = computed(() => {
   return u?.username ?? 'Someone'
 })
 
-const createdAgoText = computed(() => {
-  if (!props.task?.createdAt) return ''
-  const sec = Math.floor((Date.now() - props.task.createdAt) / 1000)
+function relativeTimeFromNow(timestamp: number) {
+  const sec = Math.floor((Date.now() - timestamp) / 1000)
   if (sec < 60) return 'just now'
   const min = Math.floor(sec / 60)
   if (min < 60) return `${min}m ago`
@@ -129,6 +134,11 @@ const createdAgoText = computed(() => {
   if (d < 30) return `${d}d ago`
   const mo = Math.floor(d / 30)
   return `${mo}mo ago`
+}
+
+const createdAgoText = computed(() => {
+  if (!props.task?.createdAt) return ''
+  return relativeTimeFromNow(props.task.createdAt)
 })
 
 const taskProjectName = computed(() => {
@@ -193,6 +203,20 @@ async function loadSubIssues() {
   }
 }
 
+async function loadActivities(options?: { silent?: boolean }) {
+  if (props.mode !== 'edit' || !props.task?.id) {
+    activities.value = []
+    return
+  }
+  const silent = options?.silent === true && activities.value.length > 0
+  if (!silent) activitiesLoading.value = true
+  try {
+    activities.value = await activityApi.list(props.task.id)
+  } finally {
+    if (!silent) activitiesLoading.value = false
+  }
+}
+
 function openSubIssueForm() {
   showSubIssueForm.value = true
   subIssueFormTitle.value = ''
@@ -230,8 +254,11 @@ async function submitSubIssue() {
 }
 
 watch(
-  () => [props.task?.id, props.mode],
-  () => loadSubIssues(),
+  [() => props.task?.id, () => props.mode],
+  () => {
+    loadSubIssues()
+    loadActivities()
+  },
   { immediate: true }
 )
 watch(
@@ -248,9 +275,7 @@ onMounted(async () => {
 })
 
 function toDateInputValue(ms: number | undefined | null): string {
-  if (ms == null) return ''
-  const d = new Date(ms)
-  return d.toISOString().slice(0, 10)
+  return formatDateInputValue(ms)
 }
 
 /** 全选删除列表后可能留下仅空列表项（如 "- \n- "）。仅在保存时视为空，不往编辑器回写，避免可见的覆盖过程 */
@@ -297,10 +322,7 @@ watch(() => props.defaultStatus, () => {
 })
 
 function getPayload() {
-  const dueDateMs =
-    formDueDate.value
-      ? new Date(formDueDate.value + 'T00:00:00').getTime()
-      : undefined
+  const dueDateMs = parseDateInputValue(formDueDate.value)
   return {
     title: formTitle.value.trim(),
     description: descriptionForSave(formDescription.value),
@@ -356,6 +378,7 @@ async function performAutoSave() {
       assigneeId: payload.assigneeId,
       dueDate: payload.dueDate
     })
+    await loadActivities({ silent: true })
     saveStatus.value = 'saved'
     setTimeout(() => {
       saveStatus.value = 'idle'
@@ -420,6 +443,7 @@ function navigateToProject() {
 async function toggleFavorite() {
   if (!props.task) return
   await favoriteStore.toggleFavorite(props.task)
+  await loadActivities({ silent: true })
 }
 </script>
 
@@ -619,12 +643,22 @@ async function toggleFavorite() {
             <button type="button" class="linear-unsubscribe">Unsubscribe</button>
           </div>
           <div class="linear-section-body">
-            <div v-if="creatorName && createdAgoText" class="activity-item">
-              <div class="activity-avatar" />
+            <div v-if="activitiesLoading" class="activity-empty">Loading activity…</div>
+            <template v-else-if="activities.length">
+              <div v-for="activity in activities" :key="activity.id" class="activity-item">
+                <div class="activity-avatar">{{ getActivityAvatarLabel(activity.actorName) }}</div>
+                <div class="activity-text">
+                  {{ formatTaskActivity(activity) }} · {{ relativeTimeFromNow(activity.createdAt) }}
+                </div>
+              </div>
+            </template>
+            <div v-else-if="creatorName && createdAgoText" class="activity-item">
+              <div class="activity-avatar">{{ getActivityAvatarLabel(creatorName) }}</div>
               <div class="activity-text">
                 <strong>{{ creatorName }}</strong> created the issue · {{ createdAgoText }}
               </div>
             </div>
+            <div v-else class="activity-empty">No activity yet.</div>
             <div class="comment-input-wrap">
               <input
                 type="text"
@@ -1143,16 +1177,28 @@ async function toggleFavorite() {
   margin-bottom: 12px;
 }
 .activity-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 24px;
   height: 24px;
   border-radius: 50%;
   background: var(--color-bg-muted);
   flex-shrink: 0;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  line-height: 1;
 }
 .activity-text {
   font-size: var(--font-size-caption);
   color: var(--color-text-secondary);
   line-height: 1.4;
+}
+.activity-empty {
+  margin-bottom: 12px;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
 }
 .activity-text strong {
   color: var(--color-text-primary);

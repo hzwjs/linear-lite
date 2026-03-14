@@ -3,20 +3,23 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useTaskStore } from '../store/taskStore'
 import type { Priority, Status, User } from '../types/domain'
 import { userApi } from '../services/api/user'
+import { parseDateInputValue } from '../utils/taskDate'
 import TiptapEditor from './TiptapEditor.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
 import type { CustomSelectOption } from './ui/CustomSelect.vue'
 import {
-  ArrowDown,
-  ArrowUp,
+  PriorityUrgentIcon,
+  PriorityHighIcon,
+  PriorityMediumIcon,
+  PriorityLowIcon
+} from './icons/PriorityIcons'
+import {
   CheckCircle,
   Circle,
   Eye,
-  Flame,
   Link2,
   Loader2,
-  Minus,
   Paperclip,
   User as UserIcon
 } from 'lucide-vue-next'
@@ -56,10 +59,10 @@ const statusOptions: CustomSelectOption[] = [
   { value: 'done', label: 'Done', icon: CheckCircle }
 ]
 const priorityOptions: CustomSelectOption[] = [
-  { value: 'low', label: 'Low', icon: ArrowDown },
-  { value: 'medium', label: 'Medium', icon: Minus },
-  { value: 'high', label: 'High', icon: ArrowUp },
-  { value: 'urgent', label: 'Urgent', icon: Flame }
+  { value: 'low', label: 'Low', icon: PriorityLowIcon },
+  { value: 'medium', label: 'Medium', icon: PriorityMediumIcon },
+  { value: 'high', label: 'High', icon: PriorityHighIcon },
+  { value: 'urgent', label: 'Urgent', icon: PriorityUrgentIcon }
 ]
 
 const assigneeOptions = computed<CustomSelectOption[]>(() => {
@@ -114,7 +117,7 @@ async function handleCreate() {
   if (!title.value.trim() || isSaving.value) return
 
   isSaving.value = true
-  const dueDateMs = dueDate.value ? new Date(dueDate.value + 'T00:00:00').getTime() : undefined
+  const dueDateMs = parseDateInputValue(dueDate.value)
 
   try {
     const task = await store.createTask({

@@ -168,7 +168,7 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
         @click="select(opt)"
       >
         <span v-if="opt.icon" class="option-icon">
-          <component :is="opt.icon" :size="16" />
+          <component :is="opt.icon" :size="18" />
         </span>
         <span class="option-label">{{ opt.label }}</span>
       </button>
@@ -204,7 +204,7 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
 }
 .trigger-icon {
   display: inline-flex;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
 }
 .trigger-label {
   flex: 1;
@@ -252,6 +252,6 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
 }
 .option-icon {
   display: inline-flex;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
 }
 </style>
