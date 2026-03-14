@@ -27,4 +27,5 @@ target/
 *.sln
 *.sw?
 .worktrees/
-./codex-artifacts/
+.codex-artifacts/
+.vscode
