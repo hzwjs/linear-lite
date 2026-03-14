@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Circle, CheckCircle, Flame, ArrowUp, Minus, ArrowDown, Loader2 } from 'lucide-vue-next'
+import { Circle, CheckCircle, Flame, ArrowUp, Minus, ArrowDown, Loader2, User as UserIcon } from 'lucide-vue-next'
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
@@ -54,6 +54,11 @@ function assigneeAvatar(task: Task): string | null {
   if (task.assigneeId == null || !props.users?.length) return null
   const u = props.users.find((u) => u.id === task.assigneeId)
   return u?.avatar_url ?? null
+}
+
+function hasAssignee(task: Task): boolean {
+  if (task.assigneeId == null || !props.users?.length) return false
+  return props.users.some((u) => u.id === task.assigneeId)
 }
 
 function assigneeInitial(task: Task): string {
@@ -220,28 +225,45 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
             </div>
             <div class="task-row-trailing">
               <template v-if="show('project') && projectText(row.task)">
-                <span class="task-meta">{{ projectText(row.task) }}</span>
+                <span class="task-meta-slot task-meta-slot-project">
+                  <span class="task-meta">{{ projectText(row.task) }}</span>
+                </span>
               </template>
               <template v-if="show('status')">
-                <span class="task-meta task-meta-status" :class="row.task.status">{{ statusLabel(row.task.status) }}</span>
+                <span class="task-meta-slot task-meta-slot-status">
+                  <span class="task-meta task-meta-status" :class="row.task.status">{{ statusLabel(row.task.status) }}</span>
+                </span>
               </template>
               <template v-if="show('assignee')">
-                <span class="task-meta task-meta-assignee">
-                  <img
-                    v-if="assigneeAvatar(row.task)"
-                    :src="assigneeAvatar(row.task)!"
-                    :alt="assigneeName(row.task)"
-                    class="avatar-18"
-                  />
-                  <span v-else class="avatar-18 fallback">{{ assigneeInitial(row.task) }}</span>
-                  <span class="task-meta-label">{{ assigneeName(row.task) }}</span>
+                <span class="task-meta-slot task-meta-slot-assignee">
+                  <span class="task-meta task-meta-assignee">
+                    <span
+                      class="task-assignee-trigger"
+                      :class="{ assigned: hasAssignee(row.task), unassigned: !hasAssignee(row.task) }"
+                      :data-tooltip="assigneeName(row.task)"
+                      tabindex="0"
+                    >
+                      <img
+                        v-if="assigneeAvatar(row.task)"
+                        :src="assigneeAvatar(row.task)!"
+                        :alt="assigneeName(row.task)"
+                        class="avatar-18"
+                      />
+                      <span v-else-if="hasAssignee(row.task)" class="avatar-18 fallback">{{ assigneeInitial(row.task) }}</span>
+                      <UserIcon v-else class="task-assignee-icon" aria-hidden="true" />
+                    </span>
+                  </span>
                 </span>
               </template>
               <template v-if="show('dueDate')">
-                <span class="task-meta" :class="{ overdue: isOverdue(row.task) }">{{ dueDateText(row.task) }}</span>
+                <span class="task-meta-slot task-meta-slot-date">
+                  <span class="task-meta" :class="{ overdue: isOverdue(row.task) }">{{ dueDateText(row.task) }}</span>
+                </span>
               </template>
               <template v-if="show('updatedAt')">
-                <span class="task-meta">{{ updatedText(row.task) }}</span>
+                <span class="task-meta-slot task-meta-slot-date">
+                  <span class="task-meta">{{ updatedText(row.task) }}</span>
+                </span>
               </template>
             </div>
             <button
@@ -517,21 +539,43 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
 }
 
 .task-row-trailing {
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
   align-items: center;
-  gap: 10px;
+  justify-content: end;
+  column-gap: 14px;
   flex: 0 0 auto;
   min-width: 0;
+}
+.task-meta-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.task-meta-slot-project {
+  min-width: 72px;
+}
+.task-meta-slot-status {
+  min-width: 88px;
+}
+.task-meta-slot-assignee {
+  width: 26px;
+}
+.task-meta-slot-date {
+  width: 72px;
 }
 
 .task-meta {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
   color: var(--color-text-muted);
   font-size: var(--font-size-caption);
   white-space: nowrap;
-  flex-shrink: 0;
+  min-width: 0;
 }
 .task-meta-status.todo {
   color: var(--color-text-secondary);
@@ -550,19 +594,79 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .task-meta-assignee {
+  position: relative;
+  width: 100%;
+  justify-content: center;
+}
+.task-assignee-trigger {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  outline: none;
 }
-.task-meta-label {
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.task-assignee-trigger:focus-visible::before,
+.task-assignee-trigger:hover::before {
+  opacity: 1;
+  transform: translate(-50%, -2px);
+}
+.task-assignee-trigger:focus-visible::after,
+.task-assignee-trigger:hover::after {
+  opacity: 1;
+  transform: translateX(-50%);
+}
+.task-assignee-trigger::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translate(-50%, 2px);
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #111827;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: var(--shadow-popover);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  z-index: 4;
+}
+.task-assignee-trigger::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  width: 8px;
+  height: 8px;
+  background: #111827;
+  transform: translateX(-50%) rotate(45deg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  z-index: 3;
+}
+.task-assignee-trigger.unassigned {
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+}
+.task-assignee-trigger.assigned {
+  background: transparent;
+}
+.task-assignee-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .avatar-18 {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
