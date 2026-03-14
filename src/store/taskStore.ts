@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import type { Task, Status, Priority } from '../types/domain'
 import { taskApi } from '../services/api/task'
 import { useProjectStore } from './projectStore'
+import { useViewModeStore } from './viewModeStore'
 
 /**
  * 任务状态。数据源为后端 API（按 activeProjectId 过滤），不再使用 localStorage。
@@ -51,8 +52,27 @@ export const useTaskStore = defineStore('taskStore', () => {
     () => tasks.value.length > 0 && filteredTasks.value.length === 0
   )
 
+  function recomputeParentSubIssueProgress(parentNumericId: string | number | null | undefined) {
+    if (parentNumericId == null) return
+    const parentIdStr = String(parentNumericId)
+    const parentIndex = tasks.value.findIndex((task) => String(task.numericId) === parentIdStr)
+    if (parentIndex === -1) return
+
+    const children = tasks.value.filter((task) => task.parentId != null && String(task.parentId) === parentIdStr)
+    const completedChildren = children.filter((task) => task.status === 'done').length
+    const parent = tasks.value[parentIndex]
+    if (!parent) return
+
+    tasks.value[parentIndex] = {
+      ...parent,
+      subIssueCount: children.length,
+      completedSubIssueCount: completedChildren
+    }
+  }
+
   async function fetchTasks() {
     const projectStore = useProjectStore()
+    const viewModeStore = useViewModeStore()
     const projectId = projectStore.activeProjectId
     if (projectId == null) {
       tasks.value = []
@@ -61,7 +81,10 @@ export const useTaskStore = defineStore('taskStore', () => {
     isLoading.value = true
     error.value = null
     try {
-      tasks.value = await taskApi.list(projectId)
+      const showSubIssues = viewModeStore.viewConfig.showSubIssues
+      tasks.value = await taskApi.list(projectId, {
+        topLevelOnly: !showSubIssues
+      })
     } catch (err: unknown) {
       error.value =
         err instanceof Error ? err.message : 'Failed to load tasks.'
@@ -70,8 +93,18 @@ export const useTaskStore = defineStore('taskStore', () => {
     }
   }
 
+  /** 拉取指定父任务的子任务（parentId 为父任务数据库 id） */
+  async function fetchSubIssues(parentNumericId: number): Promise<Task[]> {
+    const projectStore = useProjectStore()
+    const projectId = projectStore.activeProjectId
+    if (projectId == null) return []
+    const list = await taskApi.list(projectId, { parentId: parentNumericId })
+    return list
+  }
+
+  /** parentId 为父任务数据库 id（number），非 task_key */
   async function createTask(
-    data: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>
+    data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'parentId'> & { parentId?: number | null }
   ) {
     const projectStore = useProjectStore()
     const projectId = projectStore.activeProjectId
@@ -89,7 +122,8 @@ export const useTaskStore = defineStore('taskStore', () => {
         status: data.status,
         priority: data.priority,
         assigneeId: data.assigneeId ?? null,
-        dueDate: data.dueDate != null ? new Date(data.dueDate).toISOString() : undefined
+        dueDate: data.dueDate != null ? new Date(data.dueDate).toISOString() : undefined,
+        parentId: data.parentId ?? undefined
       })
       tasks.value = [newTask, ...tasks.value]
       return newTask
@@ -106,6 +140,7 @@ export const useTaskStore = defineStore('taskStore', () => {
   ) {
     error.value = null
     try {
+      const existing = tasks.value.find((t) => t.id === id) ?? null
       const updated = await taskApi.update(id, {
         title: updates.title,
         description: updates.description,
@@ -115,10 +150,13 @@ export const useTaskStore = defineStore('taskStore', () => {
         dueDate:
           updates.dueDate != null
             ? new Date(updates.dueDate).toISOString()
-            : undefined
+            : undefined,
+        parentId: updates.parentId
       })
       const index = tasks.value.findIndex((t) => t.id === id)
       if (index !== -1) tasks.value[index] = updated
+      recomputeParentSubIssueProgress(existing?.parentId)
+      recomputeParentSubIssueProgress(updated.parentId)
       return updated
     } catch (err: unknown) {
       error.value =
@@ -145,6 +183,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     isEmpty,
     isFilterEmpty,
     fetchTasks,
+    fetchSubIssues,
     createTask,
     updateTask,
     transitionTask

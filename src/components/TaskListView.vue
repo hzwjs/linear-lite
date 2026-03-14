@@ -4,8 +4,9 @@ import { Circle, CheckCircle, Flame, ArrowUp, Minus, ArrowDown, Loader2 } from '
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
-import type { TaskGroup } from '../utils/taskView'
+import type { TaskGroup, TaskRow } from '../utils/taskView'
 import type { VisibleProperty } from '../utils/viewPreference'
+import { getSubtaskProgressDisplay } from '../utils/subtaskProgress'
 
 const props = defineProps<{
   groups: TaskGroup[]
@@ -17,11 +18,14 @@ const props = defineProps<{
 const emit = defineEmits<{
   rowClick: [task: Task]
   createInStatus: [status?: Status]
+  addSubIssue: [task: Task]
 }>()
 
 const store = useTaskStore()
 const collapsed = ref<Record<string, boolean>>({})
 const rowHoveredId = ref<string | null>(null)
+const subtaskRingRadius = 5
+const subtaskRingCircumference = 2 * Math.PI * subtaskRingRadius
 
 const priorityIcons: Record<Priority, typeof Flame> = {
   urgent: Flame,
@@ -107,6 +111,30 @@ function show(property: VisibleProperty) {
 function setHoveredId(id: string | null) {
   rowHoveredId.value = id
 }
+
+/** 每组用于渲染的行（含子任务时带 depth/parentTitle） */
+function groupListRows(group: TaskGroup): TaskRow[] {
+  if (group.rows?.length) return group.rows
+  return group.tasks.map((t) => ({ task: t, depth: 0 }))
+}
+
+function rowTitle(row: TaskRow): string {
+  if (row.depth > 0 && row.parentTitle) return `${row.task.title} > ${row.parentTitle}`
+  return row.task.title
+}
+
+function subtaskProgress(task: Task) {
+  return getSubtaskProgressDisplay(task.completedSubIssueCount ?? 0, task.subIssueCount ?? 0)
+}
+
+function subtaskRingOffset(progress: number): number {
+  return subtaskRingCircumference * (1 - progress)
+}
+
+function onAddSubIssue(e: MouseEvent, task: Task) {
+  e.stopPropagation()
+  emit('addSubIssue', task)
+}
 </script>
 
 <template>
@@ -122,7 +150,7 @@ function setHoveredId(id: string | null) {
           >
             <span class="group-chevron">{{ collapsed[group.key] ? '▸' : '▾' }}</span>
             <span class="group-title">{{ group.label }}</span>
-            <span class="group-count">{{ group.tasks.length }}</span>
+            <span class="group-count">{{ group.rows ? group.rows.length : group.tasks.length }}</span>
           </button>
           <button
             type="button"
@@ -135,75 +163,93 @@ function setHoveredId(id: string | null) {
         </div>
         <div v-show="!collapsed[group.key]" class="group-rows">
           <div
-            v-for="task in group.tasks"
-            :key="task.id"
+            v-for="row in groupListRows(group)"
+            :key="row.task.id"
             class="task-row"
-            :class="{ overdue: isOverdue(task), selected: props.selectedTaskId === task.id }"
+            :class="{ overdue: isOverdue(row.task), selected: props.selectedTaskId === row.task.id }"
+            :style="{ paddingLeft: row.depth > 0 ? `calc(12px + ${row.depth * 20}px)` : undefined }"
             tabindex="0"
-            @mouseenter="setHoveredId(task.id)"
+            @mouseenter="setHoveredId(row.task.id)"
             @mouseleave="setHoveredId(null)"
-            @click="onRowClick(task)"
+            @click="onRowClick(row.task)"
           >
             <div class="task-row-leading">
               <button
-                v-if="rowHoveredId === task.id"
+                v-if="rowHoveredId === row.task.id"
                 type="button"
                 class="task-check"
-                :aria-label="task.status === 'done' ? 'Mark not done' : 'Mark done'"
-                @click="toggleComplete($event, task)"
+                :aria-label="row.task.status === 'done' ? 'Mark not done' : 'Mark done'"
+                @click="toggleComplete($event, row.task)"
               >
-                <CheckCircle v-if="task.status === 'done'" class="icon icon-14 icon-done" />
+                <CheckCircle v-if="row.task.status === 'done'" class="icon icon-14 icon-done" />
                 <Circle v-else class="icon icon-14 icon-circle" />
               </button>
               <component
                 v-else
-                :is="priorityIcons[task.priority]"
+                :is="priorityIcons[row.task.priority]"
                 class="icon icon-14 priority-icon"
-                :aria-label="task.priority"
+                :aria-label="row.task.priority"
               />
             </div>
-            <span class="task-row-key">{{ task.id }}</span>
+            <span class="task-row-key">{{ row.task.id }}</span>
             <span class="task-row-status">
-              <component :is="statusIcons[task.status]" class="icon icon-14 status-icon" />
+              <component :is="statusIcons[row.task.status]" class="icon icon-14 status-icon" />
             </span>
             <div class="task-row-content">
-              <span class="task-row-title">{{ task.title }}</span>
+              <span class="task-row-title-cluster">
+                <span class="task-row-title">{{ rowTitle(row) }}</span>
+                <span
+                  v-if="subtaskProgress(row.task).visible"
+                  class="task-row-sub-count"
+                  :class="{ completed: subtaskProgress(row.task).completed }"
+                >
+                  <svg class="task-row-sub-count-ring" viewBox="0 0 16 16" aria-hidden="true">
+                    <circle class="task-row-sub-count-track" cx="8" cy="8" :r="subtaskRingRadius" />
+                    <circle
+                      class="task-row-sub-count-progress"
+                      cx="8"
+                      cy="8"
+                      :r="subtaskRingRadius"
+                      :stroke-dasharray="subtaskRingCircumference"
+                      :stroke-dashoffset="subtaskRingOffset(subtaskProgress(row.task).progress)"
+                    />
+                  </svg>
+                  <span class="task-row-sub-count-text">{{ subtaskProgress(row.task).countText }}</span>
+                </span>
+              </span>
             </div>
             <div class="task-row-trailing">
-              <template v-if="show('project') && projectText(task)">
-                <span class="task-meta">{{ projectText(task) }}</span>
+              <template v-if="show('project') && projectText(row.task)">
+                <span class="task-meta">{{ projectText(row.task) }}</span>
               </template>
               <template v-if="show('status')">
-                <span class="task-meta task-meta-status" :class="task.status">{{ statusLabel(task.status) }}</span>
+                <span class="task-meta task-meta-status" :class="row.task.status">{{ statusLabel(row.task.status) }}</span>
               </template>
               <template v-if="show('assignee')">
                 <span class="task-meta task-meta-assignee">
                   <img
-                    v-if="assigneeAvatar(task)"
-                    :src="assigneeAvatar(task)!"
-                    :alt="assigneeName(task)"
+                    v-if="assigneeAvatar(row.task)"
+                    :src="assigneeAvatar(row.task)!"
+                    :alt="assigneeName(row.task)"
                     class="avatar-18"
                   />
-                  <span v-else class="avatar-18 fallback">{{ assigneeInitial(task) }}</span>
-                  <span class="task-meta-label">{{ assigneeName(task) }}</span>
+                  <span v-else class="avatar-18 fallback">{{ assigneeInitial(row.task) }}</span>
+                  <span class="task-meta-label">{{ assigneeName(row.task) }}</span>
                 </span>
               </template>
               <template v-if="show('dueDate')">
-                <span class="task-meta" :class="{ overdue: isOverdue(task) }">{{ dueDateText(task) }}</span>
+                <span class="task-meta" :class="{ overdue: isOverdue(row.task) }">{{ dueDateText(row.task) }}</span>
               </template>
               <template v-if="show('updatedAt')">
-                <span class="task-meta">{{ updatedText(task) }}</span>
-              </template>
-              <template v-if="show('id')">
-                <span class="task-meta task-meta-id">{{ task.id }}</span>
+                <span class="task-meta">{{ updatedText(row.task) }}</span>
               </template>
             </div>
             <button
               type="button"
               class="task-row-add"
               aria-label="Add sub-issue"
-              :class="{ visible: rowHoveredId === task.id }"
-              @click.stop
+              :class="{ visible: rowHoveredId === row.task.id }"
+              @click.stop="onAddSubIssue($event, row.task)"
             >
               +
             </button>
@@ -395,9 +441,20 @@ function setHoveredId(id: string | null) {
 .task-row-content {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.task-row-title-cluster {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .task-row-title {
-  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-normal);
   color: var(--color-text-primary);
@@ -405,6 +462,58 @@ function setHoveredId(id: string | null) {
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.25;
+}
+.task-row-sub-count {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 36px;
+  height: 22px;
+  padding: 0 7px 0 6px;
+  font-size: 10px;
+  line-height: 1;
+  color: #5f6675;
+  background: #fbfcff;
+  border: 1px solid #d8deef;
+  border-radius: 999px;
+  box-sizing: border-box;
+}
+.task-row-sub-count.completed {
+  color: #59636f;
+  background: #fbfcfd;
+  border-color: #dce3ea;
+}
+.task-row-sub-count-ring {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  transform: rotate(-90deg);
+}
+.task-row-sub-count-track,
+.task-row-sub-count-progress {
+  fill: none;
+  stroke-width: 2;
+}
+.task-row-sub-count-track {
+  stroke: #dbe1f2;
+}
+.task-row-sub-count-progress {
+  stroke: #5f6eea;
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--transition-fast), stroke var(--transition-fast);
+}
+.task-row-sub-count.completed .task-row-sub-count-track {
+  stroke: #dce3ea;
+}
+.task-row-sub-count.completed .task-row-sub-count-progress {
+  stroke: #5f6eea;
+}
+.task-row-sub-count-text {
+  font-size: 11px;
+  font-weight: 450;
+  letter-spacing: -0.01em;
 }
 
 .task-row-trailing {

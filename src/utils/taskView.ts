@@ -1,10 +1,19 @@
 import type { Task, User } from '../types/domain'
 import type { GroupBy, ViewConfig } from './viewPreference'
 
+export interface TaskRow {
+  task: Task
+  depth: number
+  /** 子任务行展示用：父任务标题 */
+  parentTitle?: string
+}
+
 export interface TaskGroup {
   key: string
   label: string
   tasks: Task[]
+  /** Phase 7: 列表展示行（含子任务缩进），有则用 rows 渲染，否则用 tasks 且 depth=0 */
+  rows?: TaskRow[]
 }
 
 export interface AdjacentTaskIds {
@@ -96,14 +105,42 @@ function sortGroups(groups: TaskGroup[], groupBy: GroupBy) {
   return [...groups].sort((left, right) => left.label.localeCompare(right.label))
 }
 
+/** 某父任务下的子任务行（含深度与父标题），nested 时递归包含孙级。parentNumericId 为父任务后端主键，与 Task.parentId（字符串形式的父主键）匹配。 */
+function getDescendantRows(
+  allTasks: Task[],
+  parentNumericId: number,
+  parentTitle: string,
+  nested: boolean,
+  config: ViewConfig
+): TaskRow[] {
+  const parentIdStr = String(parentNumericId)
+  const children = allTasks.filter((t) => t.parentId != null && String(t.parentId) === parentIdStr)
+  const sorted = sortTasks(children, config)
+  const result: TaskRow[] = []
+  for (const task of sorted) {
+    result.push({ task, depth: 1, parentTitle })
+    if (nested && task.numericId != null) {
+      result.push(
+        ...getDescendantRows(allTasks, task.numericId, task.title, true, config).map((r) => ({
+          task: r.task,
+          depth: r.depth + 1,
+          parentTitle: r.parentTitle
+        }))
+      )
+    }
+  }
+  return result
+}
+
 export function buildTaskGroups(tasks: Task[], config: ViewConfig, users: User[] = []): TaskGroup[] {
   const source = config.completedVisibility === 'open_only'
     ? tasks.filter((task) => task.status !== 'done')
     : tasks
 
+  const topLevel = source.filter((t) => t.parentId == null)
   const grouped = new Map<string, TaskGroup>()
 
-  for (const task of sortTasks(source, config)) {
+  for (const task of sortTasks(topLevel, config)) {
     const meta = groupMeta(task, config.groupBy, users)
     const existing = grouped.get(meta.key)
     if (existing) {
@@ -142,7 +179,24 @@ export function buildTaskGroups(tasks: Task[], config: ViewConfig, users: User[]
     }
   }
 
-  return sortGroups([...grouped.values()], config.groupBy)
+  const out = sortGroups([...grouped.values()], config.groupBy)
+
+  if (config.showSubIssues) {
+    for (const group of out) {
+      const rows: TaskRow[] = []
+      for (const task of group.tasks) {
+        rows.push({ task, depth: 0 })
+        if (task.numericId != null) {
+          rows.push(
+            ...getDescendantRows(source, task.numericId, task.title, config.nestedSubIssues, config)
+          )
+        }
+      }
+      group.rows = rows
+    }
+  }
+
+  return out
 }
 
 export function getAdjacentTaskIds(taskIds: string[], currentTaskId: string | null): AdjacentTaskIds {

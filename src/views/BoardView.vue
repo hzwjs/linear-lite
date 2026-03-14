@@ -142,11 +142,19 @@ watch(
   }
 )
 
-/** P4-6.5: defaultStatus 用于列头 + 新建时指定默认状态 */
-function openCreateEditor(defaultStatus?: import('../types/domain').Status) {
+watch(
+  () => viewModeStore.viewConfig.showSubIssues,
+  () => {
+    if (projectStore.activeProjectId != null) store.fetchTasks()
+  }
+)
+
+/** P4-6.5: defaultStatus 用于列头 + 新建时指定默认状态；parentNumericId 用于列表行「Add sub-issue」 */
+function openCreateEditor(defaultStatus?: import('../types/domain').Status, parentNumericId?: number) {
   issuePanelStore.openComposer({
     status: defaultStatus,
-    projectId: projectStore.activeProjectId ?? undefined
+    projectId: projectStore.activeProjectId ?? undefined,
+    parentNumericId
   })
 }
 
@@ -164,6 +172,7 @@ function closeComposer() {
 }
 
 function handleCreated(taskId: string) {
+  store.fetchTasks()
   issuePanelStore.openWorkspace(taskId)
   router.push(`/tasks/${taskId}`)
 }
@@ -198,7 +207,10 @@ const taskGroups = computed(() =>
   buildTaskGroups(store.filteredTasks, viewModeStore.viewConfig, users.value)
 )
 const flatTaskIds = computed(() =>
-  taskGroups.value.flatMap((group) => group.tasks.map((task) => task.id))
+  taskGroups.value.flatMap((group) => {
+    const rows = group.rows ?? group.tasks.map((t) => ({ task: t, depth: 0 }))
+    return rows.map((r) => r.task.id)
+  })
 )
 const adjacentTaskIds = computed(() =>
   getAdjacentTaskIds(flatTaskIds.value, store.currentTaskId)
@@ -520,6 +532,28 @@ function navigateWorkspace(taskId: string) {
                 <span>{{ option.label }}</span>
               </label>
             </div>
+            <div class="popover-section popover-section--sub">
+              <span class="popover-label">Sub-issues</span>
+              <label class="popover-display-option">
+                <input
+                  type="checkbox"
+                  :checked="viewModeStore.viewConfig.showSubIssues"
+                  @change="viewModeStore.setShowSubIssues(!viewModeStore.viewConfig.showSubIssues)"
+                />
+                <span>Show sub-issues</span>
+              </label>
+              <label
+                v-if="viewModeStore.viewConfig.showSubIssues"
+                class="popover-display-option"
+              >
+                <input
+                  type="checkbox"
+                  :checked="viewModeStore.viewConfig.nestedSubIssues"
+                  @change="viewModeStore.setNestedSubIssues(!viewModeStore.viewConfig.nestedSubIssues)"
+                />
+                <span>Nested sub-issues</span>
+              </label>
+            </div>
           </div>
         </div>
       </div>
@@ -600,6 +634,7 @@ function navigateWorkspace(taskId: string) {
               :selected-task-id="issuePanelStore.selectedTaskId"
               @row-click="openEditEditor"
               @create-in-status="openCreateEditor"
+              @add-sub-issue="(task) => openCreateEditor(undefined, task.numericId)"
             />
           </div>
         </section>
@@ -609,6 +644,7 @@ function navigateWorkspace(taskId: string) {
     <IssueComposer
       :open="issuePanelStore.isComposerOpen"
       :default-status="issuePanelStore.composerDefaults.status"
+      :parent-numeric-id="issuePanelStore.composerDefaults.parentNumericId"
       @close="closeComposer"
       @created="handleCreated"
     />

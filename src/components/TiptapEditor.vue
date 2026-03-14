@@ -9,10 +9,14 @@ import ListItem from '@tiptap/extension-list-item'
 import OrderedList from '@tiptap/extension-ordered-list'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
-import CodeBlock from '@tiptap/extension-code-block'
+import { createLowlight, common } from 'lowlight'
+import { createCodeBlockLinear } from '../extensions/CodeBlockLinear'
 import Blockquote from '@tiptap/extension-blockquote'
+import Placeholder from '@tiptap/extension-placeholder'
 import { mdToHtml, htmlToMd } from '../utils/editorMarkdown'
 import TiptapSlashMenu from './TiptapSlashMenu.vue'
+
+const lowlight = createLowlight(common)
 
 const props = withDefaults(
   defineProps<{
@@ -33,10 +37,12 @@ const emit = defineEmits<{
 
 const slashMenuOpen = ref(false)
 const slashMenuPos = ref({ left: 0, top: 0 })
+const slashMenuSelection = ref<{ from: number; to: number } | null>(null)
 const editorWrapRef = ref<HTMLElement | null>(null)
 
-function openSlashMenu(left: number, top: number) {
+function openSlashMenu(left: number, top: number, from: number, to: number) {
   slashMenuPos.value = { left, top }
+  slashMenuSelection.value = { from, to }
   slashMenuOpen.value = true
 }
 
@@ -46,9 +52,11 @@ const slashMenuExtension = Extension.create({
     return {
       '/': () => {
         const { view, state } = this.editor
-        const pos = state.selection.from
-        const coords = view.coordsAtPos(pos)
-        openSlashMenu(coords.left, coords.bottom)
+        const { $from } = state.selection
+        if ($from.parent.type.name === 'codeBlock') return false
+        const { from, to } = state.selection
+        const coords = view.coordsAtPos(from)
+        openSlashMenu(coords.left, coords.bottom, from, to)
         return true
       },
     }
@@ -71,8 +79,12 @@ const editor = useEditor({
     OrderedList,
     TaskList,
     TaskItem,
-    CodeBlock,
+    createCodeBlockLinear({ lowlight, defaultLanguage: 'bash' }),
     Blockquote,
+    Placeholder.configure({
+      placeholder: props.placeholder,
+      emptyEditorClass: 'is-editor-empty',
+    }),
     slashMenuExtension,
   ],
   content: mdToHtml(props.modelValue ?? ''),
@@ -83,6 +95,20 @@ const editor = useEditor({
 
 function closeSlashMenu() {
   slashMenuOpen.value = false
+  slashMenuSelection.value = null
+}
+
+function focusEditor() {
+  editor.value?.commands.focus()
+}
+defineExpose({ focus: focusEditor })
+
+function onWrapMouseDown(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  if (!editorWrapRef.value?.contains(target)) return
+  if (target.closest('[data-slash-menu]')) return
+  if (target.closest('.code-block-linear')) return
+  editor.value?.commands.focus()
 }
 
 function onSlashMenuClose() {
@@ -122,16 +148,15 @@ watch(
   <div
     ref="editorWrapRef"
     class="tiptap-editor-wrap"
-    :style="{
-      minHeight: `${minHeight}px`,
-      '--placeholder-text': `'${placeholder}'`,
-    }"
+    :style="{ minHeight: `${minHeight}px` }"
+    @mousedown="onWrapMouseDown"
   >
     <EditorContent :editor="editor" />
     <TiptapSlashMenu
       :visible="slashMenuOpen"
       :position="slashMenuPos"
       :editor="editor ?? null"
+      :selection="slashMenuSelection"
       @close="onSlashMenuClose"
       @select="onSlashMenuClose"
     />
@@ -141,17 +166,42 @@ watch(
 <style scoped>
 .tiptap-editor-wrap {
   background: var(--color-bg-subtle);
+  cursor: text;
+  padding-top: 0;
 }
 .tiptap-editor-wrap :deep(.tiptap) {
   outline: none;
   color: var(--color-text-primary);
   font-size: var(--font-size-body);
+  padding: 0;
+  min-height: 2.5em;
 }
-.tiptap-editor-wrap :deep(.tiptap p.is-editor-empty:first-child::before) {
+.tiptap-editor-wrap :deep(.tiptap p:first-child) {
+  margin-top: 0;
+}
+.tiptap-editor-wrap :deep(.tiptap.is-editor-empty) {
+  min-height: 2.5em;
+}
+.tiptap-editor-wrap :deep(.tiptap.is-editor-empty p:first-child::before) {
   color: var(--color-text-muted);
-  content: var(--placeholder-text);
+  content: attr(data-placeholder);
   float: left;
   height: 0;
   pointer-events: none;
+}
+.tiptap-editor-wrap :deep(.tiptap p.is-editor-empty:first-child::before) {
+  color: var(--color-text-muted);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Blockquote：左边框 + 左内边距，与正文区分 */
+.tiptap-editor-wrap :deep(.tiptap blockquote) {
+  margin: 0.5em 0;
+  padding-left: 1em;
+  border-left: 4px solid var(--color-border-strong);
+  color: var(--color-text-secondary);
 }
 </style>

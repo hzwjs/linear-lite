@@ -1,4 +1,4 @@
--- Linear Lite 表结构
+-- Linear Lite 表结构（本项目不使用外键，表间关联由应用层维护）
 -- 执行前请先创建数据库：CREATE DATABASE IF NOT EXISTS linear_lite DEFAULT CHARACTER SET utf8mb4;
 
 USE linear_lite;
@@ -29,16 +29,15 @@ CREATE TABLE IF NOT EXISTS tasks (
     status      VARCHAR(32)  NOT NULL DEFAULT 'backlog',
     priority    VARCHAR(16)  DEFAULT 'medium',
     project_id  BIGINT       NOT NULL,
+    parent_id   BIGINT       DEFAULT NULL COMMENT '父任务 ID，NULL 表示顶层任务',
     creator_id  BIGINT       NOT NULL,
     assignee_id BIGINT       DEFAULT NULL,
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT fk_tasks_project  FOREIGN KEY (project_id)  REFERENCES projects (id) ON DELETE CASCADE,
-    CONSTRAINT fk_tasks_creator  FOREIGN KEY (creator_id)   REFERENCES users (id),
-    CONSTRAINT fk_tasks_assignee FOREIGN KEY (assignee_id)  REFERENCES users (id) ON DELETE SET NULL
+    updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE INDEX idx_tasks_project_id ON tasks (project_id);
+CREATE INDEX idx_tasks_parent_id  ON tasks (parent_id);
 CREATE INDEX idx_tasks_task_key ON tasks (task_key);
 CREATE INDEX idx_tasks_creator_id  ON tasks (creator_id);
 CREATE INDEX idx_tasks_assignee_id ON tasks (assignee_id);

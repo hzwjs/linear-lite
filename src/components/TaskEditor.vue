@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, computed, nextTick } from 'vue'
 
 const AUTO_SAVE_DEBOUNCE_MS = 600
 const SAVED_INDICATOR_MS = 2000
@@ -7,6 +7,7 @@ import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
 import { useProjectStore } from '../store/projectStore'
+import { useViewModeStore } from '../store/viewModeStore'
 import { userApi } from '../services/api/user'
 import TiptapEditor from './TiptapEditor.vue'
 import CustomSelect from './ui/CustomSelect.vue'
@@ -53,9 +54,15 @@ const emit = defineEmits<{
 
 const store = useTaskStore()
 const projectStore = useProjectStore()
+const viewModeStore = useViewModeStore()
 
 const formTitle = ref('')
 const formDescription = ref('')
+const descriptionEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
+
+function focusDescription() {
+  nextTick(() => descriptionEditorRef.value?.focus())
+}
 const formStatus = ref<Status>('todo')
 const formPriority = ref<Priority>('medium')
 const formAssigneeId = ref<string | number>('')
@@ -124,6 +131,108 @@ const taskProjectName = computed(() => {
   const p = projectStore.projects.find((x) => x.id === props.task!.projectId)
   return p?.name ?? null
 })
+
+/** Phase 7: 父任务（用于 Sub-issue of XXX 链接） */
+const parentTask = computed(() => {
+  if (!props.task?.parentId) return null
+  return store.tasks.find((t) => t.id === props.task!.parentId) ?? null
+})
+
+/** Phase 7: Sub-issues 区块 */
+const subIssuesCollapsed = ref(false)
+const subIssueRows = ref<{ task: Task; depth: number }[]>([])
+const subIssuesLoading = ref(false)
+const showSubIssueForm = ref(false)
+const subIssueFormTitle = ref('')
+const subIssueFormDescription = ref('')
+const subIssueFormStatus = ref<Status>('todo')
+const subIssueFormPriority = ref<Priority>('medium')
+const subIssueFormAssigneeId = ref<string | number>('')
+const subIssueSaving = ref(false)
+
+const subIssueCountDisplay = computed(() => {
+  const rows = subIssueRows.value
+  const total = rows.length
+  const done = rows.filter((r) => r.task.status === 'done').length
+  return { done, total }
+})
+
+async function loadSubIssues() {
+  if (props.mode !== 'edit' || !props.task?.id || props.task.numericId == null) {
+    subIssueRows.value = []
+    return
+  }
+  subIssuesLoading.value = true
+  try {
+    const direct = await store.fetchSubIssues(props.task.numericId)
+    const nested = viewModeStore.viewConfig.nestedSubIssues
+    if (!nested) {
+      subIssueRows.value = direct.map((t) => ({ task: t, depth: 0 }))
+      return
+    }
+    const rows: { task: Task; depth: number }[] = []
+    async function appendChildren(parentNumericId: number, depth: number) {
+      const children = await store.fetchSubIssues(parentNumericId)
+      for (const t of children) {
+        rows.push({ task: t, depth })
+        if (t.numericId != null) await appendChildren(t.numericId, depth + 1)
+      }
+    }
+    for (const t of direct) {
+      rows.push({ task: t, depth: 0 })
+      if (t.numericId != null) await appendChildren(t.numericId, 1)
+    }
+    subIssueRows.value = rows
+  } finally {
+    subIssuesLoading.value = false
+  }
+}
+
+function openSubIssueForm() {
+  showSubIssueForm.value = true
+  subIssueFormTitle.value = ''
+  subIssueFormDescription.value = ''
+  subIssueFormStatus.value = props.task?.status ?? 'todo'
+  subIssueFormPriority.value = props.task?.priority ?? 'medium'
+  subIssueFormAssigneeId.value = ''
+}
+
+function closeSubIssueForm() {
+  showSubIssueForm.value = false
+}
+
+async function submitSubIssue() {
+  if (!subIssueFormTitle.value.trim() || !props.task?.id || subIssueSaving.value) return
+  const parentNumericId = props.task.numericId
+  if (parentNumericId == null) return
+  subIssueSaving.value = true
+  try {
+    const newTask = await store.createTask({
+      title: subIssueFormTitle.value.trim(),
+      description: subIssueFormDescription.value.trim() || undefined,
+      status: subIssueFormStatus.value,
+      priority: subIssueFormPriority.value,
+      assigneeId: subIssueFormAssigneeId.value === '' ? null : Number(subIssueFormAssigneeId.value),
+      parentId: parentNumericId
+    })
+    subIssueRows.value = [...subIssueRows.value, { task: newTask, depth: 0 }]
+    subIssueFormTitle.value = ''
+    subIssueFormDescription.value = ''
+    closeSubIssueForm()
+  } finally {
+    subIssueSaving.value = false
+  }
+}
+
+watch(
+  () => [props.task?.id, props.mode],
+  () => loadSubIssues(),
+  { immediate: true }
+)
+watch(
+  () => viewModeStore.viewConfig.nestedSubIssues,
+  () => loadSubIssues()
+)
 
 onMounted(async () => {
   try {
@@ -308,6 +417,15 @@ function navigateTo(taskId: string | null | undefined) {
           <span v-if="task?.id" class="issue-id">{{ task.id }}</span>
           <h2>{{ mode === 'create' ? 'New issue' : 'Issue' }}</h2>
         </template>
+        <a
+          v-if="mode === 'edit' && parentTask"
+          href="#"
+          class="editor-parent-link"
+          @click.prevent="navigateTo(parentTask.id)"
+        >
+          Sub-issue of {{ parentTask.id }} {{ parentTask.title }}
+          <span v-if="(parentTask.subIssueCount ?? 0) > 0" class="editor-parent-count">{{ parentTask.completedSubIssueCount ?? 0 }}/{{ parentTask.subIssueCount }}</span>
+        </a>
         <button
           v-if="breadcrumbText"
           type="button"
@@ -350,15 +468,16 @@ function navigateTo(taskId: string | null | undefined) {
             placeholder="Issue title"
             rows="2"
             autofocus
-            @keydown.enter.exact.prevent
+            @keydown.enter.exact.prevent="focusDescription"
           />
         </section>
 
         <section class="content-section description-section">
           <TiptapEditor
+            ref="descriptionEditorRef"
             v-model="formDescription"
-            placeholder="Add description (Markdown supported)"
-            :min-height="160"
+            placeholder="Add description… Type / for formatting"
+            :min-height="64"
           />
         </section>
 
@@ -374,13 +493,100 @@ function navigateTo(taskId: string | null | undefined) {
           </button>
         </div>
 
-        <section class="content-section subdued linear-section">
-          <button type="button" class="linear-section-head" aria-expanded="true">
-            <span class="linear-section-title">Sub-issues</span>
-            <span class="linear-section-count">0/0</span>
-          </button>
-          <div class="linear-section-body">
-            <p class="linear-placeholder">No sub-issues. Add one to break down this task.</p>
+        <section v-if="mode === 'edit' && task" class="content-section subdued linear-section">
+          <div class="linear-section-head-wrap">
+            <button
+              type="button"
+              class="linear-section-head"
+              :aria-expanded="!subIssuesCollapsed"
+              @click="subIssuesCollapsed = !subIssuesCollapsed"
+            >
+              <span class="linear-section-chevron">{{ subIssuesCollapsed ? '▸' : '▾' }}</span>
+              <span class="linear-section-title">Sub-issues</span>
+              <span class="linear-section-count">{{ subIssueCountDisplay.done }}/{{ subIssueCountDisplay.total }}</span>
+            </button>
+            <label v-if="!subIssuesCollapsed" class="linear-section-display-opt">
+              <input
+                type="checkbox"
+                :checked="viewModeStore.viewConfig.nestedSubIssues"
+                @change="viewModeStore.setNestedSubIssues(!viewModeStore.viewConfig.nestedSubIssues)"
+              />
+              <span>Nested sub-issues</span>
+            </label>
+          </div>
+          <div v-show="!subIssuesCollapsed" class="linear-section-body">
+            <p v-if="subIssuesLoading" class="linear-placeholder">Loading…</p>
+            <template v-else>
+              <ul v-if="subIssueRows.length" class="linear-sub-list">
+                <li
+                  v-for="row in subIssueRows"
+                  :key="row.task.id"
+                  class="linear-sub-item"
+                  :style="{ paddingLeft: row.depth > 0 ? `${row.depth * 16}px` : undefined }"
+                >
+                  <button
+                    type="button"
+                    class="linear-sub-link"
+                    @click="navigateTo(row.task.id)"
+                  >
+                    <CheckCircle v-if="row.task.status === 'done'" class="icon-14 icon-done" />
+                    <Circle v-else class="icon-14 icon-circle" />
+                    <span>{{ row.task.title }}</span>
+                    <span v-if="(row.task.subIssueCount ?? 0) > 0" class="linear-sub-xy">{{ row.task.completedSubIssueCount ?? 0 }}/{{ row.task.subIssueCount }}</span>
+                  </button>
+                </li>
+              </ul>
+              <p v-else class="linear-placeholder">No sub-issues. Add one to break down this task.</p>
+              <button
+                v-if="!showSubIssueForm"
+                type="button"
+                class="linear-create-btn"
+                @click="openSubIssueForm"
+              >
+                Create new sub-issue
+              </button>
+              <div v-else class="linear-inline-form">
+                <input
+                  v-model="subIssueFormTitle"
+                  type="text"
+                  class="linear-inline-title"
+                  placeholder="Issue title"
+                  @keydown.enter.exact.prevent="submitSubIssue"
+                />
+                <div class="linear-inline-props">
+                  <CustomSelect
+                    v-model="subIssueFormStatus"
+                    :options="statusOptions"
+                    aria-label="Status"
+                    trigger-class="linear-inline-trigger"
+                  />
+                  <CustomSelect
+                    v-model="subIssueFormPriority"
+                    :options="priorityOptions"
+                    aria-label="Priority"
+                    trigger-class="linear-inline-trigger"
+                  />
+                  <CustomSelect
+                    v-model="subIssueFormAssigneeId"
+                    :options="assigneeOptions"
+                    placeholder="Assignee"
+                    aria-label="Assignee"
+                    trigger-class="linear-inline-trigger"
+                  />
+                </div>
+                <div class="linear-inline-actions">
+                  <button type="button" class="linear-inline-discard" @click="closeSubIssueForm">Discard</button>
+                  <button
+                    type="button"
+                    class="linear-inline-create"
+                    :disabled="!subIssueFormTitle.trim() || subIssueSaving"
+                    @click="submitSubIssue"
+                  >
+                    {{ subIssueSaving ? 'Creating…' : 'Create' }}
+                  </button>
+                </div>
+              </div>
+            </template>
           </div>
         </section>
 
@@ -533,6 +739,23 @@ function navigateTo(taskId: string | null | undefined) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.editor-parent-link {
+  display: block;
+  font-size: var(--font-size-caption);
+  color: var(--color-accent);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.editor-parent-link:hover {
+  text-decoration: underline;
+}
+.editor-parent-count {
+  margin-left: 6px;
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-normal);
+}
 .header-icon-btn {
   display: flex;
   align-items: center;
@@ -633,10 +856,11 @@ function navigateTo(taskId: string | null | undefined) {
 .editor-content {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   padding: 16px 20px 20px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 0;
   overflow-y: auto;
 }
 .content-meta {
@@ -656,15 +880,30 @@ function navigateTo(taskId: string | null | undefined) {
   flex-direction: column;
   gap: 6px;
 }
+/* 标题与描述保留间距，便于区分与点击 */
+.content-section--title {
+  margin-bottom: 0;
+  padding-bottom: 2px;
+  flex-shrink: 0;
+}
 .content-section--title .title-textarea {
-  font-size: 1.25rem;
+  font-size: 1.5rem;
   font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+.content-section.description-section {
+  margin-top: 14px;
+  padding-top: 0;
+  min-height: 0;
+  flex-shrink: 0;
 }
 .content-actions {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-top: -8px;
+  margin-top: -4px;
+  flex-shrink: 0;
 }
 .content-action-btn {
   display: flex;
@@ -685,14 +924,21 @@ function navigateTo(taskId: string | null | undefined) {
 .linear-section {
   padding-top: 12px;
   border-top: 1px solid var(--color-border-subtle);
+  flex-shrink: 0;
+}
+.linear-section-head-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 .linear-section-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
+  gap: 4px;
   padding: 0;
-  margin-bottom: 8px;
   border: none;
   background: transparent;
   font-size: var(--font-size-caption);
@@ -700,6 +946,10 @@ function navigateTo(taskId: string | null | undefined) {
   color: var(--color-text-primary);
   cursor: pointer;
   text-align: left;
+}
+.linear-section-chevron {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }
 .linear-section-head--static {
   cursor: default;
@@ -712,6 +962,14 @@ function navigateTo(taskId: string | null | undefined) {
   color: var(--color-text-muted);
   margin-left: 6px;
 }
+.linear-section-display-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
 .linear-section-body {
   padding-left: 0;
 }
@@ -719,6 +977,110 @@ function navigateTo(taskId: string | null | undefined) {
   margin: 0;
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
+}
+.linear-sub-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+.linear-sub-item {
+  margin: 2px 0;
+}
+.linear-sub-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.linear-sub-link:hover {
+  color: var(--color-accent);
+}
+.linear-sub-link .icon-done {
+  color: var(--color-status-done);
+}
+.linear-sub-link .icon-circle {
+  color: var(--color-text-muted);
+}
+.linear-sub-xy {
+  margin-left: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.linear-create-btn {
+  padding: 6px 0;
+  border: none;
+  background: transparent;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.linear-create-btn:hover {
+  color: var(--color-accent);
+}
+.linear-inline-form {
+  margin-top: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.linear-inline-title {
+  width: 100%;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-caption);
+  background: var(--color-bg-base);
+}
+.linear-inline-title:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+.linear-inline-props {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.linear-inline-actions {
+  display: flex;
+  gap: 8px;
+}
+.linear-inline-discard {
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.linear-inline-discard:hover {
+  color: var(--color-text-secondary);
+}
+.linear-inline-create {
+  padding: 4px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+.linear-inline-create:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.editor-props :deep(.linear-inline-trigger) {
+  min-height: 28px;
+  padding: 2px 8px;
+  font-size: var(--font-size-xs);
 }
 .activity-item {
   display: flex;
@@ -827,7 +1189,7 @@ function navigateTo(taskId: string | null | undefined) {
   border: none;
   resize: none;
   padding: 0;
-  line-height: 1.25;
+  line-height: 1.3;
   letter-spacing: var(--letter-spacing);
   background: transparent;
 }

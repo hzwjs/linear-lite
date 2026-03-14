@@ -15,10 +15,13 @@ public class TaskVO {
     private String status;
     private String priority;
     private Long projectId;
+    private Long parentId;
     private Long creatorId;
     private Long assigneeId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private Integer subIssueCount;
+    private Integer completedSubIssueCount;
 
     public Long getId() {
         return id;
@@ -76,6 +79,14 @@ public class TaskVO {
         this.projectId = projectId;
     }
 
+    public Long getParentId() {
+        return parentId;
+    }
+
+    public void setParentId(Long parentId) {
+        this.parentId = parentId;
+    }
+
     public Long getCreatorId() {
         return creatorId;
     }
@@ -106,5 +117,21 @@ public class TaskVO {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public Integer getSubIssueCount() {
+        return subIssueCount;
+    }
+
+    public void setSubIssueCount(Integer subIssueCount) {
+        this.subIssueCount = subIssueCount;
+    }
+
+    public Integer getCompletedSubIssueCount() {
+        return completedSubIssueCount;
+    }
+
+    public void setCompletedSubIssueCount(Integer completedSubIssueCount) {
+        this.completedSubIssueCount = completedSubIssueCount;
     }
 }

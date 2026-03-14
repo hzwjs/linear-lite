@@ -15,6 +15,10 @@ export interface ViewConfig {
   visibleProperties: VisibleProperty[]
   showEmptyGroups: boolean
   completedVisibility: CompletedVisibility
+  /** Phase 7: 列表是否显示子任务行 */
+  showSubIssues: boolean
+  /** Phase 7: 是否展示多级子任务（否则仅直接子任务） */
+  nestedSubIssues: boolean
 }
 
 export const DEFAULT_VIEW_CONFIG: ViewConfig = {
@@ -24,7 +28,9 @@ export const DEFAULT_VIEW_CONFIG: ViewConfig = {
   orderDirection: 'desc',
   visibleProperties: ['assignee', 'dueDate', 'priority'],
   showEmptyGroups: false,
-  completedVisibility: 'all'
+  completedVisibility: 'all',
+  showSubIssues: true,
+  nestedSubIssues: true
 }
 
 function isViewType(value: unknown): value is ViewType {
@@ -44,7 +50,9 @@ function normalizeConfig(value: unknown): ViewConfig {
       ? [...candidate.visibleProperties]
       : [...DEFAULT_VIEW_CONFIG.visibleProperties],
     showEmptyGroups: candidate.showEmptyGroups ?? DEFAULT_VIEW_CONFIG.showEmptyGroups,
-    completedVisibility: candidate.completedVisibility ?? DEFAULT_VIEW_CONFIG.completedVisibility
+    completedVisibility: candidate.completedVisibility ?? DEFAULT_VIEW_CONFIG.completedVisibility,
+    showSubIssues: candidate.showSubIssues ?? DEFAULT_VIEW_CONFIG.showSubIssues,
+    nestedSubIssues: candidate.nestedSubIssues ?? DEFAULT_VIEW_CONFIG.nestedSubIssues
   }
 }
 

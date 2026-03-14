@@ -1,6 +1,7 @@
 package com.linearlite.server.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
@@ -18,12 +19,21 @@ public class Task {
     private String status;
     private String priority;
     private Long projectId;
+    /** 父任务 ID，null 表示顶层任务 */
+    private Long parentId;
     private Long creatorId;
     private Long assigneeId;
     private LocalDateTime dueDate;
     private LocalDateTime completedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    /** 直接子任务数量，仅响应时由后端填充，不持久化 */
+    @TableField(exist = false)
+    private Integer subIssueCount;
+    /** 已完成的直接子任务数量，仅响应时由后端填充，不持久化 */
+    @TableField(exist = false)
+    private Integer completedSubIssueCount;
 
     public Long getId() {
         return id;
@@ -81,6 +91,14 @@ public class Task {
         this.projectId = projectId;
     }
 
+    public Long getParentId() {
+        return parentId;
+    }
+
+    public void setParentId(Long parentId) {
+        this.parentId = parentId;
+    }
+
     public Long getCreatorId() {
         return creatorId;
     }
@@ -127,5 +145,21 @@ public class Task {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public Integer getSubIssueCount() {
+        return subIssueCount;
+    }
+
+    public void setSubIssueCount(Integer subIssueCount) {
+        this.subIssueCount = subIssueCount;
+    }
+
+    public Integer getCompletedSubIssueCount() {
+        return completedSubIssueCount;
+    }
+
+    public void setCompletedSubIssueCount(Integer completedSubIssueCount) {
+        this.completedSubIssueCount = completedSubIssueCount;
     }
 }

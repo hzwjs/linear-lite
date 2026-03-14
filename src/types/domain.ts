@@ -3,6 +3,8 @@ export type Priority = 'low' | 'medium' | 'high' | 'urgent'
 
 export interface Task {
   id: string // 与后端 taskKey 一致，如 ENG-1，用于展示与 PUT 路径
+  /** 后端数据库主键，用于创建子任务时传 parentId、按父查子等 */
+  numericId?: number
   title: string
   description?: string
   status: Status
@@ -14,6 +16,12 @@ export interface Task {
   completedAt?: number | null // 实际完成时间，由后端在终态时写入
   createdAt: number
   updatedAt: number
+  /** Phase 7: 父任务 id，空为顶层 */
+  parentId?: string | null
+  /** 子任务总数（后端或前端计算） */
+  subIssueCount?: number
+  /** 已完成子任务数 */
+  completedSubIssueCount?: number
 }
 
 export interface Project {

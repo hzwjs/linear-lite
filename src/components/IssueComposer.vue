@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useTaskStore } from '../store/taskStore'
 import type { Priority, Status, User } from '../types/domain'
 import { userApi } from '../services/api/user'
+import TiptapEditor from './TiptapEditor.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
 import type { CustomSelectOption } from './ui/CustomSelect.vue'
@@ -11,15 +12,20 @@ import {
   ArrowUp,
   CheckCircle,
   Circle,
+  Eye,
   Flame,
+  Link2,
   Loader2,
   Minus,
+  Paperclip,
   User as UserIcon
 } from 'lucide-vue-next'
 
 const props = defineProps<{
   open: boolean
   defaultStatus?: Status
+  /** Phase 7: 创建子任务时传入父任务数据库 id */
+  parentNumericId?: number | null
 }>()
 
 const emit = defineEmits<{
@@ -38,6 +44,11 @@ const dueDate = ref('')
 const createMore = ref(false)
 const isSaving = ref(false)
 const userList = ref<User[]>([])
+const descriptionEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
+
+function focusDescription() {
+  nextTick(() => descriptionEditorRef.value?.focus())
+}
 
 const statusOptions: CustomSelectOption[] = [
   { value: 'todo', label: 'Todo', icon: Circle },
@@ -58,6 +69,14 @@ const assigneeOptions = computed<CustomSelectOption[]>(() => {
   }
   return list
 })
+
+function descriptionForSave(desc: string | undefined): string {
+  const s = (desc ?? '').trim()
+  if (!s) return ''
+  const emptyListLine = /^\s*[-*+]\s*$|^\s*\d+\.\s*$/
+  const onlyEmptyLists = s.split(/\n/).every((line) => !line.trim() || emptyListLine.test(line.trim()))
+  return onlyEmptyLists ? '' : s
+}
 
 function resetForm() {
   title.value = ''
@@ -100,11 +119,12 @@ async function handleCreate() {
   try {
     const task = await store.createTask({
       title: title.value.trim(),
-      description: description.value.trim() || undefined,
+      description: descriptionForSave(description.value) || undefined,
       status: status.value,
       priority: priority.value,
       assigneeId: assigneeId.value === '' ? null : Number(assigneeId.value),
-      dueDate: dueDateMs
+      dueDate: dueDateMs,
+      parentId: props.parentNumericId ?? undefined
     })
 
     if (createMore.value) {
@@ -140,19 +160,35 @@ async function handleCreate() {
         </div>
 
         <div class="composer-body">
-          <textarea
-            v-model="title"
-            class="composer-input composer-title-input"
-            placeholder="Issue title"
-            rows="2"
-            autofocus
-          />
-          <textarea
-            v-model="description"
-            class="composer-input composer-description-input"
-            placeholder="Add description..."
-            rows="3"
-          />
+          <section class="content-section content-section--title">
+            <input
+              v-model="title"
+              type="text"
+              class="composer-title-input"
+              placeholder="Issue title"
+              autofocus
+              @keydown.enter.exact.prevent="focusDescription"
+            />
+          </section>
+          <section class="content-section description-section">
+            <TiptapEditor
+              ref="descriptionEditorRef"
+              v-model="description"
+              placeholder="Add description… Type / for formatting"
+              :min-height="64"
+            />
+          </section>
+          <div class="content-actions">
+            <button type="button" class="content-action-btn" aria-label="Attach">
+              <Paperclip class="icon-14" />
+            </button>
+            <button type="button" class="content-action-btn" aria-label="Link">
+              <Link2 class="icon-14" />
+            </button>
+            <button type="button" class="content-action-btn" aria-label="Watchers">
+              <Eye class="icon-14" />
+            </button>
+          </div>
 
           <div class="composer-props">
             <CustomSelect
@@ -261,31 +297,81 @@ async function handleCreate() {
 .composer-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 0;
   padding: 18px;
 }
 
-.composer-input {
-  width: 100%;
-  resize: none;
-  border: none;
-  padding: 0;
-  background: transparent;
+/* 复刻详情页：标题 + 描述区 + 操作按钮 */
+.content-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.content-section--title {
+  margin-bottom: 0;
+  padding-bottom: 2px;
+}
+.content-section--title .composer-title-input {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+.content-section.description-section {
+  margin-top: 14px;
+  padding-top: 0;
+  min-height: 0;
 }
 
 .composer-title-input {
-  min-height: 52px;
-  font-size: 24px;
-  line-height: 1.2;
-  font-weight: 650;
+  width: 100%;
+  border: none;
+  padding: 0;
+  background: transparent;
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
+  line-height: 1.35;
+  letter-spacing: var(--letter-spacing, 0);
+}
+.composer-title-input::placeholder {
+  color: var(--color-text-muted);
+}
+.composer-title-input:focus {
+  outline: none;
 }
 
-.composer-description-input {
-  min-height: 72px;
-  font-size: 14px;
-  line-height: 1.6;
+.description-section {
+  position: relative;
+}
+
+.content-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: -4px;
+  margin-bottom: 14px;
+}
+.content-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.content-action-btn:hover {
   color: var(--color-text-secondary);
+  background: var(--color-bg-hover);
+}
+.content-action-btn .icon-14 {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 
 .composer-props {
@@ -338,8 +424,8 @@ async function handleCreate() {
     width: 100%;
   }
 
-  .composer-title-input {
-    font-size: 20px;
+  .content-section--title .composer-title-input {
+    font-size: 1.25rem;
   }
 }
 </style>

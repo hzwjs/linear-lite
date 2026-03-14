@@ -33,14 +33,18 @@ public class TaskController {
     }
 
     /**
-     * 按项目 ID 返回任务列表。
+     * 按项目 ID 返回任务列表。支持仅顶层或按父任务过滤。
      *
-     * @param projectId 必填，项目 ID
+     * @param projectId    必填，项目 ID
+     * @param topLevelOnly 为 true 时仅返回顶层任务（parent_id IS NULL）
+     * @param parentId     非空时仅返回该父任务下的直接子任务
      */
     @GetMapping
     public ResponseEntity<ApiResponse<List<Task>>> list(
-            @RequestParam Long projectId) {
-        List<Task> list = taskService.listByProjectId(projectId);
+            @RequestParam Long projectId,
+            @RequestParam(required = false) Boolean topLevelOnly,
+            @RequestParam(required = false) Long parentId) {
+        List<Task> list = taskService.listByProjectId(projectId, topLevelOnly, parentId);
         return ResponseEntity.ok(ApiResponse.success(list));
     }
 
@@ -55,6 +59,7 @@ public class TaskController {
         Task created = taskService.create(
                 body.getProjectId(),
                 userId,
+                body.getParentId(),
                 body.getTitle(),
                 body.getDescription(),
                 body.getStatus(),

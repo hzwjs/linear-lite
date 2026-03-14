@@ -8,6 +8,8 @@ import java.time.LocalDateTime;
 public class CreateTaskRequest {
 
     private Long projectId;
+    /** 父任务 ID，可选；传则创建为子任务 */
+    private Long parentId;
     private String title;
     private String description;
     private String status;
@@ -21,6 +23,14 @@ public class CreateTaskRequest {
 
     public void setProjectId(Long projectId) {
         this.projectId = projectId;
+    }
+
+    public Long getParentId() {
+        return parentId;
+    }
+
+    public void setParentId(Long parentId) {
+        this.parentId = parentId;
     }
 
     public String getTitle() {

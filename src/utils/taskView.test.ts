@@ -51,7 +51,9 @@ const baseConfig: ViewConfig = {
   orderDirection: 'desc',
   visibleProperties: ['priority'],
   showEmptyGroups: false,
-  completedVisibility: 'all'
+  completedVisibility: 'all',
+  showSubIssues: false,
+  nestedSubIssues: true
 }
 
 describe('buildTaskGroups', () => {

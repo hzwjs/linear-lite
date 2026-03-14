@@ -85,6 +85,20 @@ export const useViewModeStore = defineStore('viewModeStore', () => {
     }
   }
 
+  function setShowSubIssues(showSubIssues: boolean) {
+    viewConfig.value = {
+      ...viewConfig.value,
+      showSubIssues
+    }
+  }
+
+  function setNestedSubIssues(nestedSubIssues: boolean) {
+    viewConfig.value = {
+      ...viewConfig.value,
+      nestedSubIssues
+    }
+  }
+
   return {
     viewConfig,
     viewType,
@@ -95,6 +109,8 @@ export const useViewModeStore = defineStore('viewModeStore', () => {
     setOrderDirection,
     toggleVisibleProperty,
     setCompletedVisibility,
-    setShowEmptyGroups
+    setShowEmptyGroups,
+    setShowSubIssues,
+    setNestedSubIssues
   }
 })

@@ -5,6 +5,8 @@ import type { Status } from '../types/domain'
 export interface ComposerDefaults {
   status?: Status
   projectId?: number
+  /** Phase 7: 创建子任务时传入父任务数据库 id（number） */
+  parentNumericId?: number
 }
 
 export const useIssuePanelStore = defineStore('issuePanelStore', () => {

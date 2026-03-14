@@ -20,6 +20,9 @@ export interface ApiTask {
   completedAt?: string | null
   createdAt: string
   updatedAt: string
+  parentId?: number | string | null
+  subIssueCount?: number
+  completedSubIssueCount?: number
 }
 
 export interface LoginRequest {
@@ -41,6 +44,8 @@ export interface CreateTaskRequest {
   priority: string
   assigneeId?: number | null
   dueDate?: string | null // ISO 8601
+  /** 父任务数据库 id（Long），非 task_key */
+  parentId?: number | null
 }
 
 export interface UpdateTaskRequest {
@@ -50,4 +55,5 @@ export interface UpdateTaskRequest {
   priority?: string
   assigneeId?: number | null
   dueDate?: string | null // ISO 8601
+  parentId?: string | null
 }

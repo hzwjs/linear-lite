@@ -29,6 +29,8 @@ const props = defineProps<{
   visible: boolean
   position: { left: number; top: number }
   editor: Editor | null
+  /** 打开菜单时的选区，执行命令前先恢复，避免焦点在菜单时选区丢失 */
+  selection: { from: number; to: number } | null
 }>()
 
 const emit = defineEmits<{
@@ -51,7 +53,11 @@ watch(
 function runCommand(id: SlashMenuItemId) {
   const editor = props.editor
   if (!editor) return
-  const chain = editor.chain().focus()
+  const sel = props.selection
+  let chain = editor.chain().focus()
+  if (sel) {
+    chain = chain.setTextSelection({ from: sel.from, to: sel.to })
+  }
   switch (id) {
     case 'heading1':
       chain.setHeading({ level: 1 }).run()
@@ -72,7 +78,7 @@ function runCommand(id: SlashMenuItemId) {
       chain.toggleTaskList().run()
       break
     case 'codeBlock':
-      chain.setCodeBlock().run()
+      chain.insertContent({ type: 'codeBlock', attrs: { language: 'bash' }, content: [] }).run()
       break
     case 'blockquote':
       chain.toggleBlockquote().run()
@@ -145,7 +151,7 @@ function onSelect(id: SlashMenuItemId) {
 <style scoped>
 .slash-menu {
   position: fixed;
-  z-index: 100;
+  z-index: 250;
   min-width: 180px;
   padding: 4px 0;
   background: var(--color-bg-subtle);

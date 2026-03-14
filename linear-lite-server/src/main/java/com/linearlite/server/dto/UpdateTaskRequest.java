@@ -8,6 +8,10 @@ import java.time.LocalDateTime;
 public class UpdateTaskRequest {
 
     private String title;
+    /** 父任务 ID，可选；传具体 ID 时设为该父任务 */
+    private Long parentId;
+    /** 为 true 时解除父子关系（将 parent_id 置为 null）；与 parentId 二选一 */
+    private Boolean clearParent;
     private String description;
     private String status;
     private String priority;
@@ -20,6 +24,22 @@ public class UpdateTaskRequest {
 
     public void setTitle(String title) {
         this.title = title;
+    }
+
+    public Long getParentId() {
+        return parentId;
+    }
+
+    public void setParentId(Long parentId) {
+        this.parentId = parentId;
+    }
+
+    public Boolean getClearParent() {
+        return clearParent;
+    }
+
+    public void setClearParent(Boolean clearParent) {
+        this.clearParent = clearParent;
     }
 
     public String getDescription() {
