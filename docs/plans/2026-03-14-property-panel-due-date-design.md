@@ -53,6 +53,8 @@
 - **文件**: `src/components/TaskEditor.vue`，仅调整 `.editor-props` 的 width 为 min-width。
 - **文档**: 可在本设计文档或 `docs/` 下的前端/组件规范中追加「属性面板布局与弹出层」小节，注明上述规则。
 
+**Layout rule (属性面板与弹出层):** New controls in the property panel with wide popovers should use Teleport or limit width to avoid overflow clipping.
+
 ### 3.3 验收
 
 - 属性栏在 ≥1100px 视口下为至少 260px 宽，现有 Status/Priority/Assignee/Due Date 等控件正常显示与展开。
