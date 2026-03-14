@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -18,6 +18,7 @@ const emit = defineEmits<{
 const isOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
+const panelStyle = ref<{ top: string; left: string }>({ top: '0', left: '0' })
 const viewYear = ref(new Date().getFullYear())
 const viewMonth = ref(new Date().getMonth())
 
@@ -28,8 +29,24 @@ const displayText = computed(() => {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 })
 
+function updatePanelPosition() {
+  if (!triggerRef.value || !panelRef.value || !isOpen.value) return
+  const rect = triggerRef.value.getBoundingClientRect()
+  const panelWidth = 240
+  const panelHeight = 280
+  const viewportW = window.innerWidth
+  const viewportH = window.innerHeight
+  let left = rect.left
+  let top = rect.bottom + 4
+  if (rect.left + panelWidth > viewportW) left = rect.right - panelWidth
+  if (rect.bottom + panelHeight > viewportH && rect.top >= panelHeight)
+    top = rect.top - panelHeight - 4
+  panelStyle.value = { top: `${top}px`, left: `${left}px` }
+}
+
 function open() {
   isOpen.value = true
+  nextTick(() => updatePanelPosition())
   if (props.modelValue) {
     const d = new Date(props.modelValue + 'T00:00:00')
     if (!isNaN(d.getTime())) {
@@ -115,8 +132,29 @@ function handleClickOutside(e: MouseEvent) {
   }
 }
 
+let removeListeners: (() => void) | null = null
+watch(isOpen, (open) => {
+  if (removeListeners) {
+    removeListeners()
+    removeListeners = null
+  }
+  if (open) {
+    updatePanelPosition()
+    const onUpdate = () => updatePanelPosition()
+    window.addEventListener('resize', onUpdate)
+    window.addEventListener('scroll', onUpdate, true)
+    removeListeners = () => {
+      window.removeEventListener('resize', onUpdate)
+      window.removeEventListener('scroll', onUpdate, true)
+    }
+  }
+})
+
 onMounted(() => document.addEventListener('click', handleClickOutside))
-onUnmounted(() => document.removeEventListener('click', handleClickOutside))
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+  if (removeListeners) removeListeners()
+})
 </script>
 
 <template>
@@ -136,18 +174,20 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
       <span class="trigger-label" :class="{ placeholder: !modelValue }">{{ displayText }}</span>
       <span class="trigger-chevron" aria-hidden="true">▼</span>
     </button>
-    <div
-      v-show="isOpen"
-      id="date-picker-panel"
-      ref="panelRef"
-      class="custom-date-picker-panel"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Choose date"
-      tabindex="-1"
-      @keydown="onPanelKeydown"
-    >
-      <div class="calendar-header">
+    <Teleport to="body">
+      <div
+        v-show="isOpen"
+        id="date-picker-panel"
+        ref="panelRef"
+        class="custom-date-picker-panel"
+        :style="panelStyle"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Choose date"
+        tabindex="-1"
+        @keydown="onPanelKeydown"
+      >
+        <div class="calendar-header">
         <button type="button" class="nav-btn" aria-label="Previous month" @click="prevMonth">
           ‹
         </button>
@@ -179,7 +219,8 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
           <span v-else class="calendar-day pad"></span>
         </template>
       </div>
-    </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -217,10 +258,8 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
   color: var(--color-text-secondary);
 }
 .custom-date-picker-panel {
-  position: absolute;
+  position: fixed;
   z-index: 1000;
-  top: calc(100% + 4px);
-  left: 0;
   padding: 12px;
   background: var(--color-bg-main);
   border: 1px solid var(--color-border);
