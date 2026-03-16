@@ -11,6 +11,8 @@ import { useViewModeStore } from '../store/viewModeStore'
 import { useRouter } from 'vue-router'
 import { userApi } from '../services/api/user'
 import { activityApi } from '../services/api/activity'
+import { attachmentsApi } from '../services/api/attachments'
+import type { TaskAttachment } from '../services/api/types'
 import { formatTaskActivity, getActivityAvatarLabel } from '../utils/taskActivity'
 import { formatDateInputValue, parseDateInputValue } from '../utils/taskDate'
 import TiptapEditor from './TiptapEditor.vue'
@@ -69,10 +71,15 @@ const router = useRouter()
 
 const formTitle = ref('')
 const formDescription = ref('')
+const descriptionUploadState = ref({ hasPending: false, hasFailed: false })
 const descriptionEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
 
 function focusDescription() {
   nextTick(() => descriptionEditorRef.value?.focus())
+}
+
+function onDescriptionUploadStateChange(state: { hasPending: boolean; hasFailed: boolean }) {
+  descriptionUploadState.value = state
 }
 const formStatus = ref<Status>('backlog')
 const formPriority = ref<Priority>('medium')
@@ -82,6 +89,12 @@ const userList = ref<User[]>([])
 const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
 const activities = ref<TaskActivity[]>([])
 const activitiesLoading = ref(false)
+const attachmentInputRef = ref<HTMLInputElement | null>(null)
+const attachments = ref<TaskAttachment[]>([])
+const attachmentsLoading = ref(false)
+const attachmentUploadError = ref('')
+const attachmentsCollapsed = ref(false)
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024 // 10MB
 /** 刚由本端保存的任务 id，避免 save 后 loadForm 用接口返回值覆盖编辑器内容 */
 const justSavedTaskId = ref<string | null>(null)
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -262,11 +275,88 @@ async function submitSubIssue() {
   }
 }
 
+async function loadAttachments() {
+  if (props.mode !== 'edit' || !props.task?.id) {
+    attachments.value = []
+    return
+  }
+  attachmentsLoading.value = true
+  attachmentUploadError.value = ''
+  try {
+    attachments.value = await attachmentsApi.list(props.task.id)
+  } catch (e) {
+    console.error('Failed to load attachments:', e)
+    attachments.value = []
+  } finally {
+    attachmentsLoading.value = false
+  }
+}
+
+function openAttachmentInput() {
+  if (props.mode === 'edit' && props.task?.id) attachmentInputRef.value?.click()
+}
+
+function onAttachmentInputChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = input.files
+  if (!files?.length || !props.task?.id) return
+  attachmentUploadError.value = ''
+  const taskKey = props.task.id
+  ;(async () => {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      if (!file) continue
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        attachmentUploadError.value = `"${file.name}" 超过 10MB，已跳过`
+        continue
+      }
+      try {
+        await attachmentsApi.upload(taskKey, file)
+        await loadAttachments()
+      } catch (e) {
+        attachmentUploadError.value = e instanceof Error ? e.message : '上传失败'
+      }
+    }
+    input.value = ''
+  })()
+}
+
+function formatAttachmentSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function formatAttachmentDate(iso: string): string {
+  try {
+    const d = new Date(iso)
+    const now = new Date()
+    const diff = now.getTime() - d.getTime()
+    if (diff < 60 * 1000) return 'just now'
+    if (diff < 60 * 60 * 1000) return `${Math.floor(diff / 60000)}m ago`
+    if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / 3600000)}h ago`
+    return d.toLocaleDateString()
+  } catch {
+    return iso
+  }
+}
+
+async function deleteAttachment(att: TaskAttachment) {
+  if (!props.task?.id) return
+  try {
+    await attachmentsApi.delete(props.task.id, att.id)
+    await loadAttachments()
+  } catch (e) {
+    attachmentUploadError.value = e instanceof Error ? e.message : '删除失败'
+  }
+}
+
 watch(
   [() => props.task?.id, () => props.mode],
   () => {
     loadSubIssues()
     loadActivities()
+    loadAttachments()
   },
   { immediate: true }
 )
@@ -383,6 +473,7 @@ async function performAutoSave() {
     dueDate: props.task.dueDate ?? null
   }
   if (isPayloadEqual(payload, current)) return
+  if (descriptionUploadState.value.hasPending || descriptionUploadState.value.hasFailed) return
 
   saveStatus.value = 'saving'
   justSavedTaskId.value = props.task.id
@@ -416,6 +507,36 @@ function scheduleAutoSave() {
   }, AUTO_SAVE_DEBOUNCE_MS)
 }
 
+/** 仅描述与当前任务不同且其它字段相同：不触发防抖保存，等描述失焦时再保存，避免一次编辑产生多条活动。 */
+function isOnlyDescriptionDirty(
+  payload: { title: string; description?: string; status: Status; priority: Priority; assigneeId: number | null; dueDate?: number },
+  current: { title: string; description?: string; status: Status; priority: Priority; assigneeId: number | null; dueDate?: number | null }
+): boolean {
+  return (
+    descriptionForSave(payload.description) !== descriptionForSave(current.description) &&
+    payload.title === current.title &&
+    payload.status === current.status &&
+    payload.priority === current.priority &&
+    (payload.assigneeId ?? null) === (current.assigneeId ?? null) &&
+    (payload.dueDate ?? null) === (current.dueDate ?? null)
+  )
+}
+
+function onDescriptionBlur() {
+  if (props.mode !== 'edit' || !props.task) return
+  const payload = getPayload()
+  const current = {
+    title: props.task.title,
+    description: props.task.description,
+    status: props.task.status,
+    priority: props.task.priority,
+    assigneeId: props.task.assigneeId ?? null,
+    dueDate: props.task.dueDate ?? null
+  }
+  if (isPayloadEqual(payload, current)) return
+  void performAutoSave()
+}
+
 watch(
   () => [
     formTitle.value,
@@ -437,6 +558,7 @@ watch(
       dueDate: props.task.dueDate ?? null
     }
     if (isPayloadEqual(payload, current)) return
+    if (isOnlyDescriptionDirty(payload, current)) return
     scheduleAutoSave()
   },
   { deep: true }
@@ -537,17 +659,32 @@ async function toggleFavorite() {
           />
         </section>
 
-        <section class="content-section description-section">
-          <TiptapEditor
-            ref="descriptionEditorRef"
-            v-model="formDescription"
-            placeholder="Add description… Type / for formatting"
-            :min-height="64"
-          />
-        </section>
+          <section class="content-section description-section">
+            <TiptapEditor
+              ref="descriptionEditorRef"
+              v-model="formDescription"
+              @upload-state-change="onDescriptionUploadStateChange"
+              @blur="onDescriptionBlur"
+              placeholder="Add description… Type / for formatting"
+              :min-height="64"
+            />
+          </section>
 
+        <input
+          ref="attachmentInputRef"
+          type="file"
+          multiple
+          style="display: none"
+          @change="onAttachmentInputChange"
+        />
         <div class="content-actions">
-          <button type="button" class="content-action-btn" aria-label="Attach">
+          <button
+            type="button"
+            class="content-action-btn"
+            aria-label="Attach"
+            :disabled="mode !== 'edit' || !task"
+            @click="openAttachmentInput"
+          >
             <Paperclip class="icon-14" />
           </button>
           <button type="button" class="content-action-btn" aria-label="Link">
@@ -557,6 +694,42 @@ async function toggleFavorite() {
             <Eye class="icon-14" />
           </button>
         </div>
+
+        <section v-if="mode === 'edit' && task" class="content-section subdued linear-section">
+          <div class="linear-section-head-wrap">
+            <button
+              type="button"
+              class="linear-section-head"
+              :aria-expanded="!attachmentsCollapsed"
+              @click="attachmentsCollapsed = !attachmentsCollapsed"
+            >
+              <span class="linear-section-chevron">{{ attachmentsCollapsed ? '▸' : '▾' }}</span>
+              <span class="linear-section-title">Attachments</span>
+              <span class="linear-section-count">{{ attachments.length }}</span>
+            </button>
+          </div>
+          <div v-show="!attachmentsCollapsed" class="linear-section-body">
+            <p v-if="attachmentsLoading" class="linear-placeholder">Loading…</p>
+            <template v-else>
+              <p v-if="attachmentUploadError" class="linear-placeholder linear-placeholder--error">{{ attachmentUploadError }}</p>
+              <ul v-if="attachments.length" class="linear-sub-list">
+                <li v-for="att in attachments" :key="att.id" class="linear-sub-item linear-attachment-row">
+                  <a :href="att.url" :download="att.fileName" target="_blank" rel="noopener" class="linear-sub-link">{{ att.fileName }}</a>
+                  <span class="linear-sub-meta">{{ formatAttachmentSize(att.fileSize) }} · {{ formatAttachmentDate(att.createdAt) }}</span>
+                  <button
+                    type="button"
+                    class="content-action-btn linear-attachment-delete"
+                    aria-label="Delete attachment"
+                    @click="deleteAttachment(att)"
+                  >
+                    ×
+                  </button>
+                </li>
+              </ul>
+              <p v-else class="linear-placeholder">No attachments. Use the paperclip to add one.</p>
+            </template>
+          </div>
+        </section>
 
         <section v-if="mode === 'edit' && task" class="content-section subdued linear-section">
           <div class="linear-section-head-wrap">
@@ -664,21 +837,23 @@ async function toggleFavorite() {
           </div>
           <div class="linear-section-body">
             <div v-if="activitiesLoading" class="activity-empty">Loading activity…</div>
-            <template v-else-if="activities.length">
-              <div v-for="activity in activities" :key="activity.id" class="activity-item">
-                <div class="activity-avatar">{{ getActivityAvatarLabel(activity.actorName) }}</div>
+            <div v-else class="activity-list-wrap">
+              <template v-if="activities.length">
+                <div v-for="activity in activities" :key="activity.id" class="activity-item">
+                  <div class="activity-avatar">{{ getActivityAvatarLabel(activity.actorName) }}</div>
+                  <div class="activity-text">
+                    {{ formatTaskActivity(activity) }} · {{ relativeTimeFromNow(activity.createdAt) }}
+                  </div>
+                </div>
+              </template>
+              <div v-else-if="creatorName && createdAgoText" class="activity-item">
+                <div class="activity-avatar">{{ getActivityAvatarLabel(creatorName) }}</div>
                 <div class="activity-text">
-                  {{ formatTaskActivity(activity) }} · {{ relativeTimeFromNow(activity.createdAt) }}
+                  <strong>{{ creatorName }}</strong> created the issue · {{ createdAgoText }}
                 </div>
               </div>
-            </template>
-            <div v-else-if="creatorName && createdAgoText" class="activity-item">
-              <div class="activity-avatar">{{ getActivityAvatarLabel(creatorName) }}</div>
-              <div class="activity-text">
-                <strong>{{ creatorName }}</strong> created the issue · {{ createdAgoText }}
-              </div>
+              <div v-else class="activity-empty">No activity yet.</div>
             </div>
-            <div v-else class="activity-empty">No activity yet.</div>
             <div class="comment-input-wrap">
               <input
                 type="text"
@@ -997,13 +1172,13 @@ async function toggleFavorite() {
   flex-shrink: 0;
 }
 .content-section--title .title-textarea {
-  font-size: 1.5rem;
-  font-weight: 600;
-  line-height: 1.35;
-  letter-spacing: -0.02em;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.18;
+  letter-spacing: -0.035em;
 }
 .content-section.description-section {
-  margin-top: 14px;
+  margin-top: 6px;
   padding-top: 0;
   min-height: 0;
   flex-shrink: 0;
@@ -1123,6 +1298,28 @@ async function toggleFavorite() {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }
+.linear-attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.linear-attachment-row .linear-sub-link {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.linear-attachment-row .linear-sub-meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+.linear-attachment-row .linear-attachment-delete {
+  flex-shrink: 0;
+  padding: 2px 6px;
+}
+.linear-placeholder--error {
+  color: var(--color-text-error, #c00);
+}
 .linear-create-btn {
   padding: 6px 0;
   border: none;
@@ -1192,11 +1389,17 @@ async function toggleFavorite() {
   padding: 2px 8px;
   font-size: var(--font-size-xs);
 }
+.activity-list-wrap {
+  max-height: 220px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
 .activity-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+  min-height: 24px;
 }
 .activity-avatar {
   display: flex;
@@ -1216,6 +1419,8 @@ async function toggleFavorite() {
   font-size: var(--font-size-caption);
   color: var(--color-text-secondary);
   line-height: 1.4;
+  flex: 1;
+  min-width: 0;
 }
 .activity-empty {
   margin-bottom: 12px;
@@ -1305,14 +1510,14 @@ async function toggleFavorite() {
   border-top: 1px solid var(--color-border-subtle);
 }
 .title-textarea {
-  font-size: var(--font-size-subhead);
-  font-weight: var(--font-weight-semibold);
+  font-size: 2rem;
+  font-weight: 700;
   color: var(--color-text-primary);
   border: none;
   resize: none;
   padding: 0;
-  line-height: 1.3;
-  letter-spacing: var(--letter-spacing);
+  line-height: 1.18;
+  letter-spacing: -0.035em;
   background: transparent;
 }
 .title-textarea::placeholder {
