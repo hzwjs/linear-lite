@@ -105,3 +105,20 @@ export interface TaskImportResponse {
   subtaskCount: number
   taskKeys: string[]
 }
+
+export interface ImageUploadResponse {
+  url: string
+  key: string
+}
+
+/** 任务附件（列表与上传返回） */
+export interface TaskAttachment {
+  id: number
+  taskId?: number
+  objectKey?: string
+  fileName: string
+  fileSize: number
+  contentType?: string | null
+  url: string
+  createdAt: string
+}
