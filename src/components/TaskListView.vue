@@ -22,6 +22,7 @@ import { useTaskStore } from '../store/taskStore'
 import type { TaskGroup, TaskRow } from '../utils/taskView'
 import type { VisibleProperty } from '../utils/viewPreference'
 import { getSubtaskProgressDisplay } from '../utils/subtaskProgress'
+import { getInitials, getAvatarColor } from '../utils/avatar'
 
 const props = defineProps<{
   groups: TaskGroup[]
@@ -81,9 +82,12 @@ function hasAssignee(task: Task): boolean {
 }
 
 function assigneeInitial(task: Task): string {
-  const name = assigneeName(task)
-  if (name === 'Unassigned') return '—'
-  return name.slice(0, 1).toUpperCase()
+  return getInitials(assigneeName(task))
+}
+
+function assigneeFallbackStyle(task: Task): { background: string; color: string } | undefined {
+  if (task.assigneeId == null || !hasAssignee(task)) return undefined
+  return getAvatarColor(task.assigneeId)
 }
 
 function dueDateText(task: Task): string {
@@ -273,7 +277,11 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
                         :alt="assigneeName(row.task)"
                         class="avatar-18"
                       />
-                      <span v-else-if="hasAssignee(row.task)" class="avatar-18 fallback">{{ assigneeInitial(row.task) }}</span>
+                      <span
+                        v-else-if="hasAssignee(row.task)"
+                        class="avatar-18 fallback"
+                        :style="assigneeFallbackStyle(row.task)"
+                      >{{ assigneeInitial(row.task) }}</span>
                       <UserIcon v-else class="task-assignee-icon" aria-hidden="true" />
                     </span>
                   </span>
@@ -707,6 +715,7 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
   justify-content: center;
   font-size: 10px;
   font-weight: var(--font-weight-medium);
+  /* assigned fallback uses inline style from getAvatarColor; unassigned not shown here */
   background: var(--color-border);
   color: var(--color-text-secondary);
 }
