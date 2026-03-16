@@ -1,4 +1,5 @@
 import type { TaskActivity } from '../types/domain'
+import { getInitials } from './avatar'
 
 const STATUS_LABELS: Record<string, string> = {
   backlog: 'Backlog',
@@ -39,7 +40,7 @@ function formatFieldValue(fieldName: string | null | undefined, value: string | 
 export function getActivityAvatarLabel(actorName: string | null | undefined): string {
   const trimmed = (actorName ?? '').trim()
   if (!trimmed) return '?'
-  return trimmed[0]!.toUpperCase()
+  return getInitials(trimmed)
 }
 
 export function formatTaskActivity(activity: TaskActivity): string {

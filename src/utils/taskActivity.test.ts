@@ -42,9 +42,9 @@ describe('formatTaskActivity', () => {
     expect(formatTaskActivity(activity)).toBe('alice removed the issue from favorites')
   })
 
-  it('builds avatar initials from actor name', () => {
-    expect(getActivityAvatarLabel('Admin User')).toBe('A')
-    expect(getActivityAvatarLabel('alice')).toBe('A')
+  it('builds avatar initials from actor name (2 chars)', () => {
+    expect(getActivityAvatarLabel('Admin User')).toBe('AU')
+    expect(getActivityAvatarLabel('alice')).toBe('AL')
     expect(getActivityAvatarLabel('')).toBe('?')
   })
 })
