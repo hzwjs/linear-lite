@@ -6,6 +6,7 @@ interface ApiProject {
   id: number
   name: string
   identifier: string
+  creatorId: number
   createdAt: string
 }
 
@@ -14,6 +15,7 @@ function toProject(p: ApiProject): Project {
     id: p.id,
     name: p.name,
     identifier: p.identifier,
+    creatorId: p.creatorId,
     createdAt: p.createdAt
   }
 }
@@ -35,5 +37,13 @@ export const projectApi = {
     return api
       .put<ApiResponse<ApiProject>>(`/projects/${id}`, body)
       .then((res) => toProject(unwrap(res)))
+  },
+
+  delete(id: number): Promise<void> {
+    return api
+      .delete<ApiResponse<null>>(`/projects/${id}`)
+      .then((res) => {
+        unwrap(res)
+      })
   }
 }

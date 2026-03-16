@@ -33,6 +33,12 @@ function openProjectSettings(e: Event, p: Project) {
   settingsProject.value = p
 }
 
+function handleProjectDeleted() {
+  settingsProject.value = null
+  favoriteStore.fetchFavorites()
+  router.push('/')
+}
+
 function onLogout() {
   authStore.logout()
   router.push('/login')
@@ -272,6 +278,7 @@ onUnmounted(() => {
       :project="settingsProject"
       @close="settingsProject = null"
       @updated="() => {}"
+      @deleted="handleProjectDeleted"
     />
     <CommandPalette
       :open="commandPaletteOpen"

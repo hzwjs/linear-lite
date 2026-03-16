@@ -17,8 +17,11 @@ CREATE TABLE IF NOT EXISTS projects (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     name        VARCHAR(128) NOT NULL,
     identifier  VARCHAR(16)  NOT NULL UNIQUE COMMENT 'Issue ID 前缀，如 ENG, PROD',
+    creator_id  BIGINT       NOT NULL,
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE INDEX idx_projects_creator_id ON projects (creator_id);
 
 -- 任务表（task_key 为对外展示的任务 ID，格式：项目 identifier + '-' + 项目内序号，如 ENG-1, PROD-2）
 CREATE TABLE IF NOT EXISTS tasks (

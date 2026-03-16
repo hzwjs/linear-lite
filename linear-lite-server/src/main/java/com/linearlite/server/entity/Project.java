@@ -13,6 +13,7 @@ public class Project {
     private Long id;
     private String name;
     private String identifier;
+    private Long creatorId;
     private LocalDateTime createdAt;
 
     public Long getId() {
@@ -37,6 +38,14 @@ public class Project {
 
     public void setIdentifier(String identifier) {
         this.identifier = identifier;
+    }
+
+    public Long getCreatorId() {
+        return creatorId;
+    }
+
+    public void setCreatorId(Long creatorId) {
+        this.creatorId = creatorId;
     }
 
     public LocalDateTime getCreatedAt() {

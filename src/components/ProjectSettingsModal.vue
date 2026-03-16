@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { Project } from '../types/domain'
 import { useProjectStore } from '../store/projectStore'
+import { useAuthStore } from '../store/authStore'
 
 const props = defineProps<{
   open: boolean
@@ -11,13 +12,18 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: []
   updated: []
+  deleted: []
 }>()
 
 const projectStore = useProjectStore()
+const authStore = useAuthStore()
 const name = ref('')
 const identifier = ref('')
 const isSubmitting = ref(false)
 const error = ref('')
+const canDelete = computed(
+  () => !!props.project && authStore.currentUser?.id === props.project.creatorId
+)
 
 watch(
   () => [props.open, props.project] as const,
@@ -55,6 +61,26 @@ async function submit() {
   }
 }
 
+async function removeProject() {
+  if (!props.project || !canDelete.value || isSubmitting.value) return
+  const confirmed = window.confirm(
+    `Delete project "${props.project.name}" and all its tasks? This cannot be undone.`
+  )
+  if (!confirmed) return
+
+  isSubmitting.value = true
+  error.value = ''
+  try {
+    await projectStore.deleteProject(props.project.id)
+    emit('deleted')
+    emit('close')
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Delete failed'
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
 function close() {
   if (!isSubmitting.value) emit('close')
 }
@@ -82,6 +108,20 @@ function close() {
           />
         </div>
         <p v-if="error" class="error-msg">{{ error }}</p>
+        <div v-if="canDelete" class="danger-zone">
+          <div>
+            <p class="danger-zone-title">Delete project</p>
+            <p class="danger-zone-text">This deletes the project and all tasks permanently.</p>
+          </div>
+          <button
+            type="button"
+            class="btn-danger"
+            :disabled="isSubmitting"
+            @click="removeProject"
+          >
+            {{ isSubmitting ? 'Deleting...' : 'Delete project' }}
+          </button>
+        </div>
         <div class="modal-footer">
           <button type="button" class="btn-cancel" @click="close">Cancel</button>
           <button type="submit" class="btn-primary" :disabled="isSubmitting">
@@ -167,6 +207,26 @@ function close() {
   gap: 12px;
   margin-top: 16px;
 }
+.danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+.danger-zone-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #c23b3f;
+}
+.danger-zone-text {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
 .btn-cancel {
   padding: 8px 16px;
   border-radius: var(--border-radius-sm);
@@ -190,6 +250,22 @@ function close() {
   background: var(--color-accent-hover);
 }
 .btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btn-danger {
+  padding: 8px 16px;
+  border-radius: var(--border-radius-sm);
+  background: #d64545;
+  color: white;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-danger:hover:not(:disabled) {
+  background: #bd3737;
+}
+.btn-danger:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

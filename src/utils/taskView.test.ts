@@ -103,9 +103,13 @@ describe('buildTaskGroups', () => {
     )
 
     expect(groups.map((group) => ({ key: group.key, count: group.tasks.length }))).toEqual([
+      { key: 'backlog', count: 0 },
       { key: 'todo', count: 1 },
       { key: 'in_progress', count: 0 },
-      { key: 'done', count: 0 }
+      { key: 'in_review', count: 0 },
+      { key: 'done', count: 0 },
+      { key: 'canceled', count: 0 },
+      { key: 'duplicate', count: 0 }
     ])
   })
 

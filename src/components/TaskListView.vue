@@ -8,7 +8,11 @@ import {
 } from './icons/PriorityIcons'
 import {
   Circle,
+  CircleDashed,
+  CircleX,
   CheckCircle,
+  Copy,
+  Eye,
   Loader2,
   User as UserIcon
 } from 'lucide-vue-next'
@@ -46,9 +50,13 @@ const priorityIcons: Record<Priority, typeof PriorityUrgentIcon> = {
 }
 
 const statusIcons: Record<Status, typeof Circle> = {
+  backlog: CircleDashed,
   todo: Circle,
   in_progress: Loader2,
-  done: CheckCircle
+  in_review: Eye,
+  done: CheckCircle,
+  canceled: CircleX,
+  duplicate: Copy
 }
 
 function toggle(groupKey: string) {
@@ -92,16 +100,21 @@ function projectText(task: Task): string | null {
   return `P-${task.projectId}`
 }
 
+const TERMINAL_STATUSES: Status[] = ['done', 'canceled', 'duplicate']
 function isOverdue(task: Task): boolean {
-  if (task.dueDate == null || task.status === 'done') return false
+  if (task.dueDate == null || TERMINAL_STATUSES.includes(task.status)) return false
   return task.dueDate < Date.now()
 }
 
 function statusLabel(s: Status): string {
   const map: Record<Status, string> = {
+    backlog: 'Backlog',
     todo: 'Todo',
     in_progress: 'In Progress',
-    done: 'Done'
+    in_review: 'In Review',
+    done: 'Done',
+    canceled: 'Canceled',
+    duplicate: 'Duplicate'
   }
   return map[s]
 }
@@ -588,14 +601,20 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
   white-space: nowrap;
   min-width: 0;
 }
+.task-meta-status.backlog,
 .task-meta-status.todo {
   color: var(--color-text-secondary);
 }
-.task-meta-status.in_progress {
+.task-meta-status.in_progress,
+.task-meta-status.in_review {
   color: var(--color-status-in-progress);
 }
 .task-meta-status.done {
   color: var(--color-status-done);
+}
+.task-meta-status.canceled,
+.task-meta-status.duplicate {
+  color: var(--color-text-muted);
 }
 .task-meta.overdue {
   color: var(--color-status-warning);

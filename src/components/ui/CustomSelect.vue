@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import type { Component } from 'vue'
+import { Check } from 'lucide-vue-next'
 
 export interface CustomSelectOption {
   value: string | number | null
   label: string
   icon?: Component
+  /** Linear 风格：选项右侧数字快捷键，如 "1" "2" "3" */
+  shortcut?: string
 }
 
 const props = withDefaults(
@@ -15,6 +18,10 @@ const props = withDefaults(
     placeholder?: string
     ariaLabel?: string
     triggerClass?: string
+    /** Linear 风格：下拉顶部占位文案，如 "Change status..." */
+    searchPlaceholder?: string
+    /** 占位输入框右侧快捷键角标，如 "S" */
+    searchShortcutBadge?: string
   }>(),
   { placeholder: 'Select…', ariaLabel: 'Select option', triggerClass: '' }
 )
@@ -99,6 +106,14 @@ function onListKeydown(e: KeyboardEvent) {
     if (opt) select(opt)
     return
   }
+  // Linear 风格：数字键直接选对应 shortcut 的选项
+  if (e.key >= '1' && e.key <= '9') {
+    const opt = props.options.find((o) => o.shortcut === e.key)
+    if (opt) {
+      e.preventDefault()
+      select(opt)
+    }
+  }
 }
 
 function handleClickOutside(e: MouseEvent) {
@@ -156,6 +171,17 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
       "
       @keydown="onListKeydown"
     >
+      <div v-if="searchPlaceholder" class="custom-select-search">
+        <input
+          type="text"
+          class="custom-select-search-input"
+          :placeholder="searchPlaceholder"
+          readonly
+          tabindex="-1"
+          aria-label="Search"
+        />
+        <kbd v-if="searchShortcutBadge" class="custom-select-search-badge">{{ searchShortcutBadge }}</kbd>
+      </div>
       <button
         v-for="(opt, i) in options"
         :id="`opt-${opt.value}`"
@@ -171,6 +197,12 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
           <component :is="opt.icon" :size="18" />
         </span>
         <span class="option-label">{{ opt.label }}</span>
+        <span v-if="opt.value === modelValue" class="option-check" aria-hidden="true">
+          <Check :size="16" />
+        </span>
+        <span v-else-if="opt.shortcut" class="option-shortcut">
+          <kbd>{{ opt.shortcut }}</kbd>
+        </span>
       </button>
     </div>
   </div>
@@ -229,6 +261,33 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
   box-shadow: var(--shadow-popover);
   outline: none;
 }
+.custom-select-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 8px;
+  border-bottom: 1px solid var(--color-border-subtle, var(--color-border));
+}
+.custom-select-search-input {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: var(--font-size-caption, 13px);
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  outline: none;
+}
+.custom-select-search-input::placeholder {
+  color: var(--color-text-muted, var(--color-text-secondary));
+}
+.custom-select-search-badge {
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--color-bg-muted, #eee);
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
 .custom-select-option {
   display: flex;
   align-items: center;
@@ -243,6 +302,9 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
   cursor: pointer;
   transition: background var(--transition-fast);
 }
+.custom-select-option .option-label {
+  flex: 1;
+}
 .custom-select-option:hover,
 .custom-select-option.highlighted {
   background: var(--color-hover);
@@ -253,5 +315,22 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
 .option-icon {
   display: inline-flex;
   color: var(--color-text-primary);
+}
+.option-check {
+  display: inline-flex;
+  color: var(--color-text-primary);
+  margin-left: auto;
+}
+.option-shortcut {
+  margin-left: auto;
+}
+.option-shortcut kbd {
+  font-size: var(--font-size-xs, 11px);
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--color-bg-muted, #eee);
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  font-family: inherit;
 }
 </style>

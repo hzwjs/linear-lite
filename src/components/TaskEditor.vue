@@ -25,13 +25,16 @@ import {
 } from './icons/PriorityIcons'
 import {
   Circle,
+  CircleDashed,
   Loader2,
   CheckCircle,
+  CircleX,
+  Copy,
+  Eye,
   User as UserIcon,
   Star,
   Paperclip,
   Link2,
-  Eye,
   Tag,
   Folder,
   Send
@@ -71,7 +74,7 @@ const descriptionEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
 function focusDescription() {
   nextTick(() => descriptionEditorRef.value?.focus())
 }
-const formStatus = ref<Status>('todo')
+const formStatus = ref<Status>('backlog')
 const formPriority = ref<Priority>('medium')
 const formAssigneeId = ref<string | number>('')
 const formDueDate = ref('') // YYYY-MM-DD for input[type=date]
@@ -84,9 +87,13 @@ const justSavedTaskId = ref<string | null>(null)
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 const statusOptions: CustomSelectOption[] = [
-  { value: 'todo', label: 'Todo', icon: Circle },
-  { value: 'in_progress', label: 'In Progress', icon: Loader2 },
-  { value: 'done', label: 'Done', icon: CheckCircle }
+  { value: 'backlog', label: 'Backlog', icon: CircleDashed, shortcut: '1' },
+  { value: 'todo', label: 'Todo', icon: Circle, shortcut: '2' },
+  { value: 'in_progress', label: 'In Progress', icon: Loader2, shortcut: '3' },
+  { value: 'in_review', label: 'In Review', icon: Eye, shortcut: '4' },
+  { value: 'done', label: 'Done', icon: CheckCircle, shortcut: '5' },
+  { value: 'canceled', label: 'Canceled', icon: CircleX, shortcut: '6' },
+  { value: 'duplicate', label: 'Duplicate', icon: Copy, shortcut: '7' }
 ]
 const priorityOptions: CustomSelectOption[] = [
   { value: 'low', label: 'Low', icon: PriorityLowIcon },
@@ -160,7 +167,7 @@ const subIssuesLoading = ref(false)
 const showSubIssueForm = ref(false)
 const subIssueFormTitle = ref('')
 const subIssueFormDescription = ref('')
-const subIssueFormStatus = ref<Status>('todo')
+const subIssueFormStatus = ref<Status>('backlog')
 const subIssueFormPriority = ref<Priority>('medium')
 const subIssueFormAssigneeId = ref<string | number>('')
 const subIssueSaving = ref(false)
@@ -221,7 +228,7 @@ function openSubIssueForm() {
   showSubIssueForm.value = true
   subIssueFormTitle.value = ''
   subIssueFormDescription.value = ''
-  subIssueFormStatus.value = props.task?.status ?? 'todo'
+  subIssueFormStatus.value = props.task?.status ?? 'backlog'
   subIssueFormPriority.value = props.task?.priority ?? 'medium'
   subIssueFormAssigneeId.value = ''
 }
@@ -298,7 +305,7 @@ const loadForm = () => {
   } else {
     formTitle.value = ''
     formDescription.value = ''
-    formStatus.value = props.defaultStatus ?? 'todo'
+    formStatus.value = props.defaultStatus ?? 'backlog'
     formPriority.value = 'medium'
     formAssigneeId.value = ''
     formDueDate.value = ''
@@ -318,7 +325,7 @@ watch(
 )
 watch(() => props.mode, loadForm)
 watch(() => props.defaultStatus, () => {
-  if (props.mode === 'create') formStatus.value = props.defaultStatus ?? 'todo'
+  if (props.mode === 'create') formStatus.value = props.defaultStatus ?? 'backlog'
 })
 
 function getPayload() {
@@ -604,6 +611,8 @@ async function toggleFavorite() {
                   <CustomSelect
                     v-model="subIssueFormStatus"
                     :options="statusOptions"
+                    search-placeholder="Change status..."
+                    search-shortcut-badge="S"
                     aria-label="Status"
                     trigger-class="linear-inline-trigger"
                   />
@@ -688,6 +697,8 @@ async function toggleFavorite() {
               id="task-status"
               v-model="formStatus"
               :options="statusOptions"
+              search-placeholder="Change status..."
+              search-shortcut-badge="S"
               aria-label="Status"
               trigger-class="prop-trigger prop-trigger--linear"
             />

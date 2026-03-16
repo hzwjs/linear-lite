@@ -49,14 +49,17 @@ const projectText = computed(() => {
 })
 const show = (property: VisibleProperty) => props.visibleProperties?.includes(property) ?? false
 
+const TERMINAL_STATUSES: Status[] = ['done', 'canceled', 'duplicate']
 const isOverdue = computed(() => {
-  if (props.task.dueDate == null || props.task.status === 'done') return false
+  if (props.task.dueDate == null || TERMINAL_STATUSES.includes(props.task.status)) return false
   return props.task.dueDate < Date.now()
 })
 
 const getNextStatus = (current: Status): Status | null => {
+  if (current === 'backlog') return 'todo'
   if (current === 'todo') return 'in_progress'
-  if (current === 'in_progress') return 'done'
+  if (current === 'in_progress') return 'in_review'
+  if (current === 'in_review') return 'done'
   return null
 }
 

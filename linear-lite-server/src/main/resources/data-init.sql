@@ -13,7 +13,10 @@ INSERT INTO users (username, password, avatar_url) VALUES
 ON DUPLICATE KEY UPDATE username = username;
 
 -- 示例项目（与 implementation plan 中 Engineering / Design 对应）
-INSERT INTO projects (name, identifier) VALUES
-    ('Engineering', 'ENG'),
-    ('Design',      'DES')
-ON DUPLICATE KEY UPDATE name = VALUES(name);
+INSERT INTO projects (name, identifier, creator_id)
+SELECT 'Engineering', 'ENG', id FROM users WHERE username = 'admin'
+UNION ALL
+SELECT 'Design', 'DES', id FROM users WHERE username = 'alice'
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    creator_id = VALUES(creator_id);

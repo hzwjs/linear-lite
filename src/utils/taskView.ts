@@ -23,12 +23,24 @@ export interface AdjacentTaskIds {
   total: number
 }
 
-const STATUS_ORDER: Task['status'][] = ['todo', 'in_progress', 'done']
+const STATUS_ORDER: Task['status'][] = [
+  'backlog',
+  'todo',
+  'in_progress',
+  'in_review',
+  'done',
+  'canceled',
+  'duplicate'
+]
 const PRIORITY_ORDER: Task['priority'][] = ['urgent', 'high', 'medium', 'low']
 const STATUS_LABELS: Record<Task['status'], string> = {
+  backlog: 'Backlog',
   todo: 'Todo',
   in_progress: 'In Progress',
-  done: 'Done'
+  in_review: 'In Review',
+  done: 'Done',
+  canceled: 'Canceled',
+  duplicate: 'Duplicate'
 }
 
 function comparePriority(a: Task['priority'], b: Task['priority']) {
@@ -132,9 +144,11 @@ function getDescendantRows(
   return result
 }
 
+const TERMINAL_STATUSES: Task['status'][] = ['done', 'canceled', 'duplicate']
+
 export function buildTaskGroups(tasks: Task[], config: ViewConfig, users: User[] = []): TaskGroup[] {
   const source = config.completedVisibility === 'open_only'
-    ? tasks.filter((task) => task.status !== 'done')
+    ? tasks.filter((task) => !TERMINAL_STATUSES.includes(task.status))
     : tasks
 
   const topLevel = source.filter((t) => t.parentId == null)

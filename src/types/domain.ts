@@ -1,4 +1,11 @@
-export type Status = 'todo' | 'in_progress' | 'done'
+export type Status =
+  | 'backlog'
+  | 'todo'
+  | 'in_progress'
+  | 'in_review'
+  | 'done'
+  | 'canceled'
+  | 'duplicate'
 export type Priority = 'low' | 'medium' | 'high' | 'urgent'
 
 export interface Task {
@@ -40,6 +47,7 @@ export interface Project {
   id: number
   name: string
   identifier: string
+  creatorId: number
   createdAt: string // ISO 字符串，如需数字可再转
 }
 

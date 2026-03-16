@@ -11,8 +11,11 @@ export const useProjectStore = defineStore('projectStore', () => {
     const list = await projectApi.list()
     projects.value = list
     const first = list[0]
-    if (first && activeProjectId.value == null) {
+    const activeStillExists = list.some((project) => project.id === activeProjectId.value)
+    if (first && (activeProjectId.value == null || !activeStillExists)) {
       activeProjectId.value = first.id
+    } else if (!first) {
+      activeProjectId.value = null
     }
     return list
   }
@@ -37,12 +40,21 @@ export const useProjectStore = defineStore('projectStore', () => {
     return project
   }
 
+  async function deleteProject(id: number) {
+    await projectApi.delete(id)
+    projects.value = projects.value.filter((project) => project.id !== id)
+    if (activeProjectId.value === id) {
+      activeProjectId.value = projects.value[0]?.id ?? null
+    }
+  }
+
   return {
     projects,
     activeProjectId,
     fetchProjects,
     setActiveProject,
     createProject,
-    updateProject
+    updateProject,
+    deleteProject
   }
 })

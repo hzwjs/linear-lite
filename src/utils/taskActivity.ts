@@ -1,9 +1,13 @@
 import type { TaskActivity } from '../types/domain'
 
 const STATUS_LABELS: Record<string, string> = {
+  backlog: 'Backlog',
   todo: 'Todo',
   in_progress: 'In Progress',
-  done: 'Done'
+  in_review: 'In Review',
+  done: 'Done',
+  canceled: 'Canceled',
+  duplicate: 'Duplicate'
 }
 
 const PRIORITY_LABELS: Record<string, string> = {

@@ -23,10 +23,14 @@ import {
 } from '../components/icons/PriorityIcons'
 import {
   Circle,
-  Loader2,
+  CircleDashed,
+  CircleX,
   CheckCircle,
+  Copy,
+  Eye,
   Filter,
   LayoutList,
+  Loader2,
   Plus
 } from 'lucide-vue-next'
 import { buildTaskGroups, getAdjacentTaskIds } from '../utils/taskView'
@@ -34,9 +38,13 @@ import type { CompletedVisibility, GroupBy, OrderBy, VisibleProperty } from '../
 
 const filterStatusOptions: CustomSelectOption[] = [
   { value: null, label: 'All Status' },
+  { value: 'backlog', label: 'Backlog', icon: CircleDashed },
   { value: 'todo', label: 'Todo', icon: Circle },
   { value: 'in_progress', label: 'In Progress', icon: Loader2 },
-  { value: 'done', label: 'Done', icon: CheckCircle }
+  { value: 'in_review', label: 'In Review', icon: Eye },
+  { value: 'done', label: 'Done', icon: CheckCircle },
+  { value: 'canceled', label: 'Canceled', icon: CircleX },
+  { value: 'duplicate', label: 'Duplicate', icon: Copy }
 ]
 const filterPriorityOptions: CustomSelectOption[] = [
   { value: null, label: 'All Priorities' },

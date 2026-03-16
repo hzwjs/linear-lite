@@ -17,6 +17,9 @@ import {
 import {
   CheckCircle,
   Circle,
+  CircleDashed,
+  CircleX,
+  Copy,
   Eye,
   Link2,
   Loader2,
@@ -40,7 +43,7 @@ const store = useTaskStore()
 
 const title = ref('')
 const description = ref('')
-const status = ref<Status>('todo')
+const status = ref<Status>('backlog')
 const priority = ref<Priority>('medium')
 const assigneeId = ref<string | number>('')
 const dueDate = ref('')
@@ -54,9 +57,13 @@ function focusDescription() {
 }
 
 const statusOptions: CustomSelectOption[] = [
-  { value: 'todo', label: 'Todo', icon: Circle },
-  { value: 'in_progress', label: 'In Progress', icon: Loader2 },
-  { value: 'done', label: 'Done', icon: CheckCircle }
+  { value: 'backlog', label: 'Backlog', icon: CircleDashed, shortcut: '1' },
+  { value: 'todo', label: 'Todo', icon: Circle, shortcut: '2' },
+  { value: 'in_progress', label: 'In Progress', icon: Loader2, shortcut: '3' },
+  { value: 'in_review', label: 'In Review', icon: Eye, shortcut: '4' },
+  { value: 'done', label: 'Done', icon: CheckCircle, shortcut: '5' },
+  { value: 'canceled', label: 'Canceled', icon: CircleX, shortcut: '6' },
+  { value: 'duplicate', label: 'Duplicate', icon: Copy, shortcut: '7' }
 ]
 const priorityOptions: CustomSelectOption[] = [
   { value: 'low', label: 'Low', icon: PriorityLowIcon },
@@ -84,7 +91,7 @@ function descriptionForSave(desc: string | undefined): string {
 function resetForm() {
   title.value = ''
   description.value = ''
-  status.value = props.defaultStatus ?? 'todo'
+  status.value = props.defaultStatus ?? 'backlog'
   priority.value = 'medium'
   assigneeId.value = ''
   dueDate.value = ''
@@ -101,7 +108,7 @@ watch(
 watch(
   () => props.defaultStatus,
   (value) => {
-    if (props.open) status.value = value ?? 'todo'
+    if (props.open) status.value = value ?? 'backlog'
   }
 )
 
@@ -198,6 +205,8 @@ async function handleCreate() {
               id="composer-status"
               v-model="status"
               :options="statusOptions"
+              search-placeholder="Change status..."
+              search-shortcut-badge="S"
               aria-label="Status"
               trigger-class="composer-trigger"
             />

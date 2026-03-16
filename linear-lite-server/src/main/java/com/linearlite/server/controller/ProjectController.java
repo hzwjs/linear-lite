@@ -4,8 +4,11 @@ import com.linearlite.server.common.ApiResponse;
 import com.linearlite.server.dto.CreateProjectRequest;
 import com.linearlite.server.dto.UpdateProjectRequest;
 import com.linearlite.server.entity.Project;
+import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.service.ProjectService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,10 +45,14 @@ public class ProjectController {
      * 新建项目。请求体需包含 name、identifier。
      */
     @PostMapping
-    public ResponseEntity<ApiResponse<Project>> create(@RequestBody CreateProjectRequest request) {
+    public ResponseEntity<ApiResponse<Project>> create(
+            HttpServletRequest httpRequest,
+            @RequestBody CreateProjectRequest request) {
+        Long userId = (Long) httpRequest.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
         Project created = projectService.create(
                 request.getName(),
-                request.getIdentifier());
+                request.getIdentifier(),
+                userId);
         return ResponseEntity.ok(ApiResponse.success(created));
     }
 
@@ -58,5 +65,14 @@ public class ProjectController {
             @RequestBody UpdateProjectRequest request) {
         Project updated = projectService.update(id, request.getName(), request.getIdentifier());
         return ResponseEntity.ok(ApiResponse.success(updated));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ApiResponse<Void>> delete(
+            HttpServletRequest httpRequest,
+            @PathVariable("id") Long id) {
+        Long userId = (Long) httpRequest.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        projectService.delete(id, userId);
+        return ResponseEntity.ok(ApiResponse.success());
     }
 }

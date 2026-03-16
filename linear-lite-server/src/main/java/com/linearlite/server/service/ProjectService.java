@@ -2,11 +2,17 @@ package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.linearlite.server.entity.Project;
+import com.linearlite.server.entity.Task;
+import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.ProjectMapper;
+import com.linearlite.server.mapper.TaskActivityMapper;
+import com.linearlite.server.mapper.TaskFavoriteMapper;
+import com.linearlite.server.mapper.TaskMapper;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 项目业务：列表、创建。
@@ -15,9 +21,19 @@ import java.util.List;
 public class ProjectService {
 
     private final ProjectMapper projectMapper;
+    private final TaskMapper taskMapper;
+    private final TaskFavoriteMapper taskFavoriteMapper;
+    private final TaskActivityMapper taskActivityMapper;
 
-    public ProjectService(ProjectMapper projectMapper) {
+    public ProjectService(
+            ProjectMapper projectMapper,
+            TaskMapper taskMapper,
+            TaskFavoriteMapper taskFavoriteMapper,
+            TaskActivityMapper taskActivityMapper) {
         this.projectMapper = projectMapper;
+        this.taskMapper = taskMapper;
+        this.taskFavoriteMapper = taskFavoriteMapper;
+        this.taskActivityMapper = taskActivityMapper;
     }
 
     /**
@@ -31,12 +47,15 @@ public class ProjectService {
     /**
      * 创建项目。name、identifier 必填；identifier 需唯一。
      */
-    public Project create(String name, String identifier) {
+    public Project create(String name, String identifier, Long creatorId) {
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("项目名称不能为空");
         }
         if (identifier == null || identifier.isBlank()) {
             throw new IllegalArgumentException("项目标识不能为空");
+        }
+        if (creatorId == null) {
+            throw new IllegalArgumentException("项目创建者不能为空");
         }
         String trimmedId = identifier.trim().toUpperCase();
         Long existing = projectMapper.selectCount(
@@ -47,6 +66,7 @@ public class ProjectService {
         Project project = new Project();
         project.setName(name.trim());
         project.setIdentifier(trimmedId);
+        project.setCreatorId(creatorId);
         projectMapper.insert(project);
         return projectMapper.selectById(project.getId());
     }
@@ -77,5 +97,33 @@ public class ProjectService {
         }
         projectMapper.updateById(existing);
         return projectMapper.selectById(id);
+    }
+
+    public void delete(Long id, Long currentUserId) {
+        Project existing = projectMapper.selectById(id);
+        if (existing == null) {
+            throw new ResourceNotFoundException("项目不存在: " + id);
+        }
+        if (currentUserId == null || !currentUserId.equals(existing.getCreatorId())) {
+            throw new ForbiddenOperationException("只有项目创建者可以删除项目");
+        }
+
+        List<Task> tasks = taskMapper.selectList(
+                new LambdaQueryWrapper<Task>().eq(Task::getProjectId, id));
+        List<Long> taskIds = tasks.stream()
+                .map(Task::getId)
+                .collect(Collectors.toList());
+
+        if (!taskIds.isEmpty()) {
+            taskActivityMapper.delete(
+                    new LambdaQueryWrapper<com.linearlite.server.entity.TaskActivity>()
+                            .in(com.linearlite.server.entity.TaskActivity::getTaskId, taskIds));
+            taskFavoriteMapper.delete(
+                    new LambdaQueryWrapper<com.linearlite.server.entity.TaskFavorite>()
+                            .in(com.linearlite.server.entity.TaskFavorite::getTaskId, taskIds));
+        }
+
+        taskMapper.delete(new LambdaQueryWrapper<Task>().eq(Task::getProjectId, id));
+        projectMapper.deleteById(id);
     }
 }
