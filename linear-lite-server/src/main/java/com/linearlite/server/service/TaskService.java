@@ -377,6 +377,22 @@ public class TaskService {
         return updated;
     }
 
+    /**
+     * 按 task_key 获取任务并校验当前用户为项目成员，否则抛异常。
+     */
+    public Task getByKeyOrThrow(String taskKey, Long userId) {
+        if (taskKey == null || taskKey.isBlank()) {
+            throw new IllegalArgumentException("任务 ID 不能为空");
+        }
+        Task task = taskMapper.selectOne(
+                new LambdaQueryWrapper<Task>().eq(Task::getTaskKey, taskKey));
+        if (task == null) {
+            throw new ResourceNotFoundException("任务不存在: " + taskKey);
+        }
+        requireProjectMember(task.getProjectId(), userId);
+        return task;
+    }
+
     public List<Task> listFavorites(Long userId) {
         if (userId == null) {
             throw new IllegalArgumentException("当前用户未登录");
@@ -579,7 +595,7 @@ public class TaskService {
             return;
         }
         recordFieldChange(existing.getId(), userId, "title", existing.getTitle(), updated.getTitle());
-        recordFieldChange(existing.getId(), userId, "description", existing.getDescription(), updated.getDescription());
+        taskActivityService.recordDescriptionChange(existing.getId(), userId, existing.getDescription(), updated.getDescription());
         recordFieldChange(existing.getId(), userId, "status", existing.getStatus(), updated.getStatus());
         recordFieldChange(existing.getId(), userId, "priority", existing.getPriority(), updated.getPriority());
         if (!equalsNullable(existing.getAssigneeId(), updated.getAssigneeId())) {
