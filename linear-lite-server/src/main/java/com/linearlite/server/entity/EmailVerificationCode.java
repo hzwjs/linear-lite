@@ -6,15 +6,16 @@ import com.baomidou.mybatisplus.annotation.TableName;
 
 import java.time.LocalDateTime;
 
-@TableName("users")
-public class User {
+@TableName("email_verification_codes")
+public class EmailVerificationCode {
 
     @TableId(type = IdType.AUTO)
     private Long id;
-    private String username;
     private String email;
-    private String password;
-    private String avatarUrl;
+    private String code;
+    private String purpose;
+    private LocalDateTime expiresAt;
+    private LocalDateTime usedAt;
     private LocalDateTime createdAt;
 
     public Long getId() {
@@ -25,14 +26,6 @@ public class User {
         this.id = id;
     }
 
-    public String getUsername() {
-        return username;
-    }
-
-    public void setUsername(String username) {
-        this.username = username;
-    }
-
     public String getEmail() {
         return email;
     }
@@ -41,20 +34,36 @@ public class User {
         this.email = email;
     }
 
-    public String getPassword() {
-        return password;
+    public String getCode() {
+        return code;
     }
 
-    public void setPassword(String password) {
-        this.password = password;
+    public void setCode(String code) {
+        this.code = code;
     }
 
-    public String getAvatarUrl() {
-        return avatarUrl;
+    public String getPurpose() {
+        return purpose;
     }
 
-    public void setAvatarUrl(String avatarUrl) {
-        this.avatarUrl = avatarUrl;
+    public void setPurpose(String purpose) {
+        this.purpose = purpose;
+    }
+
+    public LocalDateTime getExpiresAt() {
+        return expiresAt;
+    }
+
+    public void setExpiresAt(LocalDateTime expiresAt) {
+        this.expiresAt = expiresAt;
+    }
+
+    public LocalDateTime getUsedAt() {
+        return usedAt;
+    }
+
+    public void setUsedAt(LocalDateTime usedAt) {
+        this.usedAt = usedAt;
     }
 
     public LocalDateTime getCreatedAt() {

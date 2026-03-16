@@ -1,28 +1,95 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../store/authStore'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
+const mode = ref<'login' | 'register'>('login')
+const identity = ref('')
+const email = ref('')
+const verificationCode = ref('')
 const username = ref('')
 const password = ref('')
 const error = ref<string | null>(null)
 const loading = ref(false)
+const sendingCode = ref(false)
+const resendCountdown = ref(0)
+let resendTimer: number | null = null
 
-async function onSubmit() {
+const isLoginMode = computed(() => mode.value === 'login')
+
+function resetError() {
   error.value = null
-  if (!username.value.trim() || !password.value) {
-    error.value = 'Please enter username and password'
+}
+
+function switchMode(nextMode: 'login' | 'register') {
+  mode.value = nextMode
+  resetError()
+}
+
+function startResendCountdown() {
+  resendCountdown.value = 60
+  if (resendTimer) {
+    window.clearInterval(resendTimer)
+  }
+  resendTimer = window.setInterval(() => {
+    if (resendCountdown.value <= 1) {
+      resendCountdown.value = 0
+      if (resendTimer) {
+        window.clearInterval(resendTimer)
+        resendTimer = null
+      }
+      return
+    }
+    resendCountdown.value -= 1
+  }, 1000)
+}
+
+async function onSendCode() {
+  resetError()
+  if (!email.value.trim()) {
+    error.value = 'Please enter email'
     return
   }
+
+  sendingCode.value = true
+  try {
+    await authStore.sendRegisterCode(email.value.trim())
+    startResendCountdown()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to send code'
+  } finally {
+    sendingCode.value = false
+  }
+}
+
+async function onSubmit() {
+  resetError()
   loading.value = true
   try {
-    await authStore.login({ username: username.value.trim(), password: password.value })
+    if (isLoginMode.value) {
+      if (!identity.value.trim() || !password.value) {
+        error.value = 'Please enter email or username and password'
+        return
+      }
+      await authStore.login({ identity: identity.value.trim(), password: password.value })
+    } else {
+      if (!email.value.trim() || !verificationCode.value.trim() || !username.value.trim() || !password.value) {
+        error.value = 'Please complete all registration fields'
+        return
+      }
+      await authStore.register({
+        email: email.value.trim(),
+        code: verificationCode.value.trim(),
+        username: username.value.trim(),
+        password: password.value
+      })
+    }
     router.push('/')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Login failed'
+    error.value = e instanceof Error ? e.message : 'Authentication failed'
   } finally {
     loading.value = false
   }
@@ -33,16 +100,80 @@ async function onSubmit() {
   <div class="login-view">
     <div class="login-card">
       <h1 class="login-title">Linear Lite</h1>
-      <p class="login-subtitle">Sign in to continue</p>
+      <p class="login-subtitle">
+        {{ isLoginMode ? 'Sign in to continue' : 'Create your account with email verification' }}
+      </p>
+      <div class="login-tabs">
+        <button
+          type="button"
+          class="login-tab"
+          :class="{ active: isLoginMode }"
+          :disabled="loading || sendingCode"
+          @click="switchMode('login')"
+        >
+          Log in
+        </button>
+        <button
+          type="button"
+          class="login-tab"
+          :class="{ active: !isLoginMode }"
+          :disabled="loading || sendingCode"
+          @click="switchMode('register')"
+        >
+          Sign up
+        </button>
+      </div>
       <form class="login-form" @submit.prevent="onSubmit">
         <input
-          v-model="username"
+          v-if="isLoginMode"
+          v-model="identity"
           type="text"
-          placeholder="Username"
+          placeholder="Email or username"
           class="login-input"
           autocomplete="username"
           :disabled="loading"
         />
+        <template v-else>
+          <input
+            v-model="email"
+            type="email"
+            placeholder="Email"
+            class="login-input"
+            autocomplete="email"
+            :disabled="loading || sendingCode"
+          />
+          <div class="verification-row">
+            <input
+              v-model="verificationCode"
+              type="text"
+              placeholder="Verification code"
+              class="login-input verification-input"
+              :disabled="loading"
+            />
+            <button
+              type="button"
+              class="verification-button"
+              :disabled="loading || sendingCode || resendCountdown > 0"
+              @click="onSendCode"
+            >
+              {{
+                sendingCode
+                  ? 'Sending...'
+                  : resendCountdown > 0
+                    ? `${resendCountdown}s`
+                    : 'Send code'
+              }}
+            </button>
+          </div>
+          <input
+            v-model="username"
+            type="text"
+            placeholder="Username"
+            class="login-input"
+            autocomplete="username"
+            :disabled="loading"
+          />
+        </template>
         <input
           v-model="password"
           type="password"
@@ -53,7 +184,11 @@ async function onSubmit() {
         />
         <p v-if="error" class="login-error">{{ error }}</p>
         <button type="submit" class="login-submit" :disabled="loading">
-          {{ loading ? 'Signing in...' : 'Sign in' }}
+          {{
+            loading
+              ? isLoginMode ? 'Signing in...' : 'Creating account...'
+              : isLoginMode ? 'Sign in' : 'Create account'
+          }}
         </button>
       </form>
     </div>
@@ -92,6 +227,23 @@ async function onSubmit() {
   flex-direction: column;
   gap: 12px;
 }
+.login-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.login-tab {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+}
+.login-tab.active {
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
 .login-input {
   width: 100%;
   padding: 10px 12px;
@@ -112,6 +264,21 @@ async function onSubmit() {
   margin: 0;
   font-size: 13px;
   color: var(--color-danger);
+}
+.verification-row {
+  display: flex;
+  gap: 8px;
+}
+.verification-input {
+  flex: 1;
+}
+.verification-button {
+  white-space: nowrap;
+  padding: 0 12px;
+  border-radius: var(--border-radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
 }
 .login-submit {
   margin-top: 8px;

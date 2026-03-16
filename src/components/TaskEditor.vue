@@ -104,7 +104,9 @@ const priorityOptions: CustomSelectOption[] = [
 const assigneeOptions = computed<CustomSelectOption[]>(() => {
   const list: CustomSelectOption[] = [{ value: '', label: 'Unassigned', icon: UserIcon }]
   for (const u of userList.value) {
-    list.push({ value: u.id, label: u.username, icon: UserIcon })
+    const id = u?.id
+    if (typeof id !== 'number' || !Number.isFinite(id)) continue
+    list.push({ value: id, label: u.username ?? '', icon: UserIcon })
   }
   return list
 })
@@ -330,12 +332,20 @@ watch(() => props.defaultStatus, () => {
 
 function getPayload() {
   const dueDateMs = parseDateInputValue(formDueDate.value)
+  const rawAssignee = formAssigneeId.value
+  const assigneeId =
+    rawAssignee === '' || rawAssignee == null
+      ? null
+      : (() => {
+          const n = Number(rawAssignee)
+          return Number.isFinite(n) ? n : null
+        })()
   return {
     title: formTitle.value.trim(),
     description: descriptionForSave(formDescription.value),
     status: formStatus.value,
     priority: formPriority.value,
-    assigneeId: formAssigneeId.value === '' ? null : Number(formAssigneeId.value),
+    assigneeId,
     dueDate: dueDateMs
   }
 }
@@ -383,6 +393,7 @@ async function performAutoSave() {
       status: payload.status,
       priority: payload.priority,
       assigneeId: payload.assigneeId,
+      clearAssignee: payload.assigneeId === null,
       dueDate: payload.dueDate
     })
     await loadActivities({ silent: true })

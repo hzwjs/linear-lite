@@ -1,7 +1,13 @@
 import { api, unwrap } from './index'
 import type { ApiResponse } from './types'
 import type { Task } from '../../types/domain'
-import type { ApiTask, CreateTaskRequest, UpdateTaskRequest } from './types'
+import type {
+  ApiTask,
+  CreateTaskRequest,
+  TaskImportRequest,
+  TaskImportResponse,
+  UpdateTaskRequest
+} from './types'
 
 function toTask(t: ApiTask): Task {
   return {
@@ -39,6 +45,12 @@ export const taskApi = {
     return api
       .post<ApiResponse<ApiTask>>('/tasks', body)
       .then((res) => toTask(unwrap(res)))
+  },
+
+  import(body: TaskImportRequest): Promise<TaskImportResponse> {
+    return api
+      .post<ApiResponse<TaskImportResponse>>('/tasks/import', body)
+      .then((res) => unwrap(res))
   },
 
   update(taskKey: string, body: UpdateTaskRequest): Promise<Task> {

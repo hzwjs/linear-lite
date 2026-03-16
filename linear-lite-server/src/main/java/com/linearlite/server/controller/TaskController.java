@@ -2,6 +2,8 @@ package com.linearlite.server.controller;
 
 import com.linearlite.server.common.ApiResponse;
 import com.linearlite.server.dto.CreateTaskRequest;
+import com.linearlite.server.dto.TaskImportRequest;
+import com.linearlite.server.dto.TaskImportResponse;
 import com.linearlite.server.dto.TaskActivityResponse;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Task;
@@ -85,6 +87,14 @@ public class TaskController {
                 body.getAssigneeId(),
                 body.getDueDate());
         return ResponseEntity.ok(ApiResponse.success(created));
+    }
+
+    @PostMapping("/import")
+    public ResponseEntity<ApiResponse<TaskImportResponse>> importTasks(
+            HttpServletRequest request,
+            @RequestBody TaskImportRequest body) {
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        return ResponseEntity.ok(ApiResponse.success(taskService.importTasks(body, userId)));
     }
 
     /**

@@ -75,7 +75,9 @@ const priorityOptions: CustomSelectOption[] = [
 const assigneeOptions = computed<CustomSelectOption[]>(() => {
   const list: CustomSelectOption[] = [{ value: '', label: 'Unassigned', icon: UserIcon }]
   for (const user of userList.value) {
-    list.push({ value: user.id, label: user.username, icon: UserIcon })
+    const id = user?.id
+    if (typeof id !== 'number' || !Number.isFinite(id)) continue
+    list.push({ value: id, label: user.username ?? '', icon: UserIcon })
   }
   return list
 })
@@ -127,12 +129,20 @@ async function handleCreate() {
   const dueDateMs = parseDateInputValue(dueDate.value)
 
   try {
+    const rawAssignee = assigneeId.value
+    const assigneeIdForApi =
+      rawAssignee === '' || rawAssignee == null
+        ? null
+        : (() => {
+            const n = Number(rawAssignee)
+            return Number.isFinite(n) ? n : null
+          })()
     const task = await store.createTask({
       title: title.value.trim(),
       description: descriptionForSave(description.value) || undefined,
       status: status.value,
       priority: priority.value,
-      assigneeId: assigneeId.value === '' ? null : Number(assigneeId.value),
+      assigneeId: assigneeIdForApi,
       dueDate: dueDateMs,
       parentId: props.parentNumericId ?? undefined
     })

@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 public class TaskActivityService {
@@ -50,7 +51,8 @@ public class TaskActivityService {
     }
 
     public void recordAssigneeChange(Long taskId, Long userId, Long oldAssigneeId, Long newAssigneeId) {
-        Map<Long, String> namesById = resolveUserNames(List.of(oldAssigneeId, newAssigneeId));
+        List<Long> ids = Stream.of(oldAssigneeId, newAssigneeId).filter(id -> id != null).distinct().toList();
+        Map<Long, String> namesById = resolveUserNames(ids);
         recordFieldChange(
                 taskId,
                 userId,

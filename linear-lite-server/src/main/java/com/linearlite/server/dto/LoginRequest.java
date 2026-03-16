@@ -1,19 +1,19 @@
 package com.linearlite.server.dto;
 
 /**
- * 登录请求：用户名、密码。
+ * 登录请求：邮箱或用户名、密码。
  */
 public class LoginRequest {
 
-    private String username;
+    private String identity;
     private String password;
 
-    public String getUsername() {
-        return username;
+    public String getIdentity() {
+        return identity;
     }
 
-    public void setUsername(String username) {
-        this.username = username;
+    public void setIdentity(String identity) {
+        this.identity = identity;
     }
 
     public String getPassword() {

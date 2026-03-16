@@ -138,7 +138,7 @@ export const useTaskStore = defineStore('taskStore', () => {
 
   async function updateTask(
     id: string,
-    updates: Partial<Omit<Task, 'id' | 'createdAt'>>
+    updates: Partial<Omit<Task, 'id' | 'createdAt'>> & { clearAssignee?: boolean }
   ) {
     error.value = null
     try {
@@ -149,6 +149,7 @@ export const useTaskStore = defineStore('taskStore', () => {
         status: updates.status,
         priority: updates.priority,
         assigneeId: updates.assigneeId,
+        clearAssignee: updates.clearAssignee,
         dueDate: toApiDateTime(updates.dueDate),
         parentId: updates.parentId
       })

@@ -10,6 +10,7 @@ import TaskCard from '../components/TaskCard.vue'
 import TaskEditor from '../components/TaskEditor.vue'
 import TaskListView from '../components/TaskListView.vue'
 import IssueComposer from '../components/IssueComposer.vue'
+import TaskImportModal from '../components/TaskImportModal.vue'
 import CustomSelect from '../components/ui/CustomSelect.vue'
 import type { CustomSelectOption } from '../components/ui/CustomSelect.vue'
 import { userApi } from '../services/api/user'
@@ -31,7 +32,8 @@ import {
   Filter,
   LayoutList,
   Loader2,
-  Plus
+  Plus,
+  Download
 } from 'lucide-vue-next'
 import { buildTaskGroups, getAdjacentTaskIds } from '../utils/taskView'
 import type { CompletedVisibility, GroupBy, OrderBy, VisibleProperty } from '../utils/viewPreference'
@@ -98,10 +100,12 @@ const filterPopoverRef = ref<HTMLElement | null>(null)
 const displayPopoverRef = ref<HTMLElement | null>(null)
 const DRAWER_OVERLAY_ID = 'task-editor-drawer'
 const COMPOSER_OVERLAY_ID = 'issue-composer'
+const IMPORT_OVERLAY_ID = 'task-import'
 
 // UI state for the editor
 const isEditorOpen = ref(false)
 const editorMode = ref<'create' | 'edit'>('edit')
+const isImportOpen = ref(false)
 
 // Sync store properties for v-model
 const searchQuery = computed({
@@ -192,10 +196,22 @@ function closeComposer() {
   issuePanelStore.closeComposer()
 }
 
+function openImportModal() {
+  isImportOpen.value = true
+}
+
+function closeImportModal() {
+  isImportOpen.value = false
+}
+
 function handleCreated(taskId: string) {
   store.fetchTasks()
   issuePanelStore.openWorkspace(taskId)
   router.push(`/tasks/${taskId}`)
+}
+
+function handleImported() {
+  store.fetchTasks()
 }
 
 // P4-7.4: Drawer 注册到浮层栈，Esc 可关闭
@@ -218,6 +234,18 @@ watch(
       overlayStore.push(COMPOSER_OVERLAY_ID, closeComposer)
     } else {
       overlayStore.remove(COMPOSER_OVERLAY_ID)
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  isImportOpen,
+  (open) => {
+    if (open) {
+      overlayStore.push(IMPORT_OVERLAY_ID, closeImportModal)
+    } else {
+      overlayStore.remove(IMPORT_OVERLAY_ID)
     }
   },
   { immediate: true }
@@ -260,6 +288,7 @@ onUnmounted(() => {
   window.removeEventListener('click', onClickOutsideFilter, true)
   window.removeEventListener('click', onClickOutsideDisplay, true)
   overlayStore.remove(DRAWER_OVERLAY_ID)
+  overlayStore.remove(IMPORT_OVERLAY_ID)
 })
 
 function createStatusDefault(groupKey: string): Status | undefined {
@@ -369,6 +398,10 @@ function navigateWorkspace(taskId: string) {
     <header class="app-header">
       <div class="header-left">
         <button class="btn-create" @click="() => openCreateEditor()">New issue</button>
+        <button class="btn-import" @click="openImportModal">
+          <Download class="icon-14" />
+          <span>Import</span>
+        </button>
         <div class="view-toggle">
           <button
             type="button"
@@ -669,6 +702,13 @@ function navigateWorkspace(taskId: string) {
       @close="closeComposer"
       @created="handleCreated"
     />
+    <TaskImportModal
+      :open="isImportOpen"
+      :project-id="projectStore.activeProjectId"
+      :users="users"
+      @close="closeImportModal"
+      @imported="handleImported"
+    />
   </div>
 </template>
 
@@ -711,6 +751,23 @@ function navigateWorkspace(taskId: string) {
 }
 .btn-create:hover {
   background: var(--color-accent-hover);
+}
+.btn-import {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-caption);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+.btn-import:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border);
 }
 
 .search-input {

@@ -2,14 +2,19 @@ package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
+import com.linearlite.server.dto.TaskImportRequest;
+import com.linearlite.server.dto.TaskImportResponse;
+import com.linearlite.server.dto.TaskImportRowRequest;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskFavorite;
+import com.linearlite.server.entity.User;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
+import com.linearlite.server.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,21 +35,28 @@ import java.util.stream.Collectors;
 public class TaskService {
 
     private static final Set<String> TERMINAL_STATUSES = Set.of("done", "canceled");
+    private static final Set<String> ALLOWED_STATUSES = Set.of(
+            "backlog", "todo", "in_progress", "in_review", "done", "canceled", "duplicate");
+    private static final Set<String> ALLOWED_PRIORITIES = Set.of("low", "medium", "high", "urgent");
+    private static final int TASK_IMPORT_MAX_ROWS = 800;
 
     private final TaskMapper taskMapper;
     private final ProjectMapper projectMapper;
     private final TaskFavoriteMapper taskFavoriteMapper;
     private final TaskActivityService taskActivityService;
+    private final UserMapper userMapper;
 
     public TaskService(
             TaskMapper taskMapper,
             ProjectMapper projectMapper,
             TaskFavoriteMapper taskFavoriteMapper,
-            TaskActivityService taskActivityService) {
+            TaskActivityService taskActivityService,
+            UserMapper userMapper) {
         this.taskMapper = taskMapper;
         this.projectMapper = projectMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
         this.taskActivityService = taskActivityService;
+        this.userMapper = userMapper;
     }
 
     /**
@@ -125,6 +137,101 @@ public class TaskService {
         fillSubIssueCounts(Collections.singletonList(inserted));
         inserted.setFavorited(false);
         return inserted;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public TaskImportResponse importTasks(TaskImportRequest request, Long creatorId) {
+        if (request == null) {
+            throw new IllegalArgumentException("导入请求不能为空");
+        }
+        if (request.getProjectId() == null) {
+            throw new IllegalArgumentException("projectId 不能为空");
+        }
+        requireUserId(creatorId);
+
+        Project project = projectMapper.selectById(request.getProjectId());
+        if (project == null) {
+            throw new ResourceNotFoundException("项目不存在: " + request.getProjectId());
+        }
+
+        List<TaskImportRowRequest> rows = request.getRows() == null ? List.of() : request.getRows();
+        if (rows.isEmpty()) {
+            throw new IllegalArgumentException("导入数据不能为空");
+        }
+        if (rows.size() > TASK_IMPORT_MAX_ROWS) {
+            throw new IllegalArgumentException("单次导入最多支持 800 行");
+        }
+
+        Map<String, TaskImportRowRequest> rowByImportId = new HashMap<>();
+        for (TaskImportRowRequest row : rows) {
+            validateImportRow(row);
+            String importId = row.getImportId().trim();
+            if (rowByImportId.putIfAbsent(importId, row) != null) {
+                throw new IllegalArgumentException("Import ID must be unique within the file: " + importId);
+            }
+        }
+
+        for (TaskImportRowRequest row : rows) {
+            String parentImportId = trimToNull(row.getParentImportId());
+            String importId = trimToNull(row.getImportId());
+            if (parentImportId == null) {
+                continue;
+            }
+            if (parentImportId.equals(importId)) {
+                throw new IllegalArgumentException("Parent Import ID cannot reference the same row: " + importId);
+            }
+            if (!rowByImportId.containsKey(parentImportId)) {
+                throw new IllegalArgumentException("Parent Import ID must reference another row in the same file: " + parentImportId);
+            }
+        }
+        validateNoImportCycles(rowByImportId);
+
+        long count = taskMapper.selectCount(new LambdaQueryWrapper<Task>().eq(Task::getProjectId, request.getProjectId()));
+        Map<String, Task> createdTaskByImportId = new HashMap<>();
+        List<String> createdTaskKeys = new ArrayList<>();
+
+        for (int index = 0; index < rows.size(); index++) {
+            TaskImportRowRequest row = rows.get(index);
+            Task task = new Task();
+            task.setTaskKey(project.getIdentifier() + "-" + (count + index + 1));
+            task.setTitle(row.getTitle().trim());
+            task.setDescription(trimToNull(row.getDescription()));
+            task.setStatus(defaultStatus(row.getStatus()));
+            task.setPriority(defaultPriority(row.getPriority()));
+            task.setProjectId(request.getProjectId());
+            task.setCreatorId(creatorId);
+            task.setAssigneeId(row.getAssigneeId());
+            task.setDueDate(row.getDueDate());
+            taskMapper.insert(task);
+
+            Task inserted = taskMapper.selectById(task.getId());
+            if (inserted == null) {
+                throw new IllegalStateException("创建任务失败: " + row.getImportId());
+            }
+            taskActivityService.recordAction(inserted.getId(), creatorId, "created");
+            createdTaskByImportId.put(row.getImportId().trim(), inserted);
+            createdTaskKeys.add(inserted.getTaskKey());
+        }
+
+        for (TaskImportRowRequest row : rows) {
+            String parentImportId = trimToNull(row.getParentImportId());
+            if (parentImportId == null) {
+                continue;
+            }
+            Task child = createdTaskByImportId.get(row.getImportId().trim());
+            Task parent = createdTaskByImportId.get(parentImportId);
+            Task update = new Task();
+            update.setId(child.getId());
+            update.setParentId(parent.getId());
+            taskMapper.updateById(update);
+        }
+
+        TaskImportResponse response = new TaskImportResponse();
+        response.setCreatedCount(rows.size());
+        response.setParentCount((int) rows.stream().filter(row -> trimToNull(row.getParentImportId()) == null).count());
+        response.setSubtaskCount((int) rows.stream().filter(row -> trimToNull(row.getParentImportId()) != null).count());
+        response.setTaskKeys(createdTaskKeys);
+        return response;
     }
 
     /**
@@ -210,8 +317,13 @@ public class TaskService {
                 hasUpdate = true;
             }
         }
-        if (request.getAssigneeId() != null) {
-            if (!equalsNullable(request.getAssigneeId(), existing.getAssigneeId())) {
+        if (Boolean.TRUE.equals(request.getClearAssignee())) {
+            if (existing.getAssigneeId() != null) {
+                wrapper.set("assignee_id", null);
+                hasUpdate = true;
+            }
+        } else if (request.getAssigneeId() != null) {
+            if (!request.getAssigneeId().equals(existing.getAssigneeId())) {
                 wrapper.set("assignee_id", request.getAssigneeId());
                 hasUpdate = true;
             }
@@ -335,6 +447,66 @@ public class TaskService {
 
     private static boolean isTerminalStatus(String status) {
         return status != null && TERMINAL_STATUSES.contains(status.toLowerCase());
+    }
+
+    private void validateImportRow(TaskImportRowRequest row) {
+        if (row == null) {
+            throw new IllegalArgumentException("导入行不能为空");
+        }
+        String importId = trimToNull(row.getImportId());
+        if (importId == null) {
+            throw new IllegalArgumentException("Import ID is required.");
+        }
+        String title = trimToNull(row.getTitle());
+        if (title == null) {
+            throw new IllegalArgumentException("Title is required.");
+        }
+        String status = trimToNull(row.getStatus());
+        if (status != null && !ALLOWED_STATUSES.contains(status)) {
+            throw new IllegalArgumentException("Invalid status: " + status);
+        }
+        String priority = trimToNull(row.getPriority());
+        if (priority != null && !ALLOWED_PRIORITIES.contains(priority)) {
+            throw new IllegalArgumentException("Invalid priority: " + priority);
+        }
+        if (row.getAssigneeId() != null) {
+            User assignee = userMapper.selectById(row.getAssigneeId());
+            if (assignee == null) {
+                throw new IllegalArgumentException("Assignee does not exist: " + row.getAssigneeId());
+            }
+        }
+    }
+
+    private void validateNoImportCycles(Map<String, TaskImportRowRequest> rowByImportId) {
+        for (TaskImportRowRequest row : rowByImportId.values()) {
+            Set<String> visited = new HashSet<>();
+            String current = trimToNull(row.getParentImportId());
+            while (current != null) {
+                if (!visited.add(current)) {
+                    throw new IllegalArgumentException("Parent Import ID creates a cycle: " + current);
+                }
+                TaskImportRowRequest parent = rowByImportId.get(current);
+                current = parent == null ? null : trimToNull(parent.getParentImportId());
+            }
+        }
+    }
+
+    private String defaultStatus(String status) {
+        String value = trimToNull(status);
+        return value != null ? value : "backlog";
+    }
+
+    private String defaultPriority(String priority) {
+        String value = trimToNull(priority);
+        return value != null ? value : "medium";
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private void fillFavoriteState(List<Task> tasks, Long userId) {

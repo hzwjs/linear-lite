@@ -88,6 +88,7 @@ npm run dev
 - **项目**：侧栏「新建」创建项目；项目右侧齿轮打开设置，可修改名称与标识符。
 - **视图**：主界面右上角 Board / List 切换；列表为高密度表格、按状态分组折叠；视图偏好存 localStorage。
 - **任务时间**：创建/编辑任务可设截止日（Due Date）；任务进入 Done 时自动记录完成时间，编辑器中只读展示；超期未完成在卡片与列表中飘红提示。
+- **任务导入**：任务页顶部支持导入 `.csv` / `.xlsx`；第一版支持 `title`、`description`、`status`、`priority`、`assignee`、`dueDate`、`importId`、`parentImportId`，仅新增到当前项目，单次最多 `800` 行，整批成功或失败。
 
 ## 仓库结构
 

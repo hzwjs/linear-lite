@@ -4,13 +4,15 @@
 USE linear_lite;
 
 -- 预置用户（3～5 个）
-INSERT INTO users (username, password, avatar_url) VALUES
-    ('admin',  'admin123',  NULL),
-    ('user1',  'user123',   NULL),
-    ('user2',  'user123',   NULL),
-    ('alice',  'alice123',  NULL),
-    ('bob',    'bob123',    NULL)
-ON DUPLICATE KEY UPDATE username = username;
+INSERT INTO users (username, email, password, avatar_url) VALUES
+    ('admin',  'admin@example.com',  'admin123',  NULL),
+    ('user1',  'user1@example.com',  'user123',   NULL),
+    ('user2',  'user2@example.com',  'user123',   NULL),
+    ('alice',  'alice@example.com',  'alice123',  NULL),
+    ('bob',    'bob@example.com',    'bob123',    NULL)
+ON DUPLICATE KEY UPDATE
+    username = VALUES(username),
+    email = VALUES(email);
 
 -- 示例项目（与 implementation plan 中 Engineering / Design 对应）
 INSERT INTO projects (name, identifier, creator_id)

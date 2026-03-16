@@ -37,7 +37,7 @@ export interface ApiTaskActivity {
 }
 
 export interface LoginRequest {
-  username: string
+  identity: string
   password: string
 }
 
@@ -45,6 +45,17 @@ export interface LoginResponse {
   token: string
   userId: number
   username: string
+}
+
+export interface SendRegisterCodeRequest {
+  email: string
+}
+
+export interface RegisterRequest {
+  email: string
+  code: string
+  username: string
+  password: string
 }
 
 export interface CreateTaskRequest {
@@ -65,6 +76,32 @@ export interface UpdateTaskRequest {
   status?: string
   priority?: string
   assigneeId?: number | null
+  /** true 时清空指派人 */
+  clearAssignee?: boolean
   dueDate?: string | null // ISO 8601
   parentId?: string | null
+}
+
+export interface TaskImportRowRequest {
+  lineNumber: number
+  importId: string
+  parentImportId?: string | null
+  title: string
+  description?: string
+  status: string
+  priority: string
+  assigneeId?: number | null
+  dueDate?: string | null
+}
+
+export interface TaskImportRequest {
+  projectId: number
+  rows: TaskImportRowRequest[]
+}
+
+export interface TaskImportResponse {
+  createdCount: number
+  parentCount: number
+  subtaskCount: number
+  taskKeys: string[]
 }

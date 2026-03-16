@@ -16,13 +16,15 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 /**
- * 对 /api/** 请求校验 JWT（除 /api/auth/login 与 OPTIONS 外）。无效或缺失返回 401。
+ * 对 /api/** 请求校验 JWT（除公开鉴权接口与 OPTIONS 外）。无效或缺失返回 401。
  */
 @Component
 @Order(Ordered.LOWEST_PRECEDENCE)
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private static final String AUTH_LOGIN_PATH = "/api/auth/login";
+    private static final String AUTH_REGISTER_PATH = "/api/auth/register";
+    private static final String AUTH_REGISTER_SEND_CODE_PATH = "/api/auth/register/send-code";
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
     public static final String REQUEST_ATTR_USER_ID = "userId";
@@ -41,7 +43,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (!path.startsWith("/api/")) {
             return true;
         }
-        if (AUTH_LOGIN_PATH.equals(path)) {
+        if (AUTH_LOGIN_PATH.equals(path)
+                || AUTH_REGISTER_PATH.equals(path)
+                || AUTH_REGISTER_SEND_CODE_PATH.equals(path)) {
             return true;
         }
         if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
