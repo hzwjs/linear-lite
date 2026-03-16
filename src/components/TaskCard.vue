@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { Task, Status } from '../types/domain'
 import type { User } from '../types/domain'
 import type { VisibleProperty } from '../utils/viewPreference'
+import { getInitials, getAvatarColor } from '../utils/avatar'
 
 const props = defineProps<{
   task: Task
@@ -33,10 +34,13 @@ const assignee = computed(() => {
 
 const assigneeDisplay = computed(() => assignee.value?.username ?? 'Unassigned')
 
-const assigneeInitial = computed(() => {
-  const u = assignee.value
-  return u?.username?.charAt(0)?.toUpperCase() ?? '—'
-})
+const assigneeInitial = computed(() =>
+  getInitials(assignee.value?.username ?? 'Unassigned')
+)
+
+const assigneeAvatarStyle = computed(() =>
+  assignee.value ? getAvatarColor(assignee.value.id) : undefined
+)
 
 const dueDateText = computed(() => {
   if (props.task.dueDate == null) return null
@@ -84,7 +88,7 @@ const handleTransition = (e: Event) => {
     </div>
     <div v-if="show('assignee')" class="assignee-row">
       <span class="assignee" :title="assigneeDisplay">
-        <span class="avatar" :class="{ placeholder: !assignee }">
+        <span class="avatar" :class="{ placeholder: !assignee }" :style="assigneeAvatarStyle">
           <img v-if="assignee?.avatar_url" :src="assignee.avatar_url" :alt="assignee.username" />
           <span v-else>{{ assigneeInitial }}</span>
         </span>
