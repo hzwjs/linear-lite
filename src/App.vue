@@ -233,14 +233,17 @@ onUnmounted(() => {
         </button>
       </div>
       <nav class="sidebar-nav sidebar-nav--projects">
-        <button
+        <div
           v-for="p in projectStore.projects"
           :key="p.id"
-          type="button"
+          role="button"
+          tabindex="0"
           class="sidebar-item"
           :class="{ active: projectStore.activeProjectId === p.id }"
           :title="p.identifier"
           @click="selectProject(p.id)"
+          @keydown.enter="selectProject(p.id)"
+          @keydown.space.prevent="selectProject(p.id)"
         >
           <Folder class="sidebar-item-icon" />
           <span class="sidebar-item-name">{{ p.name }}</span>
@@ -252,7 +255,7 @@ onUnmounted(() => {
           >
             <MoreVertical class="icon-14" />
           </button>
-        </button>
+        </div>
       </nav>
       <div class="sidebar-footer">
         <span class="sidebar-user" :title="authStore.currentUser?.username">
@@ -380,6 +383,7 @@ onUnmounted(() => {
   transition: background 150ms ease, color 150ms ease;
   gap: 8px;
   border-radius: var(--radius-sm);
+  cursor: pointer;
 }
 .sidebar-item:hover {
   background: var(--color-bg-hover);

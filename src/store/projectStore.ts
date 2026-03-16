@@ -3,9 +3,29 @@ import { ref } from 'vue'
 import { projectApi } from '../services/api/project'
 import type { Project } from '../types/domain'
 
+const ACTIVE_PROJECT_KEY = 'linear-lite-active-project'
+
+function getStoredActiveProjectId(): number | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_PROJECT_KEY)
+    if (raw == null) return null
+    const n = Number(raw)
+    return Number.isInteger(n) ? n : null
+  } catch {
+    return null
+  }
+}
+
+function persistActiveProjectId(id: number | null) {
+  try {
+    if (id == null) localStorage.removeItem(ACTIVE_PROJECT_KEY)
+    else localStorage.setItem(ACTIVE_PROJECT_KEY, String(id))
+  } catch {}
+}
+
 export const useProjectStore = defineStore('projectStore', () => {
   const projects = ref<Project[]>([])
-  const activeProjectId = ref<number | null>(null)
+  const activeProjectId = ref<number | null>(getStoredActiveProjectId())
 
   async function fetchProjects() {
     const list = await projectApi.list()
@@ -14,14 +34,17 @@ export const useProjectStore = defineStore('projectStore', () => {
     const activeStillExists = list.some((project) => project.id === activeProjectId.value)
     if (first && (activeProjectId.value == null || !activeStillExists)) {
       activeProjectId.value = first.id
+      persistActiveProjectId(activeProjectId.value)
     } else if (!first) {
       activeProjectId.value = null
+      persistActiveProjectId(null)
     }
     return list
   }
 
   function setActiveProject(id: number | null) {
     activeProjectId.value = id
+    persistActiveProjectId(id)
   }
 
   async function createProject(body: { name: string; identifier: string }) {
@@ -45,6 +68,7 @@ export const useProjectStore = defineStore('projectStore', () => {
     projects.value = projects.value.filter((project) => project.id !== id)
     if (activeProjectId.value === id) {
       activeProjectId.value = projects.value[0]?.id ?? null
+      persistActiveProjectId(activeProjectId.value)
     }
   }
 
