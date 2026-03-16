@@ -4,15 +4,20 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.linearlite.server.dto.LoginResponse;
 import com.linearlite.server.dto.RegisterRequest;
 import com.linearlite.server.entity.EmailVerificationCode;
+import com.linearlite.server.entity.ProjectInvitation;
+import com.linearlite.server.entity.ProjectMember;
 import com.linearlite.server.entity.User;
 import com.linearlite.server.exception.UnauthorizedException;
 import com.linearlite.server.mapper.EmailVerificationCodeMapper;
+import com.linearlite.server.mapper.ProjectInvitationMapper;
+import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.UserMapper;
 import com.linearlite.server.util.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
@@ -25,6 +30,8 @@ public class AuthService {
 
     private final UserMapper userMapper;
     private final EmailVerificationCodeMapper emailVerificationCodeMapper;
+    private final ProjectMemberMapper projectMemberMapper;
+    private final ProjectInvitationMapper projectInvitationMapper;
     private final JwtUtil jwtUtil;
     private final EmailService emailService;
     private final Supplier<String> verificationCodeGenerator;
@@ -33,22 +40,28 @@ public class AuthService {
     public AuthService(
             UserMapper userMapper,
             EmailVerificationCodeMapper emailVerificationCodeMapper,
+            ProjectMemberMapper projectMemberMapper,
+            ProjectInvitationMapper projectInvitationMapper,
             JwtUtil jwtUtil,
             EmailService emailService
     ) {
-        this(userMapper, emailVerificationCodeMapper, jwtUtil, emailService,
+        this(userMapper, emailVerificationCodeMapper, projectMemberMapper, projectInvitationMapper, jwtUtil, emailService,
                 () -> String.format("%06d", (int) (Math.random() * 1_000_000)));
     }
 
     AuthService(
             UserMapper userMapper,
             EmailVerificationCodeMapper emailVerificationCodeMapper,
+            ProjectMemberMapper projectMemberMapper,
+            ProjectInvitationMapper projectInvitationMapper,
             JwtUtil jwtUtil,
             EmailService emailService,
             Supplier<String> verificationCodeGenerator
     ) {
         this.userMapper = userMapper;
         this.emailVerificationCodeMapper = emailVerificationCodeMapper;
+        this.projectMemberMapper = projectMemberMapper;
+        this.projectInvitationMapper = projectInvitationMapper;
         this.jwtUtil = jwtUtil;
         this.emailService = emailService;
         this.verificationCodeGenerator = verificationCodeGenerator;
@@ -63,6 +76,7 @@ public class AuthService {
         if (user == null || !normalizedPassword.equals(user.getPassword())) {
             throw new UnauthorizedException("Incorrect email/username or password.");
         }
+        acceptPendingInvitations(user);
         return new LoginResponse(
                 jwtUtil.generateToken(user.getId(), user.getUsername()),
                 user.getId(),
@@ -132,6 +146,7 @@ public class AuthService {
 
         verificationCode.setUsedAt(LocalDateTime.now());
         emailVerificationCodeMapper.updateById(verificationCode);
+        acceptPendingInvitations(user);
 
         return new LoginResponse(
                 jwtUtil.generateToken(user.getId(), user.getUsername()),
@@ -174,6 +189,34 @@ public class AuthService {
         return userMapper.selectOne(
                 new LambdaQueryWrapper<User>().eq(User::getUsername, identity).last("LIMIT 1")
         );
+    }
+
+    private void acceptPendingInvitations(User user) {
+        if (user == null || user.getId() == null || user.getEmail() == null) {
+            return;
+        }
+        List<ProjectInvitation> invitations = projectInvitationMapper.selectList(
+                new LambdaQueryWrapper<ProjectInvitation>()
+                        .eq(ProjectInvitation::getEmail, user.getEmail())
+                        .isNull(ProjectInvitation::getAcceptedAt)
+        );
+        for (ProjectInvitation invitation : invitations) {
+            Long exists = projectMemberMapper.selectCount(
+                    new LambdaQueryWrapper<ProjectMember>()
+                            .eq(ProjectMember::getProjectId, invitation.getProjectId())
+                            .eq(ProjectMember::getUserId, user.getId())
+            );
+            if (exists == null || exists == 0) {
+                ProjectMember member = new ProjectMember();
+                member.setProjectId(invitation.getProjectId());
+                member.setUserId(user.getId());
+                member.setRole("member");
+                member.setCreatedAt(LocalDateTime.now());
+                projectMemberMapper.insert(member);
+            }
+            invitation.setAcceptedAt(LocalDateTime.now());
+            projectInvitationMapper.updateById(invitation);
+        }
     }
 
     private String requireText(String value, String message) {

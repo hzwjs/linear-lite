@@ -19,8 +19,11 @@ const projectStore = useProjectStore()
 const authStore = useAuthStore()
 const name = ref('')
 const identifier = ref('')
+const inviteEmail = ref('')
 const isSubmitting = ref(false)
+const isInviting = ref(false)
 const error = ref('')
+const inviteMessage = ref('')
 const canDelete = computed(
   () => !!props.project && authStore.currentUser?.id === props.project.creatorId
 )
@@ -31,7 +34,9 @@ watch(
     if (open && project) {
       name.value = project.name
       identifier.value = project.identifier
+      inviteEmail.value = ''
       error.value = ''
+      inviteMessage.value = ''
     }
   }
 )
@@ -81,8 +86,30 @@ async function removeProject() {
   }
 }
 
+async function inviteMember() {
+  if (!props.project) return
+  const email = inviteEmail.value.trim()
+  if (!email) {
+    error.value = 'Please enter an email to invite'
+    return
+  }
+
+  isInviting.value = true
+  error.value = ''
+  inviteMessage.value = ''
+  try {
+    await projectStore.inviteToProject(props.project.id, email)
+    inviteEmail.value = ''
+    inviteMessage.value = 'Invitation sent.'
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Invite failed'
+  } finally {
+    isInviting.value = false
+  }
+}
+
 function close() {
-  if (!isSubmitting.value) emit('close')
+  if (!isSubmitting.value && !isInviting.value) emit('close')
 }
 </script>
 
@@ -108,6 +135,30 @@ function close() {
           />
         </div>
         <p v-if="error" class="error-msg">{{ error }}</p>
+        <div class="invite-zone">
+          <div>
+            <p class="invite-zone-title">Invite by email</p>
+            <p class="invite-zone-text">Invited users will see this project after they sign in or register.</p>
+          </div>
+          <div class="invite-controls">
+            <input
+              v-model="inviteEmail"
+              type="email"
+              class="input"
+              placeholder="name@example.com"
+              :disabled="isInviting || isSubmitting"
+            />
+            <button
+              type="button"
+              class="btn-primary"
+              :disabled="isInviting || isSubmitting"
+              @click="inviteMember"
+            >
+              {{ isInviting ? 'Inviting...' : 'Invite' }}
+            </button>
+          </div>
+          <p v-if="inviteMessage" class="invite-success">{{ inviteMessage }}</p>
+        </div>
         <div v-if="canDelete" class="danger-zone">
           <div>
             <p class="danger-zone-title">Delete project</p>
@@ -206,6 +257,30 @@ function close() {
   justify-content: flex-end;
   gap: 12px;
   margin-top: 16px;
+}
+.invite-zone {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+.invite-zone-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.invite-zone-text {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.invite-controls {
+  display: flex;
+  gap: 8px;
+}
+.invite-success {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #2f7d32;
 }
 .danger-zone {
   display: flex;

@@ -34,4 +34,16 @@ public class SmtpEmailService implements EmailService {
         message.setText("Your verification code is " + code + ". It expires in 10 minutes.");
         mailSender.send(message);
     }
+
+    @Override
+    public void sendProjectInvitation(String email, String projectName) {
+        SimpleMailMessage message = new SimpleMailMessage();
+        if (fromAddress != null && !fromAddress.isBlank()) {
+            message.setFrom(fromAddress);
+        }
+        message.setTo(email);
+        message.setSubject("You've been invited to a Linear Lite project");
+        message.setText("You have been invited to join project \"" + projectName + "\". Sign in or register with this email to access it.");
+        mailSender.send(message);
+    }
 }

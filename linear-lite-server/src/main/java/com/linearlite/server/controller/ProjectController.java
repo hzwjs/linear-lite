@@ -1,6 +1,7 @@
 package com.linearlite.server.controller;
 
 import com.linearlite.server.common.ApiResponse;
+import com.linearlite.server.dto.CreateProjectInvitationRequest;
 import com.linearlite.server.dto.CreateProjectRequest;
 import com.linearlite.server.dto.UpdateProjectRequest;
 import com.linearlite.server.entity.Project;
@@ -36,8 +37,9 @@ public class ProjectController {
      * 获取项目列表（侧边栏用）。
      */
     @GetMapping
-    public ResponseEntity<ApiResponse<List<Project>>> list() {
-        List<Project> list = projectService.list();
+    public ResponseEntity<ApiResponse<List<Project>>> list(HttpServletRequest httpRequest) {
+        Long userId = (Long) httpRequest.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        List<Project> list = projectService.list(userId);
         return ResponseEntity.ok(ApiResponse.success(list));
     }
 
@@ -61,10 +63,22 @@ public class ProjectController {
      */
     @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<Project>> update(
+            HttpServletRequest httpRequest,
             @PathVariable("id") Long id,
             @RequestBody UpdateProjectRequest request) {
-        Project updated = projectService.update(id, request.getName(), request.getIdentifier());
+        Long userId = (Long) httpRequest.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        Project updated = projectService.update(id, request.getName(), request.getIdentifier(), userId);
         return ResponseEntity.ok(ApiResponse.success(updated));
+    }
+
+    @PostMapping("/{id}/invitations")
+    public ResponseEntity<ApiResponse<Void>> invite(
+            HttpServletRequest httpRequest,
+            @PathVariable("id") Long id,
+            @RequestBody CreateProjectInvitationRequest request) {
+        Long userId = (Long) httpRequest.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        projectService.invite(id, userId, request.getEmail());
+        return ResponseEntity.ok(ApiResponse.success());
     }
 
     @DeleteMapping("/{id}")

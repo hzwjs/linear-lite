@@ -189,6 +189,7 @@ const handleTransition = (e: Event) => {
   color: var(--color-text-secondary);
 }
 
+/* 圆内两字留白：字号明显小于圆径，避免“志文”撑满 */
 .avatar {
   width: 18px;
   height: 18px;
@@ -198,8 +199,10 @@ const handleTransition = (e: Event) => {
   align-items: center;
   justify-content: center;
   background: var(--color-bg-muted);
-  font-size: var(--font-size-xs);
+  font-size: 7px;
   font-weight: var(--font-weight-medium);
+  line-height: 1;
+  letter-spacing: 0.02em;
   flex-shrink: 0;
 }
 

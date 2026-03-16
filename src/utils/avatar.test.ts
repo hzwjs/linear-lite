@@ -6,8 +6,12 @@ describe('getInitials', () => {
     expect(getInitials('John Doe')).toBe('JD')
   })
 
-  it("'黄志文' → '黄志'", () => {
-    expect(getInitials('黄志文')).toBe('黄志')
+  it("'黄志文' → '志文'（中文取后两字）", () => {
+    expect(getInitials('黄志文')).toBe('志文')
+  })
+
+  it("'张三' → '张三'（两字不变）", () => {
+    expect(getInitials('张三')).toBe('张三')
   })
 
   it("'Alice' → 'AL'", () => {
@@ -30,9 +34,10 @@ describe('getInitials', () => {
     expect(getInitials('John Doe')).toBe('JD')
   })
 
-  it('no space: take first 2 chars (or 1 if only one)', () => {
+  it('no space: CJK last 2 chars, Latin first 2 chars', () => {
     expect(getInitials('Alice')).toBe('AL')
     expect(getInitials('A')).toBe('A')
+    expect(getInitials('黄志文')).toBe('志文')
   })
 })
 

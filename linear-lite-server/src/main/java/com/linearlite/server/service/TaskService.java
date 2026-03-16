@@ -7,10 +7,13 @@ import com.linearlite.server.dto.TaskImportResponse;
 import com.linearlite.server.dto.TaskImportRowRequest;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Project;
+import com.linearlite.server.entity.ProjectMember;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskFavorite;
 import com.linearlite.server.entity.User;
 import com.linearlite.server.exception.ResourceNotFoundException;
+import com.linearlite.server.exception.ForbiddenOperationException;
+import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
@@ -45,18 +48,21 @@ public class TaskService {
     private final TaskFavoriteMapper taskFavoriteMapper;
     private final TaskActivityService taskActivityService;
     private final UserMapper userMapper;
+    private final ProjectMemberMapper projectMemberMapper;
 
     public TaskService(
             TaskMapper taskMapper,
             ProjectMapper projectMapper,
             TaskFavoriteMapper taskFavoriteMapper,
             TaskActivityService taskActivityService,
-            UserMapper userMapper) {
+            UserMapper userMapper,
+            ProjectMemberMapper projectMemberMapper) {
         this.taskMapper = taskMapper;
         this.projectMapper = projectMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
         this.taskActivityService = taskActivityService;
         this.userMapper = userMapper;
+        this.projectMemberMapper = projectMemberMapper;
     }
 
     /**
@@ -70,6 +76,7 @@ public class TaskService {
         if (projectId == null) {
             throw new IllegalArgumentException("projectId 不能为空");
         }
+        requireProjectMember(projectId, userId);
         LambdaQueryWrapper<Task> wrapper = new LambdaQueryWrapper<Task>()
                 .eq(Task::getProjectId, projectId)
                 .orderByAsc(Task::getId);
@@ -104,6 +111,7 @@ public class TaskService {
         if (project == null) {
             throw new ResourceNotFoundException("项目不存在: " + projectId);
         }
+        requireProjectMember(projectId, creatorId);
 
         if (parentId != null) {
             Task parent = taskMapper.selectById(parentId);
@@ -153,6 +161,7 @@ public class TaskService {
         if (project == null) {
             throw new ResourceNotFoundException("项目不存在: " + request.getProjectId());
         }
+        requireProjectMember(request.getProjectId(), creatorId);
 
         List<TaskImportRowRequest> rows = request.getRows() == null ? List.of() : request.getRows();
         if (rows.isEmpty()) {
@@ -278,6 +287,7 @@ public class TaskService {
         if (existing == null) {
             throw new ResourceNotFoundException("任务不存在: " + taskKey);
         }
+        requireProjectMember(existing.getProjectId(), userId);
 
         UpdateWrapper<Task> wrapper = new UpdateWrapper<Task>()
                 .eq("id", existing.getId());
@@ -395,6 +405,7 @@ public class TaskService {
     public Task addFavorite(String taskKey, Long userId) {
         Task task = requireTaskByKey(taskKey);
         requireUserId(userId);
+        requireProjectMember(task.getProjectId(), userId);
         Long exists = taskFavoriteMapper.selectCount(
                 new LambdaQueryWrapper<TaskFavorite>()
                         .eq(TaskFavorite::getUserId, userId)
@@ -416,6 +427,7 @@ public class TaskService {
     public Task removeFavorite(String taskKey, Long userId) {
         Task task = requireTaskByKey(taskKey);
         requireUserId(userId);
+        requireProjectMember(task.getProjectId(), userId);
         taskFavoriteMapper.delete(
                 new LambdaQueryWrapper<TaskFavorite>()
                         .eq(TaskFavorite::getUserId, userId)
@@ -547,6 +559,18 @@ public class TaskService {
     private void requireUserId(Long userId) {
         if (userId == null) {
             throw new IllegalArgumentException("当前用户未登录");
+        }
+    }
+
+    private void requireProjectMember(Long projectId, Long userId) {
+        requireUserId(userId);
+        Long count = projectMemberMapper.selectCount(
+                new LambdaQueryWrapper<ProjectMember>()
+                        .eq(ProjectMember::getProjectId, projectId)
+                        .eq(ProjectMember::getUserId, userId)
+        );
+        if (count == null || count == 0) {
+            throw new ForbiddenOperationException("你不是该项目成员");
         }
     }
 

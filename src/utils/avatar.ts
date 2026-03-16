@@ -1,17 +1,24 @@
+/** 是否包含 CJK 字符（用于中文名取“名”即后两字） */
+function hasCjk(str: string): boolean {
+  return /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/.test(str)
+}
+
 /**
  * 无 avatar_url 时用姓名生成 initials（最多 2 个字符）。
- * 空或 'Unassigned' 返回 '—'；有空格取两词首字母；无空格取前 2 字符（或 1）。
+ * 空或 'Unassigned' 返回 '—'；有空格取两词首字母；无空格：中文取后 2 字（志文），英文取前 2 字母。
  */
 export function getInitials(name: string): string {
   const trimmed = name.trim()
   if (!trimmed || trimmed === 'Unassigned') return '—'
   const parts = trimmed.split(/\s+/)
   if (parts.length >= 2) {
-    const first = parts[0][0] ?? ''
-    const second = parts[1][0] ?? ''
+    const first = parts[0]?.[0] ?? ''
+    const second = parts[1]?.[0] ?? ''
     return (first + second).toUpperCase()
   }
-  return trimmed.length >= 2 ? trimmed.slice(0, 2).toUpperCase() : trimmed
+  if (trimmed.length < 2) return trimmed
+  if (hasCjk(trimmed)) return trimmed.slice(-2)
+  return trimmed.slice(0, 2).toUpperCase()
 }
 
 /**

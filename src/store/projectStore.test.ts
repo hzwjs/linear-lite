@@ -8,7 +8,8 @@ vi.mock('../services/api/project', () => ({
     list: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
-    delete: vi.fn()
+    delete: vi.fn(),
+    invite: vi.fn()
   }
 }))
 
@@ -19,6 +20,21 @@ describe('projectStore', () => {
     vi.mocked(projectApi.create).mockReset()
     vi.mocked(projectApi.update).mockReset()
     vi.mocked(projectApi.delete).mockReset()
+    vi.mocked(projectApi.invite).mockReset()
+  })
+
+  it('selects the first visible project after fetching filtered list', async () => {
+    vi.mocked(projectApi.list).mockResolvedValue([
+      { id: 2, name: 'Design', identifier: 'DES', creatorId: 8, createdAt: '2026-03-14T00:00:00' }
+    ])
+
+    const store = useProjectStore()
+    store.activeProjectId = 999
+
+    await store.fetchProjects()
+
+    expect(store.projects.map((project) => project.id)).toEqual([2])
+    expect(store.activeProjectId).toBe(2)
   })
 
   it('switches to the first remaining project when deleting the active project', async () => {
@@ -50,5 +66,14 @@ describe('projectStore', () => {
 
     expect(store.projects).toEqual([])
     expect(store.activeProjectId).toBeNull()
+  })
+
+  it('invites a user by email through the project api', async () => {
+    vi.mocked(projectApi.invite).mockResolvedValue(undefined)
+
+    const store = useProjectStore()
+    await store.inviteToProject(3, 'new@example.com')
+
+    expect(projectApi.invite).toHaveBeenCalledWith(3, { email: 'new@example.com' })
   })
 })

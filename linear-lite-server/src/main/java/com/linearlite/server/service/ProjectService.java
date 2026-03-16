@@ -2,15 +2,20 @@ package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.linearlite.server.entity.Project;
+import com.linearlite.server.entity.ProjectInvitation;
+import com.linearlite.server.entity.ProjectMember;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.exception.ResourceNotFoundException;
+import com.linearlite.server.mapper.ProjectInvitationMapper;
+import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskActivityMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -24,24 +29,37 @@ public class ProjectService {
     private final TaskMapper taskMapper;
     private final TaskFavoriteMapper taskFavoriteMapper;
     private final TaskActivityMapper taskActivityMapper;
+    private final ProjectMemberMapper projectMemberMapper;
+    private final ProjectInvitationMapper projectInvitationMapper;
+    private final EmailService emailService;
 
     public ProjectService(
             ProjectMapper projectMapper,
             TaskMapper taskMapper,
             TaskFavoriteMapper taskFavoriteMapper,
-            TaskActivityMapper taskActivityMapper) {
+            TaskActivityMapper taskActivityMapper,
+            ProjectMemberMapper projectMemberMapper,
+            ProjectInvitationMapper projectInvitationMapper,
+            EmailService emailService) {
         this.projectMapper = projectMapper;
         this.taskMapper = taskMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
         this.taskActivityMapper = taskActivityMapper;
+        this.projectMemberMapper = projectMemberMapper;
+        this.projectInvitationMapper = projectInvitationMapper;
+        this.emailService = emailService;
     }
 
     /**
      * 返回全部项目列表（侧边栏用）。
      */
-    public List<Project> list() {
+    public List<Project> list(Long currentUserId) {
+        requireMemberUserId(currentUserId);
         return projectMapper.selectList(
-                new LambdaQueryWrapper<Project>().orderByAsc(Project::getId));
+                new LambdaQueryWrapper<Project>()
+                        .inSql(Project::getId,
+                                "SELECT project_id FROM project_members WHERE user_id = " + currentUserId)
+                        .orderByAsc(Project::getId));
     }
 
     /**
@@ -68,17 +86,19 @@ public class ProjectService {
         project.setIdentifier(trimmedId);
         project.setCreatorId(creatorId);
         projectMapper.insert(project);
+        addMember(project.getId(), creatorId, "owner");
         return projectMapper.selectById(project.getId());
     }
 
     /**
      * 更新项目。仅更新非空字段；identifier 需唯一（排除自身）。
      */
-    public Project update(Long id, String name, String identifier) {
+    public Project update(Long id, String name, String identifier, Long currentUserId) {
         Project existing = projectMapper.selectById(id);
         if (existing == null) {
             throw new ResourceNotFoundException("项目不存在: " + id);
         }
+        requireProjectMember(id, currentUserId);
         if (name != null && !name.isBlank()) {
             existing.setName(name.trim());
         }
@@ -99,11 +119,52 @@ public class ProjectService {
         return projectMapper.selectById(id);
     }
 
+    public void invite(Long projectId, Long currentUserId, String email) {
+        Project project = projectMapper.selectById(projectId);
+        if (project == null) {
+            throw new ResourceNotFoundException("项目不存在: " + projectId);
+        }
+        requireProjectMember(projectId, currentUserId);
+        if (!currentUserId.equals(project.getCreatorId())) {
+            throw new ForbiddenOperationException("只有项目创建者可以邀请成员");
+        }
+        String normalizedEmail = requireEmail(email);
+
+        Long memberExists = projectMemberMapper.selectCount(
+                new LambdaQueryWrapper<ProjectMember>()
+                        .eq(ProjectMember::getProjectId, projectId)
+                        .inSql(ProjectMember::getUserId,
+                                "SELECT id FROM users WHERE email = '" + normalizedEmail + "'")
+        );
+        if (memberExists != null && memberExists > 0) {
+            throw new IllegalArgumentException("该邮箱已在项目中");
+        }
+
+        Long invitationExists = projectInvitationMapper.selectCount(
+                new LambdaQueryWrapper<ProjectInvitation>()
+                        .eq(ProjectInvitation::getProjectId, projectId)
+                        .eq(ProjectInvitation::getEmail, normalizedEmail)
+                        .isNull(ProjectInvitation::getAcceptedAt)
+        );
+        if (invitationExists != null && invitationExists > 0) {
+            throw new IllegalArgumentException("该邮箱已被邀请");
+        }
+
+        ProjectInvitation invitation = new ProjectInvitation();
+        invitation.setProjectId(projectId);
+        invitation.setEmail(normalizedEmail);
+        invitation.setInvitedBy(currentUserId);
+        invitation.setCreatedAt(LocalDateTime.now());
+        projectInvitationMapper.insert(invitation);
+        emailService.sendProjectInvitation(normalizedEmail, project.getName());
+    }
+
     public void delete(Long id, Long currentUserId) {
         Project existing = projectMapper.selectById(id);
         if (existing == null) {
             throw new ResourceNotFoundException("项目不存在: " + id);
         }
+        requireProjectMember(id, currentUserId);
         if (currentUserId == null || !currentUserId.equals(existing.getCreatorId())) {
             throw new ForbiddenOperationException("只有项目创建者可以删除项目");
         }
@@ -124,6 +185,42 @@ public class ProjectService {
         }
 
         taskMapper.delete(new LambdaQueryWrapper<Task>().eq(Task::getProjectId, id));
+        projectInvitationMapper.delete(new LambdaQueryWrapper<ProjectInvitation>().eq(ProjectInvitation::getProjectId, id));
+        projectMemberMapper.delete(new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getProjectId, id));
         projectMapper.deleteById(id);
+    }
+
+    public void requireProjectMember(Long projectId, Long userId) {
+        requireMemberUserId(userId);
+        Long count = projectMemberMapper.selectCount(
+                new LambdaQueryWrapper<ProjectMember>()
+                        .eq(ProjectMember::getProjectId, projectId)
+                        .eq(ProjectMember::getUserId, userId)
+        );
+        if (count == null || count == 0) {
+            throw new ForbiddenOperationException("你不是该项目成员");
+        }
+    }
+
+    private void addMember(Long projectId, Long userId, String role) {
+        ProjectMember member = new ProjectMember();
+        member.setProjectId(projectId);
+        member.setUserId(userId);
+        member.setRole(role);
+        member.setCreatedAt(LocalDateTime.now());
+        projectMemberMapper.insert(member);
+    }
+
+    private void requireMemberUserId(Long currentUserId) {
+        if (currentUserId == null) {
+            throw new IllegalArgumentException("当前用户未登录");
+        }
+    }
+
+    private String requireEmail(String email) {
+        if (email == null || email.isBlank() || !email.contains("@")) {
+            throw new IllegalArgumentException("邮箱格式不正确");
+        }
+        return email.trim().toLowerCase();
     }
 }

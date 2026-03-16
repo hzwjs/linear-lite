@@ -48,6 +48,10 @@ export const useProjectStore = defineStore('projectStore', () => {
     }
   }
 
+  async function inviteToProject(id: number, email: string) {
+    await projectApi.invite(id, { email })
+  }
+
   return {
     projects,
     activeProjectId,
@@ -55,6 +59,7 @@ export const useProjectStore = defineStore('projectStore', () => {
     setActiveProject,
     createProject,
     updateProject,
-    deleteProject
+    deleteProject,
+    inviteToProject
   }
 })

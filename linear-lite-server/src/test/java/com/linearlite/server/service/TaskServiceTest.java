@@ -8,6 +8,8 @@ import com.linearlite.server.entity.Project;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskFavorite;
+import com.linearlite.server.exception.ForbiddenOperationException;
+import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
@@ -44,12 +46,31 @@ class TaskServiceTest {
     private TaskActivityService taskActivityService;
     @Mock
     private UserMapper userMapper;
+    @Mock
+    private ProjectMemberMapper projectMemberMapper;
 
     private TaskService taskService;
 
     @BeforeEach
     void setUp() {
-        taskService = new TaskService(taskMapper, projectMapper, taskFavoriteMapper, taskActivityService, userMapper);
+        taskService = new TaskService(
+                taskMapper,
+                projectMapper,
+                taskFavoriteMapper,
+                taskActivityService,
+                userMapper,
+                projectMemberMapper
+        );
+    }
+
+    @Test
+    void listByProjectIdRejectsNonMember() {
+        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+
+        Assertions.assertThrows(
+                ForbiddenOperationException.class,
+                () -> taskService.listByProjectId(1L, null, null, 7L)
+        );
     }
 
     @Test
@@ -65,6 +86,7 @@ class TaskServiceTest {
 
         when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(task), List.of());
         when(taskFavoriteMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(favorite));
+        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
 
         List<Task> result = taskService.listByProjectId(1L, null, null, 7L);
 
@@ -88,6 +110,7 @@ class TaskServiceTest {
         when(taskMapper.selectById(12L)).thenReturn(task);
         when(taskFavoriteMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(favorite));
         when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
 
         Task result = taskService.addFavorite("ENG-12", 9L);
 
@@ -110,6 +133,7 @@ class TaskServiceTest {
         when(taskMapper.selectById(13L)).thenReturn(task);
         when(taskFavoriteMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
         when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
 
         Task result = taskService.removeFavorite("ENG-13", 9L);
 
@@ -153,6 +177,7 @@ class TaskServiceTest {
         when(taskMapper.selectById(21L)).thenReturn(updated);
         when(taskFavoriteMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
         when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
 
         taskService.update("ENG-21", request, 7L);
 
@@ -180,6 +205,7 @@ class TaskServiceTest {
         when(taskMapper.selectById(22L)).thenReturn(existing);
         when(taskFavoriteMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
         when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
 
         taskService.update("ENG-22", request, 7L);
 
@@ -225,6 +251,7 @@ class TaskServiceTest {
         when(taskMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
         when(userMapper.selectById(1L)).thenReturn(new com.linearlite.server.entity.User());
         when(userMapper.selectById(2L)).thenReturn(new com.linearlite.server.entity.User());
+        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
         doAnswer(invocation -> {
             Task task = invocation.getArgument(0);
             task.setId("Parent".equals(task.getTitle()) ? 101L : 102L);
@@ -266,6 +293,7 @@ class TaskServiceTest {
         project.setId(1L);
         project.setIdentifier("ENG");
         when(projectMapper.selectById(1L)).thenReturn(project);
+        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
 
         IllegalArgumentException error = Assertions.assertThrows(
                 IllegalArgumentException.class,

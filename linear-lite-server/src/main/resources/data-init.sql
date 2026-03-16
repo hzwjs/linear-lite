@@ -22,3 +22,7 @@ SELECT 'Design', 'DES', id FROM users WHERE username = 'alice'
 ON DUPLICATE KEY UPDATE
     name = VALUES(name),
     creator_id = VALUES(creator_id);
+
+INSERT INTO project_members (project_id, user_id, role)
+SELECT id, creator_id, 'owner' FROM projects
+ON DUPLICATE KEY UPDATE role = VALUES(role);

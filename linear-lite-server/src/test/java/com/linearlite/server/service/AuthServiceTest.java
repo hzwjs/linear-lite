@@ -4,9 +4,12 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.linearlite.server.dto.LoginResponse;
 import com.linearlite.server.dto.RegisterRequest;
 import com.linearlite.server.entity.EmailVerificationCode;
+import com.linearlite.server.entity.ProjectInvitation;
 import com.linearlite.server.entity.User;
 import com.linearlite.server.exception.UnauthorizedException;
 import com.linearlite.server.mapper.EmailVerificationCodeMapper;
+import com.linearlite.server.mapper.ProjectInvitationMapper;
+import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.UserMapper;
 import com.linearlite.server.util.JwtUtil;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -35,6 +39,10 @@ class AuthServiceTest {
     @Mock
     private EmailVerificationCodeMapper emailVerificationCodeMapper;
     @Mock
+    private ProjectMemberMapper projectMemberMapper;
+    @Mock
+    private ProjectInvitationMapper projectInvitationMapper;
+    @Mock
     private JwtUtil jwtUtil;
     @Mock
     private EmailService emailService;
@@ -48,6 +56,8 @@ class AuthServiceTest {
         authService = new AuthService(
                 userMapper,
                 emailVerificationCodeMapper,
+                projectMemberMapper,
+                projectInvitationMapper,
                 jwtUtil,
                 emailService,
                 verificationCodeGenerator
@@ -64,6 +74,7 @@ class AuthServiceTest {
 
         when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
         when(jwtUtil.generateToken(9L, "alice")).thenReturn("jwt-token");
+        when(projectInvitationMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
 
         LoginResponse response = authService.login("alice@example.com", "secret123");
 
@@ -88,6 +99,30 @@ class AuthServiceTest {
         );
 
         assertEquals("Incorrect email/username or password.", error.getMessage());
+    }
+
+    @Test
+    void loginAcceptsPendingProjectInvitations() {
+        User user = new User();
+        user.setId(9L);
+        user.setUsername("alice");
+        user.setEmail("alice@example.com");
+        user.setPassword("secret123");
+
+        ProjectInvitation invitation = new ProjectInvitation();
+        invitation.setId(12L);
+        invitation.setProjectId(5L);
+        invitation.setEmail("alice@example.com");
+
+        when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
+        when(jwtUtil.generateToken(9L, "alice")).thenReturn("jwt-token");
+        when(projectInvitationMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(invitation));
+        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+
+        authService.login("alice@example.com", "secret123");
+
+        verify(projectMemberMapper).insert(any());
+        verify(projectInvitationMapper).updateById(any(ProjectInvitation.class));
     }
 
     @Test
@@ -158,6 +193,7 @@ class AuthServiceTest {
             return 1;
         }).when(userMapper).insert(any(User.class));
         when(jwtUtil.generateToken(42L, "new-user")).thenReturn("jwt-token");
+        when(projectInvitationMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
 
         LoginResponse response = authService.register(request);
 

@@ -709,12 +709,15 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
   object-fit: cover;
   flex-shrink: 0;
 }
+/* 圆内两字留白：字号明显小于圆径，避免“志文”撑满 */
 .avatar-18.fallback {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 7px;
   font-weight: var(--font-weight-medium);
+  line-height: 1;
+  letter-spacing: 0.02em;
   /* assigned fallback uses inline style from getAvatarColor; unassigned not shown here */
   background: var(--color-border);
   color: var(--color-text-secondary);

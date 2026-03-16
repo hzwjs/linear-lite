@@ -45,5 +45,13 @@ export const projectApi = {
       .then((res) => {
         unwrap(res)
       })
+  },
+
+  invite(id: number, body: { email: string }): Promise<void> {
+    return api
+      .post<ApiResponse<null>>(`/projects/${id}/invitations`, body)
+      .then((res) => {
+        unwrap(res)
+      })
   }
 }
