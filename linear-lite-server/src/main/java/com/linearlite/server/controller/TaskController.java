@@ -4,23 +4,28 @@ import com.linearlite.server.common.ApiResponse;
 import com.linearlite.server.dto.CreateTaskRequest;
 import com.linearlite.server.dto.TaskImportRequest;
 import com.linearlite.server.dto.TaskImportResponse;
+import com.linearlite.server.config.R2StorageProperties;
 import com.linearlite.server.dto.TaskActivityResponse;
+import com.linearlite.server.dto.TaskAttachmentResponse;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.service.TaskActivityService;
+import com.linearlite.server.service.TaskAttachmentService;
 import com.linearlite.server.service.TaskService;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -33,10 +38,15 @@ public class TaskController {
 
     private final TaskService taskService;
     private final TaskActivityService taskActivityService;
+    private final TaskAttachmentService taskAttachmentService;
+    private final R2StorageProperties r2StorageProperties;
 
-    public TaskController(TaskService taskService, TaskActivityService taskActivityService) {
+    public TaskController(TaskService taskService, TaskActivityService taskActivityService,
+                         TaskAttachmentService taskAttachmentService, R2StorageProperties r2StorageProperties) {
         this.taskService = taskService;
         this.taskActivityService = taskActivityService;
+        this.taskAttachmentService = taskAttachmentService;
+        this.r2StorageProperties = r2StorageProperties;
     }
 
     /**
@@ -64,8 +74,11 @@ public class TaskController {
     }
 
     @GetMapping("/{id}/activities")
-    public ResponseEntity<ApiResponse<List<TaskActivityResponse>>> listActivities(@PathVariable("id") String taskKey) {
-        return ResponseEntity.ok(ApiResponse.success(taskActivityService.listByTaskKey(taskKey)));
+    public ResponseEntity<ApiResponse<List<TaskActivityResponse>>> listActivities(
+            @PathVariable("id") String taskKey,
+            @RequestParam(required = false, defaultValue = "50") int limit) {
+        int capped = Math.min(Math.max(1, limit), 100);
+        return ResponseEntity.ok(ApiResponse.success(taskActivityService.listByTaskKey(taskKey, capped)));
     }
 
     /**
@@ -124,5 +137,38 @@ public class TaskController {
             @PathVariable("id") String taskKey) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
         return ResponseEntity.ok(ApiResponse.success(taskService.removeFavorite(taskKey, userId)));
+    }
+
+    @PostMapping("/{id}/attachments")
+    public ResponseEntity<ApiResponse<TaskAttachmentResponse>> uploadAttachment(
+            HttpServletRequest request,
+            @PathVariable("id") String taskKey,
+            @RequestParam("file") MultipartFile file) {
+        if (!r2StorageProperties.isEnabled()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(ApiResponse.fail(503, "存储服务不可用"));
+        }
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        TaskAttachmentResponse response = taskAttachmentService.upload(taskKey, file, userId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @GetMapping("/{id}/attachments")
+    public ResponseEntity<ApiResponse<List<TaskAttachmentResponse>>> listAttachments(
+            HttpServletRequest request,
+            @PathVariable("id") String taskKey) {
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        List<TaskAttachmentResponse> list = taskAttachmentService.listByTaskKey(taskKey, userId);
+        return ResponseEntity.ok(ApiResponse.success(list));
+    }
+
+    @DeleteMapping("/{id}/attachments/{attachmentId}")
+    public ResponseEntity<Void> deleteAttachment(
+            HttpServletRequest request,
+            @PathVariable("id") String taskKey,
+            @PathVariable("attachmentId") Long attachmentId) {
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        taskAttachmentService.delete(taskKey, attachmentId, userId);
+        return ResponseEntity.noContent().build();
     }
 }
