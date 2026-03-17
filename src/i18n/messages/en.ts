@@ -190,7 +190,63 @@ const en = {
     altFallback: 'image'
   },
   editor: {
-    placeholder: 'Write something...'
+    placeholder: 'Write something...',
+    slashMenu: {
+      ariaLabel: 'Block type menu',
+      heading1: 'Heading 1',
+      heading2: 'Heading 2',
+      heading3: 'Heading 3',
+      bulletList: 'Bulleted list',
+      orderedList: 'Numbered list',
+      taskList: 'Checklist',
+      codeBlock: 'Code block',
+      blockquote: 'Blockquote'
+    }
+  },
+  datePicker: {
+    placeholder: 'Select date',
+    triggerAria: 'Due date',
+    dialogAria: 'Choose date',
+    previousMonth: 'Previous month',
+    nextMonth: 'Next month',
+    today: 'Today',
+    todayAria: 'Today, {day}',
+    weekdays: {
+      mon: 'Mon',
+      tue: 'Tue',
+      wed: 'Wed',
+      thu: 'Thu',
+      fri: 'Fri',
+      sat: 'Sat',
+      sun: 'Sun'
+    }
+  },
+  taskStore: {
+    errors: {
+      loadFailed: 'Failed to load tasks.',
+      noProject: 'No project selected.',
+      createFailed: 'Failed to create task.',
+      updateFailed: 'Failed to update task.'
+    }
+  },
+  taskImport: {
+    errors: {
+      maxRows: 'Import supports up to {count} rows per file.',
+      titleColumnRequired: 'Title column is required.',
+      importIdColumnRequired: 'Import ID column is required.',
+      titleRequired: 'Title is required.',
+      importIdRequired: 'Import ID is required.',
+      importIdUnique: 'Import ID must be unique within the file.',
+      invalidStatus: 'Status must be one of: {values}.',
+      invalidPriority: 'Priority must be one of: {values}.',
+      invalidDueDate: 'Due date must use YYYY-MM-DD.',
+      parentSelfReference: 'Parent Import ID cannot reference the same row.',
+      parentMissing: 'Parent Import ID must reference another row in the same file.',
+      unsupportedFileType: 'Only .csv and .xlsx files are supported.',
+      noSheets: 'The file does not contain any sheets.',
+      firstSheetUnreadable: 'The first sheet could not be read.',
+      missingHeader: 'The file must include a header row.'
+    }
   },
   taskImportModal: {
     ariaLabel: 'Import tasks',

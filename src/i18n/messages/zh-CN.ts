@@ -190,7 +190,63 @@ const zhCN = {
     altFallback: '图片'
   },
   editor: {
-    placeholder: '输入内容…'
+    placeholder: '输入内容…',
+    slashMenu: {
+      ariaLabel: '块类型菜单',
+      heading1: '一级标题',
+      heading2: '二级标题',
+      heading3: '三级标题',
+      bulletList: '无序列表',
+      orderedList: '有序列表',
+      taskList: '清单',
+      codeBlock: '代码块',
+      blockquote: '引用'
+    }
+  },
+  datePicker: {
+    placeholder: '选择日期',
+    triggerAria: '截止日期',
+    dialogAria: '选择日期',
+    previousMonth: '上个月',
+    nextMonth: '下个月',
+    today: '今天',
+    todayAria: '今天，{day} 日',
+    weekdays: {
+      mon: '一',
+      tue: '二',
+      wed: '三',
+      thu: '四',
+      fri: '五',
+      sat: '六',
+      sun: '日'
+    }
+  },
+  taskStore: {
+    errors: {
+      loadFailed: '加载任务失败。',
+      noProject: '未选择项目。',
+      createFailed: '创建任务失败。',
+      updateFailed: '更新任务失败。'
+    }
+  },
+  taskImport: {
+    errors: {
+      maxRows: '单个文件最多支持导入 {count} 行。',
+      titleColumnRequired: '必须映射标题列。',
+      importIdColumnRequired: '必须映射导入 ID 列。',
+      titleRequired: '标题不能为空。',
+      importIdRequired: '导入 ID 不能为空。',
+      importIdUnique: '导入 ID 在文件内必须唯一。',
+      invalidStatus: '状态必须是以下值之一：{values}。',
+      invalidPriority: '优先级必须是以下值之一：{values}。',
+      invalidDueDate: '截止日期必须使用 YYYY-MM-DD 格式。',
+      parentSelfReference: '父级导入 ID 不能引用同一行。',
+      parentMissing: '父级导入 ID 必须引用同一文件中的另一行。',
+      unsupportedFileType: '仅支持 .csv 和 .xlsx 文件。',
+      noSheets: '文件中不包含工作表。',
+      firstSheetUnreadable: '无法读取第一个工作表。',
+      missingHeader: '文件必须包含表头行。'
+    }
   },
   taskImportModal: {
     ariaLabel: '导入任务',

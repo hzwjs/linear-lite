@@ -6,6 +6,7 @@ import { useProjectStore } from './projectStore'
 import { useViewModeStore } from './viewModeStore'
 import { useFavoriteStore } from './favoriteStore'
 import { toApiDateTime } from '../utils/taskDate'
+import { translate } from '../utils/i18n'
 
 /**
  * 任务状态。数据源为后端 API（按 activeProjectId 过滤），不再使用 localStorage。
@@ -89,7 +90,9 @@ export const useTaskStore = defineStore('taskStore', () => {
       })
     } catch (err: unknown) {
       error.value =
-        err instanceof Error ? err.message : 'Failed to load tasks.'
+        err instanceof Error
+          ? err.message
+          : translate('taskStore.errors.loadFailed', undefined, 'Failed to load tasks.')
     } finally {
       isLoading.value = false
     }
@@ -111,7 +114,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     const projectStore = useProjectStore()
     const projectId = projectStore.activeProjectId
     if (projectId == null) {
-      const e = new Error('No project selected.')
+      const e = new Error(translate('taskStore.errors.noProject', undefined, 'No project selected.'))
       error.value = e.message
       throw e
     }
@@ -131,7 +134,9 @@ export const useTaskStore = defineStore('taskStore', () => {
       return newTask
     } catch (err: unknown) {
       error.value =
-        err instanceof Error ? err.message : 'Failed to create task.'
+        err instanceof Error
+          ? err.message
+          : translate('taskStore.errors.createFailed', undefined, 'Failed to create task.')
       throw err
     }
   }
@@ -168,7 +173,9 @@ export const useTaskStore = defineStore('taskStore', () => {
       return merged
     } catch (err: unknown) {
       error.value =
-        err instanceof Error ? err.message : 'Failed to update task.'
+        err instanceof Error
+          ? err.message
+          : translate('taskStore.errors.updateFailed', undefined, 'Failed to update task.')
       throw err
     }
   }

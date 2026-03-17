@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import type { Editor } from '@tiptap/core'
+import { useI18n } from 'vue-i18n'
 
 const menuEl = ref<HTMLElement | null>(null)
+const { t } = useI18n()
 
 export type SlashMenuItemId =
   | 'heading1'
@@ -13,17 +15,6 @@ export type SlashMenuItemId =
   | 'taskList'
   | 'codeBlock'
   | 'blockquote'
-
-const items: { id: SlashMenuItemId; label: string }[] = [
-  { id: 'heading1', label: 'Heading 1' },
-  { id: 'heading2', label: 'Heading 2' },
-  { id: 'heading3', label: 'Heading 3' },
-  { id: 'bulletList', label: 'Bulleted list' },
-  { id: 'orderedList', label: 'Numbered list' },
-  { id: 'taskList', label: 'Checklist' },
-  { id: 'codeBlock', label: 'Code block' },
-  { id: 'blockquote', label: 'Blockquote' },
-]
 
 const props = defineProps<{
   visible: boolean
@@ -39,6 +30,16 @@ const emit = defineEmits<{
 }>()
 
 const selectedIndex = ref(0)
+const items = computed<{ id: SlashMenuItemId; label: string }[]>(() => [
+  { id: 'heading1', label: t('editor.slashMenu.heading1') },
+  { id: 'heading2', label: t('editor.slashMenu.heading2') },
+  { id: 'heading3', label: t('editor.slashMenu.heading3') },
+  { id: 'bulletList', label: t('editor.slashMenu.bulletList') },
+  { id: 'orderedList', label: t('editor.slashMenu.orderedList') },
+  { id: 'taskList', label: t('editor.slashMenu.taskList') },
+  { id: 'codeBlock', label: t('editor.slashMenu.codeBlock') },
+  { id: 'blockquote', label: t('editor.slashMenu.blockquote') },
+])
 
 watch(
   () => props.visible,
@@ -93,15 +94,15 @@ function onKeydown(e: KeyboardEvent) {
   switch (e.key) {
     case 'ArrowDown':
       e.preventDefault()
-      selectedIndex.value = (selectedIndex.value + 1) % items.length
+      selectedIndex.value = (selectedIndex.value + 1) % items.value.length
       return
     case 'ArrowUp':
       e.preventDefault()
-      selectedIndex.value = (selectedIndex.value - 1 + items.length) % items.length
+      selectedIndex.value = (selectedIndex.value - 1 + items.value.length) % items.value.length
       return
     case 'Enter': {
       e.preventDefault()
-      const item = items[selectedIndex.value]
+      const item = items.value[selectedIndex.value]
       if (item) runCommand(item.id)
       return
     }
@@ -123,7 +124,7 @@ function onSelect(id: SlashMenuItemId) {
       ref="menuEl"
       v-show="visible"
       role="listbox"
-      aria-label="块类型菜单"
+      :aria-label="t('editor.slashMenu.ariaLabel')"
       tabindex="-1"
       class="slash-menu"
       data-slash-menu

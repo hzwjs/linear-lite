@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { i18n } from '../i18n'
 import type { User } from '../types/domain'
 import {
   autoMapTaskImportColumns,
@@ -28,6 +29,10 @@ function fullMapping(): TaskImportColumnMapping {
 }
 
 describe('taskImport helpers', () => {
+  beforeEach(() => {
+    i18n.global.locale.value = 'en'
+  })
+
   it('detects supported file types from file name', () => {
     expect(getTaskImportFileKind('tasks.csv')).toBe('csv')
     expect(getTaskImportFileKind('tasks.XLSX')).toBe('xlsx')

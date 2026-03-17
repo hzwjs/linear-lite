@@ -1,5 +1,6 @@
 import type { Priority, Status, User } from '../types/domain'
 import * as XLSX from 'xlsx'
+import { translate } from './i18n'
 
 export type TaskImportField =
   | 'title'
@@ -137,14 +138,24 @@ export function buildTaskImportPreview(
   const rows: TaskImportPreviewRow[] = []
 
   if (rawRows.length > TASK_IMPORT_MAX_ROWS) {
-    fileErrors.push(`Import supports up to ${TASK_IMPORT_MAX_ROWS} rows per file.`)
+    fileErrors.push(
+      translate(
+        'taskImport.errors.maxRows',
+        { count: TASK_IMPORT_MAX_ROWS },
+        `Import supports up to ${TASK_IMPORT_MAX_ROWS} rows per file.`
+      )
+    )
   }
 
   if (!options.mapping.title) {
-    fileErrors.push('Title column is required.')
+    fileErrors.push(
+      translate('taskImport.errors.titleColumnRequired', undefined, 'Title column is required.')
+    )
   }
   if (!options.mapping.importId) {
-    fileErrors.push('Import ID column is required.')
+    fileErrors.push(
+      translate('taskImport.errors.importIdColumnRequired', undefined, 'Import ID column is required.')
+    )
   }
 
   if (fileErrors.length > 0) {
@@ -172,15 +183,27 @@ export function buildTaskImportPreview(
     const parentImportId = parentImportIdValue || null
 
     if (!title) {
-      rowErrors.push({ lineNumber, field: 'title', message: 'Title is required.' })
+      rowErrors.push({
+        lineNumber,
+        field: 'title',
+        message: translate('taskImport.errors.titleRequired', undefined, 'Title is required.')
+      })
     }
     if (!importId) {
-      rowErrors.push({ lineNumber, field: 'importId', message: 'Import ID is required.' })
+      rowErrors.push({
+        lineNumber,
+        field: 'importId',
+        message: translate('taskImport.errors.importIdRequired', undefined, 'Import ID is required.')
+      })
     } else if (importIds.has(importId)) {
       rowErrors.push({
         lineNumber,
         field: 'importId',
-        message: 'Import ID must be unique within the file.'
+        message: translate(
+          'taskImport.errors.importIdUnique',
+          undefined,
+          'Import ID must be unique within the file.'
+        )
       })
     } else {
       importIds.set(importId, lineNumber)
@@ -191,7 +214,11 @@ export function buildTaskImportPreview(
       rowErrors.push({
         lineNumber,
         field: 'status',
-        message: `Status must be one of: ${STATUS_VALUES.join(', ')}.`
+        message: translate(
+          'taskImport.errors.invalidStatus',
+          { values: STATUS_VALUES.join(', ') },
+          `Status must be one of: ${STATUS_VALUES.join(', ')}.`
+        )
       })
     }
 
@@ -200,7 +227,11 @@ export function buildTaskImportPreview(
       rowErrors.push({
         lineNumber,
         field: 'priority',
-        message: `Priority must be one of: ${PRIORITY_VALUES.join(', ')}.`
+        message: translate(
+          'taskImport.errors.invalidPriority',
+          { values: PRIORITY_VALUES.join(', ') },
+          `Priority must be one of: ${PRIORITY_VALUES.join(', ')}.`
+        )
       })
     }
 
@@ -217,7 +248,7 @@ export function buildTaskImportPreview(
         rowErrors.push({
           lineNumber,
           field: 'dueDate',
-          message: 'Due date must use YYYY-MM-DD.'
+          message: translate('taskImport.errors.invalidDueDate', undefined, 'Due date must use YYYY-MM-DD.')
         })
       }
     }
@@ -241,7 +272,11 @@ export function buildTaskImportPreview(
       rowErrors.push({
         lineNumber: row.lineNumber,
         field: 'parentImportId',
-        message: 'Parent Import ID cannot reference the same row.'
+        message: translate(
+          'taskImport.errors.parentSelfReference',
+          undefined,
+          'Parent Import ID cannot reference the same row.'
+        )
       })
       continue
     }
@@ -249,7 +284,11 @@ export function buildTaskImportPreview(
       rowErrors.push({
         lineNumber: row.lineNumber,
         field: 'parentImportId',
-        message: 'Parent Import ID must reference another row in the same file.'
+        message: translate(
+          'taskImport.errors.parentMissing',
+          undefined,
+          'Parent Import ID must reference another row in the same file.'
+        )
       })
     }
   }
@@ -280,17 +319,27 @@ export function buildTaskImportPreview(
 export async function parseTaskImportFile(file: File): Promise<ParsedTaskImportFile> {
   const kind = getTaskImportFileKind(file.name)
   if (!kind) {
-    throw new Error('Only .csv and .xlsx files are supported.')
+    throw new Error(
+      translate(
+        'taskImport.errors.unsupportedFileType',
+        undefined,
+        'Only .csv and .xlsx files are supported.'
+      )
+    )
   }
 
   const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' })
   const firstSheetName = workbook.SheetNames[0]
   if (!firstSheetName) {
-    throw new Error('The file does not contain any sheets.')
+    throw new Error(
+      translate('taskImport.errors.noSheets', undefined, 'The file does not contain any sheets.')
+    )
   }
   const sheet = workbook.Sheets[firstSheetName]
   if (!sheet) {
-    throw new Error('The first sheet could not be read.')
+    throw new Error(
+      translate('taskImport.errors.firstSheetUnreadable', undefined, 'The first sheet could not be read.')
+    )
   }
   const matrix = XLSX.utils.sheet_to_json<(string | number | boolean | null)[]>(sheet, {
     header: 1,
@@ -300,7 +349,9 @@ export async function parseTaskImportFile(file: File): Promise<ParsedTaskImportF
   const [headerRow, ...bodyRows] = matrix
   const headers = (headerRow ?? []).map((cell) => String(cell ?? '').trim())
   if (headers.filter(Boolean).length === 0) {
-    throw new Error('The file must include a header row.')
+    throw new Error(
+      translate('taskImport.errors.missingHeader', undefined, 'The file must include a header row.')
+    )
   }
   const rows = bodyRows
     .filter((row) => row.some((cell) => String(cell ?? '').trim() !== ''))

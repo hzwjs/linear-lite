@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = withDefaults(
   defineProps<{
@@ -8,12 +9,13 @@ const props = withDefaults(
     ariaLabel?: string
     triggerClass?: string
   }>(),
-  { placeholder: 'Select date', ariaLabel: 'Due date', triggerClass: '' }
+  { placeholder: '', ariaLabel: '', triggerClass: '' }
 )
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
+const { t, locale } = useI18n()
 
 const isOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
@@ -21,12 +23,24 @@ const panelRef = ref<HTMLElement | null>(null)
 const panelStyle = ref<{ top: string; left: string }>({ top: '0', left: '0' })
 const viewYear = ref(new Date().getFullYear())
 const viewMonth = ref(new Date().getMonth())
+const resolvedPlaceholder = computed(() => props.placeholder || t('datePicker.placeholder'))
+const resolvedAriaLabel = computed(() => props.ariaLabel || t('datePicker.triggerAria'))
+const weekdayLabels = computed(() => [
+  t('datePicker.weekdays.mon'),
+  t('datePicker.weekdays.tue'),
+  t('datePicker.weekdays.wed'),
+  t('datePicker.weekdays.thu'),
+  t('datePicker.weekdays.fri'),
+  t('datePicker.weekdays.sat'),
+  t('datePicker.weekdays.sun')
+])
+const localeTag = computed(() => locale.value)
 
 const displayText = computed(() => {
-  if (!props.modelValue) return props.placeholder
+  if (!props.modelValue) return resolvedPlaceholder.value
   const d = new Date(props.modelValue + 'T00:00:00')
-  if (isNaN(d.getTime())) return props.placeholder
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  if (isNaN(d.getTime())) return resolvedPlaceholder.value
+  return d.toLocaleDateString(localeTag.value, { year: 'numeric', month: 'short', day: 'numeric' })
 })
 
 const FALLBACK_PANEL_WIDTH = 240
@@ -98,7 +112,7 @@ const calendarDays = computed(() => {
 
 const monthLabel = computed(() => {
   const d = new Date(viewYear.value, viewMonth.value, 1)
-  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  return d.toLocaleDateString(localeTag.value, { month: 'long', year: 'numeric' })
 })
 
 const today = computed(() => {
@@ -204,7 +218,7 @@ onUnmounted(() => {
       type="button"
       class="custom-date-picker-trigger"
       :class="triggerClass"
-      :aria-label="ariaLabel"
+      :aria-label="resolvedAriaLabel"
       :aria-expanded="isOpen"
       :aria-haspopup="'dialog'"
       :aria-controls="isOpen ? 'date-picker-panel' : undefined"
@@ -223,19 +237,19 @@ onUnmounted(() => {
         :style="panelStyle"
         role="dialog"
         aria-modal="true"
-        aria-label="Choose date"
+        :aria-label="t('datePicker.dialogAria')"
         tabindex="-1"
         @keydown="onPanelKeydown"
       >
         <div class="calendar-header">
-        <button type="button" class="nav-btn" aria-label="Previous month" @click="prevMonth">
+        <button type="button" class="nav-btn" :aria-label="t('datePicker.previousMonth')" @click="prevMonth">
           ‹
         </button>
         <span class="calendar-month">{{ monthLabel }}</span>
-        <button type="button" class="nav-btn" aria-label="Next month" @click="nextMonth">›</button>
+        <button type="button" class="nav-btn" :aria-label="t('datePicker.nextMonth')" @click="nextMonth">›</button>
       </div>
       <div class="calendar-weekdays">
-        <span v-for="w in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']" :key="w" class="weekday">
+        <span v-for="w in weekdayLabels" :key="w" class="weekday">
           {{ w }}
         </span>
       </div>
@@ -253,7 +267,7 @@ onUnmounted(() => {
                 cell.day === new Date(modelValue + 'T00:00:00').getDate(),
               today: isToday(viewYear, viewMonth, cell.day)
             }"
-            :aria-label="isToday(viewYear, viewMonth, cell.day) ? `Today, ${cell.day}` : String(cell.day)"
+            :aria-label="isToday(viewYear, viewMonth, cell.day) ? t('datePicker.todayAria', { day: cell.day }) : String(cell.day)"
             @click="selectDay(viewYear, viewMonth, cell.day)"
           >
             {{ cell.day }}
@@ -262,7 +276,7 @@ onUnmounted(() => {
         </template>
       </div>
         <div class="calendar-footer">
-          <button type="button" class="today-btn" @click="selectToday">Today</button>
+          <button type="button" class="today-btn" @click="selectToday">{{ t('datePicker.today') }}</button>
         </div>
       </div>
     </Teleport>
