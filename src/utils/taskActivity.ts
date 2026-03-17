@@ -1,38 +1,19 @@
 import type { TaskActivity } from '../types/domain'
+import { translate } from './i18n'
 import { getInitials } from './avatar'
-
-const STATUS_LABELS: Record<string, string> = {
-  backlog: 'Backlog',
-  todo: 'Todo',
-  in_progress: 'In Progress',
-  in_review: 'In Review',
-  done: 'Done',
-  canceled: 'Canceled',
-  duplicate: 'Duplicate'
-}
-
-const PRIORITY_LABELS: Record<string, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  urgent: 'Urgent'
-}
+import { getPriorityLabel, getStatusLabel } from './enumLabels'
 
 function normalizeFieldLabel(fieldName: string | null | undefined): string {
-  switch (fieldName) {
-    case 'assigneeId':
-      return 'assignee'
-    case 'dueDate':
-      return 'due date'
-    default:
-      return fieldName ?? 'field'
-  }
+  if (!fieldName) return translate('fieldLabel.default')
+  const key = `fieldLabel.${fieldName}`
+  const translated = translate(key)
+  return translated === key ? fieldName : translated
 }
 
 function formatFieldValue(fieldName: string | null | undefined, value: string | null | undefined): string {
-  if (!value) return 'empty'
-  if (fieldName === 'status') return STATUS_LABELS[value] ?? value
-  if (fieldName === 'priority') return PRIORITY_LABELS[value] ?? value
+  if (!value) return translate('activity.emptyValue')
+  if (fieldName === 'status') return getStatusLabel(value)
+  if (fieldName === 'priority') return getPriorityLabel(value)
   if (fieldName === 'dueDate') return new Date(value).toLocaleDateString()
   return value
 }
@@ -44,19 +25,29 @@ export function getActivityAvatarLabel(actorName: string | null | undefined): st
 }
 
 export function formatTaskActivity(activity: TaskActivity): string {
+  const actor = activity.actorName ?? 'Someone'
   switch (activity.actionType) {
     case 'created':
-      return `${activity.actorName} created the issue`
+      return translate('activity.created', { actor })
     case 'favorited':
-      return `${activity.actorName} favorited the issue`
+      return translate('activity.favorited', { actor })
     case 'unfavorited':
-      return `${activity.actorName} removed the issue from favorites`
-    case 'changed':
+      return translate('activity.unfavorited', { actor })
+    case 'changed': {
+      const fieldLabel = normalizeFieldLabel(activity.fieldName)
       if (activity.fieldName === 'title' || activity.fieldName === 'description') {
-        return `${activity.actorName} changed ${normalizeFieldLabel(activity.fieldName)}`
+        return translate('activity.changedField', { actor, field: fieldLabel })
       }
-      return `${activity.actorName} changed ${normalizeFieldLabel(activity.fieldName)} from ${formatFieldValue(activity.fieldName, activity.oldValue)} to ${formatFieldValue(activity.fieldName, activity.newValue)}`
+      const oldValue = formatFieldValue(activity.fieldName, activity.oldValue)
+      const newValue = formatFieldValue(activity.fieldName, activity.newValue)
+      return translate('activity.changedFromTo', {
+        actor,
+        field: fieldLabel,
+        oldValue,
+        newValue
+      })
+    }
     default:
-      return `${activity.actorName} updated the issue`
+      return translate('activity.updated', { actor })
   }
 }
