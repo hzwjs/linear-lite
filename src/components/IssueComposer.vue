@@ -21,7 +21,6 @@ import {
   CircleX,
   Copy,
   Eye,
-  Link2,
   Loader2,
   Paperclip,
   User as UserIcon
@@ -43,7 +42,8 @@ const store = useTaskStore()
 
 const title = ref('')
 const description = ref('')
-const status = ref<Status>('backlog')
+const descriptionUploadState = ref({ hasPending: false, hasFailed: false })
+const status = ref<Status>('todo')
 const priority = ref<Priority>('medium')
 const assigneeId = ref<string | number>('')
 const dueDate = ref('')
@@ -54,6 +54,10 @@ const descriptionEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
 
 function focusDescription() {
   nextTick(() => descriptionEditorRef.value?.focus())
+}
+
+function onDescriptionUploadStateChange(state: { hasPending: boolean; hasFailed: boolean }) {
+  descriptionUploadState.value = state
 }
 
 const statusOptions: CustomSelectOption[] = [
@@ -93,7 +97,7 @@ function descriptionForSave(desc: string | undefined): string {
 function resetForm() {
   title.value = ''
   description.value = ''
-  status.value = props.defaultStatus ?? 'backlog'
+  status.value = props.defaultStatus ?? 'todo'
   priority.value = 'medium'
   assigneeId.value = ''
   dueDate.value = ''
@@ -110,7 +114,7 @@ watch(
 watch(
   () => props.defaultStatus,
   (value) => {
-    if (props.open) status.value = value ?? 'backlog'
+    if (props.open) status.value = value ?? 'todo'
   }
 )
 
@@ -124,6 +128,7 @@ onMounted(async () => {
 
 async function handleCreate() {
   if (!title.value.trim() || isSaving.value) return
+  if (descriptionUploadState.value.hasPending || descriptionUploadState.value.hasFailed) return
 
   isSaving.value = true
   const dueDateMs = parseDateInputValue(dueDate.value)
@@ -194,6 +199,7 @@ async function handleCreate() {
             <TiptapEditor
               ref="descriptionEditorRef"
               v-model="description"
+              @upload-state-change="onDescriptionUploadStateChange"
               placeholder="Add description… Type / for formatting"
               :min-height="64"
             />
@@ -201,12 +207,6 @@ async function handleCreate() {
           <div class="content-actions">
             <button type="button" class="content-action-btn" aria-label="Attach">
               <Paperclip class="icon-14" />
-            </button>
-            <button type="button" class="content-action-btn" aria-label="Link">
-              <Link2 class="icon-14" />
-            </button>
-            <button type="button" class="content-action-btn" aria-label="Watchers">
-              <Eye class="icon-14" />
             </button>
           </div>
 
@@ -334,13 +334,13 @@ async function handleCreate() {
   padding-bottom: 2px;
 }
 .content-section--title .composer-title-input {
-  font-size: 1.5rem;
-  font-weight: 600;
-  line-height: 1.35;
-  letter-spacing: -0.02em;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.18;
+  letter-spacing: -0.035em;
 }
 .content-section.description-section {
-  margin-top: 14px;
+  margin-top: 6px;
   padding-top: 0;
   min-height: 0;
 }
@@ -350,11 +350,11 @@ async function handleCreate() {
   border: none;
   padding: 0;
   background: transparent;
-  font-size: var(--font-size-subhead);
-  font-weight: var(--font-weight-semibold);
+  font-size: 2rem;
+  font-weight: 700;
   color: var(--color-text-primary);
-  line-height: 1.35;
-  letter-spacing: var(--letter-spacing, 0);
+  line-height: 1.18;
+  letter-spacing: -0.035em;
 }
 .composer-title-input::placeholder {
   color: var(--color-text-muted);

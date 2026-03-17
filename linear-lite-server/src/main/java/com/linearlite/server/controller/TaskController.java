@@ -8,6 +8,9 @@ import com.linearlite.server.config.R2StorageProperties;
 import com.linearlite.server.dto.TaskActivityResponse;
 import com.linearlite.server.dto.TaskAttachmentResponse;
 import com.linearlite.server.dto.UpdateTaskRequest;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.service.TaskActivityService;
@@ -27,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -160,6 +164,26 @@ public class TaskController {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
         List<TaskAttachmentResponse> list = taskAttachmentService.listByTaskKey(taskKey, userId);
         return ResponseEntity.ok(ApiResponse.success(list));
+    }
+
+    @GetMapping("/{id}/attachments/{attachmentId}/download")
+    public ResponseEntity<byte[]> downloadAttachment(
+            HttpServletRequest request,
+            @PathVariable("id") String taskKey,
+            @PathVariable("attachmentId") Long attachmentId) {
+        if (!r2StorageProperties.isEnabled()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        var download = taskAttachmentService.getAttachmentForDownload(taskKey, attachmentId, userId);
+        String disposition = ContentDisposition.attachment()
+                .filename(download.fileName(), StandardCharsets.UTF_8)
+                .build()
+                .toString();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
+                .contentType(MediaType.parseMediaType(download.contentTypeOrDefault()))
+                .body(download.content());
     }
 
     @DeleteMapping("/{id}/attachments/{attachmentId}")

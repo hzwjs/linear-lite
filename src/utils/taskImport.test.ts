@@ -141,9 +141,7 @@ describe('taskImport helpers', () => {
     expect(preview.rowErrors.map((error) => error.message)).toEqual([
       'Title is required.',
       'Status must be one of: backlog, todo, in_progress, in_review, done, canceled, duplicate.',
-      'Priority must be one of: low, medium, high, urgent.',
-      'Assignee must match an existing username in this workspace.',
-      'Due date must use YYYY-MM-DD.'
+      'Priority must be one of: low, medium, high, urgent.'
     ])
   })
 

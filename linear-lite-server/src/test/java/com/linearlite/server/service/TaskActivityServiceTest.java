@@ -1,6 +1,7 @@
 package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.linearlite.server.dto.TaskActivityResponse;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskActivity;
@@ -21,6 +22,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -81,10 +83,12 @@ class TaskActivityServiceTest {
         actor.setUsername("alice");
 
         when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
-        when(taskActivityMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(newer, older));
+        Page<TaskActivity> page = new Page<>(1, 50);
+        page.setRecords(List.of(newer, older));
+        when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(page);
         when(userMapper.selectBatchIds(List.of(2L))).thenReturn(List.of(actor));
 
-        List<TaskActivityResponse> result = taskActivityService.listByTaskKey("ENG-5");
+        List<TaskActivityResponse> result = taskActivityService.listByTaskKey("ENG-5", 50);
 
         assertEquals(2, result.size());
         assertEquals("alice", result.get(0).getActorName());
@@ -93,6 +97,43 @@ class TaskActivityServiceTest {
         assertEquals("changed", result.get(1).getActionType());
         assertEquals("status", result.get(1).getFieldName());
         assertEquals(LocalDateTime.of(2026, 3, 14, 10, 0), result.get(1).getCreatedAt());
+    }
+
+    @Test
+    void recordDescriptionChangeInsertsWhenNoRecentActivity() {
+        when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
+                .thenReturn(new Page<TaskActivity>(1, 1).setRecords(List.of()));
+
+        taskActivityService.recordDescriptionChange(1L, 2L, "old", "new");
+
+        ArgumentCaptor<TaskActivity> captor = ArgumentCaptor.forClass(TaskActivity.class);
+        verify(taskActivityMapper).insert(captor.capture());
+        assertEquals("changed", captor.getValue().getActionType());
+        assertEquals("description", captor.getValue().getFieldName());
+        assertEquals("old", captor.getValue().getOldValue());
+        assertEquals("new", captor.getValue().getNewValue());
+    }
+
+    @Test
+    void recordDescriptionChangeUpdatesWhenRecentActivityExists() {
+        TaskActivity recent = new TaskActivity();
+        recent.setId(99L);
+        recent.setTaskId(1L);
+        recent.setUserId(2L);
+        recent.setActionType("changed");
+        recent.setFieldName("description");
+        recent.setOldValue("old");
+        recent.setNewValue("mid");
+        recent.setCreatedAt(LocalDateTime.now().minusMinutes(1));
+        Page<TaskActivity> page = new Page<>(1, 1);
+        page.setRecords(List.of(recent));
+        when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(page);
+
+        taskActivityService.recordDescriptionChange(1L, 2L, "mid", "new");
+
+        verify(taskActivityMapper).updateById(recent);
+        assertEquals("new", recent.getNewValue());
+        verify(taskActivityMapper, never()).insert(any());
     }
 
     @Test

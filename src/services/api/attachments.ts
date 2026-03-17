@@ -22,5 +22,19 @@ export const attachmentsApi = {
     return api
       .delete(`/tasks/${taskKey}/attachments/${attachmentId}`)
       .then(() => undefined)
+  },
+
+  /** 通过后端代理下载，保留原始文件名（带鉴权） */
+  async download(taskKey: string, attachmentId: number, fileName: string): Promise<void> {
+    const res = await api.get(`/tasks/${taskKey}/attachments/${attachmentId}/download`, {
+      responseType: 'blob'
+    })
+    const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName || 'download'
+    a.click()
+    URL.revokeObjectURL(url)
   }
 }

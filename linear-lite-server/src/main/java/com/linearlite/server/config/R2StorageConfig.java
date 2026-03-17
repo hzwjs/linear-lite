@@ -52,6 +52,12 @@ public class R2StorageConfig {
             }
 
             @Override
+            public byte[] getObjectByKey(String key) {
+                throwDisabled();
+                return null;
+            }
+
+            @Override
             public void deleteObjectByKey(String key) {
                 throwDisabled();
             }

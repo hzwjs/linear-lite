@@ -64,6 +64,11 @@ public class R2ObjectStorageService implements ObjectStorageService {
     }
 
     @Override
+    public byte[] getObjectByKey(String key) {
+        return storageClient.getObject(properties.getBucket(), key);
+    }
+
+    @Override
     public void deleteObjectByKey(String key) {
         storageClient.deleteObject(properties.getBucket(), key);
     }

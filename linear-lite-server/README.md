@@ -54,6 +54,13 @@ mvn spring-boot:run
 | `MYSQL_USERNAME` | root | 数据库用户 |
 | `MYSQL_PASSWORD` | Password1! | 数据库密码（生产建议用环境变量覆盖） |
 | `SERVER_PORT` | 8080 | 服务端口 |
+| `R2_ENABLED` | false | 是否启用 Cloudflare R2 图片存储 |
+| `R2_ENDPOINT` | （空） | R2 S3 兼容端点 |
+| `R2_ACCESS_KEY_ID` | （空） | R2 Access Key ID |
+| `R2_SECRET_ACCESS_KEY` | （空） | R2 Secret Access Key |
+| `R2_BUCKET` | （空） | R2 bucket 名称 |
+| `R2_PUBLIC_BASE_URL` | （空） | 图片公开访问基础 URL |
+| `R2_REGION` | auto | R2 区域，通常保持 `auto` |
 
 示例（显式指定数据库与端口）：
 
@@ -63,6 +70,15 @@ export MYSQL_USERNAME=root
 export MYSQL_PASSWORD=your_password
 mvn spring-boot:run
 ```
+
+如需启用任务描述图片上传，可在 `linear-lite-server/.env.properties` 中放入本地 R2 配置，Spring Boot 会在启动时自动加载：
+
+```bash
+cd linear-lite-server
+mvn spring-boot:run
+```
+
+当前项目已使用环境变量方式读取 R2 配置；`.env.properties` 只是本机开发时的自动加载入口，不应提交到仓库。
 
 ## schema.sql、schema-v2-task_key.sql 与 data-init.sql 的用法
 

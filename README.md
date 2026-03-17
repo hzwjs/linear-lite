@@ -55,12 +55,26 @@ mvn spring-boot:run
 | `MYSQL_PASSWORD` | （空） | 数据库密码 |
 | `SERVER_PORT` | 8080 | 服务端口 |
 | `JWT_SECRET` | linear-lite-default-secret-... | 生产环境请修改 |
+| `R2_ENABLED` | false | 是否启用 Cloudflare R2 图片存储 |
+| `R2_ENDPOINT` | （空） | R2 S3 兼容端点 |
+| `R2_ACCESS_KEY_ID` | （空） | R2 Access Key ID |
+| `R2_SECRET_ACCESS_KEY` | （空） | R2 Secret Access Key |
+| `R2_BUCKET` | （空） | R2 bucket 名称 |
+| `R2_PUBLIC_BASE_URL` | （空） | 图片公开访问基础 URL |
+| `R2_REGION` | auto | R2 区域，通常保持 `auto` |
 
 示例：指定密码与端口
 
 ```bash
 export MYSQL_PASSWORD=your_password
 export SERVER_PORT=8080
+mvn spring-boot:run
+```
+
+如果要启用任务描述中的图片上传，在 `linear-lite-server/.env.properties` 中放入本地 R2 配置后直接启动后端即可。Spring Boot 会自动加载这个文件：
+
+```bash
+cd linear-lite-server
 mvn spring-boot:run
 ```
 

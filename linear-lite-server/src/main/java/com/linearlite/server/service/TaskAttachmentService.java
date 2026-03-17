@@ -2,6 +2,7 @@ package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.linearlite.server.config.R2StorageProperties;
+import com.linearlite.server.dto.AttachmentDownload;
 import com.linearlite.server.dto.ImageUploadResponse;
 import com.linearlite.server.dto.TaskAttachmentResponse;
 import com.linearlite.server.entity.Task;
@@ -64,6 +65,21 @@ public class TaskAttachmentService {
                         .eq(TaskAttachment::getTaskId, task.getId())
                         .orderByAsc(TaskAttachment::getCreatedAt));
         return list.stream().map(this::toResponse).collect(Collectors.toList());
+    }
+
+    public AttachmentDownload getAttachmentForDownload(String taskKey, Long attachmentId, Long userId) {
+        Task task = taskService.getByKeyOrThrow(taskKey, userId);
+        TaskAttachment attachment = taskAttachmentMapper.selectOne(
+                new LambdaQueryWrapper<TaskAttachment>()
+                        .eq(TaskAttachment::getId, attachmentId)
+                        .eq(TaskAttachment::getTaskId, task.getId()));
+        if (attachment == null) {
+            throw new ResourceNotFoundException("附件不存在: " + attachmentId);
+        }
+        byte[] content = objectStorageService.getObjectByKey(attachment.getObjectKey());
+        String fileName = attachment.getFileName() != null ? attachment.getFileName() : "download";
+        String contentType = attachment.getContentType();
+        return new AttachmentDownload(content, fileName, contentType);
     }
 
     public void delete(String taskKey, Long attachmentId, Long userId) {

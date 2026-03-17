@@ -36,7 +36,6 @@ import {
   User as UserIcon,
   Star,
   Paperclip,
-  Link2,
   Tag,
   Folder,
   Send
@@ -81,7 +80,7 @@ function focusDescription() {
 function onDescriptionUploadStateChange(state: { hasPending: boolean; hasFailed: boolean }) {
   descriptionUploadState.value = state
 }
-const formStatus = ref<Status>('backlog')
+const formStatus = ref<Status>('todo')
 const formPriority = ref<Priority>('medium')
 const formAssigneeId = ref<string | number>('')
 const formDueDate = ref('') // YYYY-MM-DD for input[type=date]
@@ -341,6 +340,15 @@ function formatAttachmentDate(iso: string): string {
   }
 }
 
+async function downloadAttachment(att: TaskAttachment) {
+  if (!props.task?.id) return
+  try {
+    await attachmentsApi.download(props.task.id, att.id, att.fileName)
+  } catch (e) {
+    attachmentUploadError.value = e instanceof Error ? e.message : '下载失败'
+  }
+}
+
 async function deleteAttachment(att: TaskAttachment) {
   if (!props.task?.id) return
   try {
@@ -397,7 +405,7 @@ const loadForm = () => {
   } else {
     formTitle.value = ''
     formDescription.value = ''
-    formStatus.value = props.defaultStatus ?? 'backlog'
+    formStatus.value = props.defaultStatus ?? 'todo'
     formPriority.value = 'medium'
     formAssigneeId.value = ''
     formDueDate.value = ''
@@ -417,7 +425,7 @@ watch(
 )
 watch(() => props.mode, loadForm)
 watch(() => props.defaultStatus, () => {
-  if (props.mode === 'create') formStatus.value = props.defaultStatus ?? 'backlog'
+  if (props.mode === 'create') formStatus.value = props.defaultStatus ?? 'todo'
 })
 
 function getPayload() {
@@ -588,7 +596,7 @@ async function toggleFavorite() {
 </script>
 
 <template>
-  <aside class="editor-panel" :class="{ 'editor-panel--inline': props.variant === 'inline' }" aria-label="Issue workspace">
+  <aside class="editor-panel" :class="{ 'editor-panel--inline': props.variant === 'inline', 'editor-panel--create': props.mode === 'create' }" aria-label="Issue workspace">
     <div class="editor-header">
       <div class="editor-header-meta">
         <nav v-if="showBreadcrumb" class="editor-breadcrumb" aria-label="Breadcrumb">
@@ -649,11 +657,11 @@ async function toggleFavorite() {
     <div class="editor-body">
       <div class="editor-content">
         <section class="content-section content-section--title">
-          <textarea
+          <input
             v-model="formTitle"
-            class="title-textarea"
+            type="text"
+            class="title-input"
             placeholder="Issue title"
-            rows="2"
             autofocus
             @keydown.enter.exact.prevent="focusDescription"
           />
@@ -687,12 +695,6 @@ async function toggleFavorite() {
           >
             <Paperclip class="icon-14" />
           </button>
-          <button type="button" class="content-action-btn" aria-label="Link">
-            <Link2 class="icon-14" />
-          </button>
-          <button type="button" class="content-action-btn" aria-label="Watchers">
-            <Eye class="icon-14" />
-          </button>
         </div>
 
         <section v-if="mode === 'edit' && task" class="content-section subdued linear-section">
@@ -714,7 +716,7 @@ async function toggleFavorite() {
               <p v-if="attachmentUploadError" class="linear-placeholder linear-placeholder--error">{{ attachmentUploadError }}</p>
               <ul v-if="attachments.length" class="linear-sub-list">
                 <li v-for="att in attachments" :key="att.id" class="linear-sub-item linear-attachment-row">
-                  <a :href="att.url" :download="att.fileName" target="_blank" rel="noopener" class="linear-sub-link">{{ att.fileName }}</a>
+                  <button type="button" class="linear-sub-link linear-sub-link--btn" @click="downloadAttachment(att)">{{ att.fileName }}</button>
                   <span class="linear-sub-meta">{{ formatAttachmentSize(att.fileSize) }} · {{ formatAttachmentDate(att.createdAt) }}</span>
                   <button
                     type="button"
@@ -910,6 +912,16 @@ async function toggleFavorite() {
               trigger-class="prop-trigger prop-trigger--linear"
             />
           </div>
+          <div class="prop-row">
+            <span class="prop-label">Due Date</span>
+            <CustomDatePicker
+              id="task-due"
+              v-model="formDueDate"
+              placeholder="Select date"
+              aria-label="Due date"
+              trigger-class="prop-trigger prop-trigger--linear"
+            />
+          </div>
           <div class="prop-row prop-row--linear-action">
             <span class="prop-label">Labels</span>
             <button type="button" class="prop-action-trigger" aria-label="Add label">
@@ -923,16 +935,6 @@ async function toggleFavorite() {
               <Folder class="icon-14" />
               <span>{{ taskProjectName ?? 'Add to project' }}</span>
             </button>
-          </div>
-          <div class="prop-row">
-            <span class="prop-label">Due Date</span>
-            <CustomDatePicker
-              id="task-due"
-              v-model="formDueDate"
-              placeholder="Select date"
-              aria-label="Due date"
-              trigger-class="prop-trigger prop-trigger--linear"
-            />
           </div>
           <div v-if="mode === 'edit' && task?.completedAt" class="prop-row read-only">
             <span class="prop-label">Completed at</span>
@@ -1165,23 +1167,31 @@ async function toggleFavorite() {
   flex-direction: column;
   gap: 6px;
 }
-/* 标题与描述保留间距，便于区分与点击 */
+/* 标题与描述保留间距；编辑/详情用更紧凑间距 */
 .content-section--title {
   margin-bottom: 0;
   padding-bottom: 2px;
   flex-shrink: 0;
 }
-.content-section--title .title-textarea {
+.content-section--title .title-input {
   font-size: 2rem;
   font-weight: 700;
   line-height: 1.18;
   letter-spacing: -0.035em;
 }
 .content-section.description-section {
-  margin-top: 6px;
+  margin-top: 10px;
   padding-top: 0;
   min-height: 0;
   flex-shrink: 0;
+}
+/* 新建任务时标题与描述间距略大，更易区分 */
+.editor-panel--create .content-section--title {
+  margin-bottom: 16px;
+  padding-bottom: 0;
+}
+.editor-panel--create .content-section.description-section {
+  margin-top: 8px;
 }
 .content-actions {
   display: flex;
@@ -1286,6 +1296,12 @@ async function toggleFavorite() {
 }
 .linear-sub-link:hover {
   color: var(--color-accent);
+}
+.linear-sub-link--btn {
+  border: none;
+  font: inherit;
+  cursor: pointer;
+  width: auto;
 }
 .linear-sub-link .icon-done {
   color: var(--color-status-done);
@@ -1509,18 +1525,18 @@ async function toggleFavorite() {
   padding-top: 12px;
   border-top: 1px solid var(--color-border-subtle);
 }
-.title-textarea {
+.title-input {
+  width: 100%;
   font-size: 2rem;
   font-weight: 700;
   color: var(--color-text-primary);
   border: none;
-  resize: none;
   padding: 0;
   line-height: 1.18;
   letter-spacing: -0.035em;
   background: transparent;
 }
-.title-textarea::placeholder {
+.title-input::placeholder {
   color: var(--color-text-muted);
 }
 .description-section {

@@ -9,5 +9,7 @@ public interface ObjectStorageService {
 
     ImageUploadResponse uploadAttachment(MultipartFile file, long taskId);
 
+    byte[] getObjectByKey(String key);
+
     void deleteObjectByKey(String key);
 }

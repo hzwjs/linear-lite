@@ -4,8 +4,13 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+
+import java.io.IOException;
 
 @Component
 @ConditionalOnProperty(prefix = "app.storage.r2", name = "enabled", havingValue = "true")
@@ -25,6 +30,16 @@ public class S3R2StorageClient implements R2StorageClient {
                 .contentType(contentType)
                 .build();
         s3Client.putObject(request, RequestBody.fromBytes(content));
+    }
+
+    @Override
+    public byte[] getObject(String bucket, String key) {
+        try (ResponseInputStream<GetObjectResponse> stream = s3Client.getObject(
+                GetObjectRequest.builder().bucket(bucket).key(key).build())) {
+            return stream.readAllBytes();
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to read object: " + key, e);
+        }
     }
 
     @Override

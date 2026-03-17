@@ -182,10 +182,10 @@ class TaskServiceTest {
         taskService.update("ENG-21", request, 7L);
 
         verify(taskActivityService).recordFieldChange(21L, 7L, "title", "Old title", "New title");
+        verify(taskActivityService).recordDescriptionChange(21L, 7L, "Old desc", "Old desc");
         verify(taskActivityService).recordFieldChange(21L, 7L, "status", "todo", "in_progress");
         verify(taskActivityService).recordFieldChange(21L, 7L, "priority", "medium", "high");
         verify(taskActivityService).recordAssigneeChange(21L, 7L, 1L, 2L);
-        verify(taskActivityService, never()).recordFieldChange(eq(21L), eq(7L), eq("description"), any(), any());
     }
 
     @Test

@@ -207,13 +207,7 @@ export function buildTaskImportPreview(
     let assigneeId: number | null = null
     if (assigneeInput) {
       assigneeId = userIdByUsername.get(assigneeInput.toLowerCase()) ?? null
-      if (assigneeId == null) {
-        rowErrors.push({
-          lineNumber,
-          field: 'assignee',
-          message: 'Assignee must match an existing username in this workspace.'
-        })
-      }
+      // 未匹配到时不再报错，仅不分配负责人
     }
 
     let dueDate: string | null = null
@@ -347,8 +341,29 @@ function normalizePriority(value: string): Priority | null {
 }
 
 function normalizeDueDate(value: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
-  return `${value}T00:00:00`
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return `${trimmed}T00:00:00`
+  const isoMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})[T\s]/)
+  if (isoMatch) return `${isoMatch[1]}T00:00:00`
+  const excelSerial = /^\d+$/.test(trimmed) ? Number(trimmed) : NaN
+  if (!Number.isNaN(excelSerial) && excelSerial > 0) {
+    const date = new Date((excelSerial - 25569) * 86400 * 1000)
+    if (!Number.isNaN(date.getTime())) {
+      const y = date.getFullYear()
+      const m = String(date.getMonth() + 1).padStart(2, '0')
+      const d = String(date.getDate()).padStart(2, '0')
+      return `${y}-${m}-${d}T00:00:00`
+    }
+  }
+  const parsed = new Date(trimmed)
+  if (!Number.isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear()
+    const m = String(parsed.getMonth() + 1).padStart(2, '0')
+    const d = String(parsed.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}T00:00:00`
+  }
+  return null
 }
 
 function emptySummary(): TaskImportPreviewSummary {

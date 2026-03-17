@@ -14,10 +14,12 @@ function toTaskActivity(activity: ApiTaskActivity): TaskActivity {
   }
 }
 
+const DEFAULT_ACTIVITY_LIMIT = 50
+
 export const activityApi = {
-  list(taskKey: string): Promise<TaskActivity[]> {
+  list(taskKey: string, limit = DEFAULT_ACTIVITY_LIMIT): Promise<TaskActivity[]> {
     return api
-      .get<ApiResponse<ApiTaskActivity[]>>(`/tasks/${taskKey}/activities`)
+      .get<ApiResponse<ApiTaskActivity[]>>(`/tasks/${taskKey}/activities`, { params: { limit } })
       .then((res) => unwrap(res).map(toTaskActivity))
   }
 }

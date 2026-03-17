@@ -101,6 +101,31 @@ const monthLabel = computed(() => {
   return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
 })
 
+const today = computed(() => {
+  const t = new Date()
+  return { year: t.getFullYear(), month: t.getMonth(), day: t.getDate() }
+})
+
+function isToday(y: number, m: number, day: number) {
+  return (
+    y === today.value.year &&
+    m === today.value.month &&
+    day === today.value.day
+  )
+}
+
+function selectToday() {
+  const t = today.value
+  const yy = t.year
+  const mm = String(t.month + 1).padStart(2, '0')
+  const dd = String(t.day).padStart(2, '0')
+  emit('update:modelValue', `${yy}-${mm}-${dd}`)
+  viewYear.value = yy
+  viewMonth.value = t.month
+  close()
+  triggerRef.value?.focus()
+}
+
 function prevMonth() {
   if (viewMonth.value === 0) {
     viewMonth.value = 11
@@ -225,8 +250,10 @@ onUnmounted(() => {
                 modelValue &&
                 viewYear === new Date(modelValue + 'T00:00:00').getFullYear() &&
                 viewMonth === new Date(modelValue + 'T00:00:00').getMonth() &&
-                cell.day === new Date(modelValue + 'T00:00:00').getDate()
+                cell.day === new Date(modelValue + 'T00:00:00').getDate(),
+              today: isToday(viewYear, viewMonth, cell.day)
             }"
+            :aria-label="isToday(viewYear, viewMonth, cell.day) ? `Today, ${cell.day}` : String(cell.day)"
             @click="selectDay(viewYear, viewMonth, cell.day)"
           >
             {{ cell.day }}
@@ -234,6 +261,9 @@ onUnmounted(() => {
           <span v-else class="calendar-day pad"></span>
         </template>
       </div>
+        <div class="calendar-footer">
+          <button type="button" class="today-btn" @click="selectToday">Today</button>
+        </div>
       </div>
     </Teleport>
   </div>
@@ -341,7 +371,33 @@ onUnmounted(() => {
   background: var(--color-status-done);
   color: white;
 }
+.calendar-day.today:not(.selected) {
+  font-weight: 600;
+  box-shadow: 0 0 0 2px var(--color-accent, #6366f1);
+}
+.calendar-day.today.selected {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8);
+}
 .calendar-day.pad {
   cursor: default;
+}
+.calendar-footer {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border-subtle, #e5e7eb);
+}
+.today-btn {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: var(--font-size-caption, 12px);
+  color: var(--color-accent, #6366f1);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.today-btn:hover {
+  background: var(--color-bg-hover, #f3f4f6);
 }
 </style>

@@ -1,6 +1,7 @@
 package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.linearlite.server.dto.TaskActivityResponse;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskActivity;
@@ -11,8 +12,10 @@ import com.linearlite.server.mapper.TaskMapper;
 import com.linearlite.server.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -39,6 +42,38 @@ public class TaskActivityService {
         taskActivityMapper.insert(activity);
     }
 
+    private static final int DESCRIPTION_COALESCE_MINUTES = 2;
+
+    /**
+     * 记录描述变更。若该任务在最近几分钟内已有同一用户的「changed description」记录，则合并为一条（只更新 newValue 与时间），避免一次编辑产生多条活动。
+     */
+    public void recordDescriptionChange(Long taskId, Long userId, String oldValue, String newValue) {
+        if (Objects.equals(oldValue, newValue)) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime cutoff = now.minusMinutes(DESCRIPTION_COALESCE_MINUTES);
+        Page<TaskActivity> page = new Page<>(1, 1);
+        List<TaskActivity> last = taskActivityMapper.selectPage(page,
+                new LambdaQueryWrapper<TaskActivity>()
+                        .eq(TaskActivity::getTaskId, taskId)
+                        .eq(TaskActivity::getUserId, userId)
+                        .eq(TaskActivity::getActionType, "changed")
+                        .eq(TaskActivity::getFieldName, "description")
+                        .orderByDesc(TaskActivity::getCreatedAt))
+                .getRecords();
+        if (!last.isEmpty()) {
+            TaskActivity act = last.get(0);
+            if (!act.getCreatedAt().isBefore(cutoff)) {
+                act.setNewValue(newValue);
+                act.setCreatedAt(now);
+                taskActivityMapper.updateById(act);
+                return;
+            }
+        }
+        recordFieldChange(taskId, userId, "description", oldValue, newValue);
+    }
+
     public void recordFieldChange(Long taskId, Long userId, String fieldName, String oldValue, String newValue) {
         TaskActivity activity = new TaskActivity();
         activity.setTaskId(taskId);
@@ -61,16 +96,18 @@ public class TaskActivityService {
                 newAssigneeId == null ? null : namesById.getOrDefault(newAssigneeId, "Unknown"));
     }
 
-    public List<TaskActivityResponse> listByTaskKey(String taskKey) {
+    public List<TaskActivityResponse> listByTaskKey(String taskKey, int limit) {
         Task task = taskMapper.selectOne(
                 new LambdaQueryWrapper<Task>().eq(Task::getTaskKey, taskKey));
         if (task == null) {
             throw new ResourceNotFoundException("任务不存在: " + taskKey);
         }
-        List<TaskActivity> activities = taskActivityMapper.selectList(
+        Page<TaskActivity> page = new Page<>(1, limit);
+        List<TaskActivity> activities = taskActivityMapper.selectPage(page,
                 new LambdaQueryWrapper<TaskActivity>()
                         .eq(TaskActivity::getTaskId, task.getId())
-                        .orderByDesc(TaskActivity::getCreatedAt, TaskActivity::getId));
+                        .orderByDesc(TaskActivity::getCreatedAt, TaskActivity::getId))
+                .getRecords();
         if (activities.isEmpty()) {
             return Collections.emptyList();
         }

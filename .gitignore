@@ -29,3 +29,5 @@ target/
 .worktrees/
 .codex-artifacts/
 .vscode
+linear-lite-server/.env.properties
+linear-lite-server/.env.r2.local
