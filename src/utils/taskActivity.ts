@@ -4,10 +4,11 @@ import { getInitials } from './avatar'
 import { getPriorityLabel, getStatusLabel } from './enumLabels'
 
 function normalizeFieldLabel(fieldName: string | null | undefined): string {
-  if (!fieldName) return translate('fieldLabel.default')
+  if (!fieldName) {
+    return translate('fieldLabel.default', undefined, 'field')
+  }
   const key = `fieldLabel.${fieldName}`
-  const translated = translate(key)
-  return translated === key ? fieldName : translated
+  return translate(key, undefined, fieldName)
 }
 
 function formatFieldValue(fieldName: string | null | undefined, value: string | null | undefined): string {

@@ -24,6 +24,8 @@ const en = {
   fieldLabel: {
     assigneeId: 'assignee',
     dueDate: 'due date',
+    title: 'title',
+    description: 'description',
     status: 'status',
     priority: 'priority',
     default: 'field'

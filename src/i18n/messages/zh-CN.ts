@@ -24,6 +24,8 @@ const zhCN = {
   fieldLabel: {
     assigneeId: '负责人',
     dueDate: '截止日期',
+    title: '标题',
+    description: '描述',
     status: '状态',
     priority: '优先级',
     default: '字段'

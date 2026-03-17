@@ -63,6 +63,19 @@ describe('formatTaskActivity', () => {
     expect(formatTaskActivity(activity)).toBe('alice 创建了任务')
   })
 
+  it('uses localized field labels in zh-CN', () => {
+    i18n.global.locale.value = 'zh-CN'
+    const activity: TaskActivity = {
+      id: 6,
+      actionType: 'changed',
+      fieldName: 'title',
+      actorName: 'alice',
+      createdAt: 1
+    }
+
+    expect(formatTaskActivity(activity)).toBe('alice 修改了 标题')
+  })
+
   it('falls back to raw enum values when translation is missing', () => {
     const activity: TaskActivity = {
       id: 5,
