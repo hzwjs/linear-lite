@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, computed, watch, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useTaskStore } from '../store/taskStore'
 import { useProjectStore } from '../store/projectStore'
@@ -35,53 +36,9 @@ import {
   Plus,
   Download
 } from 'lucide-vue-next'
+import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import { buildTaskGroups, getAdjacentTaskIds } from '../utils/taskView'
 import type { CompletedVisibility, GroupBy, OrderBy, VisibleProperty } from '../utils/viewPreference'
-
-const filterStatusOptions: CustomSelectOption[] = [
-  { value: null, label: 'All Status' },
-  { value: 'backlog', label: 'Backlog', icon: CircleDashed },
-  { value: 'todo', label: 'Todo', icon: Circle },
-  { value: 'in_progress', label: 'In Progress', icon: Loader2 },
-  { value: 'in_review', label: 'In Review', icon: Eye },
-  { value: 'done', label: 'Done', icon: CheckCircle },
-  { value: 'canceled', label: 'Canceled', icon: CircleX },
-  { value: 'duplicate', label: 'Duplicate', icon: Copy }
-]
-const filterPriorityOptions: CustomSelectOption[] = [
-  { value: null, label: 'All Priorities' },
-  { value: 'urgent', label: 'Urgent', icon: PriorityUrgentIcon },
-  { value: 'high', label: 'High', icon: PriorityHighIcon },
-  { value: 'medium', label: 'Medium', icon: PriorityMediumIcon },
-  { value: 'low', label: 'Low', icon: PriorityLowIcon }
-]
-const groupingOptions: CustomSelectOption[] = [
-  { value: 'status', label: 'Status' },
-  { value: 'priority', label: 'Priority' },
-  { value: 'assignee', label: 'Assignee' },
-  { value: 'project', label: 'Project' },
-  { value: 'none', label: 'None' }
-]
-const orderOptions: CustomSelectOption[] = [
-  { value: 'updatedAt', label: 'Updated' },
-  { value: 'createdAt', label: 'Created' },
-  { value: 'priority', label: 'Priority' },
-  { value: 'dueDate', label: 'Due date' },
-  { value: 'title', label: 'Title' }
-]
-const completedOptions: CustomSelectOption[] = [
-  { value: 'all', label: 'All' },
-  { value: 'open_only', label: 'Open only' }
-]
-const visiblePropertyOptions: Array<{ value: VisibleProperty; label: string }> = [
-  { value: 'id', label: 'ID' },
-  { value: 'status', label: 'Status' },
-  { value: 'priority', label: 'Priority' },
-  { value: 'assignee', label: 'Assignee' },
-  { value: 'project', label: 'Project' },
-  { value: 'dueDate', label: 'Due date' },
-  { value: 'updatedAt', label: 'Updated' }
-]
 
 const store = useTaskStore()
 const projectStore = useProjectStore()
@@ -90,6 +47,7 @@ const overlayStore = useOverlayStore()
 const issuePanelStore = useIssuePanelStore()
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const users = ref<User[]>([])
 const searchInputRef = ref<HTMLInputElement | null>(null)
 const filterPopoverOpen = ref(false)
@@ -136,6 +94,51 @@ const showEmptyGroups = computed({
   get: () => viewModeStore.viewConfig.showEmptyGroups,
   set: (value) => viewModeStore.setShowEmptyGroups(value)
 })
+
+const filterStatusOptions = computed<CustomSelectOption[]>(() => [
+  { value: null, label: t('boardView.allStatus') },
+  { value: 'backlog', label: getStatusLabel('backlog'), icon: CircleDashed },
+  { value: 'todo', label: getStatusLabel('todo'), icon: Circle },
+  { value: 'in_progress', label: getStatusLabel('in_progress'), icon: Loader2 },
+  { value: 'in_review', label: getStatusLabel('in_review'), icon: Eye },
+  { value: 'done', label: getStatusLabel('done'), icon: CheckCircle },
+  { value: 'canceled', label: getStatusLabel('canceled'), icon: CircleX },
+  { value: 'duplicate', label: getStatusLabel('duplicate'), icon: Copy }
+])
+const filterPriorityOptions = computed<CustomSelectOption[]>(() => [
+  { value: null, label: t('boardView.allPriorities') },
+  { value: 'urgent', label: getPriorityLabel('urgent'), icon: PriorityUrgentIcon },
+  { value: 'high', label: getPriorityLabel('high'), icon: PriorityHighIcon },
+  { value: 'medium', label: getPriorityLabel('medium'), icon: PriorityMediumIcon },
+  { value: 'low', label: getPriorityLabel('low'), icon: PriorityLowIcon }
+])
+const groupingOptions = computed<CustomSelectOption[]>(() => [
+  { value: 'status', label: t('common.status') },
+  { value: 'priority', label: t('common.priority') },
+  { value: 'assignee', label: t('common.assignee') },
+  { value: 'project', label: t('common.project') },
+  { value: 'none', label: t('common.none') }
+])
+const orderOptions = computed<CustomSelectOption[]>(() => [
+  { value: 'updatedAt', label: t('common.updated') },
+  { value: 'createdAt', label: t('common.created') },
+  { value: 'priority', label: t('common.priority') },
+  { value: 'dueDate', label: t('common.dueDate') },
+  { value: 'title', label: t('common.title') }
+])
+const completedOptions = computed<CustomSelectOption[]>(() => [
+  { value: 'all', label: t('common.all') },
+  { value: 'open_only', label: t('boardView.openOnly') }
+])
+const visiblePropertyOptions = computed<Array<{ value: VisibleProperty; label: string }>>(() => [
+  { value: 'id', label: t('boardView.id') },
+  { value: 'status', label: t('common.status') },
+  { value: 'priority', label: t('common.priority') },
+  { value: 'assignee', label: t('common.assignee') },
+  { value: 'project', label: t('common.project') },
+  { value: 'dueDate', label: t('common.dueDate') },
+  { value: 'updatedAt', label: t('common.updated') }
+])
 
 // Deep link handling
 watch(() => route.params.taskId, (newId) => {
@@ -254,6 +257,31 @@ watch(
 const viewType = computed(() => viewModeStore.viewType)
 const taskGroups = computed(() =>
   buildTaskGroups(store.filteredTasks, viewModeStore.viewConfig, users.value)
+)
+const localizedTaskGroups = computed(() =>
+  taskGroups.value.map((group) => {
+    let label = group.label
+    switch (viewModeStore.viewConfig.groupBy) {
+      case 'status':
+        label = getStatusLabel(group.key)
+        break
+      case 'priority':
+        label = getPriorityLabel(group.key)
+        break
+      case 'assignee':
+        if (group.key === 'unassigned') label = t('common.unassigned')
+        break
+      case 'project':
+        if (group.key === 'none') label = t('common.noProject')
+        break
+      case 'none':
+        label = t('boardView.allIssues')
+        break
+      default:
+        break
+    }
+    return { ...group, label }
+  })
 )
 const flatTaskIds = computed(() =>
   taskGroups.value.flatMap((group) => {
@@ -397,10 +425,10 @@ function navigateWorkspace(taskId: string) {
   <div class="board-view">
     <header class="app-header">
       <div class="header-left">
-        <button class="btn-create" @click="() => openCreateEditor()">New issue</button>
+        <button class="btn-create" @click="() => openCreateEditor()">{{ t('boardView.newIssue') }}</button>
         <button class="btn-import" @click="openImportModal">
           <Download class="icon-14" />
-          <span>Import</span>
+          <span>{{ t('common.import') }}</span>
         </button>
         <div class="view-toggle">
           <button
@@ -409,7 +437,7 @@ function navigateWorkspace(taskId: string) {
             :class="{ active: viewType === 'board' }"
             @click="setView('board')"
           >
-            Board
+            {{ t('common.board') }}
           </button>
           <button
             type="button"
@@ -417,15 +445,15 @@ function navigateWorkspace(taskId: string) {
             :class="{ active: viewType === 'list' }"
             @click="setView('list')"
           >
-            List
+            {{ t('common.list') }}
           </button>
         </div>
         <input
           ref="searchInputRef"
           v-model="searchQuery"
-          placeholder="Search issues..."
+          :placeholder="t('boardView.searchIssues')"
           class="search-input"
-          aria-label="Search issues"
+          :aria-label="t('boardView.searchIssues')"
         />
       </div>
     </header>
@@ -439,7 +467,7 @@ function navigateWorkspace(taskId: string) {
             :class="{ active: scopeTab === 'all' }"
             @click="setScopeTab('all')"
           >
-            All issues
+            {{ t('boardView.allIssues') }}
           </button>
           <button
             type="button"
@@ -447,7 +475,7 @@ function navigateWorkspace(taskId: string) {
             :class="{ active: scopeTab === 'active' }"
             @click="setScopeTab('active')"
           >
-            Active
+            {{ t('boardView.active') }}
           </button>
           <button
             type="button"
@@ -455,13 +483,13 @@ function navigateWorkspace(taskId: string) {
             :class="{ active: scopeTab === 'backlog' }"
             @click="setScopeTab('backlog')"
           >
-            Backlog
+            {{ t('boardView.backlog') }}
           </button>
         </div>
         <button
           type="button"
           class="command-bar-add"
-          aria-label="New issue"
+          :aria-label="t('boardView.newIssue')"
           @click="() => openCreateEditor()"
         >
           <Plus class="icon-14" />
@@ -473,78 +501,78 @@ function navigateWorkspace(taskId: string) {
             type="button"
             class="command-btn"
             :class="{ active: filterPopoverOpen }"
-            aria-label="Filter"
+            :aria-label="t('common.filter')"
             aria-haspopup="true"
             :aria-expanded="filterPopoverOpen"
             @click="filterPopoverOpen = !filterPopoverOpen"
           >
             <Filter class="icon-14" />
-            <span>Filter</span>
+            <span>{{ t('common.filter') }}</span>
           </button>
           <div
             v-show="filterPopoverOpen"
             ref="filterPopoverRef"
             class="popover popover-filter"
             role="dialog"
-            aria-label="Filter options"
+            :aria-label="t('boardView.filterOptions')"
           >
             <div class="popover-section">
-              <label class="popover-label">Status</label>
+              <label class="popover-label">{{ t('common.status') }}</label>
               <CustomSelect
                 v-model="filterStatus"
                 :options="filterStatusOptions"
-                placeholder="All Status"
-                aria-label="Filter by status"
+                :placeholder="t('boardView.allStatus')"
+                :aria-label="t('boardView.filterByStatus')"
                 trigger-class="popover-select"
               />
             </div>
             <div class="popover-section">
-              <label class="popover-label">Priority</label>
+              <label class="popover-label">{{ t('common.priority') }}</label>
               <CustomSelect
                 v-model="filterPriority"
                 :options="filterPriorityOptions"
-                placeholder="All Priorities"
-                aria-label="Filter by priority"
+                :placeholder="t('boardView.allPriorities')"
+                :aria-label="t('boardView.filterByPriority')"
                 trigger-class="popover-select"
               />
             </div>
             <div class="popover-section">
-              <label class="popover-label">Group by</label>
+              <label class="popover-label">{{ t('boardView.groupBy') }}</label>
               <CustomSelect
                 v-model="groupBy"
                 :options="groupingOptions"
-                placeholder="Group"
-                aria-label="Group tasks"
+                :placeholder="t('boardView.group')"
+                :aria-label="t('boardView.groupTasks')"
                 trigger-class="popover-select"
               />
             </div>
             <div class="popover-section">
-              <label class="popover-label">Sort</label>
+              <label class="popover-label">{{ t('boardView.sort') }}</label>
               <CustomSelect
                 v-model="orderBy"
                 :options="orderOptions"
-                placeholder="Sort"
-                aria-label="Order tasks"
+                :placeholder="t('boardView.sort')"
+                :aria-label="t('boardView.orderTasks')"
                 trigger-class="popover-select"
               />
             </div>
             <div class="popover-section">
-              <label class="popover-label">Completed</label>
+              <label class="popover-label">{{ t('boardView.completed') }}</label>
               <CustomSelect
                 v-model="completedVisibility"
                 :options="completedOptions"
-                placeholder="Completed"
-                aria-label="Completed visibility"
+                :placeholder="t('boardView.completed')"
+                :aria-label="t('boardView.completedVisibility')"
                 trigger-class="popover-select"
               />
             </div>
             <div class="popover-section popover-section-row">
               <button type="button" class="command-btn small" @click="toggleOrderDirection">
-                {{ viewModeStore.viewConfig.orderDirection === 'asc' ? '↑ Asc' : '↓ Desc' }}
+                {{ viewModeStore.viewConfig.orderDirection === 'asc' ? t('boardView.orderAsc') : t('boardView.orderDesc') }}
               </button>
               <label class="filter-check">
                 <input v-model="showEmptyGroups" type="checkbox" />
-                <span>Empty groups</span>
+                <span>{{ t('boardView.emptyGroups') }}</span>
               </label>
             </div>
           </div>
@@ -554,23 +582,23 @@ function navigateWorkspace(taskId: string) {
             type="button"
             class="command-btn"
             :class="{ active: displayPopoverOpen }"
-            aria-label="Display"
+            :aria-label="t('common.display')"
             aria-haspopup="true"
             :aria-expanded="displayPopoverOpen"
             @click="displayPopoverOpen = !displayPopoverOpen"
           >
             <LayoutList class="icon-14" />
-            <span>Display</span>
+            <span>{{ t('common.display') }}</span>
           </button>
           <div
             v-show="displayPopoverOpen"
             ref="displayPopoverRef"
             class="popover popover-display"
             role="dialog"
-            aria-label="Display options"
+            :aria-label="t('boardView.displayOptions')"
           >
             <div class="popover-section">
-              <span class="popover-label">Show on issue</span>
+              <span class="popover-label">{{ t('boardView.showOnIssue') }}</span>
             </div>
             <div class="popover-display-options">
               <label
@@ -587,14 +615,14 @@ function navigateWorkspace(taskId: string) {
               </label>
             </div>
             <div class="popover-section popover-section--sub">
-              <span class="popover-label">Sub-issues</span>
+              <span class="popover-label">{{ t('boardView.subIssues') }}</span>
               <label class="popover-display-option">
                 <input
                   type="checkbox"
                   :checked="viewModeStore.viewConfig.showSubIssues"
                   @change="viewModeStore.setShowSubIssues(!viewModeStore.viewConfig.showSubIssues)"
                 />
-                <span>Show sub-issues</span>
+                <span>{{ t('boardView.showSubIssues') }}</span>
               </label>
               <label
                 v-if="viewModeStore.viewConfig.showSubIssues"
@@ -605,7 +633,7 @@ function navigateWorkspace(taskId: string) {
                   :checked="viewModeStore.viewConfig.nestedSubIssues"
                   @change="viewModeStore.setNestedSubIssues(!viewModeStore.viewConfig.nestedSubIssues)"
                 />
-                <span>Nested sub-issues</span>
+                <span>{{ t('boardView.nestedSubIssues') }}</span>
               </label>
             </div>
           </div>
@@ -616,21 +644,21 @@ function navigateWorkspace(taskId: string) {
     <main class="board-content" :class="{ 'board-content--list': viewType === 'list' }">
       <div v-if="store.error" class="error-state">
         <p>{{ store.error }}</p>
-        <button class="btn-retry" @click="store.fetchTasks()">Retry</button>
+        <button class="btn-retry" @click="store.fetchTasks()">{{ t('common.retry') }}</button>
       </div>
       
       <div v-else-if="store.isLoading && store.tasks.length === 0" class="loading-state">
-        <p>Loading tasks...</p>
+        <p>{{ t('boardView.loadingTasks') }}</p>
       </div>
       
       <div v-else-if="store.isEmpty" class="empty-state">
-        <p>You don't have any tasks yet.</p>
-        <button class="btn-create" @click="() => openCreateEditor()">Create your first task</button>
+        <p>{{ t('boardView.noTasks') }}</p>
+        <button class="btn-create" @click="() => openCreateEditor()">{{ t('boardView.createFirstTask') }}</button>
       </div>
 
       <div v-else-if="store.isFilterEmpty" class="empty-state">
-        <p>No tasks match your filters.</p>
-        <button class="btn-text" @click="searchQuery = ''; filterStatus = null; filterPriority = null; viewModeStore.setCompletedVisibility('all')">Clear filters</button>
+        <p>{{ t('boardView.noTasksMatchFilters') }}</p>
+        <button class="btn-text" @click="searchQuery = ''; filterStatus = null; filterPriority = null; viewModeStore.setCompletedVisibility('all')">{{ t('boardView.clearFilters') }}</button>
       </div>
       <div v-else-if="isEditorOpen" class="workspace-inline-editor">
         <TaskEditor
@@ -649,7 +677,7 @@ function navigateWorkspace(taskId: string) {
         <section class="workspace-primary" tabindex="0" @keydown="onWorkspaceKeydown">
           <div v-if="viewType === 'board'" class="board-columns">
             <div
-              v-for="(group, idx) in taskGroups"
+              v-for="(group, idx) in localizedTaskGroups"
               :key="group.key"
               class="column"
               :class="{ 'column-first': idx === 0 }"
@@ -659,8 +687,8 @@ function navigateWorkspace(taskId: string) {
                 <button
                   type="button"
                   class="column-add-btn"
-                  title="Add issue"
-                  aria-label="Add issue to this column"
+                  :title="t('boardView.addIssue')"
+                  :aria-label="t('boardView.addIssueToColumn')"
                   @click.stop="() => openCreateEditor(createStatusDefault(group.key))"
                 >
                   +
@@ -682,7 +710,7 @@ function navigateWorkspace(taskId: string) {
           </div>
           <div v-else class="list-wrap">
             <TaskListView
-              :groups="taskGroups"
+              :groups="localizedTaskGroups"
               :users="users"
               :visible-properties="viewModeStore.visibleProperties"
               :selected-task-id="issuePanelStore.selectedTaskId"

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useTaskStore } from '../store/taskStore'
 import type { Priority, Status, User } from '../types/domain'
 import { userApi } from '../services/api/user'
 import { parseDateInputValue } from '../utils/taskDate'
+import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import TiptapEditor from './TiptapEditor.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
@@ -39,6 +41,7 @@ const emit = defineEmits<{
 }>()
 
 const store = useTaskStore()
+const { t } = useI18n()
 
 const title = ref('')
 const description = ref('')
@@ -60,24 +63,24 @@ function onDescriptionUploadStateChange(state: { hasPending: boolean; hasFailed:
   descriptionUploadState.value = state
 }
 
-const statusOptions: CustomSelectOption[] = [
-  { value: 'backlog', label: 'Backlog', icon: CircleDashed, shortcut: '1' },
-  { value: 'todo', label: 'Todo', icon: Circle, shortcut: '2' },
-  { value: 'in_progress', label: 'In Progress', icon: Loader2, shortcut: '3' },
-  { value: 'in_review', label: 'In Review', icon: Eye, shortcut: '4' },
-  { value: 'done', label: 'Done', icon: CheckCircle, shortcut: '5' },
-  { value: 'canceled', label: 'Canceled', icon: CircleX, shortcut: '6' },
-  { value: 'duplicate', label: 'Duplicate', icon: Copy, shortcut: '7' }
-]
-const priorityOptions: CustomSelectOption[] = [
-  { value: 'low', label: 'Low', icon: PriorityLowIcon },
-  { value: 'medium', label: 'Medium', icon: PriorityMediumIcon },
-  { value: 'high', label: 'High', icon: PriorityHighIcon },
-  { value: 'urgent', label: 'Urgent', icon: PriorityUrgentIcon }
-]
+const statusOptions = computed<CustomSelectOption[]>(() => [
+  { value: 'backlog', label: getStatusLabel('backlog'), icon: CircleDashed, shortcut: '1' },
+  { value: 'todo', label: getStatusLabel('todo'), icon: Circle, shortcut: '2' },
+  { value: 'in_progress', label: getStatusLabel('in_progress'), icon: Loader2, shortcut: '3' },
+  { value: 'in_review', label: getStatusLabel('in_review'), icon: Eye, shortcut: '4' },
+  { value: 'done', label: getStatusLabel('done'), icon: CheckCircle, shortcut: '5' },
+  { value: 'canceled', label: getStatusLabel('canceled'), icon: CircleX, shortcut: '6' },
+  { value: 'duplicate', label: getStatusLabel('duplicate'), icon: Copy, shortcut: '7' }
+])
+const priorityOptions = computed<CustomSelectOption[]>(() => [
+  { value: 'low', label: getPriorityLabel('low'), icon: PriorityLowIcon },
+  { value: 'medium', label: getPriorityLabel('medium'), icon: PriorityMediumIcon },
+  { value: 'high', label: getPriorityLabel('high'), icon: PriorityHighIcon },
+  { value: 'urgent', label: getPriorityLabel('urgent'), icon: PriorityUrgentIcon }
+])
 
 const assigneeOptions = computed<CustomSelectOption[]>(() => {
-  const list: CustomSelectOption[] = [{ value: '', label: 'Unassigned', icon: UserIcon }]
+  const list: CustomSelectOption[] = [{ value: '', label: t('common.unassigned'), icon: UserIcon }]
   for (const user of userList.value) {
     const id = user?.id
     if (typeof id !== 'number' || !Number.isFinite(id)) continue
@@ -173,13 +176,13 @@ async function handleCreate() {
       class="composer-overlay"
       role="dialog"
       aria-modal="true"
-      aria-label="Create issue"
+      :aria-label="t('issueComposer.dialogLabel')"
       @click.self="emit('close')"
     >
       <div class="composer-panel">
         <div class="composer-header">
-          <div class="composer-title">New issue</div>
-          <button class="composer-close" type="button" aria-label="Close" @click="emit('close')">
+          <div class="composer-title">{{ t('issueComposer.title') }}</div>
+          <button class="composer-close" type="button" :aria-label="t('common.close')" @click="emit('close')">
             ×
           </button>
         </div>
@@ -190,7 +193,7 @@ async function handleCreate() {
               v-model="title"
               type="text"
               class="composer-title-input"
-              placeholder="Issue title"
+              :placeholder="t('issueComposer.issueTitlePlaceholder')"
               autofocus
               @keydown.enter.exact.prevent="focusDescription"
             />
@@ -200,12 +203,12 @@ async function handleCreate() {
               ref="descriptionEditorRef"
               v-model="description"
               @upload-state-change="onDescriptionUploadStateChange"
-              placeholder="Add description… Type / for formatting"
+              :placeholder="t('issueComposer.descriptionPlaceholder')"
               :min-height="64"
             />
           </section>
           <div class="content-actions">
-            <button type="button" class="content-action-btn" aria-label="Attach">
+            <button type="button" class="content-action-btn" :aria-label="t('common.attach')">
               <Paperclip class="icon-14" />
             </button>
           </div>
@@ -215,31 +218,31 @@ async function handleCreate() {
               id="composer-status"
               v-model="status"
               :options="statusOptions"
-              search-placeholder="Change status..."
+              :search-placeholder="t('boardView.filterByStatus')"
               search-shortcut-badge="S"
-              aria-label="Status"
+              :aria-label="t('common.status')"
               trigger-class="composer-trigger"
             />
             <CustomSelect
               id="composer-priority"
               v-model="priority"
               :options="priorityOptions"
-              aria-label="Priority"
+              :aria-label="t('common.priority')"
               trigger-class="composer-trigger"
             />
             <CustomSelect
               id="composer-assignee"
               v-model="assigneeId"
               :options="assigneeOptions"
-              placeholder="Assignee"
-              aria-label="Assignee"
+              :placeholder="t('common.assignee')"
+              :aria-label="t('common.assignee')"
               trigger-class="composer-trigger"
             />
             <CustomDatePicker
               id="composer-due-date"
               v-model="dueDate"
-              placeholder="Due date"
-              aria-label="Due date"
+              :placeholder="t('common.dueDate')"
+              :aria-label="t('common.dueDate')"
               trigger-class="composer-trigger"
             />
           </div>
@@ -248,7 +251,7 @@ async function handleCreate() {
         <div class="composer-footer">
           <label class="composer-more">
             <input v-model="createMore" type="checkbox" />
-            <span>Create more</span>
+            <span>{{ t('issueComposer.createMore') }}</span>
           </label>
           <button
             class="composer-submit"
@@ -256,7 +259,7 @@ async function handleCreate() {
             :disabled="!title.trim() || isSaving"
             @click="handleCreate"
           >
-            {{ isSaving ? 'Creating...' : 'Create issue' }}
+            {{ isSaving ? t('issueComposer.creatingIssue') : t('issueComposer.createIssue') }}
           </button>
         </div>
       </div>

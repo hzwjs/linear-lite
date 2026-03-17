@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   PriorityUrgentIcon,
   PriorityHighIcon,
@@ -23,6 +24,7 @@ import type { TaskGroup, TaskRow } from '../utils/taskView'
 import type { VisibleProperty } from '../utils/viewPreference'
 import { getSubtaskProgressDisplay } from '../utils/subtaskProgress'
 import { getInitials, getAvatarColor } from '../utils/avatar'
+import { getStatusLabel } from '../utils/enumLabels'
 
 const props = defineProps<{
   groups: TaskGroup[]
@@ -38,6 +40,7 @@ const emit = defineEmits<{
 }>()
 
 const store = useTaskStore()
+const { t } = useI18n()
 const collapsed = ref<Record<string, boolean>>({})
 const rowHoveredId = ref<string | null>(null)
 const subtaskRingRadius = 5
@@ -65,9 +68,9 @@ function toggle(groupKey: string) {
 }
 
 function assigneeName(task: Task): string {
-  if (task.assigneeId == null || !props.users?.length) return 'Unassigned'
+  if (task.assigneeId == null || !props.users?.length) return t('common.unassigned')
   const u = props.users.find((u) => u.id === task.assigneeId)
-  return u?.username ?? 'Unassigned'
+  return u?.username ?? t('common.unassigned')
 }
 
 function assigneeAvatar(task: Task): string | null {
@@ -111,16 +114,7 @@ function isOverdue(task: Task): boolean {
 }
 
 function statusLabel(s: Status): string {
-  const map: Record<Status, string> = {
-    backlog: 'Backlog',
-    todo: 'Todo',
-    in_progress: 'In Progress',
-    in_review: 'In Review',
-    done: 'Done',
-    canceled: 'Canceled',
-    duplicate: 'Duplicate'
-  }
-  return map[s]
+  return getStatusLabel(s)
 }
 
 async function toggleComplete(e: MouseEvent, task: Task) {
@@ -188,7 +182,7 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
           <button
             type="button"
             class="group-create"
-            aria-label="Create issue in group"
+            :aria-label="t('taskList.createIssueInGroup')"
             @click.stop="onCreateInStatus(group.key === 'todo' || group.key === 'in_progress' || group.key === 'done' ? (group.key as Status) : undefined)"
           >
             +
@@ -211,7 +205,7 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
                 v-if="rowHoveredId === row.task.id"
                 type="button"
                 class="task-check"
-                :aria-label="row.task.status === 'done' ? 'Mark not done' : 'Mark done'"
+                :aria-label="row.task.status === 'done' ? t('taskList.markNotDone') : t('taskList.markDone')"
                 @click="toggleComplete($event, row.task)"
               >
                 <CheckCircle v-if="row.task.status === 'done'" class="icon icon-14 icon-done" />
@@ -301,7 +295,7 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
             <button
               type="button"
               class="task-row-add"
-              aria-label="Add sub-issue"
+              :aria-label="t('taskList.addSubIssue')"
               :class="{ visible: rowHoveredId === row.task.id }"
               @click.stop="onAddSubIssue($event, row.task)"
             >
