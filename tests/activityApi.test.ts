@@ -34,7 +34,9 @@ describe('activityApi', () => {
 
     const activities = await activityApi.list('ENG-1')
 
-    expect(api.get).toHaveBeenCalledWith('/tasks/ENG-1/activities')
+    expect(api.get).toHaveBeenCalledWith('/tasks/ENG-1/activities', {
+      params: { limit: 50 }
+    })
     expect(activities[0]).toMatchObject({
       actionType: 'changed',
       fieldName: 'status',
