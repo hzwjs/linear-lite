@@ -97,6 +97,20 @@ npm run dev
 
 使用种子用户登录，例如：`user1` / `user123`、`user2` / `user123`。验收步骤见 [docs/phase2-implementation-plan.md](docs/phase2-implementation-plan.md) 中「Manual Verification」及「人工执行步骤清单与预期结果」。Phase 3 验收见 [docs/phase3-implementation-plan.md](docs/phase3-implementation-plan.md)。
 
+## 单 JAR 部署
+
+前端会打包进同一 JAR，部署后通过同一端口访问页面与 API。
+
+1. **环境**：本机需已安装 JDK 17+、Maven、Node.js 与 npm、MySQL 8.x。
+2. **打包**：在 `linear-lite-server` 目录执行：
+   ```bash
+   mvn clean package
+   ```
+3. **运行**：`java -jar target/linear-lite-server-0.1.0-SNAPSHOT.jar`（数据库等环境变量同「启动后端」）。
+4. **访问**：浏览器打开 `http://localhost:8080/` 即可使用前端；API 仍为 `/api`，同源部署无需配置 `VITE_API_BASE_URL`。
+
+单 JAR 部署时无需设置 `VITE_API_BASE_URL`。
+
 ## Phase 3 能力摘要
 
 - **项目**：侧栏「新建」创建项目；项目右侧齿轮打开设置，可修改名称与标识符。
