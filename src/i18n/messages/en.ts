@@ -4,7 +4,39 @@ const en = {
   },
   auth: {
     signIn: 'Log in',
-    signUp: 'Sign up'
+    signUp: 'Sign up',
+    subtitle: {
+      login: 'Sign in to continue',
+      register: 'Create your account with email verification'
+    },
+    tabs: {
+      login: 'Log in',
+      register: 'Sign up'
+    },
+    placeholder: {
+      identity: 'Email or username',
+      email: 'Email',
+      verificationCode: 'Verification code',
+      username: 'Username',
+      password: 'Password'
+    },
+    sending: 'Sending...',
+    sendCode: 'Send code',
+    loading: {
+      login: 'Signing in...',
+      register: 'Creating account...'
+    },
+    action: {
+      signIn: 'Sign in',
+      signUp: 'Create account'
+    },
+    error: {
+      enterEmail: 'Please enter email',
+      sendCodeFailed: 'Failed to send code',
+      enterCredentials: 'Please enter email or username and password',
+      completeRegistration: 'Please complete all registration fields',
+      authFailed: 'Authentication failed'
+    }
   },
   sidebar: {
     favorites: 'Favorites',

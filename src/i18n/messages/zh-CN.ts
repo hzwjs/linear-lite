@@ -4,7 +4,39 @@ const zhCN = {
   },
   auth: {
     signIn: '登录',
-    signUp: '注册'
+    signUp: '注册',
+    subtitle: {
+      login: '登录以继续',
+      register: '通过邮箱验证码创建账号'
+    },
+    tabs: {
+      login: '登录',
+      register: '注册'
+    },
+    placeholder: {
+      identity: '邮箱或用户名',
+      email: '邮箱',
+      verificationCode: '验证码',
+      username: '用户名',
+      password: '密码'
+    },
+    sending: '发送中…',
+    sendCode: '发送验证码',
+    loading: {
+      login: '登录中…',
+      register: '创建中…'
+    },
+    action: {
+      signIn: '登录',
+      signUp: '创建账号'
+    },
+    error: {
+      enterEmail: '请输入邮箱',
+      sendCodeFailed: '发送验证码失败',
+      enterCredentials: '请输入邮箱/用户名和密码',
+      completeRegistration: '请完成所有注册字段',
+      authFailed: '认证失败'
+    }
   },
   sidebar: {
     favorites: '收藏',
