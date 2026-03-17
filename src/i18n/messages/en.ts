@@ -201,7 +201,29 @@ const en = {
       taskList: 'Checklist',
       codeBlock: 'Code block',
       blockquote: 'Blockquote'
+    },
+    codeBlock: {
+      languageAria: 'Code block language',
+      copyAria: 'Copy code',
+      languages: {
+        plainText: 'Plain text',
+        javascript: 'JavaScript',
+        typescript: 'TypeScript',
+        sql: 'SQL',
+        json: 'JSON',
+        html: 'HTML',
+        css: 'CSS',
+        bash: 'Bash',
+        python: 'Python',
+        java: 'Java',
+        xml: 'XML'
+      }
     }
+  },
+  select: {
+    placeholder: 'Select…',
+    ariaLabel: 'Select option',
+    searchAria: 'Search'
   },
   datePicker: {
     placeholder: 'Select date',

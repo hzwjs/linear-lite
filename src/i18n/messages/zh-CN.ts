@@ -201,7 +201,29 @@ const zhCN = {
       taskList: '清单',
       codeBlock: '代码块',
       blockquote: '引用'
+    },
+    codeBlock: {
+      languageAria: '代码块语言',
+      copyAria: '复制代码',
+      languages: {
+        plainText: '纯文本',
+        javascript: 'JavaScript',
+        typescript: 'TypeScript',
+        sql: 'SQL',
+        json: 'JSON',
+        html: 'HTML',
+        css: 'CSS',
+        bash: 'Bash',
+        python: 'Python',
+        java: 'Java',
+        xml: 'XML'
+      }
     }
+  },
+  select: {
+    placeholder: '选择…',
+    ariaLabel: '选择选项',
+    searchAria: '搜索'
   },
   datePicker: {
     placeholder: '选择日期',

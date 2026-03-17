@@ -2,22 +2,24 @@
 import { NodeViewWrapper, NodeViewContent } from '@tiptap/vue-3'
 import type { NodeViewProps } from '@tiptap/core'
 import { Copy } from 'lucide-vue-next'
-
-const CODE_LANGUAGES = [
-  { value: '', label: 'Plain text' },
-  { value: 'javascript', label: 'JavaScript' },
-  { value: 'typescript', label: 'TypeScript' },
-  { value: 'sql', label: 'SQL' },
-  { value: 'json', label: 'JSON' },
-  { value: 'html', label: 'HTML' },
-  { value: 'css', label: 'CSS' },
-  { value: 'bash', label: 'Bash' },
-  { value: 'python', label: 'Python' },
-  { value: 'java', label: 'Java' },
-  { value: 'xml', label: 'XML' },
-]
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<NodeViewProps>()
+const { t } = useI18n()
+const codeLanguages = computed(() => [
+  { value: '', label: t('editor.codeBlock.languages.plainText') },
+  { value: 'javascript', label: t('editor.codeBlock.languages.javascript') },
+  { value: 'typescript', label: t('editor.codeBlock.languages.typescript') },
+  { value: 'sql', label: t('editor.codeBlock.languages.sql') },
+  { value: 'json', label: t('editor.codeBlock.languages.json') },
+  { value: 'html', label: t('editor.codeBlock.languages.html') },
+  { value: 'css', label: t('editor.codeBlock.languages.css') },
+  { value: 'bash', label: t('editor.codeBlock.languages.bash') },
+  { value: 'python', label: t('editor.codeBlock.languages.python') },
+  { value: 'java', label: t('editor.codeBlock.languages.java') },
+  { value: 'xml', label: t('editor.codeBlock.languages.xml') },
+])
 
 function onLanguageChange(e: Event) {
   const value = (e.target as HTMLSelectElement).value
@@ -40,11 +42,11 @@ function copyCode() {
         <select
           class="code-block-linear__lang"
           :value="props.node.attrs.language ?? ''"
-          aria-label="代码块语言"
+          :aria-label="t('editor.codeBlock.languageAria')"
           @change="onLanguageChange"
         >
           <option
-            v-for="opt in CODE_LANGUAGES"
+            v-for="opt in codeLanguages"
             :key="opt.value || 'plain'"
             :value="opt.value"
           >
@@ -54,7 +56,7 @@ function copyCode() {
         <button
           type="button"
           class="code-block-linear__copy"
-          aria-label="复制"
+          :aria-label="t('editor.codeBlock.copyAria')"
           @click="copyCode"
         >
           <Copy class="code-block-linear__copy-icon" />
