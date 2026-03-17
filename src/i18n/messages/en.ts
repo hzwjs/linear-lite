@@ -54,8 +54,11 @@ const en = {
     updated: 'Updated',
     dueDate: 'Due date',
     close: 'Close',
+    cancel: 'Cancel',
+    save: 'Save',
     attach: 'Attach',
     retry: 'Retry',
+    remove: 'Remove',
     loading: 'Loading...',
     create: 'Create',
     creating: 'Creating...',
@@ -72,6 +75,48 @@ const en = {
     newProjectTitle: 'New project',
     projectSettings: 'Project settings',
     signOut: 'Sign out'
+  },
+  projectModal: {
+    title: 'New project',
+    form: {
+      nameLabel: 'Project name',
+      identifierLabel: 'Identifier',
+      namePlaceholder: 'e.g. Engineering',
+      identifierPlaceholder: 'e.g. ENG (3 letters)'
+    },
+    buttons: {
+      create: 'Create',
+      creating: 'Creating...'
+    },
+    validation: {
+      nameAndIdentifierRequired: 'Please enter project name and identifier',
+      identifierTooLong: 'Identifier must be at most 16 characters',
+      createFailed: 'Create failed'
+    }
+  },
+  projectSettingsModal: {
+    title: 'Project settings',
+    inviteTitle: 'Invite by email',
+    inviteDescription: 'Invited users will see this project after they sign in or register.',
+    inviteButton: 'Invite',
+    inviting: 'Inviting...',
+    inviteSuccess: 'Invitation sent.',
+    invitePlaceholder: 'name@example.com',
+    deleteTitle: 'Delete project',
+    deleteDescription: 'This deletes the project and all tasks permanently.',
+    deleteButton: 'Delete project',
+    deleting: 'Deleting...',
+    deleteConfirm: 'Delete project \"{name}\" and all its tasks? This cannot be undone.',
+    errors: {
+      updateFailed: 'Update failed',
+      deleteFailed: 'Delete failed',
+      emailRequired: 'Please enter an email to invite',
+      inviteFailed: 'Invite failed'
+    },
+    buttons: {
+      save: 'Save',
+      saving: 'Saving...'
+    }
   },
   emptyState: {
     noProjects: 'No projects yet'
@@ -137,8 +182,78 @@ const en = {
   attachments: {
     fileTooLargeSkipped: 'exceeds {size} and was skipped',
     uploadFailed: 'Upload failed',
+    uploading: 'Uploading...',
     downloadFailed: 'Download failed',
     deleteFailed: 'Delete failed'
+  },
+  taskImage: {
+    altFallback: 'image'
+  },
+  editor: {
+    placeholder: 'Write something...'
+  },
+  taskImportModal: {
+    ariaLabel: 'Import tasks',
+    title: 'Task import',
+    subtitle: 'Import issues from CSV or Excel',
+    steps: {
+      upload: 'Upload',
+      mapping: 'Mapping',
+      preview: 'Preview',
+      result: 'Result'
+    },
+    downloadTemplate: 'Download template',
+    dropzone: {
+      title: 'Choose a `.csv` or `.xlsx` file',
+      copy: 'Required template columns: `title`, `importId`. Optional: `parentImportId`, `description`, `status`, `priority`, `assignee`, `dueDate`.'
+    },
+    fileMeta: {
+      file: 'File',
+      rows: 'Rows',
+      project: 'Project',
+      noProject: 'No project selected'
+    },
+    mapping: {
+      required: 'Required',
+      unmapped: 'Unmapped'
+    },
+    fields: {
+      importId: 'Import ID',
+      parentImportId: 'Parent Import ID'
+    },
+    preview: {
+      summary: {
+        total: 'Total',
+        parents: 'Parents',
+        subtasks: 'Subtasks'
+      },
+      table: {
+        parent: 'Parent',
+        topLevel: 'Top-level'
+      },
+      errors: {
+        lineMessage: 'Line {lineNumber} · {field} · {message}'
+      }
+    },
+    result: {
+      success: 'Imported {count} issues into the current project.',
+      summary: {
+        parents: 'Parents',
+        subtasks: 'Subtasks',
+        created: 'Created'
+      }
+    },
+    footer: {
+      back: 'Back',
+      review: 'Review import',
+      importIssues: 'Import issues',
+      importing: 'Importing...',
+      done: 'Done'
+    },
+    errors: {
+      parseFailed: 'Failed to parse file.',
+      importFailed: 'Import failed.'
+    }
   },
   taskEditor: {
     workspaceAria: 'Issue workspace',

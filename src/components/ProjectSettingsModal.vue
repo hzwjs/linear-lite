@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { Project } from '../types/domain'
 import { useProjectStore } from '../store/projectStore'
 import { useAuthStore } from '../store/authStore'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
   open: boolean
@@ -17,6 +18,7 @@ const emit = defineEmits<{
 
 const projectStore = useProjectStore()
 const authStore = useAuthStore()
+const { t } = useI18n()
 const name = ref('')
 const identifier = ref('')
 const inviteEmail = ref('')
@@ -46,11 +48,11 @@ async function submit() {
   const n = name.value.trim()
   const id = identifier.value.trim().toUpperCase()
   if (!n || !id) {
-    error.value = 'Please enter project name and identifier'
+    error.value = t('projectModal.validation.nameAndIdentifierRequired')
     return
   }
   if (id.length > 16) {
-    error.value = 'Identifier must be at most 16 characters'
+    error.value = t('projectModal.validation.identifierTooLong')
     return
   }
   isSubmitting.value = true
@@ -60,7 +62,7 @@ async function submit() {
     emit('updated')
     emit('close')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Update failed'
+    error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.updateFailed')
   } finally {
     isSubmitting.value = false
   }
@@ -69,7 +71,7 @@ async function submit() {
 async function removeProject() {
   if (!props.project || !canDelete.value || isSubmitting.value) return
   const confirmed = window.confirm(
-    `Delete project "${props.project.name}" and all its tasks? This cannot be undone.`
+    t('projectSettingsModal.deleteConfirm', { name: props.project?.name ?? '' })
   )
   if (!confirmed) return
 
@@ -80,7 +82,7 @@ async function removeProject() {
     emit('deleted')
     emit('close')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Delete failed'
+    error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.deleteFailed')
   } finally {
     isSubmitting.value = false
   }
@@ -90,7 +92,7 @@ async function inviteMember() {
   if (!props.project) return
   const email = inviteEmail.value.trim()
   if (!email) {
-    error.value = 'Please enter an email to invite'
+    error.value = t('projectSettingsModal.errors.emailRequired')
     return
   }
 
@@ -100,9 +102,9 @@ async function inviteMember() {
   try {
     await projectStore.inviteToProject(props.project.id, email)
     inviteEmail.value = ''
-    inviteMessage.value = 'Invitation sent.'
+    inviteMessage.value = t('projectSettingsModal.inviteSuccess')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Invite failed'
+    error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.inviteFailed')
   } finally {
     isInviting.value = false
   }
@@ -117,16 +119,16 @@ function close() {
   <div v-if="open && project" class="modal-overlay" @click.self="close">
     <div class="modal">
       <div class="modal-header">
-        <h3>Project settings</h3>
+        <h3>{{ t('projectSettingsModal.title') }}</h3>
         <button type="button" class="close-btn" @click="close">×</button>
       </div>
       <form class="modal-body" @submit.prevent="submit">
         <div class="form-group">
-          <label>Project name</label>
+          <label>{{ t('projectModal.form.nameLabel') }}</label>
           <input v-model="name" type="text" class="input" />
         </div>
         <div class="form-group">
-          <label>Identifier</label>
+          <label>{{ t('projectModal.form.identifierLabel') }}</label>
           <input
             v-model="identifier"
             type="text"
@@ -137,15 +139,15 @@ function close() {
         <p v-if="error" class="error-msg">{{ error }}</p>
         <div class="invite-zone">
           <div>
-            <p class="invite-zone-title">Invite by email</p>
-            <p class="invite-zone-text">Invited users will see this project after they sign in or register.</p>
+            <p class="invite-zone-title">{{ t('projectSettingsModal.inviteTitle') }}</p>
+            <p class="invite-zone-text">{{ t('projectSettingsModal.inviteDescription') }}</p>
           </div>
           <div class="invite-controls">
             <input
               v-model="inviteEmail"
               type="email"
               class="input"
-              placeholder="name@example.com"
+              :placeholder="t('projectSettingsModal.invitePlaceholder')"
               :disabled="isInviting || isSubmitting"
             />
             <button
@@ -154,15 +156,15 @@ function close() {
               :disabled="isInviting || isSubmitting"
               @click="inviteMember"
             >
-              {{ isInviting ? 'Inviting...' : 'Invite' }}
+              {{ isInviting ? t('projectSettingsModal.inviting') : t('projectSettingsModal.inviteButton') }}
             </button>
           </div>
           <p v-if="inviteMessage" class="invite-success">{{ inviteMessage }}</p>
         </div>
         <div v-if="canDelete" class="danger-zone">
           <div>
-            <p class="danger-zone-title">Delete project</p>
-            <p class="danger-zone-text">This deletes the project and all tasks permanently.</p>
+            <p class="danger-zone-title">{{ t('projectSettingsModal.deleteTitle') }}</p>
+            <p class="danger-zone-text">{{ t('projectSettingsModal.deleteDescription') }}</p>
           </div>
           <button
             type="button"
@@ -170,13 +172,13 @@ function close() {
             :disabled="isSubmitting"
             @click="removeProject"
           >
-            {{ isSubmitting ? 'Deleting...' : 'Delete project' }}
+            {{ isSubmitting ? t('projectSettingsModal.deleting') : t('projectSettingsModal.deleteButton') }}
           </button>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn-cancel" @click="close">Cancel</button>
+          <button type="button" class="btn-cancel" @click="close">{{ t('common.cancel') }}</button>
           <button type="submit" class="btn-primary" :disabled="isSubmitting">
-            {{ isSubmitting ? 'Saving...' : 'Save' }}
+            {{ isSubmitting ? t('projectSettingsModal.buttons.saving') : t('projectSettingsModal.buttons.save') }}
           </button>
         </div>
       </form>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useProjectStore } from '../store/projectStore'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
   open: boolean
@@ -12,6 +13,7 @@ const emit = defineEmits<{
 }>()
 
 const projectStore = useProjectStore()
+const { t } = useI18n()
 const name = ref('')
 const identifier = ref('')
 const isSubmitting = ref(false)
@@ -32,11 +34,11 @@ async function submit() {
   const n = name.value.trim()
   const id = identifier.value.trim().toUpperCase()
   if (!n || !id) {
-    error.value = 'Please enter project name and identifier'
+    error.value = t('projectModal.validation.nameAndIdentifierRequired')
     return
   }
   if (id.length > 16) {
-    error.value = 'Identifier must be at most 16 characters'
+    error.value = t('projectModal.validation.identifierTooLong')
     return
   }
   isSubmitting.value = true
@@ -46,7 +48,7 @@ async function submit() {
     emit('created')
     emit('close')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Create failed'
+    error.value = e instanceof Error ? e.message : t('projectModal.validation.createFailed')
   } finally {
     isSubmitting.value = false
   }
@@ -61,29 +63,29 @@ function close() {
   <div v-if="open" class="modal-overlay" @click.self="close">
     <div class="modal">
       <div class="modal-header">
-        <h3>New project</h3>
+        <h3>{{ t('projectModal.title') }}</h3>
         <button type="button" class="close-btn" @click="close">×</button>
       </div>
       <form class="modal-body" @submit.prevent="submit">
         <div class="form-group">
-          <label>Project name</label>
-          <input v-model="name" type="text" placeholder="e.g. Engineering" class="input" />
+          <label>{{ t('projectModal.form.nameLabel') }}</label>
+          <input v-model="name" type="text" :placeholder="t('projectModal.form.namePlaceholder')" class="input" />
         </div>
         <div class="form-group">
-          <label>Identifier</label>
+          <label>{{ t('projectModal.form.identifierLabel') }}</label>
           <input
             v-model="identifier"
             type="text"
-            placeholder="e.g. ENG (3 letters)"
+            :placeholder="t('projectModal.form.identifierPlaceholder')"
             class="input"
             maxlength="16"
           />
         </div>
         <p v-if="error" class="error-msg">{{ error }}</p>
         <div class="modal-footer">
-          <button type="button" class="btn-cancel" @click="close">Cancel</button>
+          <button type="button" class="btn-cancel" @click="close">{{ t('common.cancel') }}</button>
           <button type="submit" class="btn-primary" :disabled="isSubmitting">
-            {{ isSubmitting ? 'Creating...' : 'Create' }}
+            {{ isSubmitting ? t('projectModal.buttons.creating') : t('projectModal.buttons.create') }}
           </button>
         </div>
       </form>

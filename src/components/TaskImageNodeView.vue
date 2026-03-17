@@ -2,14 +2,18 @@
 import { computed } from 'vue'
 import { NodeViewWrapper } from '@tiptap/vue-3'
 import type { NodeViewProps } from '@tiptap/core'
+import { useI18n } from 'vue-i18n'
 import { Loader2, RefreshCcw, Trash2, AlertCircle } from 'lucide-vue-next'
 
 const props = defineProps<NodeViewProps>()
+const { t } = useI18n()
 
 const uploadState = computed(() => props.node.attrs.uploadState as string | undefined)
 const isUploading = computed(() => uploadState.value === 'uploading')
 const isFailed = computed(() => uploadState.value === 'failed')
-const errorMessage = computed(() => (props.node.attrs.errorMessage as string | undefined) ?? 'Upload failed')
+const errorMessage = computed(
+  () => (props.node.attrs.errorMessage as string | undefined) ?? t('attachments.uploadFailed')
+)
 
 function retryUpload() {
   props.extension.options.onRetry?.(props.node.attrs.localId)
@@ -26,22 +30,22 @@ function removeImage() {
       <img
         class="task-image-node__image"
         :src="String(props.node.attrs.src ?? '')"
-        :alt="String(props.node.attrs.alt ?? 'image')"
+        :alt="String(props.node.attrs.alt ?? t('taskImage.altFallback'))"
       />
       <div v-if="isUploading || isFailed" class="task-image-node__status" :class="{ failed: isFailed }">
         <div class="task-image-node__status-main">
           <Loader2 v-if="isUploading" class="task-image-node__icon spin" />
           <AlertCircle v-else class="task-image-node__icon" />
-          <span>{{ isUploading ? 'Uploading...' : errorMessage }}</span>
+          <span>{{ isUploading ? t('attachments.uploading') : errorMessage }}</span>
         </div>
         <div v-if="isFailed" class="task-image-node__actions">
           <button type="button" class="task-image-node__action" @click="retryUpload">
             <RefreshCcw class="task-image-node__action-icon" />
-            Retry
+            {{ t('common.retry') }}
           </button>
           <button type="button" class="task-image-node__action" @click="removeImage">
             <Trash2 class="task-image-node__action-icon" />
-            Remove
+            {{ t('common.remove') }}
           </button>
         </div>
       </div>

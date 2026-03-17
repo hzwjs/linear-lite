@@ -54,8 +54,11 @@ const zhCN = {
     updated: '更新时间',
     dueDate: '截止日期',
     close: '关闭',
+    cancel: '取消',
+    save: '保存',
     attach: '附件',
     retry: '重试',
+    remove: '移除',
     loading: '加载中...',
     create: '创建',
     creating: '创建中...',
@@ -72,6 +75,48 @@ const zhCN = {
     newProjectTitle: '新建项目',
     projectSettings: '项目设置',
     signOut: '登出'
+  },
+  projectModal: {
+    title: '新建项目',
+    form: {
+      nameLabel: '项目名称',
+      identifierLabel: '标识符',
+      namePlaceholder: '例如：Engineering',
+      identifierPlaceholder: '例如：ENG（3 个字母）'
+    },
+    buttons: {
+      create: '创建',
+      creating: '创建中...'
+    },
+    validation: {
+      nameAndIdentifierRequired: '请输入项目名称和标识符',
+      identifierTooLong: '标识符最多 16 个字符',
+      createFailed: '创建失败'
+    }
+  },
+  projectSettingsModal: {
+    title: '项目设置',
+    inviteTitle: '通过邮箱邀请',
+    inviteDescription: '被邀请用户登录或注册后即可看到该项目。',
+    inviteButton: '邀请',
+    inviting: '邀请中…',
+    inviteSuccess: '邀请已发送。',
+    invitePlaceholder: 'name@example.com',
+    deleteTitle: '删除项目',
+    deleteDescription: '此操作将永久删除项目及其所有任务。',
+    deleteButton: '删除项目',
+    deleting: '删除中…',
+    deleteConfirm: '删除项目“{name}”及其所有任务？该操作无法撤销。',
+    errors: {
+      updateFailed: '更新失败',
+      deleteFailed: '删除失败',
+      emailRequired: '请输入要邀请的邮箱',
+      inviteFailed: '邀请失败'
+    },
+    buttons: {
+      save: '保存',
+      saving: '保存中…'
+    }
   },
   emptyState: {
     noProjects: '暂无项目'
@@ -137,8 +182,78 @@ const zhCN = {
   attachments: {
     fileTooLargeSkipped: '超过 {size}，已跳过',
     uploadFailed: '上传失败',
+    uploading: '上传中...',
     downloadFailed: '下载失败',
     deleteFailed: '删除失败'
+  },
+  taskImage: {
+    altFallback: '图片'
+  },
+  editor: {
+    placeholder: '输入内容…'
+  },
+  taskImportModal: {
+    ariaLabel: '导入任务',
+    title: '任务导入',
+    subtitle: '从 CSV 或 Excel 导入任务',
+    steps: {
+      upload: '上传',
+      mapping: '映射',
+      preview: '预览',
+      result: '结果'
+    },
+    downloadTemplate: '下载模板',
+    dropzone: {
+      title: '选择 `.csv` 或 `.xlsx` 文件',
+      copy: '必填模板列：`title`、`importId`。可选：`parentImportId`、`description`、`status`、`priority`、`assignee`、`dueDate`。'
+    },
+    fileMeta: {
+      file: '文件',
+      rows: '行数',
+      project: '项目',
+      noProject: '未选择项目'
+    },
+    mapping: {
+      required: '必填',
+      unmapped: '未映射'
+    },
+    fields: {
+      importId: '导入 ID',
+      parentImportId: '父级导入 ID'
+    },
+    preview: {
+      summary: {
+        total: '总计',
+        parents: '父任务',
+        subtasks: '子任务'
+      },
+      table: {
+        parent: '父任务',
+        topLevel: '顶层'
+      },
+      errors: {
+        lineMessage: '第 {lineNumber} 行 · {field} · {message}'
+      }
+    },
+    result: {
+      success: '已将 {count} 个任务导入当前项目。',
+      summary: {
+        parents: '父任务',
+        subtasks: '子任务',
+        created: '已创建'
+      }
+    },
+    footer: {
+      back: '返回',
+      review: '查看导入',
+      importIssues: '导入任务',
+      importing: '导入中...',
+      done: '完成'
+    },
+    errors: {
+      parseFailed: '解析文件失败。',
+      importFailed: '导入失败。'
+    }
   },
   taskEditor: {
     workspaceAria: '任务工作区',

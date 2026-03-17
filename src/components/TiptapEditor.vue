@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch, ref, onMounted, onUnmounted } from 'vue'
+import { watch, ref, onMounted, onUnmounted, computed } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import { Extension } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
@@ -23,6 +23,7 @@ import {
   serializeEditorHtmlForSave,
   validateEditorImageFile,
 } from '../utils/editorImageUpload'
+import { useI18n } from 'vue-i18n'
 import { TaskImage } from '../extensions/TaskImage'
 import TiptapSlashMenu from './TiptapSlashMenu.vue'
 
@@ -36,7 +37,7 @@ const props = withDefaults(
   }>(),
   {
     modelValue: '',
-    placeholder: '输入内容…',
+    placeholder: '',
     minHeight: 120,
   }
 )
@@ -46,6 +47,9 @@ const emit = defineEmits<{
   'upload-state-change': [state: { hasPending: boolean; hasFailed: boolean }]
   blur: []
 }>()
+
+const { t } = useI18n()
+const resolvedPlaceholder = computed(() => props.placeholder || t('editor.placeholder'))
 
 const slashMenuOpen = ref(false)
 const slashMenuPos = ref({ left: 0, top: 0 })
@@ -112,7 +116,7 @@ const editor = useEditor({
     createCodeBlockLinear({ lowlight, defaultLanguage: 'bash' }),
     Blockquote,
     Placeholder.configure({
-      placeholder: props.placeholder,
+      placeholder: () => resolvedPlaceholder.value,
       emptyEditorClass: 'is-editor-empty',
     }),
     slashMenuExtension,
@@ -227,7 +231,7 @@ function insertPreviewImage(file: File, pos?: number) {
       type: 'taskImage',
       attrs: {
         src: objectUrl,
-        alt: file.name || 'image',
+        alt: file.name || t('taskImage.altFallback'),
         localId,
         uploadState: UPLOADING_IMAGE_STATE,
         errorMessage: null,
@@ -259,7 +263,7 @@ async function startImageUpload(localId: string) {
   } catch (error) {
     updateImageNodeByLocalId(localId, {
       uploadState: FAILED_IMAGE_STATE,
-      errorMessage: error instanceof Error ? error.message : 'Upload failed',
+      errorMessage: error instanceof Error ? error.message : t('attachments.uploadFailed'),
     })
   }
 }
