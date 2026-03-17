@@ -61,29 +61,29 @@ function close() {
   <div v-if="open" class="modal-overlay" @click.self="close">
     <div class="modal">
       <div class="modal-header">
-        <h3>New project</h3>
+        <h3>{{ t('projectModal.title') }}</h3>
         <button type="button" class="close-btn" @click="close">×</button>
       </div>
       <form class="modal-body" @submit.prevent="submit">
         <div class="form-group">
-          <label>Project name</label>
-          <input v-model="name" type="text" placeholder="e.g. Engineering" class="input" />
+          <label>{{ t('projectModal.form.nameLabel') }}</label>
+          <input v-model="name" type="text" :placeholder="t('projectModal.form.namePlaceholder')" class="input" />
         </div>
         <div class="form-group">
-          <label>Identifier</label>
+          <label>{{ t('projectModal.form.identifierLabel') }}</label>
           <input
             v-model="identifier"
             type="text"
-            placeholder="e.g. ENG (3 letters)"
+            :placeholder="t('projectModal.form.identifierPlaceholder')"
             class="input"
             maxlength="16"
           />
         </div>
         <p v-if="error" class="error-msg">{{ error }}</p>
         <div class="modal-footer">
-          <button type="button" class="btn-cancel" @click="close">Cancel</button>
+          <button type="button" class="btn-cancel" @click="close">{{ t('common.cancel') }}</button>
           <button type="submit" class="btn-primary" :disabled="isSubmitting">
-            {{ isSubmitting ? 'Creating...' : 'Create' }}
+            {{ isSubmitting ? t('projectModal.buttons.creating') : t('projectModal.buttons.create') }}
           </button>
         </div>
       </form>

@@ -184,6 +184,7 @@ const subIssueFormDescription = ref('')
 const subIssueFormStatus = ref<Status>('backlog')
 const subIssueFormPriority = ref<Priority>('medium')
 const subIssueFormAssigneeId = ref<string | number>('')
+const subIssueFormDueDate = ref('')
 const subIssueSaving = ref(false)
 
 const subIssueCountDisplay = computed(() => {
@@ -245,6 +246,7 @@ function openSubIssueForm() {
   subIssueFormStatus.value = props.task?.status ?? 'backlog'
   subIssueFormPriority.value = props.task?.priority ?? 'medium'
   subIssueFormAssigneeId.value = ''
+  subIssueFormDueDate.value = ''
 }
 
 function closeSubIssueForm() {
@@ -263,6 +265,7 @@ async function submitSubIssue() {
       status: subIssueFormStatus.value,
       priority: subIssueFormPriority.value,
       assigneeId: subIssueFormAssigneeId.value === '' ? null : Number(subIssueFormAssigneeId.value),
+      dueDate: parseDateInputValue(subIssueFormDueDate.value),
       parentId: parentNumericId
     })
     subIssueRows.value = [...subIssueRows.value, { task: newTask, depth: 0 }]
@@ -783,7 +786,8 @@ async function toggleFavorite() {
                 class="linear-create-btn"
                 @click="openSubIssueForm"
               >
-                Create new sub-issue
+                <span class="linear-create-btn-icon">+</span>
+                Add sub-issue
               </button>
               <div v-else class="linear-inline-form">
                 <input
@@ -813,6 +817,12 @@ async function toggleFavorite() {
                     :options="assigneeOptions"
                     placeholder="Assignee"
                     aria-label="Assignee"
+                    trigger-class="linear-inline-trigger"
+                  />
+                  <CustomDatePicker
+                    v-model="subIssueFormDueDate"
+                    placeholder="Due date"
+                    aria-label="Due date"
                     trigger-class="linear-inline-trigger"
                   />
                 </div>
@@ -1337,15 +1347,29 @@ async function toggleFavorite() {
   color: var(--color-text-error, #c00);
 }
 .linear-create-btn {
-  padding: 6px 0;
-  border: none;
-  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-base);
   font-size: var(--font-size-caption);
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
   cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
 }
 .linear-create-btn:hover {
+  border-color: var(--color-accent);
   color: var(--color-accent);
+  background: var(--color-bg-hover, rgba(99, 102, 241, 0.06));
+}
+.linear-create-btn-icon {
+  font-size: 1.1em;
+  font-weight: 600;
+  line-height: 1;
 }
 .linear-inline-form {
   margin-top: 8px;
@@ -1404,6 +1428,10 @@ async function toggleFavorite() {
   min-height: 28px;
   padding: 2px 8px;
   font-size: var(--font-size-xs);
+}
+/* 子任务表单内 Due date 未选时与 Status/Priority/Assignee 文字颜色一致 */
+.linear-inline-form :deep(.trigger-label.placeholder) {
+  color: var(--color-text-primary);
 }
 .activity-list-wrap {
   max-height: 220px;

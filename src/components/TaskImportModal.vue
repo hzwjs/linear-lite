@@ -4,6 +4,7 @@ import { AlertCircle, CheckCircle2, FileSpreadsheet, Upload } from 'lucide-vue-n
 import { taskApi } from '../services/api/task'
 import type { TaskImportResponse } from '../services/api/types'
 import type { User } from '../types/domain'
+import { useI18n } from 'vue-i18n'
 import {
   autoMapTaskImportColumns,
   buildTaskImportPreview,
@@ -27,6 +28,8 @@ const emit = defineEmits<{
   close: []
   imported: []
 }>()
+
+const { t } = useI18n()
 
 type Step = 'upload' | 'mapping' | 'preview' | 'result'
 
@@ -98,7 +101,7 @@ async function handleFileChange(event: Event) {
     selectedFileName.value = file.name
     step.value = 'mapping'
   } catch (error) {
-    parseError.value = error instanceof Error ? error.message : 'Failed to parse file.'
+    parseError.value = error instanceof Error ? error.message : t('taskImportModal.errors.parseFailed')
   }
 }
 
@@ -144,7 +147,7 @@ async function submitImport() {
     step.value = 'result'
     emit('imported')
   } catch (error) {
-    submitError.value = error instanceof Error ? error.message : 'Import failed.'
+    submitError.value = error instanceof Error ? error.message : t('taskImportModal.errors.importFailed')
   } finally {
     isSubmitting.value = false
   }
@@ -158,14 +161,14 @@ async function submitImport() {
       class="import-overlay"
       role="dialog"
       aria-modal="true"
-      aria-label="Import tasks"
+      :aria-label="t('taskImportModal.ariaLabel')"
       @click.self="emit('close')"
     >
       <div class="import-panel">
         <div class="import-header">
           <div>
-            <div class="import-eyebrow">Task import</div>
-            <h2>Import issues from CSV or Excel</h2>
+          <div class="import-eyebrow">{{ t('taskImportModal.title') }}</div>
+          <h2>{{ t('taskImportModal.subtitle') }}</h2>
           </div>
           <button type="button" class="import-close" aria-label="Close" @click="emit('close')">
             ×
@@ -173,16 +176,24 @@ async function submitImport() {
         </div>
 
         <div class="import-steps">
-          <span class="import-step" :class="{ active: step === 'upload' }">1. Upload</span>
-          <span class="import-step" :class="{ active: step === 'mapping' }">2. Mapping</span>
-          <span class="import-step" :class="{ active: step === 'preview' }">3. Preview</span>
-          <span class="import-step" :class="{ active: step === 'result' }">4. Result</span>
+          <span class="import-step" :class="{ active: step === 'upload' }">
+            1. {{ t('taskImportModal.steps.upload') }}
+          </span>
+          <span class="import-step" :class="{ active: step === 'mapping' }">
+            2. {{ t('taskImportModal.steps.mapping') }}
+          </span>
+          <span class="import-step" :class="{ active: step === 'preview' }">
+            3. {{ t('taskImportModal.steps.preview') }}
+          </span>
+          <span class="import-step" :class="{ active: step === 'result' }">
+            4. {{ t('taskImportModal.steps.result') }}
+          </span>
         </div>
 
         <div v-if="step === 'upload'" class="import-body">
           <div class="import-upload-toolbar">
             <button type="button" class="import-link-btn" @click="downloadTemplate">
-              Download template
+              {{ t('taskImportModal.downloadTemplate') }}
             </button>
           </div>
           <label class="import-dropzone">
@@ -194,10 +205,9 @@ async function submitImport() {
               @change="handleFileChange"
             />
             <Upload class="icon-18" />
-            <div class="import-dropzone-title">Choose a `.csv` or `.xlsx` file</div>
+            <div class="import-dropzone-title">{{ t('taskImportModal.dropzone.title') }}</div>
             <div class="import-dropzone-copy">
-              Required template columns: `title`, `importId`. Optional: `parentImportId`, `description`,
-              `status`, `priority`, `assignee`, `dueDate`.
+              {{ t('taskImportModal.dropzone.copy') }}
             </div>
           </label>
           <div v-if="selectedFileName" class="import-file-pill">
@@ -212,22 +222,25 @@ async function submitImport() {
 
         <div v-else-if="step === 'mapping' && parsedFile" class="import-body">
           <div class="import-meta">
-            <div><strong>File:</strong> {{ selectedFileName }}</div>
-            <div><strong>Rows:</strong> {{ parsedFile.rows.length }}</div>
-            <div><strong>Project:</strong> {{ projectId ?? 'No project selected' }}</div>
+            <div><strong>{{ t('taskImportModal.fileMeta.file') }}</strong> {{ selectedFileName }}</div>
+            <div><strong>{{ t('taskImportModal.fileMeta.rows') }}</strong> {{ parsedFile.rows.length }}</div>
+            <div>
+              <strong>{{ t('taskImportModal.fileMeta.project') }}</strong>
+              {{ projectId ?? t('taskImportModal.fileMeta.noProject') }}
+            </div>
           </div>
           <div class="mapping-grid">
             <label v-for="field in fieldOrder" :key="field" class="mapping-row">
               <span class="mapping-label">
                 {{ TASK_IMPORT_FIELD_LABELS[field] }}
-                <small v-if="TASK_IMPORT_REQUIRED_FIELDS.includes(field)">Required</small>
+                <small v-if="TASK_IMPORT_REQUIRED_FIELDS.includes(field)">{{ t('taskImportModal.mapping.required') }}</small>
               </span>
               <select
                 class="mapping-select"
                 :value="mapping[field] ?? ''"
                 @change="setMapping(field, ($event.target as HTMLSelectElement).value)"
               >
-                <option value="">Unmapped</option>
+                <option value="">{{ t('taskImportModal.mapping.unmapped') }}</option>
                 <option v-for="header in parsedFile.headers.filter(Boolean)" :key="header" :value="header">
                   {{ header }}
                 </option>
@@ -239,15 +252,15 @@ async function submitImport() {
         <div v-else-if="step === 'preview' && preview" class="import-body">
           <div class="import-summary">
             <div class="summary-card">
-              <span>Total</span>
+              <span>{{ t('taskImportModal.preview.summary.total') }}</span>
               <strong>{{ preview.summary.totalCount }}</strong>
             </div>
             <div class="summary-card">
-              <span>Parents</span>
+              <span>{{ t('taskImportModal.preview.summary.parents') }}</span>
               <strong>{{ preview.summary.parentCount }}</strong>
             </div>
             <div class="summary-card">
-              <span>Subtasks</span>
+              <span>{{ t('taskImportModal.preview.summary.subtasks') }}</span>
               <strong>{{ preview.summary.subtaskCount }}</strong>
             </div>
           </div>
@@ -263,7 +276,15 @@ async function submitImport() {
               class="import-message import-message--error"
             >
               <AlertCircle class="icon-14" />
-              <span>Line {{ error.lineNumber }} · {{ TASK_IMPORT_FIELD_LABELS[error.field as TaskImportField] ?? error.field }} · {{ error.message }}</span>
+              <span>
+                {{
+                  t('taskImportModal.preview.errors.lineMessage', {
+                    lineNumber: error.lineNumber,
+                    field: TASK_IMPORT_FIELD_LABELS[error.field as TaskImportField] ?? error.field,
+                    message: error.message
+                  })
+                }}
+              </span>
             </div>
           </div>
 
@@ -271,11 +292,11 @@ async function submitImport() {
             <table class="preview-table">
               <thead>
                 <tr>
-                  <th>Title</th>
-                  <th>Status</th>
-                  <th>Priority</th>
-                  <th>Assignee</th>
-                  <th>Parent</th>
+                  <th>{{ t('common.title') }}</th>
+                  <th>{{ t('common.status') }}</th>
+                  <th>{{ t('common.priority') }}</th>
+                  <th>{{ t('common.assignee') }}</th>
+                  <th>{{ t('taskImportModal.preview.table.parent') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -283,8 +304,8 @@ async function submitImport() {
                   <td>{{ row.title }}</td>
                   <td>{{ row.status }}</td>
                   <td>{{ row.priority }}</td>
-                  <td>{{ row.assigneeId ?? 'Unassigned' }}</td>
-                  <td>{{ row.parentImportId ?? 'Top-level' }}</td>
+                  <td>{{ row.assigneeId ?? t('common.unassigned') }}</td>
+                  <td>{{ row.parentImportId ?? t('taskImportModal.preview.table.topLevel') }}</td>
                 </tr>
               </tbody>
             </table>
@@ -299,19 +320,19 @@ async function submitImport() {
         <div v-else-if="step === 'result' && result" class="import-body">
           <p class="import-message import-message--success">
             <CheckCircle2 class="icon-14" />
-            <span>Imported {{ result.createdCount }} issues into the current project.</span>
+            <span>{{ t('taskImportModal.result.success', { count: result.createdCount }) }}</span>
           </p>
           <div class="import-summary">
             <div class="summary-card">
-              <span>Parents</span>
+              <span>{{ t('taskImportModal.result.summary.parents') }}</span>
               <strong>{{ result.parentCount }}</strong>
             </div>
             <div class="summary-card">
-              <span>Subtasks</span>
+              <span>{{ t('taskImportModal.result.summary.subtasks') }}</span>
               <strong>{{ result.subtaskCount }}</strong>
             </div>
             <div class="summary-card">
-              <span>Created</span>
+              <span>{{ t('taskImportModal.result.summary.created') }}</span>
               <strong>{{ result.createdCount }}</strong>
             </div>
           </div>
@@ -329,7 +350,7 @@ async function submitImport() {
             class="import-btn import-btn--ghost"
             @click="goBack"
           >
-            Back
+            {{ t('taskImportModal.footer.back') }}
           </button>
           <button
             v-if="step === 'mapping'"
@@ -338,7 +359,7 @@ async function submitImport() {
             :disabled="!canContinue"
             @click="step = 'preview'"
           >
-            Review import
+            {{ t('taskImportModal.footer.review') }}
           </button>
           <button
             v-else-if="step === 'preview'"
@@ -347,7 +368,7 @@ async function submitImport() {
             :disabled="!canSubmit || isSubmitting"
             @click="submitImport"
           >
-            {{ isSubmitting ? 'Importing...' : 'Import issues' }}
+            {{ isSubmitting ? t('taskImportModal.footer.importing') : t('taskImportModal.footer.importIssues') }}
           </button>
           <button
             v-else-if="step === 'result'"
@@ -355,7 +376,7 @@ async function submitImport() {
             class="import-btn"
             @click="emit('close')"
           >
-            Done
+            {{ t('taskImportModal.footer.done') }}
           </button>
         </div>
       </div>
