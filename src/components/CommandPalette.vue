@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useOverlayStore } from '../store/overlayStore'
 
 export interface CommandItem {
@@ -23,6 +24,7 @@ const emit = defineEmits<{
 }>()
 
 const overlayStore = useOverlayStore()
+const { t } = useI18n()
 const OVERLAY_ID = 'command-palette'
 
 const query = ref('')
@@ -138,7 +140,7 @@ onUnmounted(() => {
       class="command-palette"
       role="dialog"
       aria-modal="true"
-      aria-label="Command palette"
+      :aria-label="t('commandPalette.title')"
       @keydown="onKeydown"
     >
       <div class="command-palette-backdrop" @click="() => close()" />
@@ -148,8 +150,8 @@ onUnmounted(() => {
           v-model="query"
           type="text"
           class="command-palette-input"
-          placeholder="Type a command or search..."
-          aria-label="Search commands"
+          :placeholder="t('commandPalette.searchPlaceholder')"
+          :aria-label="t('commandPalette.searchAria')"
           autocomplete="off"
         />
         <ul
@@ -177,7 +179,7 @@ onUnmounted(() => {
             <span class="command-palette-label">{{ cmd.label }}</span>
           </li>
           <li v-if="filteredCommands.length === 0" class="command-palette-empty">
-            No commands match.
+            {{ t('commandPalette.noMatches') }}
           </li>
         </ul>
       </div>

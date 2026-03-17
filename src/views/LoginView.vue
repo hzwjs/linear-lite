@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../store/authStore'
 
@@ -18,6 +19,7 @@ const sendingCode = ref(false)
 const resendCountdown = ref(0)
 let resendTimer: number | null = null
 
+const { t } = useI18n()
 const isLoginMode = computed(() => mode.value === 'login')
 
 function resetError() {
@@ -50,7 +52,7 @@ function startResendCountdown() {
 async function onSendCode() {
   resetError()
   if (!email.value.trim()) {
-    error.value = 'Please enter email'
+    error.value = t('auth.error.enterEmail')
     return
   }
 
@@ -59,7 +61,7 @@ async function onSendCode() {
     await authStore.sendRegisterCode(email.value.trim())
     startResendCountdown()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Failed to send code'
+    error.value = e instanceof Error ? e.message : t('auth.error.sendCodeFailed')
   } finally {
     sendingCode.value = false
   }
@@ -71,13 +73,13 @@ async function onSubmit() {
   try {
     if (isLoginMode.value) {
       if (!identity.value.trim() || !password.value) {
-        error.value = 'Please enter email or username and password'
+        error.value = t('auth.error.enterCredentials')
         return
       }
       await authStore.login({ identity: identity.value.trim(), password: password.value })
     } else {
       if (!email.value.trim() || !verificationCode.value.trim() || !username.value.trim() || !password.value) {
-        error.value = 'Please complete all registration fields'
+        error.value = t('auth.error.completeRegistration')
         return
       }
       await authStore.register({
@@ -89,7 +91,7 @@ async function onSubmit() {
     }
     router.push('/')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Authentication failed'
+    error.value = e instanceof Error ? e.message : t('auth.error.authFailed')
   } finally {
     loading.value = false
   }
@@ -99,9 +101,9 @@ async function onSubmit() {
 <template>
   <div class="login-view">
     <div class="login-card">
-      <h1 class="login-title">Linear Lite</h1>
+      <h1 class="login-title">{{ t('app.name') }}</h1>
       <p class="login-subtitle">
-        {{ isLoginMode ? 'Sign in to continue' : 'Create your account with email verification' }}
+        {{ isLoginMode ? t('auth.subtitle.login') : t('auth.subtitle.register') }}
       </p>
       <div class="login-tabs">
         <button
@@ -111,7 +113,7 @@ async function onSubmit() {
           :disabled="loading || sendingCode"
           @click="switchMode('login')"
         >
-          Log in
+          {{ t('auth.tabs.login') }}
         </button>
         <button
           type="button"
@@ -120,7 +122,7 @@ async function onSubmit() {
           :disabled="loading || sendingCode"
           @click="switchMode('register')"
         >
-          Sign up
+          {{ t('auth.tabs.register') }}
         </button>
       </div>
       <form class="login-form" @submit.prevent="onSubmit">
@@ -128,7 +130,7 @@ async function onSubmit() {
           v-if="isLoginMode"
           v-model="identity"
           type="text"
-          placeholder="Email or username"
+          :placeholder="t('auth.placeholder.identity')"
           class="login-input"
           autocomplete="username"
           :disabled="loading"
@@ -137,7 +139,7 @@ async function onSubmit() {
           <input
             v-model="email"
             type="email"
-            placeholder="Email"
+            :placeholder="t('auth.placeholder.email')"
             class="login-input"
             autocomplete="email"
             :disabled="loading || sendingCode"
@@ -146,7 +148,7 @@ async function onSubmit() {
             <input
               v-model="verificationCode"
               type="text"
-              placeholder="Verification code"
+              :placeholder="t('auth.placeholder.verificationCode')"
               class="login-input verification-input"
               :disabled="loading"
             />
@@ -158,17 +160,17 @@ async function onSubmit() {
             >
               {{
                 sendingCode
-                  ? 'Sending...'
+                  ? t('auth.sending')
                   : resendCountdown > 0
                     ? `${resendCountdown}s`
-                    : 'Send code'
+                    : t('auth.sendCode')
               }}
             </button>
           </div>
           <input
             v-model="username"
             type="text"
-            placeholder="Username"
+            :placeholder="t('auth.placeholder.username')"
             class="login-input"
             autocomplete="username"
             :disabled="loading"
@@ -177,7 +179,7 @@ async function onSubmit() {
         <input
           v-model="password"
           type="password"
-          placeholder="Password"
+          :placeholder="t('auth.placeholder.password')"
           class="login-input"
           autocomplete="current-password"
           :disabled="loading"
@@ -186,8 +188,8 @@ async function onSubmit() {
         <button type="submit" class="login-submit" :disabled="loading">
           {{
             loading
-              ? isLoginMode ? 'Signing in...' : 'Creating account...'
-              : isLoginMode ? 'Sign in' : 'Create account'
+              ? isLoginMode ? t('auth.loading.login') : t('auth.loading.register')
+              : isLoginMode ? t('auth.action.signIn') : t('auth.action.signUp')
           }}
         </button>
       </form>

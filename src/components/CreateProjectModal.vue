@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useProjectStore } from '../store/projectStore'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
   open: boolean
@@ -12,6 +13,7 @@ const emit = defineEmits<{
 }>()
 
 const projectStore = useProjectStore()
+const { t } = useI18n()
 const name = ref('')
 const identifier = ref('')
 const isSubmitting = ref(false)
@@ -32,11 +34,11 @@ async function submit() {
   const n = name.value.trim()
   const id = identifier.value.trim().toUpperCase()
   if (!n || !id) {
-    error.value = 'Please enter project name and identifier'
+    error.value = t('projectModal.validation.nameAndIdentifierRequired')
     return
   }
   if (id.length > 16) {
-    error.value = 'Identifier must be at most 16 characters'
+    error.value = t('projectModal.validation.identifierTooLong')
     return
   }
   isSubmitting.value = true
@@ -46,7 +48,7 @@ async function submit() {
     emit('created')
     emit('close')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Create failed'
+    error.value = e instanceof Error ? e.message : t('projectModal.validation.createFailed')
   } finally {
     isSubmitting.value = false
   }

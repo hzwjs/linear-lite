@@ -44,6 +44,16 @@ const isSubmitting = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
 const fieldOrder: TaskImportField[] = [...TASK_IMPORT_REQUIRED_FIELDS, ...TASK_IMPORT_OPTIONAL_FIELDS]
+const fieldLabels = computed<Record<TaskImportField, string>>(() => ({
+  title: t('common.title'),
+  description: t('fieldLabel.description'),
+  status: t('common.status'),
+  priority: t('common.priority'),
+  assignee: t('common.assignee'),
+  dueDate: t('common.dueDate'),
+  importId: t('taskImportModal.fields.importId'),
+  parentImportId: t('taskImportModal.fields.parentImportId')
+}))
 
 const preview = computed(() => {
   if (!parsedFile.value) return null
@@ -112,6 +122,10 @@ function setMapping(field: TaskImportField, value: string) {
   }
 }
 
+function getFieldLabel(field: TaskImportField) {
+  return fieldLabels.value[field] ?? TASK_IMPORT_FIELD_LABELS[field]
+}
+
 function goBack() {
   if (step.value === 'preview') {
     step.value = 'mapping'
@@ -170,7 +184,12 @@ async function submitImport() {
           <div class="import-eyebrow">{{ t('taskImportModal.title') }}</div>
           <h2>{{ t('taskImportModal.subtitle') }}</h2>
           </div>
-          <button type="button" class="import-close" aria-label="Close" @click="emit('close')">
+          <button
+            type="button"
+            class="import-close"
+            :aria-label="t('common.close')"
+            @click="emit('close')"
+          >
             ×
           </button>
         </div>
@@ -232,7 +251,7 @@ async function submitImport() {
           <div class="mapping-grid">
             <label v-for="field in fieldOrder" :key="field" class="mapping-row">
               <span class="mapping-label">
-                {{ TASK_IMPORT_FIELD_LABELS[field] }}
+                {{ getFieldLabel(field) }}
                 <small v-if="TASK_IMPORT_REQUIRED_FIELDS.includes(field)">{{ t('taskImportModal.mapping.required') }}</small>
               </span>
               <select
@@ -280,7 +299,7 @@ async function submitImport() {
                 {{
                   t('taskImportModal.preview.errors.lineMessage', {
                     lineNumber: error.lineNumber,
-                    field: TASK_IMPORT_FIELD_LABELS[error.field as TaskImportField] ?? error.field,
+                    field: getFieldLabel(error.field as TaskImportField),
                     message: error.message
                   })
                 }}

@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import type { Component } from 'vue'
 import { Check } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 
 export interface CustomSelectOption {
   value: string | number | null
@@ -23,22 +24,25 @@ const props = withDefaults(
     /** 占位输入框右侧快捷键角标，如 "S" */
     searchShortcutBadge?: string
   }>(),
-  { placeholder: 'Select…', ariaLabel: 'Select option', triggerClass: '' }
+  { placeholder: '', ariaLabel: '', triggerClass: '' }
 )
 
 const emit = defineEmits<{
   'update:modelValue': [value: string | number | null]
 }>()
+const { t } = useI18n()
 
 const isOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
 const listRef = ref<HTMLElement | null>(null)
 const highlightedIndex = ref(-1)
+const resolvedPlaceholder = computed(() => props.placeholder || t('select.placeholder'))
+const resolvedAriaLabel = computed(() => props.ariaLabel || t('select.ariaLabel'))
 
 const selectedOption = computed(() =>
   props.options.find((o) => o.value === props.modelValue)
 )
-const displayLabel = computed(() => selectedOption.value?.label ?? props.placeholder)
+const displayLabel = computed(() => selectedOption.value?.label ?? resolvedPlaceholder.value)
 
 function open() {
   isOpen.value = true
@@ -146,7 +150,7 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
       type="button"
       class="custom-select-trigger"
       :class="triggerClass"
-      :aria-label="ariaLabel"
+      :aria-label="resolvedAriaLabel"
       :aria-expanded="isOpen"
       :aria-haspopup="'listbox'"
       aria-controls="custom-select-list"
@@ -178,7 +182,7 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
           :placeholder="searchPlaceholder"
           readonly
           tabindex="-1"
-          aria-label="Search"
+          :aria-label="t('select.searchAria')"
         />
         <kbd v-if="searchShortcutBadge" class="custom-select-search-badge">{{ searchShortcutBadge }}</kbd>
       </div>

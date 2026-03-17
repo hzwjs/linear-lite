@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const AUTO_SAVE_DEBOUNCE_MS = 600
 const SAVED_INDICATOR_MS = 2000
@@ -15,6 +16,7 @@ import { attachmentsApi } from '../services/api/attachments'
 import type { TaskAttachment } from '../services/api/types'
 import { formatTaskActivity, getActivityAvatarLabel } from '../utils/taskActivity'
 import { formatDateInputValue, parseDateInputValue } from '../utils/taskDate'
+import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import TiptapEditor from './TiptapEditor.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
@@ -67,6 +69,7 @@ const favoriteStore = useFavoriteStore()
 const projectStore = useProjectStore()
 const viewModeStore = useViewModeStore()
 const router = useRouter()
+const { t } = useI18n()
 
 const formTitle = ref('')
 const formDescription = ref('')
@@ -98,23 +101,23 @@ const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024 // 10MB
 const justSavedTaskId = ref<string | null>(null)
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
 
-const statusOptions: CustomSelectOption[] = [
-  { value: 'backlog', label: 'Backlog', icon: CircleDashed, shortcut: '1' },
-  { value: 'todo', label: 'Todo', icon: Circle, shortcut: '2' },
-  { value: 'in_progress', label: 'In Progress', icon: Loader2, shortcut: '3' },
-  { value: 'in_review', label: 'In Review', icon: Eye, shortcut: '4' },
-  { value: 'done', label: 'Done', icon: CheckCircle, shortcut: '5' },
-  { value: 'canceled', label: 'Canceled', icon: CircleX, shortcut: '6' },
-  { value: 'duplicate', label: 'Duplicate', icon: Copy, shortcut: '7' }
-]
-const priorityOptions: CustomSelectOption[] = [
-  { value: 'low', label: 'Low', icon: PriorityLowIcon },
-  { value: 'medium', label: 'Medium', icon: PriorityMediumIcon },
-  { value: 'high', label: 'High', icon: PriorityHighIcon },
-  { value: 'urgent', label: 'Urgent', icon: PriorityUrgentIcon }
-]
+const statusOptions = computed<CustomSelectOption[]>(() => [
+  { value: 'backlog', label: getStatusLabel('backlog'), icon: CircleDashed, shortcut: '1' },
+  { value: 'todo', label: getStatusLabel('todo'), icon: Circle, shortcut: '2' },
+  { value: 'in_progress', label: getStatusLabel('in_progress'), icon: Loader2, shortcut: '3' },
+  { value: 'in_review', label: getStatusLabel('in_review'), icon: Eye, shortcut: '4' },
+  { value: 'done', label: getStatusLabel('done'), icon: CheckCircle, shortcut: '5' },
+  { value: 'canceled', label: getStatusLabel('canceled'), icon: CircleX, shortcut: '6' },
+  { value: 'duplicate', label: getStatusLabel('duplicate'), icon: Copy, shortcut: '7' }
+])
+const priorityOptions = computed<CustomSelectOption[]>(() => [
+  { value: 'low', label: getPriorityLabel('low'), icon: PriorityLowIcon },
+  { value: 'medium', label: getPriorityLabel('medium'), icon: PriorityMediumIcon },
+  { value: 'high', label: getPriorityLabel('high'), icon: PriorityHighIcon },
+  { value: 'urgent', label: getPriorityLabel('urgent'), icon: PriorityUrgentIcon }
+])
 const assigneeOptions = computed<CustomSelectOption[]>(() => {
-  const list: CustomSelectOption[] = [{ value: '', label: 'Unassigned', icon: UserIcon }]
+  const list: CustomSelectOption[] = [{ value: '', label: t('common.unassigned'), icon: UserIcon }]
   for (const u of userList.value) {
     const id = u?.id
     if (typeof id !== 'number' || !Number.isFinite(id)) continue
@@ -126,10 +129,10 @@ const assigneeOptions = computed<CustomSelectOption[]>(() => {
 const breadcrumbScopeName = computed(() => {
   if (props.mode !== 'edit' || !props.task?.projectId) {
     const active = projectStore.projects.find((p) => p.id === projectStore.activeProjectId)
-    return active?.name ?? 'Workspace'
+    return active?.name ?? t('common.workspace')
   }
   const project = projectStore.projects.find((p) => p.id === props.task!.projectId)
-  return project?.name ?? 'Workspace'
+  return project?.name ?? t('common.workspace')
 })
 
 const showBreadcrumb = computed(() => props.mode === 'edit' && !!props.task)
@@ -141,20 +144,20 @@ const isFavorited = computed(() => {
 const creatorName = computed(() => {
   if (props.mode !== 'edit' || !props.task?.creatorId) return null
   const u = userList.value.find((x) => x.id === props.task!.creatorId)
-  return u?.username ?? 'Someone'
+  return u?.username ?? t('common.someone')
 })
 
 function relativeTimeFromNow(timestamp: number) {
   const sec = Math.floor((Date.now() - timestamp) / 1000)
-  if (sec < 60) return 'just now'
+  if (sec < 60) return t('taskEditor.justNow')
   const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}m ago`
+  if (min < 60) return t('taskEditor.minutesAgo', { count: min })
   const h = Math.floor(min / 60)
-  if (h < 24) return `${h}h ago`
+  if (h < 24) return t('taskEditor.hoursAgo', { count: h })
   const d = Math.floor(h / 24)
-  if (d < 30) return `${d}d ago`
+  if (d < 30) return t('taskEditor.daysAgo', { count: d })
   const mo = Math.floor(d / 30)
-  return `${mo}mo ago`
+  return t('taskEditor.monthsAgo', { count: mo })
 }
 
 const createdAgoText = computed(() => {
@@ -309,14 +312,14 @@ function onAttachmentInputChange(event: Event) {
       const file = files[i]
       if (!file) continue
       if (file.size > MAX_ATTACHMENT_SIZE) {
-        attachmentUploadError.value = `"${file.name}" 超过 10MB，已跳过`
+        attachmentUploadError.value = `"${file.name}" ${t('attachments.fileTooLargeSkipped', { size: '10MB' })}`
         continue
       }
       try {
         await attachmentsApi.upload(taskKey, file)
         await loadAttachments()
       } catch (e) {
-        attachmentUploadError.value = e instanceof Error ? e.message : '上传失败'
+        attachmentUploadError.value = e instanceof Error ? e.message : t('attachments.uploadFailed')
       }
     }
     input.value = ''
@@ -334,9 +337,9 @@ function formatAttachmentDate(iso: string): string {
     const d = new Date(iso)
     const now = new Date()
     const diff = now.getTime() - d.getTime()
-    if (diff < 60 * 1000) return 'just now'
-    if (diff < 60 * 60 * 1000) return `${Math.floor(diff / 60000)}m ago`
-    if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / 3600000)}h ago`
+    if (diff < 60 * 1000) return t('taskEditor.justNow')
+    if (diff < 60 * 60 * 1000) return t('taskEditor.minutesAgo', { count: Math.floor(diff / 60000) })
+    if (diff < 24 * 60 * 60 * 1000) return t('taskEditor.hoursAgo', { count: Math.floor(diff / 3600000) })
     return d.toLocaleDateString()
   } catch {
     return iso
@@ -348,7 +351,7 @@ async function downloadAttachment(att: TaskAttachment) {
   try {
     await attachmentsApi.download(props.task.id, att.id, att.fileName)
   } catch (e) {
-    attachmentUploadError.value = e instanceof Error ? e.message : '下载失败'
+    attachmentUploadError.value = e instanceof Error ? e.message : t('attachments.downloadFailed')
   }
 }
 
@@ -358,7 +361,7 @@ async function deleteAttachment(att: TaskAttachment) {
     await attachmentsApi.delete(props.task.id, att.id)
     await loadAttachments()
   } catch (e) {
-    attachmentUploadError.value = e instanceof Error ? e.message : '删除失败'
+    attachmentUploadError.value = e instanceof Error ? e.message : t('attachments.deleteFailed')
   }
 }
 
@@ -599,10 +602,10 @@ async function toggleFavorite() {
 </script>
 
 <template>
-  <aside class="editor-panel" :class="{ 'editor-panel--inline': props.variant === 'inline', 'editor-panel--create': props.mode === 'create' }" aria-label="Issue workspace">
+  <aside class="editor-panel" :class="{ 'editor-panel--inline': props.variant === 'inline', 'editor-panel--create': props.mode === 'create' }" :aria-label="t('taskEditor.workspaceAria')">
     <div class="editor-header">
       <div class="editor-header-meta">
-        <nav v-if="showBreadcrumb" class="editor-breadcrumb" aria-label="Breadcrumb">
+        <nav v-if="showBreadcrumb" class="editor-breadcrumb" :aria-label="t('taskEditor.breadcrumbAria')">
           <button type="button" class="editor-breadcrumb-link" @click="navigateToProject">
             {{ breadcrumbScopeName }}
           </button>
@@ -611,7 +614,7 @@ async function toggleFavorite() {
         </nav>
         <template v-else>
           <span v-if="task?.id" class="issue-id">{{ task.id }}</span>
-          <h2>{{ mode === 'create' ? 'New issue' : 'Issue' }}</h2>
+          <h2>{{ mode === 'create' ? t('taskEditor.newIssue') : t('taskEditor.issue') }}</h2>
         </template>
         <a
           v-if="mode === 'edit' && parentTask"
@@ -619,7 +622,7 @@ async function toggleFavorite() {
           class="editor-parent-link"
           @click.prevent="navigateTo(parentTask.id)"
         >
-          Sub-issue of {{ parentTask.id }} {{ parentTask.title }}
+          {{ t('taskEditor.subIssueOf', { id: parentTask.id, title: parentTask.title }) }}
           <span v-if="(parentTask.subIssueCount ?? 0) > 0" class="editor-parent-count">{{ parentTask.completedSubIssueCount ?? 0 }}/{{ parentTask.subIssueCount }}</span>
         </a>
         <button
@@ -627,20 +630,20 @@ async function toggleFavorite() {
           type="button"
           class="header-icon-btn"
           :class="{ 'header-icon-btn--active': isFavorited }"
-          :aria-label="isFavorited ? 'Remove from favorites' : 'Add to favorites'"
+          :aria-label="isFavorited ? t('taskEditor.removeFromFavorites') : t('taskEditor.addToFavorites')"
           @click="toggleFavorite"
         >
           <Star class="icon-16" :fill="isFavorited ? 'currentColor' : 'none'" />
         </button>
       </div>
       <div class="editor-header-actions">
-        <span v-if="saveStatus === 'saved'" class="save-indicator save-indicator--saved">Saved</span>
-        <span v-else-if="saveStatus === 'saving'" class="save-indicator save-indicator--saving">Saving...</span>
+        <span v-if="saveStatus === 'saved'" class="save-indicator save-indicator--saved">{{ t('taskEditor.saved') }}</span>
+        <span v-else-if="saveStatus === 'saving'" class="save-indicator save-indicator--saving">{{ t('taskEditor.saving') }}</span>
         <div v-if="position && total" class="issue-position">{{ position }} / {{ total }}</div>
         <button
           class="nav-btn"
           :disabled="!previousTaskId"
-          aria-label="Previous issue"
+          :aria-label="t('taskEditor.previousIssue')"
           @click="navigateTo(previousTaskId)"
         >
           ←
@@ -648,12 +651,12 @@ async function toggleFavorite() {
         <button
           class="nav-btn"
           :disabled="!nextTaskId"
-          aria-label="Next issue"
+          :aria-label="t('taskEditor.nextIssue')"
           @click="navigateTo(nextTaskId)"
         >
           →
         </button>
-        <button class="close-btn" @click="closeEditor" aria-label="Close">×</button>
+        <button class="close-btn" @click="closeEditor" :aria-label="t('common.close')">×</button>
       </div>
     </div>
 
@@ -664,7 +667,7 @@ async function toggleFavorite() {
             v-model="formTitle"
             type="text"
             class="title-input"
-            placeholder="Issue title"
+            :placeholder="t('taskEditor.issueTitlePlaceholder')"
             autofocus
             @keydown.enter.exact.prevent="focusDescription"
           />
@@ -676,7 +679,7 @@ async function toggleFavorite() {
               v-model="formDescription"
               @upload-state-change="onDescriptionUploadStateChange"
               @blur="onDescriptionBlur"
-              placeholder="Add description… Type / for formatting"
+              :placeholder="t('taskEditor.descriptionPlaceholder')"
               :min-height="64"
             />
           </section>
@@ -692,7 +695,7 @@ async function toggleFavorite() {
           <button
             type="button"
             class="content-action-btn"
-            aria-label="Attach"
+            :aria-label="t('common.attach')"
             :disabled="mode !== 'edit' || !task"
             @click="openAttachmentInput"
           >
@@ -709,12 +712,12 @@ async function toggleFavorite() {
               @click="attachmentsCollapsed = !attachmentsCollapsed"
             >
               <span class="linear-section-chevron">{{ attachmentsCollapsed ? '▸' : '▾' }}</span>
-              <span class="linear-section-title">Attachments</span>
+              <span class="linear-section-title">{{ t('taskEditor.attachments') }}</span>
               <span class="linear-section-count">{{ attachments.length }}</span>
             </button>
           </div>
           <div v-show="!attachmentsCollapsed" class="linear-section-body">
-            <p v-if="attachmentsLoading" class="linear-placeholder">Loading…</p>
+            <p v-if="attachmentsLoading" class="linear-placeholder">{{ t('common.loading') }}</p>
             <template v-else>
               <p v-if="attachmentUploadError" class="linear-placeholder linear-placeholder--error">{{ attachmentUploadError }}</p>
               <ul v-if="attachments.length" class="linear-sub-list">
@@ -724,14 +727,14 @@ async function toggleFavorite() {
                   <button
                     type="button"
                     class="content-action-btn linear-attachment-delete"
-                    aria-label="Delete attachment"
+                    :aria-label="t('taskEditor.deleteAttachment')"
                     @click="deleteAttachment(att)"
                   >
                     ×
                   </button>
                 </li>
               </ul>
-              <p v-else class="linear-placeholder">No attachments. Use the paperclip to add one.</p>
+              <p v-else class="linear-placeholder">{{ t('taskEditor.noAttachments') }}</p>
             </template>
           </div>
         </section>
@@ -745,7 +748,7 @@ async function toggleFavorite() {
               @click="subIssuesCollapsed = !subIssuesCollapsed"
             >
               <span class="linear-section-chevron">{{ subIssuesCollapsed ? '▸' : '▾' }}</span>
-              <span class="linear-section-title">Sub-issues</span>
+              <span class="linear-section-title">{{ t('taskEditor.subIssues') }}</span>
               <span class="linear-section-count">{{ subIssueCountDisplay.done }}/{{ subIssueCountDisplay.total }}</span>
             </button>
             <label v-if="!subIssuesCollapsed" class="linear-section-display-opt">
@@ -754,11 +757,11 @@ async function toggleFavorite() {
                 :checked="viewModeStore.viewConfig.nestedSubIssues"
                 @change="viewModeStore.setNestedSubIssues(!viewModeStore.viewConfig.nestedSubIssues)"
               />
-              <span>Nested sub-issues</span>
+              <span>{{ t('taskEditor.nestedSubIssues') }}</span>
             </label>
           </div>
           <div v-show="!subIssuesCollapsed" class="linear-section-body">
-            <p v-if="subIssuesLoading" class="linear-placeholder">Loading…</p>
+            <p v-if="subIssuesLoading" class="linear-placeholder">{{ t('common.loading') }}</p>
             <template v-else>
               <ul v-if="subIssueRows.length" class="linear-sub-list">
                 <li
@@ -779,7 +782,7 @@ async function toggleFavorite() {
                   </button>
                 </li>
               </ul>
-              <p v-else class="linear-placeholder">No sub-issues. Add one to break down this task.</p>
+              <p v-else class="linear-placeholder">{{ t('taskEditor.noSubIssues') }}</p>
               <button
                 v-if="!showSubIssueForm"
                 type="button"
@@ -787,36 +790,36 @@ async function toggleFavorite() {
                 @click="openSubIssueForm"
               >
                 <span class="linear-create-btn-icon">+</span>
-                Add sub-issue
+                {{ t('taskEditor.createNewSubIssue') }}
               </button>
               <div v-else class="linear-inline-form">
                 <input
                   v-model="subIssueFormTitle"
                   type="text"
                   class="linear-inline-title"
-                  placeholder="Issue title"
+                  :placeholder="t('taskEditor.issueTitlePlaceholder')"
                   @keydown.enter.exact.prevent="submitSubIssue"
                 />
                 <div class="linear-inline-props">
                   <CustomSelect
                     v-model="subIssueFormStatus"
                     :options="statusOptions"
-                    search-placeholder="Change status..."
+                    :search-placeholder="t('boardView.filterByStatus')"
                     search-shortcut-badge="S"
-                    aria-label="Status"
+                    :aria-label="t('common.status')"
                     trigger-class="linear-inline-trigger"
                   />
                   <CustomSelect
                     v-model="subIssueFormPriority"
                     :options="priorityOptions"
-                    aria-label="Priority"
+                    :aria-label="t('common.priority')"
                     trigger-class="linear-inline-trigger"
                   />
                   <CustomSelect
                     v-model="subIssueFormAssigneeId"
                     :options="assigneeOptions"
-                    placeholder="Assignee"
-                    aria-label="Assignee"
+                    :placeholder="t('common.assignee')"
+                    :aria-label="t('common.assignee')"
                     trigger-class="linear-inline-trigger"
                   />
                   <CustomDatePicker
@@ -827,14 +830,14 @@ async function toggleFavorite() {
                   />
                 </div>
                 <div class="linear-inline-actions">
-                  <button type="button" class="linear-inline-discard" @click="closeSubIssueForm">Discard</button>
+                  <button type="button" class="linear-inline-discard" @click="closeSubIssueForm">{{ t('taskEditor.discard') }}</button>
                   <button
                     type="button"
                     class="linear-inline-create"
                     :disabled="!subIssueFormTitle.trim() || subIssueSaving"
                     @click="submitSubIssue"
                   >
-                    {{ subIssueSaving ? 'Creating…' : 'Create' }}
+                    {{ subIssueSaving ? t('taskEditor.creatingSubIssue') : t('taskEditor.createSubIssue') }}
                   </button>
                 </div>
               </div>
@@ -844,11 +847,11 @@ async function toggleFavorite() {
 
         <section class="content-section subdued linear-section">
           <div class="linear-section-head linear-section-head--static">
-            <span class="linear-section-title">Activity</span>
-            <button type="button" class="linear-unsubscribe">Unsubscribe</button>
+            <span class="linear-section-title">{{ t('taskEditor.activity') }}</span>
+            <button type="button" class="linear-unsubscribe">{{ t('taskEditor.unsubscribe') }}</button>
           </div>
           <div class="linear-section-body">
-            <div v-if="activitiesLoading" class="activity-empty">Loading activity…</div>
+            <div v-if="activitiesLoading" class="activity-empty">{{ t('taskEditor.loadingActivity') }}</div>
             <div v-else class="activity-list-wrap">
               <template v-if="activities.length">
                 <div v-for="activity in activities" :key="activity.id" class="activity-item">
@@ -861,24 +864,24 @@ async function toggleFavorite() {
               <div v-else-if="creatorName && createdAgoText" class="activity-item">
                 <div class="activity-avatar">{{ getActivityAvatarLabel(creatorName) }}</div>
                 <div class="activity-text">
-                  <strong>{{ creatorName }}</strong> created the issue · {{ createdAgoText }}
+                  <strong>{{ creatorName }}</strong> {{ t('taskEditor.createdIssueSuffix') }} · {{ createdAgoText }}
                 </div>
               </div>
-              <div v-else class="activity-empty">No activity yet.</div>
+              <div v-else class="activity-empty">{{ t('taskEditor.noActivityYet') }}</div>
             </div>
             <div class="comment-input-wrap">
               <input
                 type="text"
                 class="comment-input"
-                placeholder="Leave a comment..."
+                :placeholder="t('taskEditor.leaveComment')"
                 readonly
-                aria-label="Comment"
+                :aria-label="t('taskEditor.commentAria')"
               />
               <div class="comment-input-actions">
-                <button type="button" class="comment-action-btn" aria-label="Attach">
+                <button type="button" class="comment-action-btn" :aria-label="t('common.attach')">
                   <Paperclip class="icon-14" />
                 </button>
-                <button type="button" class="comment-action-btn" aria-label="Send">
+                <button type="button" class="comment-action-btn" :aria-label="t('taskEditor.sendAria')">
                   <Send class="icon-14" />
                 </button>
               </div>
@@ -890,64 +893,64 @@ async function toggleFavorite() {
       <div class="editor-props">
         <div class="props-card">
           <div class="prop-row">
-            <span class="prop-label">Status</span>
+            <span class="prop-label">{{ t('common.status') }}</span>
             <CustomSelect
               id="task-status"
               v-model="formStatus"
               :options="statusOptions"
-              search-placeholder="Change status..."
+              :search-placeholder="t('boardView.filterByStatus')"
               search-shortcut-badge="S"
-              aria-label="Status"
+              :aria-label="t('common.status')"
               trigger-class="prop-trigger prop-trigger--linear"
             />
           </div>
           <div class="prop-row">
-            <span class="prop-label">Set priority</span>
+            <span class="prop-label">{{ t('taskEditor.setPriority') }}</span>
             <CustomSelect
               id="task-priority"
               v-model="formPriority"
               :options="priorityOptions"
-              aria-label="Priority"
+              :aria-label="t('common.priority')"
               trigger-class="prop-trigger prop-trigger--linear"
             />
           </div>
           <div class="prop-row">
-            <span class="prop-label">Assignee</span>
+            <span class="prop-label">{{ t('common.assignee') }}</span>
             <CustomSelect
               id="task-assignee"
               v-model="formAssigneeId"
               :options="assigneeOptions"
-              placeholder="Assign"
-              aria-label="Assignee"
+              :placeholder="t('common.assignee')"
+              :aria-label="t('common.assignee')"
               trigger-class="prop-trigger prop-trigger--linear"
             />
           </div>
           <div class="prop-row">
-            <span class="prop-label">Due Date</span>
+            <span class="prop-label">{{ t('common.dueDate') }}</span>
             <CustomDatePicker
               id="task-due"
               v-model="formDueDate"
-              placeholder="Select date"
-              aria-label="Due date"
+              :placeholder="t('common.dueDate')"
+              :aria-label="t('common.dueDate')"
               trigger-class="prop-trigger prop-trigger--linear"
             />
           </div>
           <div class="prop-row prop-row--linear-action">
-            <span class="prop-label">Labels</span>
-            <button type="button" class="prop-action-trigger" aria-label="Add label">
+            <span class="prop-label">{{ t('common.labels') }}</span>
+            <button type="button" class="prop-action-trigger" :aria-label="t('taskEditor.addLabel')">
               <Tag class="icon-14" />
-              <span>Add label</span>
+              <span>{{ t('taskEditor.addLabel') }}</span>
             </button>
           </div>
           <div class="prop-row prop-row--linear-action">
-            <span class="prop-label">Project</span>
-            <button type="button" class="prop-action-trigger" aria-label="Add to project">
+            <span class="prop-label">{{ t('common.project') }}</span>
+            <button type="button" class="prop-action-trigger" :aria-label="t('taskEditor.addToProject')">
               <Folder class="icon-14" />
-              <span>{{ taskProjectName ?? 'Add to project' }}</span>
+              <span>{{ taskProjectName ?? t('taskEditor.addToProject') }}</span>
             </button>
           </div>
           <div v-if="mode === 'edit' && task?.completedAt" class="prop-row read-only">
-            <span class="prop-label">Completed at</span>
+            <span class="prop-label">{{ t('taskEditor.completedAt') }}</span>
             <span class="read-only-value">{{ new Date(task.completedAt).toLocaleString() }}</span>
           </div>
         </div>

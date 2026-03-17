@@ -49,7 +49,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const resolvedPlaceholder = computed(() => props.placeholder || t('taskEditor.descriptionPlaceholder'))
+const resolvedPlaceholder = computed(() => props.placeholder || t('editor.placeholder'))
 
 const slashMenuOpen = ref(false)
 const slashMenuPos = ref({ left: 0, top: 0 })
@@ -116,7 +116,7 @@ const editor = useEditor({
     createCodeBlockLinear({ lowlight, defaultLanguage: 'bash' }),
     Blockquote,
     Placeholder.configure({
-      placeholder: resolvedPlaceholder.value,
+      placeholder: () => resolvedPlaceholder.value,
       emptyEditorClass: 'is-editor-empty',
     }),
     slashMenuExtension,
@@ -231,7 +231,7 @@ function insertPreviewImage(file: File, pos?: number) {
       type: 'taskImage',
       attrs: {
         src: objectUrl,
-        alt: file.name || 'image',
+        alt: file.name || t('taskImage.altFallback'),
         localId,
         uploadState: UPLOADING_IMAGE_STATE,
         errorMessage: null,
@@ -263,7 +263,7 @@ async function startImageUpload(localId: string) {
   } catch (error) {
     updateImageNodeByLocalId(localId, {
       uploadState: FAILED_IMAGE_STATE,
-      errorMessage: error instanceof Error ? error.message : 'Upload failed',
+      errorMessage: error instanceof Error ? error.message : t('attachments.uploadFailed'),
     })
   }
 }

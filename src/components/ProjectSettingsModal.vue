@@ -4,7 +4,6 @@ import type { Project } from '../types/domain'
 import { useProjectStore } from '../store/projectStore'
 import { useAuthStore } from '../store/authStore'
 import { useI18n } from 'vue-i18n'
-import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
   open: boolean
@@ -19,7 +18,6 @@ const emit = defineEmits<{
 
 const projectStore = useProjectStore()
 const authStore = useAuthStore()
-const { t } = useI18n()
 const { t } = useI18n()
 const name = ref('')
 const identifier = ref('')
@@ -84,7 +82,7 @@ async function removeProject() {
     emit('deleted')
     emit('close')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : t('projectSettingsModal.deleteFailed')
+    error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.deleteFailed')
   } finally {
     isSubmitting.value = false
   }
@@ -102,14 +100,14 @@ async function inviteMember() {
   error.value = ''
   inviteMessage.value = ''
   try {
-      await projectStore.inviteToProject(props.project.id, email)
-      inviteEmail.value = ''
-      inviteMessage.value = t('projectSettingsModal.inviteSuccess')
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.inviteFailed')
-    } finally {
-      isInviting.value = false
-    }
+    await projectStore.inviteToProject(props.project.id, email)
+    inviteEmail.value = ''
+    inviteMessage.value = t('projectSettingsModal.inviteSuccess')
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.inviteFailed')
+  } finally {
+    isInviting.value = false
+  }
 }
 
 function close() {
@@ -141,8 +139,8 @@ function close() {
         <p v-if="error" class="error-msg">{{ error }}</p>
         <div class="invite-zone">
           <div>
-          <p class="invite-zone-title">{{ t('projectSettingsModal.inviteTitle') }}</p>
-          <p class="invite-zone-text">{{ t('projectSettingsModal.inviteDescription') }}</p>
+            <p class="invite-zone-title">{{ t('projectSettingsModal.inviteTitle') }}</p>
+            <p class="invite-zone-text">{{ t('projectSettingsModal.inviteDescription') }}</p>
           </div>
           <div class="invite-controls">
             <input
@@ -165,8 +163,8 @@ function close() {
         </div>
         <div v-if="canDelete" class="danger-zone">
           <div>
-          <p class="danger-zone-title">{{ t('projectSettingsModal.deleteTitle') }}</p>
-          <p class="danger-zone-text">{{ t('projectSettingsModal.deleteDescription') }}</p>
+            <p class="danger-zone-title">{{ t('projectSettingsModal.deleteTitle') }}</p>
+            <p class="danger-zone-text">{{ t('projectSettingsModal.deleteDescription') }}</p>
           </div>
           <button
             type="button"
