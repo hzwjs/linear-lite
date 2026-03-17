@@ -13,6 +13,8 @@ import CommandPalette from './components/CommandPalette.vue'
 import type { CommandItem } from './components/CommandPalette.vue'
 import type { Project } from './types/domain'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import { useLocaleStore } from './store/localeStore'
 import { Plus, LayoutGrid, List, Settings, Search, MoreVertical, LogOut, Folder, Star } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -23,6 +25,8 @@ const taskStore = useTaskStore()
 const favoriteStore = useFavoriteStore()
 const overlayStore = useOverlayStore()
 const viewModeStore = useViewModeStore()
+const localeStore = useLocaleStore()
+const { t } = useI18n()
 
 const createProjectOpen = ref(false)
 const settingsProject = ref<Project | null>(null)
@@ -62,7 +66,7 @@ function triggerFocusSearch() {
 const paletteCommands = computed<CommandItem[]>(() => [
   {
     id: 'new-task',
-    label: 'New task',
+    label: t('command.newTask'),
     keywords: ['new', 'task', 'issue', 'create'],
     icon: Plus,
     run: () => {
@@ -72,28 +76,28 @@ const paletteCommands = computed<CommandItem[]>(() => [
   },
   {
     id: 'view-board',
-    label: 'Switch to Board view',
+    label: t('command.viewBoard'),
     keywords: ['board', 'view', 'kanban'],
     icon: LayoutGrid,
     run: () => viewModeStore.setView('board')
   },
   {
     id: 'view-list',
-    label: 'Switch to List view',
+    label: t('command.viewList'),
     keywords: ['list', 'view'],
     icon: List,
     run: () => viewModeStore.setView('list')
   },
   {
     id: 'project-settings',
-    label: 'Open project settings',
+    label: t('command.projectSettings'),
     keywords: ['project', 'settings', 'open'],
     icon: Settings,
     run: openActiveProjectSettings
   },
   {
     id: 'focus-search',
-    label: 'Focus search',
+    label: t('command.focusSearch'),
     keywords: ['search', 'focus', 'filter'],
     icon: Search,
     run: () => {
@@ -200,11 +204,11 @@ onUnmounted(() => {
   <div v-else class="app-layout">
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <span class="sidebar-brand-name">Linear Lite</span>
+        <span class="sidebar-brand-name">{{ t('app.name') }}</span>
       </div>
       <section v-if="favoriteStore.favorites.length" class="sidebar-section">
         <div class="sidebar-header sidebar-header--static">
-          <span class="sidebar-title">Favorites</span>
+          <span class="sidebar-title">{{ t('sidebar.favorites') }}</span>
         </div>
         <nav class="sidebar-nav sidebar-nav--section">
           <button
@@ -221,12 +225,12 @@ onUnmounted(() => {
         </nav>
       </section>
       <div class="sidebar-header">
-        <span class="sidebar-title">Projects</span>
+        <span class="sidebar-title">{{ t('sidebar.projects') }}</span>
         <button
           type="button"
           class="sidebar-btn-new"
-          title="New project"
-          aria-label="New project"
+          :title="t('sidebar.newProjectTitle')"
+          :aria-label="t('sidebar.newProjectTitle')"
           @click="createProjectOpen = true"
         >
           <Plus class="sidebar-btn-new-icon" />
@@ -250,7 +254,7 @@ onUnmounted(() => {
           <button
             type="button"
             class="sidebar-item-menu"
-            title="Project settings"
+            :title="t('sidebar.projectSettings')"
             @click="openProjectSettings($event, p)"
           >
             <MoreVertical class="icon-14" />
@@ -258,13 +262,31 @@ onUnmounted(() => {
         </div>
       </nav>
       <div class="sidebar-footer">
+        <div class="locale-switcher">
+          <button
+            type="button"
+            class="locale-pill"
+            :class="{ 'locale-pill--active': localeStore.locale === 'zh-CN' }"
+            @click="localeStore.setLocale('zh-CN')"
+          >
+            ZH
+          </button>
+          <button
+            type="button"
+            class="locale-pill"
+            :class="{ 'locale-pill--active': localeStore.locale === 'en' }"
+            @click="localeStore.setLocale('en')"
+          >
+            EN
+          </button>
+        </div>
         <span class="sidebar-user" :title="authStore.currentUser?.username">
           {{ authStore.currentUser?.username ?? '—' }}
         </span>
         <button
           type="button"
           class="sidebar-logout"
-          title="Sign out"
+          :title="t('sidebar.signOut')"
           @click="onLogout"
         >
           <LogOut class="icon-14" />
@@ -290,7 +312,7 @@ onUnmounted(() => {
     />
     <main class="main">
       <div v-if="showEmptyProjects" class="empty-projects">
-        <p>No projects yet</p>
+        <p>{{ t('emptyState.noProjects') }}</p>
       </div>
       <router-view v-else />
     </main>
@@ -442,6 +464,29 @@ onUnmounted(() => {
   padding: 16px 16px 18px;
   margin-top: auto;
   background: var(--color-bg-subtle);
+}
+.locale-switcher {
+  display: inline-flex;
+  gap: 4px;
+}
+.locale-pill {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast), border var(--transition-fast);
+}
+.locale-pill:hover {
+  border-color: var(--color-text-primary);
+  color: var(--color-text-primary);
+}
+.locale-pill--active {
+  background: var(--color-bg-elevated);
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
 }
 .sidebar-user {
   flex: 1;

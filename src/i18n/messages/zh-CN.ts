@@ -6,6 +6,23 @@ const zhCN = {
     signIn: '登录',
     signUp: '注册'
   },
+  sidebar: {
+    favorites: '收藏',
+    projects: '项目',
+    newProjectTitle: '新建项目',
+    projectSettings: '项目设置',
+    signOut: '登出'
+  },
+  emptyState: {
+    noProjects: '暂无项目'
+  },
+  command: {
+    newTask: '新建任务',
+    viewBoard: '切换到看板',
+    viewList: '切换到列表',
+    projectSettings: '打开项目设置',
+    focusSearch: '聚焦搜索'
+  },
   status: {
     backlog: '待办',
     todo: '待处理',

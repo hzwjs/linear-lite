@@ -6,6 +6,23 @@ const en = {
     signIn: 'Log in',
     signUp: 'Sign up'
   },
+  sidebar: {
+    favorites: 'Favorites',
+    projects: 'Projects',
+    newProjectTitle: 'New project',
+    projectSettings: 'Project settings',
+    signOut: 'Sign out'
+  },
+  emptyState: {
+    noProjects: 'No projects yet'
+  },
+  command: {
+    newTask: 'New task',
+    viewBoard: 'Switch to Board view',
+    viewList: 'Switch to List view',
+    projectSettings: 'Open project settings',
+    focusSearch: 'Focus search'
+  },
   status: {
     backlog: 'Backlog',
     todo: 'Todo',
