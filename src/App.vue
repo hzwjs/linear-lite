@@ -141,6 +141,28 @@ const showEmptyProjects = computed(
     projectStore.projects.length === 0
 )
 
+// 有项目但未选中任一：右侧显示「请选择项目」，避免空白
+const showSelectProject = computed(
+  () =>
+    !isLoginRoute.value &&
+    authStore.isLoggedIn &&
+    projectStore.projects.length > 0 &&
+    projectStore.activeProjectId == null
+)
+
+// 有项目列表时若当前未选中任一，自动选中第一项，避免主内容区长期处于「请选择项目」
+watch(
+  () =>
+    projectStore.projects.length > 0 && projectStore.activeProjectId == null,
+  (needsSelection) => {
+    if (needsSelection && projectStore.projects[0]) {
+      projectStore.setActiveProject(projectStore.projects[0].id)
+      taskStore.fetchTasks()
+    }
+  },
+  { immediate: true }
+)
+
 // P4-7.4: 浮层注册，供 Esc 关闭
 watch(createProjectOpen, (open) => {
   if (open) {
@@ -314,6 +336,9 @@ onUnmounted(() => {
       <div v-if="showEmptyProjects" class="empty-projects">
         <p>{{ t('emptyState.noProjects') }}</p>
       </div>
+      <div v-else-if="showSelectProject" class="empty-projects">
+        <p>{{ t('emptyState.selectProject') }}</p>
+      </div>
       <router-view v-else />
     </main>
   </div>
@@ -458,29 +483,38 @@ onUnmounted(() => {
   height: 14px;
 }
 .sidebar-footer {
+  margin-top: auto;
+  margin-left: 12px;
+  margin-right: 12px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 16px 16px 18px;
-  margin-top: auto;
-  background: var(--color-bg-subtle);
+  gap: 12px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 .locale-switcher {
   display: inline-flex;
+  align-items: center;
   gap: 4px;
+  flex-shrink: 0;
 }
 .locale-pill {
   border: 1px solid var(--color-border);
-  background: transparent;
+  background: var(--color-bg-base);
   color: var(--color-text-secondary);
   border-radius: var(--radius-sm);
-  padding: 4px 8px;
+  padding: 5px 10px;
   font-size: var(--font-size-xs);
+  font-weight: 500;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast), border var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 .locale-pill:hover {
-  border-color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
   color: var(--color-text-primary);
 }
 .locale-pill--active {
@@ -497,10 +531,16 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.25;
 }
 .sidebar-logout {
   flex-shrink: 0;
-  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   color: var(--color-text-muted);
   background: transparent;
   border: none;
@@ -518,6 +558,7 @@ onUnmounted(() => {
 }
 .main {
   flex: 1;
+  min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;

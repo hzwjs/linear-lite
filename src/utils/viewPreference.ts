@@ -22,11 +22,11 @@ export interface ViewConfig {
 }
 
 export const DEFAULT_VIEW_CONFIG: ViewConfig = {
-  layout: 'board',
+  layout: 'list',
   groupBy: 'status',
   orderBy: 'updatedAt',
   orderDirection: 'desc',
-  visibleProperties: ['assignee', 'dueDate', 'priority'],
+  visibleProperties: ['assignee', 'dueDate', 'priority', 'updatedAt'],
   showEmptyGroups: false,
   completedVisibility: 'all',
   showSubIssues: true,

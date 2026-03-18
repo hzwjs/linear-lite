@@ -79,6 +79,8 @@ export const useTaskStore = defineStore('taskStore', () => {
     const projectId = projectStore.activeProjectId
     if (projectId == null) {
       tasks.value = []
+      error.value = null
+      isLoading.value = false
       return
     }
     isLoading.value = true

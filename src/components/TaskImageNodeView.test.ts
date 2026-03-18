@@ -3,7 +3,8 @@ import componentSource from './TaskImageNodeView.vue?raw'
 
 describe('TaskImageNodeView styles', () => {
   it('renders the upload status as a compact floating pill instead of a full-width strip', () => {
-    expect(componentSource).toContain(":class=\"{ 'has-status': isUploading || isFailed, failed: isFailed }\"")
+    expect(componentSource).toContain("'has-status': isUploading || isFailed")
+    expect(componentSource).toContain('failed: isFailed')
     expect(componentSource).toContain('overflow: hidden;')
     expect(componentSource).toContain('inset: 0;')
     expect(componentSource).toContain('linear-gradient(')

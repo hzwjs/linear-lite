@@ -101,4 +101,28 @@ describe('editorImageUpload', () => {
       hasFailed: true
     })
   })
+
+  it('preserves remote image placeholder wrapper before load', () => {
+    const editor = new Editor({
+      element: document.createElement('div'),
+      extensions: [
+        StarterKit.configure({
+          codeBlock: false,
+          heading: false,
+          blockquote: false,
+          bulletList: false,
+          listItem: false,
+          orderedList: false
+        }),
+        TaskImage
+      ],
+      content:
+        '<p>before</p><span class="task-image-node task-image-node--loading" data-upload-state="loading-remote" data-src="https://cdn.example.com/demo.png"><span class="task-image-node__frame"><img src="https://cdn.example.com/demo.png" alt="image" class="task-image-node__image"></span></span><p>after</p>'
+    })
+
+    const html = editor.getHTML()
+
+    expect(html).toContain('data-upload-state="loading-remote"')
+    expect(htmlToMd(html)).toContain('![image](https://cdn.example.com/demo.png)')
+  })
 })

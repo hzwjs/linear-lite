@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { watch, ref, onMounted, onUnmounted, computed } from 'vue'
+import { watch, ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import { Extension } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
+import Image from '@tiptap/extension-image'
 import Heading from '@tiptap/extension-heading'
 import BulletList from '@tiptap/extension-bullet-list'
 import ListItem from '@tiptap/extension-list-item'
@@ -26,6 +27,10 @@ import {
 import { useI18n } from 'vue-i18n'
 import { TaskImage } from '../extensions/TaskImage'
 import TiptapSlashMenu from './TiptapSlashMenu.vue'
+import { Skeleton } from '@brayamvalero/vue3-skeleton'
+import '@brayamvalero/vue3-skeleton/dist/style.css'
+import PhotoSwipe from 'photoswipe'
+import 'photoswipe/style.css'
 
 const lowlight = createLowlight(common)
 
@@ -46,6 +51,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
   'upload-state-change': [state: { hasPending: boolean; hasFailed: boolean }]
   blur: []
+  ready: []
 }>()
 
 const { t } = useI18n()
@@ -55,10 +61,93 @@ const slashMenuOpen = ref(false)
 const slashMenuPos = ref({ left: 0, top: 0 })
 const slashMenuSelection = ref<{ from: number; to: number } | null>(null)
 const editorWrapRef = ref<HTMLElement | null>(null)
+const loadingImageOverlays = ref<Array<{ key: string; left: number; top: number; width: number; height: number }>>([])
 const uploadStateByLocalId = new Map<
   string,
   { file: File; objectUrl: string }
 >()
+let loadingOverlayFrame = 0
+let photoSwipeInstance: PhotoSwipe | null = null
+
+function isPlainRemoteImage(img: HTMLImageElement) {
+  return !img.closest('.task-image-node') && !img.classList.contains('ProseMirror-separator')
+}
+
+function applyRemoteImageLoadingStyle(img: HTMLImageElement) {
+  if (!isPlainRemoteImage(img)) return
+  if (img.complete && img.naturalWidth > 0) {
+    img.classList.remove('editor-remote-image-loading')
+    return
+  }
+  img.classList.add('editor-remote-image-loading')
+}
+
+function syncRemoteImageOverlays(dom?: HTMLElement) {
+  const root = dom ?? editor.value?.view.dom
+  const wrap = editorWrapRef.value
+  if (!(root instanceof HTMLElement) || !(wrap instanceof HTMLElement)) {
+    loadingImageOverlays.value = []
+    return
+  }
+
+  const wrapRect = wrap.getBoundingClientRect()
+  const overlays = Array.from(root.querySelectorAll('img'))
+    .filter((img): img is HTMLImageElement => img instanceof HTMLImageElement && isPlainRemoteImage(img))
+    .flatMap((img, index) => {
+      applyRemoteImageLoadingStyle(img)
+      if (img.complete && img.naturalWidth > 0) return []
+      const rect = img.getBoundingClientRect()
+      const width = Math.max(rect.width, 120)
+      const height = Math.max(rect.height, 72)
+      return [{
+        key: `${img.currentSrc || img.src || index}-${index}`,
+        left: rect.left - wrapRect.left + wrap.scrollLeft,
+        top: rect.top - wrapRect.top + wrap.scrollTop,
+        width,
+        height,
+      }]
+    })
+
+  loadingImageOverlays.value = overlays
+}
+
+function scheduleRemoteImageOverlaySync(dom?: HTMLElement) {
+  if (loadingOverlayFrame) cancelAnimationFrame(loadingOverlayFrame)
+  loadingOverlayFrame = requestAnimationFrame(() => {
+    loadingOverlayFrame = 0
+    syncRemoteImageOverlays(dom)
+  })
+}
+
+function destroyPhotoSwipe() {
+  photoSwipeInstance?.destroy()
+  photoSwipeInstance = null
+}
+
+function openImageGallery(clickedImage: HTMLImageElement, dom: HTMLElement) {
+  const images = Array.from(dom.querySelectorAll('img'))
+    .filter((img): img is HTMLImageElement => img instanceof HTMLImageElement && isPlainRemoteImage(img))
+  const index = images.indexOf(clickedImage)
+  if (index < 0) return
+
+  destroyPhotoSwipe()
+  photoSwipeInstance = new PhotoSwipe({
+    dataSource: images.map((img) => ({
+      src: img.currentSrc || img.src,
+      width: img.naturalWidth || Math.max(Math.round(img.getBoundingClientRect().width), 1200),
+      height: img.naturalHeight || Math.max(Math.round(img.getBoundingClientRect().height), 800),
+      alt: img.alt || '',
+    })),
+    index,
+    showHideAnimationType: 'zoom',
+    bgOpacity: 0.92,
+    wheelToZoom: true,
+    initialZoomLevel: 'fit',
+    secondaryZoomLevel: 1.5,
+    maxZoomLevel: 4,
+  })
+  photoSwipeInstance.init()
+}
 
 function openSlashMenu(left: number, top: number, from: number, to: number) {
   slashMenuPos.value = { left, top }
@@ -99,6 +188,7 @@ const editor = useEditor({
       orderedList: false,
     }),
     Heading.configure({ levels: [1, 2, 3] }),
+    Image.configure({ inline: true }),
     BulletList,
     ListItem,
     OrderedList,
@@ -112,6 +202,10 @@ const editor = useEditor({
       onRemove: (localId: string) => {
         removeImageByLocalId(localId)
       },
+      getUploadingLabel: () => t('attachments.uploading'),
+      getFailedLabel: () => t('attachments.uploadFailed'),
+      getRetryLabel: () => t('common.retry'),
+      getRemoveLabel: () => t('common.remove'),
     } as any),
     createCodeBlockLinear({ lowlight, defaultLanguage: 'bash' }),
     Blockquote,
@@ -132,11 +226,81 @@ const editor = useEditor({
 watch(
   editor,
   (e) => {
+    if (e) emit('ready')
     if (!e?.view?.dom) return
     const dom = e.view.dom
     const onBlur = () => emit('blur')
     dom.addEventListener('blur', onBlur)
-    return () => dom.removeEventListener('blur', onBlur)
+
+    const onImgLoadOrError = (ev: Event) => {
+      const img = ev.target as HTMLImageElement
+      if (img?.tagName !== 'IMG') return
+      if (isPlainRemoteImage(img)) {
+        img.classList.remove('editor-remote-image-loading')
+        scheduleRemoteImageOverlaySync(dom)
+        return
+      }
+      const wrap = img.closest?.('.task-image-node')
+      if (!(wrap instanceof HTMLElement)) return
+      const uploadState = wrap.getAttribute('data-upload-state')
+      if (uploadState === 'loading-remote') {
+        wrap.setAttribute('data-upload-state', UPLOADED_IMAGE_STATE)
+        wrap.classList.remove('task-image-node--loading')
+        const placeholder = wrap.querySelector('.task-image-node__placeholder')
+        if (placeholder) placeholder.remove()
+        img.style.display = ''
+        img.removeAttribute('style')
+        return
+      }
+      wrap.classList.remove('task-image-node--loading')
+    }
+    dom.addEventListener('load', onImgLoadOrError, true)
+    dom.addEventListener('error', onImgLoadOrError, true)
+    scheduleRemoteImageOverlaySync(dom)
+
+    const remoteImageObserver = new MutationObserver(() => {
+      scheduleRemoteImageOverlaySync(dom)
+    })
+    remoteImageObserver.observe(dom, { childList: true, subtree: true, attributes: true })
+
+    const onTaskImageAction = (ev: Event) => {
+      const btn = (ev.target as HTMLElement)?.closest?.('.task-image-node__action[data-action][data-local-id]')
+      if (!btn) return
+      ev.preventDefault()
+      const action = btn.getAttribute('data-action')
+      const localId = btn.getAttribute('data-local-id') ?? ''
+      const ext = e.extensionManager.extensions.find((x) => x.name === 'taskImage')
+      if (action === 'retry') (ext?.options as { onRetry?: (id: string) => void })?.onRetry?.(localId)
+      if (action === 'remove') (ext?.options as { onRemove?: (id: string) => void })?.onRemove?.(localId)
+    }
+    dom.addEventListener('click', onTaskImageAction)
+
+    const onPlainImageClick = (ev: Event) => {
+      const img = ev.target as HTMLImageElement
+      if (img?.tagName !== 'IMG' || !isPlainRemoteImage(img)) return
+      ev.preventDefault()
+      openImageGallery(img, dom)
+    }
+    dom.addEventListener('click', onPlainImageClick, true)
+
+    const onWindowResize = () => scheduleRemoteImageOverlaySync(dom)
+    window.addEventListener('resize', onWindowResize)
+    nextTick(() => scheduleRemoteImageOverlaySync(dom))
+
+    return () => {
+      dom.removeEventListener('blur', onBlur)
+      dom.removeEventListener('load', onImgLoadOrError, true)
+      dom.removeEventListener('error', onImgLoadOrError, true)
+      dom.removeEventListener('click', onTaskImageAction)
+      dom.removeEventListener('click', onPlainImageClick, true)
+      window.removeEventListener('resize', onWindowResize)
+      remoteImageObserver.disconnect()
+      if (loadingOverlayFrame) {
+        cancelAnimationFrame(loadingOverlayFrame)
+        loadingOverlayFrame = 0
+      }
+      loadingImageOverlays.value = []
+    }
   },
   { immediate: true }
 )
@@ -336,6 +500,8 @@ onMounted(() => {
 })
 onUnmounted(() => {
   document.removeEventListener('mousedown', handleClickOutside)
+  destroyPhotoSwipe()
+  if (loadingOverlayFrame) cancelAnimationFrame(loadingOverlayFrame)
   for (const [localId] of uploadStateByLocalId) {
     revokePreviewUrl(localId)
   }
@@ -365,7 +531,34 @@ watch(
     @paste.capture="handlePaste"
     @drop.capture="handleDrop"
   >
-    <EditorContent :editor="editor" />
+    <div
+      v-if="!editor"
+      class="tiptap-editor-placeholder"
+      :style="{ minHeight: `${minHeight}px` }"
+      aria-hidden="true"
+    >
+      <span class="tiptap-editor-placeholder__line" />
+      <span class="tiptap-editor-placeholder__line" />
+      <span class="tiptap-editor-placeholder__line tiptap-editor-placeholder__line--short" />
+    </div>
+    <EditorContent v-else :editor="editor" />
+    <div v-if="loadingImageOverlays.length" class="editor-image-skeleton-layer" aria-hidden="true">
+      <Skeleton
+        v-for="overlay in loadingImageOverlays"
+        :key="overlay.key"
+        class="editor-image-skeleton"
+        :style="{
+          left: `${overlay.left}px`,
+          top: `${overlay.top}px`,
+          width: `${overlay.width}px`,
+          height: `${overlay.height}px`,
+        }"
+        :loading="true"
+        :base-color="'rgba(226, 232, 240, 0.9)'"
+        :highlight-color="'rgba(255, 255, 255, 0.85)'"
+        :border-radius="12"
+      />
+    </div>
     <TiptapSlashMenu
       :visible="slashMenuOpen"
       :position="slashMenuPos"
@@ -382,6 +575,34 @@ watch(
   background: var(--color-bg-subtle);
   cursor: text;
   padding-top: 0;
+  position: relative;
+}
+
+.tiptap-editor-placeholder {
+  width: 100%;
+  padding: 0 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+}
+
+.tiptap-editor-placeholder__line {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--color-border);
+  opacity: 0.6;
+  animation: tiptap-editor-placeholder-shimmer 1.2s ease-in-out infinite;
+}
+
+.tiptap-editor-placeholder__line--short {
+  width: 60%;
+}
+
+@keyframes tiptap-editor-placeholder-shimmer {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.85; }
 }
 .tiptap-editor-wrap :deep(.tiptap) {
   outline: none;
@@ -412,6 +633,111 @@ watch(
   float: left;
   height: 0;
   pointer-events: none;
+}
+
+/* 任务描述图片：静态 HTML 渲染，首帧即有占位，与文字同时出现 */
+.tiptap-editor-wrap :deep(.tiptap .task-image-node) {
+  display: inline-block;
+  vertical-align: top;
+  margin: 0.35rem 0.4rem 0.35rem 0;
+  max-width: 100%;
+}
+.tiptap-editor-wrap :deep(.tiptap .task-image-node.task-image-node--loading) {
+  background: transparent;
+  animation: none;
+}
+.tiptap-editor-wrap :deep(.tiptap .task-image-node__frame) {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+}
+.tiptap-editor-wrap :deep(.tiptap .task-image-node--loading .task-image-node__frame) {
+  display: inline-block;
+  min-width: 96px;
+  min-height: 64px;
+}
+.tiptap-editor-wrap :deep(.tiptap .task-image-node__image) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.tiptap-editor-wrap :deep(.tiptap img.editor-remote-image-loading) {
+  display: inline-block;
+  max-width: 100%;
+  min-width: 120px;
+  min-height: 72px;
+  border-radius: 12px;
+  opacity: 0;
+  vertical-align: top;
+}
+.tiptap-editor-wrap :deep(.tiptap img:not(.ProseMirror-separator)) {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  cursor: zoom-in;
+  vertical-align: top;
+}
+.editor-image-skeleton-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.editor-image-skeleton {
+  position: absolute;
+}
+@keyframes task-image-placeholder-pulse {
+  0%, 100% { opacity: 0.92; }
+  50% { opacity: 0.65; }
+}
+.tiptap-editor-wrap :deep(.tiptap .task-image-node__status) {
+  position: absolute;
+  left: 6px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 5px 7px;
+  max-width: calc(100% - 12px);
+  border-radius: 999px;
+  background: color-mix(in srgb, rgba(15, 23, 42, 0.82) 72%, var(--color-bg-base));
+  backdrop-filter: blur(8px);
+  border: 1px solid color-mix(in srgb, var(--color-border-subtle) 80%, transparent);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.18);
+  color: var(--color-text-primary);
+  font-size: 11px;
+  line-height: 1.2;
+  z-index: 1;
+}
+.tiptap-editor-wrap :deep(.tiptap .task-image-node__status.failed) {
+  color: var(--color-danger, #b42318);
+  border-color: color-mix(in srgb, var(--color-danger, #b42318) 20%, transparent);
+  background: color-mix(in srgb, var(--color-danger, #b42318) 10%, var(--color-bg-base));
+}
+.tiptap-editor-wrap :deep(.tiptap .task-image-node__status-main) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.tiptap-editor-wrap :deep(.tiptap .task-image-node__action) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+}
+.tiptap-editor-wrap :deep(.tiptap .task-image-node__action:hover) {
+  text-decoration: underline;
 }
 
 .tiptap-editor-wrap :deep(.tiptap h1) {

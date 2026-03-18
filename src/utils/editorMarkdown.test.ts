@@ -84,4 +84,21 @@ describe('editorMarkdown 往返', () => {
     const md = 'before\n\n![image](https://cdn.example.com/demo.png)\n\nafter'
     expect(normalize(htmlToMd(mdToHtml(md)))).toBe(normalize(md))
   })
+
+  it('markdown 图片保持原生 img 标签渲染', () => {
+    const html = mdToHtml('before\n\n![image](https://cdn.example.com/demo.png)\n\nafter')
+
+    expect(html).toContain('<img')
+    expect(html).toContain('src="https://cdn.example.com/demo.png"')
+  })
+
+  it('连续图片保留在同一个段落中，避免改变原有布局', () => {
+    const html = mdToHtml(
+      '![a](https://cdn.example.com/a.png)![b](https://cdn.example.com/b.png)![c](https://cdn.example.com/c.png)'
+    )
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+
+    expect(doc.querySelectorAll('p > img').length).toBe(3)
+    expect(doc.querySelectorAll('img').length).toBe(3)
+  })
 })

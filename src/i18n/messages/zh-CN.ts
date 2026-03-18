@@ -119,7 +119,8 @@ const zhCN = {
     }
   },
   emptyState: {
-    noProjects: '暂无项目'
+    noProjects: '暂无项目',
+    selectProject: '请从左侧选择一个项目'
   },
   command: {
     newTask: '新建任务',

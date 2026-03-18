@@ -111,6 +111,24 @@ npm run dev
 
 单 JAR 部署时无需设置 `VITE_API_BASE_URL`。
 
+### 部署后出现 401
+
+1. **打包时不要设 `VITE_API_BASE_URL`**  
+   单 JAR 同源部署时，前端应使用相对路径 `/api`。若构建时设置了 `VITE_API_BASE_URL`，请求会发到错误地址或跨域，易出现 401。  
+   正确：`npm run build` 或 `mvn package` 时不设置该变量。
+
+2. **登录接口返回 401**  
+   表示用户名/密码错误。确认服务器数据库已执行 `schema.sql` 与 `data-init.sql`，使用种子账号如 `user1` / `user123` 登录。
+
+3. **登录成功后其他接口 401**  
+   - 浏览器开发者工具 → Network：看该请求是否带 `Authorization: Bearer xxx`。若无，多为前端请求未走带 token 的 axios 实例或 baseURL 指向了别的域名。  
+   - 服务端：多实例或重启后需保证 `JWT_SECRET` 一致；未配置时使用默认值，一般同机单进程无问题。
+
+4. **前后端不同域（如前端 https://app.example.com，API https://api.example.com）**  
+   在服务器环境变量中设置后端允许的前端来源，例如：  
+   `CORS_ALLOWED_ORIGINS=https://app.example.com`（多源逗号分隔）。  
+   单 JAR 同机同端口访问时，与当前服务同 host+port 的 Origin 会自动放行，无需配置。
+
 ## Phase 3 能力摘要
 
 - **项目**：侧栏「新建」创建项目；项目右侧齿轮打开设置，可修改名称与标识符。

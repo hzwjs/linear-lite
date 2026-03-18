@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { NodeViewWrapper } from '@tiptap/vue-3'
 import type { NodeViewProps } from '@tiptap/core'
 import { useI18n } from 'vue-i18n'
@@ -8,12 +8,27 @@ import { Loader2, RefreshCcw, Trash2, AlertCircle } from 'lucide-vue-next'
 const props = defineProps<NodeViewProps>()
 const { t } = useI18n()
 
+const imageLoaded = ref(false)
+const src = computed(() => String(props.node.attrs.src ?? ''))
+
+watch(src, () => {
+  imageLoaded.value = false
+}, { immediate: true })
+
 const uploadState = computed(() => props.node.attrs.uploadState as string | undefined)
 const isUploading = computed(() => uploadState.value === 'uploading')
 const isFailed = computed(() => uploadState.value === 'failed')
 const errorMessage = computed(
   () => (props.node.attrs.errorMessage as string | undefined) ?? t('attachments.uploadFailed')
 )
+
+const showPlaceholder = computed(
+  () => !!src.value && !imageLoaded.value && !isUploading.value && !isFailed.value
+)
+
+function onImageLoad() {
+  imageLoaded.value = true
+}
 
 function retryUpload() {
   props.extension.options.onRetry?.(props.node.attrs.localId)
@@ -25,12 +40,25 @@ function removeImage() {
 </script>
 
 <template>
-  <NodeViewWrapper as="span" class="task-image-node">
-    <span class="task-image-node__frame" :class="{ 'has-status': isUploading || isFailed, failed: isFailed }">
+  <NodeViewWrapper
+    as="span"
+    class="task-image-node"
+    :class="{ 'task-image-node--loading': showPlaceholder }"
+  >
+    <span
+      class="task-image-node__frame"
+      :class="{
+        'has-status': isUploading || isFailed,
+        'is-loading': showPlaceholder,
+        failed: isFailed
+      }"
+    >
       <img
         class="task-image-node__image"
-        :src="String(props.node.attrs.src ?? '')"
+        :src="src"
         :alt="String(props.node.attrs.alt ?? t('taskImage.altFallback'))"
+        @load="onImageLoad"
+        @error="onImageLoad"
       />
       <div v-if="isUploading || isFailed" class="task-image-node__status" :class="{ failed: isFailed }">
         <div class="task-image-node__status-main">
@@ -59,12 +87,34 @@ function removeImage() {
   margin: 0.75rem 0;
 }
 
+/* 占位写在根上，首帧即有尺寸和背景，减少挂载前的空白 */
+.task-image-node.task-image-node--loading {
+  min-width: 200px;
+  min-height: 120px;
+  background: var(--color-bg-subtle, rgba(15, 23, 42, 0.06));
+  animation: task-image-placeholder-pulse 1.5s ease-in-out infinite;
+}
+
 .task-image-node__frame {
   position: relative;
   display: inline-block;
   max-width: 100%;
   overflow: hidden;
   border-radius: 12px;
+}
+
+.task-image-node__frame.is-loading {
+  display: block;
+  width: 100%;
+  min-width: 200px;
+  min-height: 120px;
+  background: var(--color-bg-subtle, rgba(15, 23, 42, 0.06));
+  animation: task-image-placeholder-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes task-image-placeholder-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 .task-image-node__frame::after {

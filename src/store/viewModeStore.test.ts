@@ -9,15 +9,15 @@ describe('viewModeStore', () => {
     setActivePinia(createPinia())
   })
 
-  it('uses board layout defaults with status grouping', () => {
+  it('uses list layout defaults with status grouping', () => {
     const store = useViewModeStore()
 
-    expect(store.viewConfig.layout).toBe('board')
+    expect(store.viewConfig.layout).toBe('list')
     expect(store.viewConfig.groupBy).toBe('status')
     expect(store.viewConfig.orderBy).toBe('updatedAt')
     expect(store.viewConfig.orderDirection).toBe('desc')
-    expect(store.viewType).toBe('board')
-    expect(store.visibleProperties).toEqual(['assignee', 'dueDate', 'priority'])
+    expect(store.viewType).toBe('list')
+    expect(store.visibleProperties).toEqual(['assignee', 'dueDate', 'priority', 'updatedAt'])
   })
 
   it('updates the layout through setView', () => {
@@ -55,7 +55,7 @@ describe('viewModeStore', () => {
     store.toggleVisibleProperty('priority')
     store.toggleVisibleProperty('updatedAt')
 
-    expect(store.visibleProperties).toEqual(['assignee', 'dueDate', 'updatedAt'])
+    expect(store.visibleProperties).toEqual(['assignee', 'dueDate'])
   })
 
   it('persists and restores full view config', async () => {
@@ -73,7 +73,7 @@ describe('viewModeStore', () => {
     expect(store.viewConfig.layout).toBe('list')
     expect(store.viewConfig.groupBy).toBe('priority')
     expect(store.viewConfig.orderBy).toBe('createdAt')
-    expect(store.visibleProperties).toContain('updatedAt')
+    expect(store.visibleProperties).not.toContain('updatedAt')
     expect(store.viewConfig.completedVisibility).toBe('open_only')
   })
 })

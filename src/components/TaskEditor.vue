@@ -75,6 +75,7 @@ const formTitle = ref('')
 const formDescription = ref('')
 const descriptionUploadState = ref({ hasPending: false, hasFailed: false })
 const descriptionEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
+const descriptionEditorReady = ref(false)
 
 function focusDescription() {
   nextTick(() => descriptionEditorRef.value?.focus())
@@ -663,7 +664,9 @@ async function toggleFavorite() {
     <div class="editor-body">
       <div class="editor-content">
         <section class="content-section content-section--title">
+          <div v-show="!descriptionEditorReady" class="title-skeleton" aria-hidden="true" />
           <input
+            v-show="descriptionEditorReady"
             v-model="formTitle"
             type="text"
             class="title-input"
@@ -677,6 +680,7 @@ async function toggleFavorite() {
             <TiptapEditor
               ref="descriptionEditorRef"
               v-model="formDescription"
+              @ready="descriptionEditorReady = true"
               @upload-state-change="onDescriptionUploadStateChange"
               @blur="onDescriptionBlur"
               :placeholder="t('taskEditor.descriptionPlaceholder')"
@@ -1186,6 +1190,20 @@ async function toggleFavorite() {
   padding-bottom: 2px;
   flex-shrink: 0;
 }
+.title-skeleton {
+  height: 2rem;
+  border-radius: 4px;
+  background: var(--color-border);
+  opacity: 0.5;
+  max-width: 80%;
+  animation: title-skeleton-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes title-skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.65; }
+}
+
 .content-section--title .title-input {
   font-size: 2rem;
   font-weight: 700;

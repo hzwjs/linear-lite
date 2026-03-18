@@ -119,7 +119,8 @@ const en = {
     }
   },
   emptyState: {
-    noProjects: 'No projects yet'
+    noProjects: 'No projects yet',
+    selectProject: 'Select a project from the left'
   },
   command: {
     newTask: 'New task',

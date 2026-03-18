@@ -1,22 +1,15 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, computed, watch, ref } from 'vue'
+import { onMounted, onUnmounted, computed, watch, ref, defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useTaskStore } from '../store/taskStore'
 import { useProjectStore } from '../store/projectStore'
 import { useViewModeStore } from '../store/viewModeStore'
-import { useOverlayStore } from '../store/overlayStore'
 import { useIssuePanelStore } from '../store/issuePanelStore'
-import TaskCard from '../components/TaskCard.vue'
-import TaskEditor from '../components/TaskEditor.vue'
-import TaskListView from '../components/TaskListView.vue'
-import IssueComposer from '../components/IssueComposer.vue'
-import TaskImportModal from '../components/TaskImportModal.vue'
 import CustomSelect from '../components/ui/CustomSelect.vue'
 import type { CustomSelectOption } from '../components/ui/CustomSelect.vue'
 import { userApi } from '../services/api/user'
 import type { User } from '../types/domain'
-import type { Status } from '../types/domain'
 import {
   PriorityUrgentIcon,
   PriorityHighIcon,
@@ -37,16 +30,15 @@ import {
   Download
 } from 'lucide-vue-next'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
-import { buildTaskGroups, getAdjacentTaskIds } from '../utils/taskView'
 import type { CompletedVisibility, GroupBy, OrderBy, VisibleProperty } from '../utils/viewPreference'
+
+const BoardViewContent = defineAsyncComponent(() => import('./BoardViewContent.vue'))
 
 const store = useTaskStore()
 const projectStore = useProjectStore()
 const viewModeStore = useViewModeStore()
-const overlayStore = useOverlayStore()
 const issuePanelStore = useIssuePanelStore()
 const route = useRoute()
-const router = useRouter()
 const { t } = useI18n()
 const users = ref<User[]>([])
 const searchInputRef = ref<HTMLInputElement | null>(null)
@@ -56,14 +48,10 @@ const filterTriggerRef = ref<HTMLElement | null>(null)
 const displayTriggerRef = ref<HTMLElement | null>(null)
 const filterPopoverRef = ref<HTMLElement | null>(null)
 const displayPopoverRef = ref<HTMLElement | null>(null)
-const DRAWER_OVERLAY_ID = 'task-editor-drawer'
-const COMPOSER_OVERLAY_ID = 'issue-composer'
-const IMPORT_OVERLAY_ID = 'task-import'
-
-// UI state for the editor
-const isEditorOpen = ref(false)
-const editorMode = ref<'create' | 'edit'>('edit')
 const isImportOpen = ref(false)
+
+// 命令栏在任务详情（右侧抽屉）打开时隐藏
+const isEditorOpen = computed(() => !!route.params.taskId)
 
 // Sync store properties for v-model
 const searchQuery = computed({
@@ -140,15 +128,12 @@ const visiblePropertyOptions = computed<Array<{ value: VisibleProperty; label: s
   { value: 'updatedAt', label: t('common.updated') }
 ])
 
-// Deep link handling
+// Deep link: 打开 /tasks/:id 时同步 store 与 issuePanelStore，内容区由 BoardViewContent 根据 route 渲染编辑器
 watch(() => route.params.taskId, (newId) => {
   if (newId) {
     store.currentTaskId = newId as string
     issuePanelStore.openWorkspace(newId as string)
-    editorMode.value = 'edit'
-    isEditorOpen.value = true
   } else {
-    isEditorOpen.value = false
     store.currentTaskId = null
     issuePanelStore.closeWorkspace()
   }
@@ -186,112 +171,14 @@ function openCreateEditor(defaultStatus?: import('../types/domain').Status, pare
   })
 }
 
-function openEditEditor(task: { id: string }) {
-  router.push(`/tasks/${task.id}`)
-}
-
-const closeEditor = () => {
-  router.push('/')
-  isEditorOpen.value = false
-}
-
-function closeComposer() {
-  issuePanelStore.closeComposer()
-}
-
 function openImportModal() {
   isImportOpen.value = true
 }
 
-function closeImportModal() {
-  isImportOpen.value = false
-}
-
-function handleCreated(taskId: string) {
-  store.fetchTasks()
-  issuePanelStore.openWorkspace(taskId)
-  router.push(`/tasks/${taskId}`)
-}
-
-function handleImported() {
-  store.fetchTasks()
-}
-
-// P4-7.4: Drawer 注册到浮层栈，Esc 可关闭
-watch(
-  isEditorOpen,
-  (open) => {
-    if (open) {
-      overlayStore.push(DRAWER_OVERLAY_ID, closeEditor)
-    } else {
-      overlayStore.remove(DRAWER_OVERLAY_ID)
-    }
-  },
-  { immediate: true }
-)
-
-watch(
-  () => issuePanelStore.isComposerOpen,
-  (open) => {
-    if (open) {
-      overlayStore.push(COMPOSER_OVERLAY_ID, closeComposer)
-    } else {
-      overlayStore.remove(COMPOSER_OVERLAY_ID)
-    }
-  },
-  { immediate: true }
-)
-
-watch(
-  isImportOpen,
-  (open) => {
-    if (open) {
-      overlayStore.push(IMPORT_OVERLAY_ID, closeImportModal)
-    } else {
-      overlayStore.remove(IMPORT_OVERLAY_ID)
-    }
-  },
-  { immediate: true }
-)
+// 浮层（Drawer / Composer / Import）由 BoardViewContent 注册
 
 const viewType = computed(() => viewModeStore.viewType)
-const taskGroups = computed(() =>
-  buildTaskGroups(store.filteredTasks, viewModeStore.viewConfig, users.value)
-)
-const localizedTaskGroups = computed(() =>
-  taskGroups.value.map((group) => {
-    let label = group.label
-    switch (viewModeStore.viewConfig.groupBy) {
-      case 'status':
-        label = getStatusLabel(group.key)
-        break
-      case 'priority':
-        label = getPriorityLabel(group.key)
-        break
-      case 'assignee':
-        if (group.key === 'unassigned') label = t('common.unassigned')
-        break
-      case 'project':
-        if (group.key === 'none') label = t('common.noProject')
-        break
-      case 'none':
-        label = t('boardView.allIssues')
-        break
-      default:
-        break
-    }
-    return { ...group, label }
-  })
-)
-const flatTaskIds = computed(() =>
-  taskGroups.value.flatMap((group) => {
-    const rows = group.rows ?? group.tasks.map((t) => ({ task: t, depth: 0 }))
-    return rows.map((r) => r.task.id)
-  })
-)
-const adjacentTaskIds = computed(() =>
-  getAdjacentTaskIds(flatTaskIds.value, store.currentTaskId)
-)
+
 function setView(v: 'board' | 'list') {
   viewModeStore.setView(v)
 }
@@ -315,17 +202,7 @@ onUnmounted(() => {
   window.removeEventListener('command-palette:focus-search', onFocusSearchCommand)
   window.removeEventListener('click', onClickOutsideFilter, true)
   window.removeEventListener('click', onClickOutsideDisplay, true)
-  overlayStore.remove(DRAWER_OVERLAY_ID)
-  overlayStore.remove(IMPORT_OVERLAY_ID)
 })
-
-function createStatusDefault(groupKey: string): Status | undefined {
-  if (viewModeStore.viewConfig.groupBy !== 'status') return undefined
-  if (groupKey === 'todo' || groupKey === 'in_progress' || groupKey === 'done') {
-    return groupKey
-  }
-  return undefined
-}
 
 function toggleVisibleProperty(property: VisibleProperty) {
   viewModeStore.toggleVisibleProperty(property)
@@ -387,38 +264,6 @@ function onClickOutsideDisplay(event: MouseEvent) {
   closeDisplayPopover()
 }
 
-watch(
-  flatTaskIds,
-  (taskIds) => {
-    issuePanelStore.syncSelection(taskIds)
-  },
-  { immediate: true }
-)
-
-function onWorkspaceKeydown(event: KeyboardEvent) {
-  if (viewType.value !== 'list') return
-
-  if (event.key === 'ArrowDown') {
-    event.preventDefault()
-    issuePanelStore.moveSelection(flatTaskIds.value, 1)
-    return
-  }
-
-  if (event.key === 'ArrowUp') {
-    event.preventDefault()
-    issuePanelStore.moveSelection(flatTaskIds.value, -1)
-    return
-  }
-
-  if (event.key === 'Enter' && issuePanelStore.selectedTaskId) {
-    event.preventDefault()
-    openEditEditor({ id: issuePanelStore.selectedTaskId })
-  }
-}
-
-function navigateWorkspace(taskId: string) {
-  openEditEditor({ id: taskId })
-}
 </script>
 
 <template>
@@ -641,102 +486,18 @@ function navigateWorkspace(taskId: string) {
       </div>
     </div>
 
-    <main class="board-content" :class="{ 'board-content--list': viewType === 'list' }">
-      <div v-if="store.error" class="error-state">
-        <p>{{ store.error }}</p>
-        <button class="btn-retry" @click="store.fetchTasks()">{{ t('common.retry') }}</button>
-      </div>
-      
-      <div v-else-if="store.isLoading && store.tasks.length === 0" class="loading-state">
-        <p>{{ t('boardView.loadingTasks') }}</p>
-      </div>
-      
-      <div v-else-if="store.isEmpty" class="empty-state">
-        <p>{{ t('boardView.noTasks') }}</p>
-        <button class="btn-create" @click="() => openCreateEditor()">{{ t('boardView.createFirstTask') }}</button>
-      </div>
-
-      <div v-else-if="store.isFilterEmpty" class="empty-state">
-        <p>{{ t('boardView.noTasksMatchFilters') }}</p>
-        <button class="btn-text" @click="searchQuery = ''; filterStatus = null; filterPriority = null; viewModeStore.setCompletedVisibility('all')">{{ t('boardView.clearFilters') }}</button>
-      </div>
-      <div v-else-if="isEditorOpen" class="workspace-inline-editor">
-        <TaskEditor
-          variant="inline"
-          :mode="editorMode"
-          :task="store.currentTask"
-          :previous-task-id="adjacentTaskIds.previousTaskId"
-          :next-task-id="adjacentTaskIds.nextTaskId"
-          :position="adjacentTaskIds.position"
-          :total="adjacentTaskIds.total"
-          @close="closeEditor"
-          @navigate="navigateWorkspace"
-        />
-      </div>
-      <div v-else class="workspace-shell" :class="{ 'workspace-shell--list': viewType === 'list' }">
-        <section class="workspace-primary" tabindex="0" @keydown="onWorkspaceKeydown">
-          <div v-if="viewType === 'board'" class="board-columns">
-            <div
-              v-for="(group, idx) in localizedTaskGroups"
-              :key="group.key"
-              class="column"
-              :class="{ 'column-first': idx === 0 }"
-            >
-              <div class="column-header">
-                <h3>{{ group.label }} <span>{{ group.tasks.length }}</span></h3>
-                <button
-                  type="button"
-                  class="column-add-btn"
-                  :title="t('boardView.addIssue')"
-                  :aria-label="t('boardView.addIssueToColumn')"
-                  @click.stop="() => openCreateEditor(createStatusDefault(group.key))"
-                >
-                  +
-                </button>
-              </div>
-              <div class="column-list">
-                <TaskCard 
-                  v-for="task in group.tasks" 
-                  :key="task.id" 
-                  :task="task" 
-                  :users="users"
-                  :visible-properties="viewModeStore.visibleProperties"
-                  :selected="issuePanelStore.selectedTaskId === task.id"
-                  @click="openEditEditor"
-                  @transition="(id, status) => store.transitionTask(id, status)"
-                />
-              </div>
-            </div>
-          </div>
-          <div v-else class="list-wrap">
-            <TaskListView
-              :groups="localizedTaskGroups"
-              :users="users"
-              :visible-properties="viewModeStore.visibleProperties"
-              :selected-task-id="issuePanelStore.selectedTaskId"
-              @row-click="openEditEditor"
-              @create-in-status="openCreateEditor"
-              @add-sub-issue="(task) => openCreateEditor(undefined, task.numericId)"
-            />
-          </div>
-        </section>
-      </div>
-    </main>
-
-    <IssueComposer
-      :open="issuePanelStore.isComposerOpen"
-      :default-status="issuePanelStore.composerDefaults.status"
-      :parent-numeric-id="issuePanelStore.composerDefaults.parentNumericId"
-      @close="closeComposer"
-      @created="handleCreated"
-    />
-    <TaskImportModal
-      :open="isImportOpen"
-      :project-id="projectStore.activeProjectId"
-      :users="users"
-      @close="closeImportModal"
-      @imported="handleImported"
-    />
+    <Suspense>
+      <BoardViewContent
+        :users="users"
+        :import-open="isImportOpen"
+        @close-import="isImportOpen = false"
+      />
+      <template #fallback>
+        <div class="board-content board-content--loading">
+          <p class="loading-placeholder">{{ t('boardView.loadingTasks') }}</p>
+        </div>
+      </template>
+    </Suspense>
   </div>
 </template>
 
@@ -745,7 +506,9 @@ function navigateWorkspace(taskId: string) {
 .board-view {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 /* 顶栏：与命令带统一为一条浅带，主操作仅保留 New issue */
 .app-header {
@@ -1006,16 +769,23 @@ function navigateWorkspace(taskId: string) {
   margin: 0;
 }
 
+/* Suspense fallback 与内容区占位 */
 .board-content {
   flex: 1;
-  padding: 8px 12px 12px;
+  min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  position: relative;
 }
-.board-content--list {
-  padding: 0;
+.board-content--loading {
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+}
+.loading-placeholder {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
 }
 .workspace-shell {
   flex: 1;
