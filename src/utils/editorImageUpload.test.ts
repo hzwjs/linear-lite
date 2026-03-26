@@ -21,8 +21,14 @@ describe('editorImageUpload', () => {
     expect(validateEditorImageFile(file)).toEqual({ ok: true })
   })
 
-  it('rejects unsupported image types', () => {
+  it('accepts svg image types', () => {
     const file = new File(['demo'], 'demo.svg', { type: 'image/svg+xml' })
+
+    expect(validateEditorImageFile(file)).toEqual({ ok: true })
+  })
+
+  it('rejects unsupported image types', () => {
+    const file = new File(['demo'], 'demo.bmp', { type: 'image/bmp' })
 
     expect(validateEditorImageFile(file)).toEqual({
       ok: false,

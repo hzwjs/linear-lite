@@ -56,14 +56,32 @@ class R2ObjectStorageServiceTest {
     void uploadImageRejectsUnsupportedType() {
         MockMultipartFile file = new MockMultipartFile(
                 "file",
+                "demo.bmp",
+                "image/bmp",
+                "demo".getBytes()
+        );
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> storageService.uploadImage(file));
+
+        assertEquals("仅支持 png/jpg/jpeg/webp/gif/svg 图片", error.getMessage());
+    }
+
+    @Test
+    void uploadImageAcceptsSvgType() {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
                 "demo.svg",
                 "image/svg+xml",
                 "<svg />".getBytes()
         );
 
-        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> storageService.uploadImage(file));
+        ImageUploadResponse response = storageService.uploadImage(file);
 
-        assertEquals("仅支持 png/jpg/jpeg/webp/gif 图片", error.getMessage());
+        ArgumentCaptor<String> typeCaptor = ArgumentCaptor.forClass(String.class);
+        verify(storageClient).putObject(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), typeCaptor.capture(), org.mockito.ArgumentMatchers.any(byte[].class));
+
+        assertEquals("image/svg+xml", typeCaptor.getValue());
+        assertTrue(response.getKey().endsWith(".svg"));
     }
 
     @Test

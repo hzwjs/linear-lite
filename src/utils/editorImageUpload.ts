@@ -3,9 +3,10 @@ export const SUPPORTED_EDITOR_IMAGE_MIME_TYPES = [
   'image/png',
   'image/jpeg',
   'image/webp',
-  'image/gif'
+  'image/gif',
+  'image/svg+xml'
 ] as const
-export const SUPPORTED_EDITOR_IMAGE_TYPES = ['png', 'jpg', 'jpeg', 'webp', 'gif'] as const
+export const SUPPORTED_EDITOR_IMAGE_TYPES = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'] as const
 export const UPLOADED_IMAGE_STATE = 'uploaded'
 export const UPLOADING_IMAGE_STATE = 'uploading'
 export const FAILED_IMAGE_STATE = 'failed'

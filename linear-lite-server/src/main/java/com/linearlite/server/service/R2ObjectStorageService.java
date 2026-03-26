@@ -33,7 +33,7 @@ public class R2ObjectStorageService implements ObjectStorageService {
         }
         String contentType = normalizeContentType(file.getContentType());
         if (!isSupportedImageType(contentType)) {
-            throw new IllegalArgumentException("仅支持 png/jpg/jpeg/webp/gif 图片");
+            throw new IllegalArgumentException("仅支持 png/jpg/jpeg/webp/gif/svg 图片");
         }
         if (file.getSize() > MAX_IMAGE_SIZE_BYTES) {
             throw new IllegalArgumentException("图片大小不能超过 10MB");
@@ -103,7 +103,8 @@ public class R2ObjectStorageService implements ObjectStorageService {
         return contentType.equals("image/png")
                 || contentType.equals("image/jpeg")
                 || contentType.equals("image/webp")
-                || contentType.equals("image/gif");
+                || contentType.equals("image/gif")
+                || contentType.equals("image/svg+xml");
     }
 
     private static String sanitizeFilename(String originalFilename, String fallback) {

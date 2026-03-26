@@ -175,8 +175,10 @@ const taskProjectName = computed(() => {
 /** Phase 7: 父任务（用于 Sub-issue of XXX 链接） */
 const parentTask = computed(() => {
   if (!props.task?.parentId) return null
-  return store.tasks.find((t) => t.id === props.task!.parentId) ?? null
+  const parentNumericId = String(props.task.parentId)
+  return store.tasks.find((t) => t.numericId != null && String(t.numericId) === parentNumericId) ?? null
 })
+const parentBreadcrumbLabel = computed(() => parentTask.value?.id ?? '')
 
 /** Phase 7: Sub-issues 区块 */
 const subIssuesCollapsed = ref(false)
@@ -587,6 +589,10 @@ function navigateTo(taskId: string | null | undefined) {
   if (!taskId) return
   emit('navigate', taskId)
 }
+function navigateToParentTask() {
+  if (!parentTask.value?.id) return
+  navigateTo(parentTask.value.id)
+}
 
 function navigateToProject() {
   if (props.task?.projectId != null) {
@@ -610,6 +616,12 @@ async function toggleFavorite() {
           <button type="button" class="editor-breadcrumb-link" @click="navigateToProject">
             {{ breadcrumbScopeName }}
           </button>
+          <template v-if="parentTask">
+            <span class="editor-breadcrumb-separator">/</span>
+            <button type="button" class="editor-breadcrumb-link" @click="navigateToParentTask">
+              {{ parentBreadcrumbLabel }}
+            </button>
+          </template>
           <span class="editor-breadcrumb-separator">/</span>
           <span class="editor-breadcrumb-current">{{ task?.id }}</span>
         </nav>
@@ -617,15 +629,6 @@ async function toggleFavorite() {
           <span v-if="task?.id" class="issue-id">{{ task.id }}</span>
           <h2>{{ mode === 'create' ? t('taskEditor.newIssue') : t('taskEditor.issue') }}</h2>
         </template>
-        <a
-          v-if="mode === 'edit' && parentTask"
-          href="#"
-          class="editor-parent-link"
-          @click.prevent="navigateTo(parentTask.id)"
-        >
-          {{ t('taskEditor.subIssueOf', { id: parentTask.id, title: parentTask.title }) }}
-          <span v-if="(parentTask.subIssueCount ?? 0) > 0" class="editor-parent-count">{{ parentTask.completedSubIssueCount ?? 0 }}/{{ parentTask.subIssueCount }}</span>
-        </a>
         <button
           v-if="showBreadcrumb"
           type="button"
@@ -1036,23 +1039,6 @@ async function toggleFavorite() {
   color: var(--color-text-primary);
   font-weight: var(--font-weight-medium);
   flex-shrink: 0;
-}
-.editor-parent-link {
-  display: block;
-  font-size: var(--font-size-caption);
-  color: var(--color-accent);
-  margin-top: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.editor-parent-link:hover {
-  text-decoration: underline;
-}
-.editor-parent-count {
-  margin-left: 6px;
-  color: var(--color-text-muted);
-  font-weight: var(--font-weight-normal);
 }
 .header-icon-btn {
   display: flex;
