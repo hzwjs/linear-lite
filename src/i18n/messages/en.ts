@@ -74,7 +74,9 @@ const en = {
     projects: 'Projects',
     newProjectTitle: 'New project',
     projectSettings: 'Project settings',
-    signOut: 'Sign out'
+    signOut: 'Sign out',
+    hideSidebar: 'Hide sidebar',
+    showSidebar: 'Show sidebar'
   },
   projectModal: {
     title: 'New project',
@@ -127,7 +129,8 @@ const en = {
     viewBoard: 'Switch to Board view',
     viewList: 'Switch to List view',
     projectSettings: 'Open project settings',
-    focusSearch: 'Focus search'
+    focusSearch: 'Focus search',
+    toggleSidebar: 'Toggle sidebar visibility'
   },
   commandPalette: {
     title: 'Command palette',

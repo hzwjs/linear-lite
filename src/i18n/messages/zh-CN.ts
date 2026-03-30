@@ -74,7 +74,9 @@ const zhCN = {
     projects: '项目',
     newProjectTitle: '新建项目',
     projectSettings: '项目设置',
-    signOut: '登出'
+    signOut: '登出',
+    hideSidebar: '隐藏侧边栏',
+    showSidebar: '显示侧边栏'
   },
   projectModal: {
     title: '新建项目',
@@ -127,7 +129,8 @@ const zhCN = {
     viewBoard: '切换到看板',
     viewList: '切换到列表',
     projectSettings: '打开项目设置',
-    focusSearch: '聚焦搜索'
+    focusSearch: '聚焦搜索',
+    toggleSidebar: '切换侧边栏显示'
   },
   commandPalette: {
     title: '命令面板',

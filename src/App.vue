@@ -15,7 +15,32 @@ import type { Project } from './types/domain'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useLocaleStore } from './store/localeStore'
-import { Plus, LayoutGrid, List, Settings, Search, MoreVertical, LogOut, Folder, Star } from 'lucide-vue-next'
+import {
+  Plus,
+  LayoutGrid,
+  List,
+  Settings,
+  Search,
+  MoreVertical,
+  LogOut,
+  Folder,
+  Star,
+  PanelLeft,
+  PanelLeftClose,
+  PanelLeftOpen
+} from 'lucide-vue-next'
+
+const SIDEBAR_HIDDEN_KEY = 'linear-lite.sidebarHidden'
+
+function readSidebarHidden(): boolean {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return false
+  return window.localStorage.getItem(SIDEBAR_HIDDEN_KEY) === '1'
+}
+
+function persistSidebarHidden(hidden: boolean) {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return
+  window.localStorage.setItem(SIDEBAR_HIDDEN_KEY, hidden ? '1' : '0')
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -31,6 +56,11 @@ const { t } = useI18n()
 const createProjectOpen = ref(false)
 const settingsProject = ref<Project | null>(null)
 const commandPaletteOpen = ref(false)
+const sidebarHidden = ref(false)
+
+function toggleSidebarHidden() {
+  sidebarHidden.value = !sidebarHidden.value
+}
 
 function openProjectSettings(e: Event, p: Project) {
   e.stopPropagation()
@@ -102,6 +132,16 @@ const paletteCommands = computed<CommandItem[]>(() => [
     icon: Search,
     run: () => {
       triggerFocusSearch()
+    }
+  },
+  {
+    id: 'toggle-sidebar',
+    label: t('command.toggleSidebar'),
+    keywords: ['sidebar', 'hide', 'show', 'panel', 'navigation'],
+    icon: PanelLeft,
+    run: () => {
+      commandPaletteOpen.value = false
+      toggleSidebarHidden()
     }
   }
 ])
@@ -212,8 +252,10 @@ function onGlobalKeydown(e: KeyboardEvent) {
 }
 
 onMounted(() => {
+  sidebarHidden.value = readSidebarHidden()
   document.addEventListener('keydown', onGlobalKeydown)
 })
+watch(sidebarHidden, persistSidebarHidden)
 onUnmounted(() => {
   document.removeEventListener('keydown', onGlobalKeydown)
 })
@@ -224,9 +266,28 @@ onUnmounted(() => {
     <router-view />
   </template>
   <div v-else class="app-layout">
-    <aside class="sidebar">
+    <button
+      v-if="sidebarHidden"
+      type="button"
+      class="sidebar-reopen"
+      :title="t('sidebar.showSidebar')"
+      :aria-label="t('sidebar.showSidebar')"
+      @click="sidebarHidden = false"
+    >
+      <PanelLeftOpen class="sidebar-reopen-icon" />
+    </button>
+    <aside v-show="!sidebarHidden" class="sidebar">
       <div class="sidebar-brand">
         <span class="sidebar-brand-name">{{ t('app.name') }}</span>
+        <button
+          type="button"
+          class="sidebar-collapse"
+          :title="t('sidebar.hideSidebar')"
+          :aria-label="t('sidebar.hideSidebar')"
+          @click="sidebarHidden = true"
+        >
+          <PanelLeftClose class="sidebar-collapse-icon" />
+        </button>
       </div>
       <section v-if="favoriteStore.favorites.length" class="sidebar-section">
         <div class="sidebar-header sidebar-header--static">
@@ -359,6 +420,58 @@ onUnmounted(() => {
 }
 .sidebar-brand {
   padding: 16px 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sidebar-collapse {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.sidebar-collapse:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.sidebar-collapse-icon {
+  width: 18px;
+  height: 18px;
+}
+.sidebar-reopen {
+  flex-shrink: 0;
+  align-self: stretch;
+  width: 40px;
+  min-height: 100%;
+  margin: 0;
+  padding: 14px 0 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: var(--color-bg-secondary);
+  border: none;
+  border-right: 1px solid var(--color-border-subtle);
+  cursor: pointer;
+  color: var(--color-text-muted);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.sidebar-reopen:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.sidebar-reopen-icon {
+  width: 20px;
+  height: 20px;
 }
 .sidebar-brand-name {
   font-size: 15px;
