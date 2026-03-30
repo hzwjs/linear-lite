@@ -27,15 +27,14 @@ linear-lite-server/
     │       └── TaskMapper.java
     └── resources/
         ├── application.yml
-        ├── schema.sql                          # 建表
-        └── data-init.sql                      # 种子数据
+        └── schema.sql                          # 建表 + 可选种子数据（合并脚本）
 ```
 
 ## 启动方式
 
 **环境要求**：JDK 17+、Maven、MySQL 8.x。
 
-1. 在 MySQL 中执行 `schema.sql` 与 `data-init.sql`（见下方）。
+1. 在 MySQL 中执行 `schema.sql`（见下方，含种子数据）。
 2. 在项目根目录 `linear-lite-server/` 下执行：
 
 ```bash
@@ -80,14 +79,10 @@ mvn spring-boot:run
 
 当前项目已使用环境变量方式读取 R2 配置；`.env.properties` 只是本机开发时的自动加载入口，不应提交到仓库。
 
-## schema.sql、schema-v2-task_key.sql 与 data-init.sql 的用法
+## schema.sql 的用法
 
-- **路径**  
-  - `src/main/resources/schema.sql` — 建表（含 task_key 列）  
-  - `src/main/resources/schema-v2-task_key.sql` — 仅当表已存在且无 task_key 时执行（迁移用）  
-  - `src/main/resources/data-init.sql` — 种子数据  
-
-- **执行顺序**：先 `schema.sql`，再（可选）`schema-v2-task_key.sql`，最后 `data-init.sql`。若 schema 已含 task_key，可跳过 schema-v2。
+- **路径**：`src/main/resources/schema.sql` — 建表（含 `task_key`、`due_date`、`completed_at`、`task_attachments` 等）与种子数据（同一文件）。
+- **已有旧库**：若表结构落后于当前 `schema.sql`，需自行 `ALTER` / 补表，或从 git 历史取已删除的增量脚本对照执行。
 
 - **远程库 8.148.189.106（当前默认）**：
 
@@ -97,14 +92,8 @@ cd linear-lite-server/src/main/resources
 # 1. 建库（若尚未创建）
 mysql -h 8.148.189.106 -P 3306 -u root -p'Password1!' -e "CREATE DATABASE IF NOT EXISTS linear_lite DEFAULT CHARACTER SET utf8mb4;"
 
-# 2. 建表
+# 2. 建表 + 种子数据
 mysql -h 8.148.189.106 -P 3306 -u root -p'Password1!' linear_lite < schema.sql
-
-# 3. 迁移：仅当 tasks 表无 task_key 列时执行（否则会报错，可忽略）
-mysql -h 8.148.189.106 -P 3306 -u root -p'Password1!' linear_lite < schema-v2-task_key.sql
-
-# 4. 种子数据
-mysql -h 8.148.189.106 -P 3306 -u root -p'Password1!' linear_lite < data-init.sql
 ```
 
-- **本地或其它主机**：将 `-h 8.148.189.106 -p'Password1!'` 换成对应主机与密码即可。重复执行 data-init 会因 `ON DUPLICATE KEY UPDATE` 而幂等。
+- **本地或其它主机**：将 `-h 8.148.189.106 -p'Password1!'` 换成对应主机与密码即可。种子 `INSERT` 使用 `ON DUPLICATE KEY UPDATE`，重复执行相对幂等。

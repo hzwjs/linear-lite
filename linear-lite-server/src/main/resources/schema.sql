@@ -1,7 +1,7 @@
--- Linear Lite 表结构（本项目不使用外键，表间关联由应用层维护）
+-- Linear Lite 表结构 + 可选种子数据（本项目不使用外键，表间关联由应用层维护）
 -- 执行前请先创建数据库：CREATE DATABASE IF NOT EXISTS linear_lite DEFAULT CHARACTER SET utf8mb4;
+-- 全新库：执行本文件即可。原 schema-v3～v10、data-init 已合并于此；已有旧库若缺列/表请自行 ALTER 或从 git 历史取增量脚本。
 
-USE linear_lite;
 
 -- 用户表
 CREATE TABLE IF NOT EXISTS users (
@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     parent_id   BIGINT       DEFAULT NULL COMMENT '父任务 ID，NULL 表示顶层任务',
     creator_id  BIGINT       NOT NULL,
     assignee_id BIGINT       DEFAULT NULL,
+    due_date    DATETIME     DEFAULT NULL COMMENT '预计完成/截止日期',
+    completed_at DATETIME    DEFAULT NULL COMMENT '实际完成时间，终态时由系统写入',
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -105,3 +107,39 @@ CREATE TABLE IF NOT EXISTS task_activities (
 
 CREATE INDEX idx_task_activities_task_id ON task_activities (task_id);
 CREATE INDEX idx_task_activities_user_id ON task_activities (user_id);
+
+CREATE TABLE IF NOT EXISTS task_attachments (
+    id           BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    task_id      BIGINT       NOT NULL,
+    object_key   VARCHAR(512) NOT NULL,
+    file_name    VARCHAR(256) NOT NULL,
+    file_size    BIGINT       NOT NULL,
+    content_type VARCHAR(128) DEFAULT NULL,
+    created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE INDEX idx_task_attachments_task_id ON task_attachments (task_id);
+
+-- ========== 种子数据（可选；密码为明文占位，正式环境需改为 BCrypt 等）==========
+
+INSERT INTO users (username, email, password, avatar_url) VALUES
+    ('admin',  'admin@example.com',  'admin123',  NULL),
+    ('user1',  'user1@example.com',  'user123',   NULL),
+    ('user2',  'user2@example.com',  'user123',   NULL),
+    ('alice',  'alice@example.com',  'alice123',  NULL),
+    ('bob',    'bob@example.com',    'bob123',    NULL)
+ON DUPLICATE KEY UPDATE
+    username = VALUES(username),
+    email = VALUES(email);
+
+INSERT INTO projects (name, identifier, creator_id)
+SELECT 'Engineering', 'ENG', id FROM users WHERE username = 'admin'
+UNION ALL
+SELECT 'Design', 'DES', id FROM users WHERE username = 'alice'
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    creator_id = VALUES(creator_id);
+
+INSERT INTO project_members (project_id, user_id, role)
+SELECT id, creator_id, 'owner' FROM projects
+ON DUPLICATE KEY UPDATE role = VALUES(role);

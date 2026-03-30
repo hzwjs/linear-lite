@@ -11,27 +11,17 @@
 
 ### 1. 数据库初始化
 
-先创建库并执行建表与种子数据（顺序不可颠倒）：
+先创建库并执行合并后的初始化脚本（建表 + 种子数据，幂等 INSERT）：
 
 ```bash
 # 建库（若尚未创建）
 mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS linear_lite DEFAULT CHARACTER SET utf8mb4;"
 
-# 建表
+# 建表与种子（预置用户 admin/user1/user2/alice/bob，项目 Engineering、Design）
 mysql -u root -p linear_lite < linear-lite-server/src/main/resources/schema.sql
-
-# 种子数据（预置用户 admin/user1/user2/alice/bob，项目 Engineering、Design）
-mysql -u root -p linear_lite < linear-lite-server/src/main/resources/data-init.sql
-
-# （可选）Phase 3：任务时间字段 due_date、completed_at
-mysql -u root -p linear_lite < linear-lite-server/src/main/resources/schema-v3-task-timeline.sql
 ```
 
-脚本路径（供 IDE 或其它工具使用）：
-
-- 建表：`linear-lite-server/src/main/resources/schema.sql`
-- 种子：`linear-lite-server/src/main/resources/data-init.sql`
-- Phase 3 增量：`linear-lite-server/src/main/resources/schema-v3-task-timeline.sql`
+脚本路径：`linear-lite-server/src/main/resources/schema.sql`
 
 更多用法见 [linear-lite-server/README.md](linear-lite-server/README.md)。
 
@@ -118,7 +108,7 @@ npm run dev
    正确：`npm run build` 或 `mvn package` 时不设置该变量。
 
 2. **登录接口返回 401**  
-   表示用户名/密码错误。确认服务器数据库已执行 `schema.sql` 与 `data-init.sql`，使用种子账号如 `user1` / `user123` 登录。
+   表示用户名/密码错误。确认服务器数据库已执行 `schema.sql`，使用种子账号如 `user1` / `user123` 登录。
 
 3. **登录成功后其他接口 401**  
    - 浏览器开发者工具 → Network：看该请求是否带 `Authorization: Bearer xxx`。若无，多为前端请求未走带 token 的 axios 实例或 baseURL 指向了别的域名。  

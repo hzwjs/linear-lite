@@ -2,6 +2,7 @@
 import { watch, ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import { Extension } from '@tiptap/core'
+import type { Node as PmNode, ResolvedPos } from '@tiptap/pm/model'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
 import Heading from '@tiptap/extension-heading'
@@ -155,6 +156,31 @@ function openSlashMenu(left: number, top: number, from: number, to: number) {
   slashMenuOpen.value = true
 }
 
+/** 当前段内「逻辑行」起点（块首或上一个 hardBreak 之后），用于斜杠菜单仅在行首类位置触发 */
+function lineStartOffsetInTextblock(parent: PmNode, offsetInParent: number): number {
+  if (!parent.isTextblock) return 0
+  let lineStart = 0
+  let pos = 0
+  for (let i = 0; i < parent.childCount; i++) {
+    const child = parent.child(i)
+    const end = pos + child.nodeSize
+    if (end > offsetInParent) break
+    if (child.type.name === 'hardBreak') lineStart = end
+    pos = end
+  }
+  return lineStart
+}
+
+/** 与常见块编辑器一致：仅在块内当前行的行首（仅含空白）输入 `/` 时打开斜杠菜单 */
+function isSlashTriggerPosition($from: ResolvedPos): boolean {
+  const parent = $from.parent
+  if (!parent.isTextblock) return false
+  const off = $from.parentOffset
+  const lineStart = lineStartOffsetInTextblock(parent, off)
+  const before = parent.textBetween(lineStart, off, '', '\ufffc')
+  return /^\s*$/.test(before)
+}
+
 function randomLocalId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
@@ -166,9 +192,21 @@ const slashMenuExtension = Extension.create({
     return {
       '/': () => {
         const { view, state } = this.editor
-        const { $from } = state.selection
+        if (view.composing) return false
+        const { $from, from, to } = state.selection
+        if (from !== to) return false
         if ($from.parent.type.name === 'codeBlock') return false
-        const { from, to } = state.selection
+        if (!isSlashTriggerPosition($from)) return false
+        const coords = view.coordsAtPos(from)
+        openSlashMenu(coords.left, coords.bottom, from, to)
+        return true
+      },
+      /** 任意位置打开块菜单（与 Notion 等产品的 Cmd/Ctrl+K 一致） */
+      'Mod-k': () => {
+        const { view, state } = this.editor
+        if (view.composing) return false
+        const { $from, from, to } = state.selection
+        if ($from.parent.type.name === 'codeBlock') return false
         const coords = view.coordsAtPos(from)
         openSlashMenu(coords.left, coords.bottom, from, to)
         return true
