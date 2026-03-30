@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch, onUnmounted } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useTaskStore } from '../store/taskStore'
@@ -15,7 +15,7 @@ import TaskImportModal from '../components/TaskImportModal.vue'
 import type { User } from '../types/domain'
 import type { Status } from '../types/domain'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
-import { buildTaskGroups, getAdjacentTaskIds } from '../utils/taskView'
+import { buildTaskGroups, filterVisibleTaskRows, getAdjacentTaskIds } from '../utils/taskView'
 
 const props = defineProps<{
   users: User[]
@@ -33,6 +33,7 @@ const issuePanelStore = useIssuePanelStore()
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const listSubtaskExpanded = ref<Record<string, boolean>>({})
 
 const DRAWER_OVERLAY_ID = 'task-editor-drawer'
 const COMPOSER_OVERLAY_ID = 'issue-composer'
@@ -73,7 +74,8 @@ const localizedTaskGroups = computed(() =>
 const flatTaskIds = computed(() =>
   taskGroups.value.flatMap((group) => {
     const rows = group.rows ?? group.tasks.map((t) => ({ task: t, depth: 0 }))
-    return rows.map((r) => r.task.id)
+    const visible = filterVisibleTaskRows(rows, listSubtaskExpanded.value)
+    return visible.map((r) => r.task.id)
   })
 )
 const adjacentTaskIds = computed(() =>
@@ -267,6 +269,7 @@ onUnmounted(() => {
         </div>
         <div v-else class="list-wrap">
           <TaskListView
+            v-model:subtask-expanded="listSubtaskExpanded"
             :groups="localizedTaskGroups"
             :users="users"
             :visible-properties="viewModeStore.visibleProperties"

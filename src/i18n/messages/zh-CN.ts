@@ -383,7 +383,11 @@ const zhCN = {
     createIssueInGroup: '在分组中创建任务',
     markDone: '标记为已完成',
     markNotDone: '标记为未完成',
-    addSubIssue: '添加子任务'
+    addSubIssue: '添加子任务',
+    expandSubtasks: '展开子任务',
+    collapseSubtasks: '折叠子任务',
+    expandAllSubtasks: '全部展开',
+    collapseAllSubtasks: '全部折叠'
   },
   status: {
     backlog: '待办',

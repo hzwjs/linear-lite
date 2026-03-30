@@ -383,7 +383,11 @@ const en = {
     createIssueInGroup: 'Create issue in group',
     markDone: 'Mark done',
     markNotDone: 'Mark not done',
-    addSubIssue: 'Add sub-issue'
+    addSubIssue: 'Add sub-issue',
+    expandSubtasks: 'Expand subtasks',
+    collapseSubtasks: 'Collapse subtasks',
+    expandAllSubtasks: 'Expand all',
+    collapseAllSubtasks: 'Collapse all'
   },
   status: {
     backlog: 'Backlog',

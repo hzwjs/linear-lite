@@ -6,6 +6,8 @@ export interface TaskRow {
   depth: number
   /** 子任务行展示用：父任务标题 */
   parentTitle?: string
+  /** 自顶层父到直接父任务的 task.id；子行是否展示取决于路径上每一级是否已展开 */
+  subtaskExpandPath?: string[]
 }
 
 export interface TaskGroup {
@@ -122,6 +124,8 @@ function getDescendantRows(
   allTasks: Task[],
   parentNumericId: number,
   parentTitle: string,
+  parentTaskId: string,
+  pathFromRoot: string[],
   nested: boolean,
   config: ViewConfig
 ): TaskRow[] {
@@ -129,19 +133,29 @@ function getDescendantRows(
   const children = allTasks.filter((t) => t.parentId != null && String(t.parentId) === parentIdStr)
   const sorted = sortTasks(children, config)
   const result: TaskRow[] = []
+  const thisPath = [...pathFromRoot, parentTaskId]
   for (const task of sorted) {
-    result.push({ task, depth: 1, parentTitle })
+    result.push({ task, depth: thisPath.length, parentTitle, subtaskExpandPath: thisPath })
     if (nested && task.numericId != null) {
       result.push(
-        ...getDescendantRows(allTasks, task.numericId, task.title, true, config).map((r) => ({
-          task: r.task,
-          depth: r.depth + 1,
-          parentTitle: r.parentTitle
-        }))
+        ...getDescendantRows(allTasks, task.numericId, task.title, task.id, thisPath, true, config)
       )
     }
   }
   return result
+}
+
+/** 按列表内「子任务折叠」状态过滤行；未展开时 depth>0 的行不展示。 */
+export function filterVisibleTaskRows(
+  rows: TaskRow[],
+  expandedByTaskId: Record<string, boolean>
+): TaskRow[] {
+  return rows.filter((row) => {
+    if (row.depth === 0) return true
+    const path = row.subtaskExpandPath
+    if (!path?.length) return true
+    return path.every((id) => expandedByTaskId[id] === true)
+  })
 }
 
 const TERMINAL_STATUSES: Task['status'][] = ['done', 'canceled', 'duplicate']
@@ -202,7 +216,7 @@ export function buildTaskGroups(tasks: Task[], config: ViewConfig, users: User[]
         rows.push({ task, depth: 0 })
         if (task.numericId != null) {
           rows.push(
-            ...getDescendantRows(source, task.numericId, task.title, config.nestedSubIssues, config)
+            ...getDescendantRows(source, task.numericId, task.title, task.id, [], config.nestedSubIssues, config)
           )
         }
       }

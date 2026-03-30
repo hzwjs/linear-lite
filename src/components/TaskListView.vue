@@ -14,13 +14,15 @@ import {
   CheckCircle,
   Copy,
   Eye,
+  FoldVertical,
   Loader2,
+  UnfoldVertical,
   User as UserIcon
 } from 'lucide-vue-next'
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
-import type { TaskGroup, TaskRow } from '../utils/taskView'
+import { filterVisibleTaskRows, type TaskGroup, type TaskRow } from '../utils/taskView'
 import type { VisibleProperty } from '../utils/viewPreference'
 import { getSubtaskProgressDisplay } from '../utils/subtaskProgress'
 import { getInitials, getAvatarColor } from '../utils/avatar'
@@ -38,6 +40,8 @@ const emit = defineEmits<{
   createInStatus: [status?: Status]
   addSubIssue: [task: Task]
 }>()
+
+const subtaskExpanded = defineModel<Record<string, boolean>>('subtaskExpanded', { default: () => ({}) })
 
 const store = useTaskStore()
 const { t } = useI18n()
@@ -145,6 +149,82 @@ function groupListRows(group: TaskGroup): TaskRow[] {
   return group.tasks.map((t) => ({ task: t, depth: 0 }))
 }
 
+function visibleGroupRows(group: TaskGroup): TaskRow[] {
+  return filterVisibleTaskRows(groupListRows(group), subtaskExpanded.value)
+}
+
+function hasExpandableSubtasksInGroup(task: Task, group: TaskGroup): boolean {
+  if ((task.subIssueCount ?? 0) > 0) return true
+  const rows = groupListRows(group)
+  const idx = rows.findIndex((r) => r.task.id === task.id)
+  if (idx === -1) return false
+  const cur = rows[idx]!
+  const next = rows[idx + 1]
+  if (!next || next.depth !== cur.depth + 1) return false
+  const path = next.subtaskExpandPath
+  return path != null && path.length > 0 && path[path.length - 1] === task.id
+}
+
+function expandableParentTaskIdsInGroup(group: TaskGroup): string[] {
+  const rows = groupListRows(group)
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    if (!hasExpandableSubtasksInGroup(row.task, group)) continue
+    if (seen.has(row.task.id)) continue
+    seen.add(row.task.id)
+    out.push(row.task.id)
+  }
+  return out
+}
+
+function groupHasExpandableSubtasks(group: TaskGroup): boolean {
+  return expandableParentTaskIdsInGroup(group).length > 0
+}
+
+function groupAllExpandableExpanded(group: TaskGroup): boolean {
+  const ids = expandableParentTaskIdsInGroup(group)
+  return ids.length > 0 && ids.every((id) => subtaskExpanded.value[id] === true)
+}
+
+function toggleExpandAllSubtasksInGroup(group: TaskGroup, e: MouseEvent) {
+  if (groupAllExpandableExpanded(group)) {
+    collapseAllSubtasksInGroup(group, e)
+  } else {
+    expandAllSubtasksInGroup(group, e)
+  }
+}
+
+function expandAllSubtasksInGroup(group: TaskGroup, e: MouseEvent) {
+  e.stopPropagation()
+  const next = { ...subtaskExpanded.value }
+  for (const id of expandableParentTaskIdsInGroup(group)) {
+    next[id] = true
+  }
+  subtaskExpanded.value = next
+}
+
+function collapseAllSubtasksInGroup(group: TaskGroup, e: MouseEvent) {
+  e.stopPropagation()
+  const next = { ...subtaskExpanded.value }
+  for (const id of expandableParentTaskIdsInGroup(group)) {
+    next[id] = false
+  }
+  subtaskExpanded.value = next
+}
+
+function isSubtasksExpanded(taskId: string): boolean {
+  return subtaskExpanded.value[taskId] === true
+}
+
+function toggleSubtasksExpanded(taskId: string, e: MouseEvent) {
+  e.stopPropagation()
+  subtaskExpanded.value = {
+    ...subtaskExpanded.value,
+    [taskId]: !subtaskExpanded.value[taskId]
+  }
+}
+
 function rowTitle(row: TaskRow): string {
   if (row.depth > 0 && row.parentTitle) return `${row.task.title} > ${row.parentTitle}`
   return row.task.title
@@ -175,10 +255,47 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
             :aria-expanded="!collapsed[group.key]"
             @click="toggle(group.key)"
           >
-            <span class="group-chevron">{{ collapsed[group.key] ? '▸' : '▾' }}</span>
+            <span class="group-toggle-chevron tree-chevron-glyph" aria-hidden="true">{{
+              collapsed[group.key] ? '▸' : '▾'
+            }}</span>
             <span class="group-title">{{ group.label }}</span>
-            <span class="group-count">{{ group.rows ? group.rows.length : group.tasks.length }}</span>
+            <span class="group-count">{{ visibleGroupRows(group).length }}</span>
           </button>
+          <div
+            v-if="groupHasExpandableSubtasks(group)"
+            class="group-subtask-bulk"
+            @click.stop
+          >
+            <button
+              type="button"
+              class="group-subtask-bulk-btn"
+              :aria-expanded="groupAllExpandableExpanded(group)"
+              :aria-label="
+                groupAllExpandableExpanded(group)
+                  ? t('taskList.collapseAllSubtasks')
+                  : t('taskList.expandAllSubtasks')
+              "
+              :title="
+                groupAllExpandableExpanded(group)
+                  ? t('taskList.collapseAllSubtasks')
+                  : t('taskList.expandAllSubtasks')
+              "
+              @click="toggleExpandAllSubtasksInGroup(group, $event)"
+            >
+              <UnfoldVertical
+                v-if="!groupAllExpandableExpanded(group)"
+                class="group-subtask-bulk-icon"
+                stroke-width="2"
+                aria-hidden="true"
+              />
+              <FoldVertical
+                v-else
+                class="group-subtask-bulk-icon"
+                stroke-width="2"
+                aria-hidden="true"
+              />
+            </button>
+          </div>
           <button
             type="button"
             class="group-create"
@@ -190,7 +307,7 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
         </div>
         <div v-show="!collapsed[group.key]" class="group-rows">
           <div
-            v-for="row in groupListRows(group)"
+            v-for="row in visibleGroupRows(group)"
             :key="row.task.id"
             class="task-row"
             :class="{ overdue: isOverdue(row.task), selected: props.selectedTaskId === row.task.id }"
@@ -200,6 +317,22 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
             @mouseleave="setHoveredId(null)"
             @click="onRowClick(row.task)"
           >
+            <div class="task-row-sub-expand">
+              <button
+                v-if="hasExpandableSubtasksInGroup(row.task, group)"
+                type="button"
+                class="task-row-sub-toggle"
+                :aria-expanded="isSubtasksExpanded(row.task.id)"
+                :aria-label="
+                  isSubtasksExpanded(row.task.id) ? t('taskList.collapseSubtasks') : t('taskList.expandSubtasks')
+                "
+                @click="toggleSubtasksExpanded(row.task.id, $event)"
+              >
+                <span class="tree-chevron-glyph" aria-hidden="true">{{
+                  isSubtasksExpanded(row.task.id) ? '▾' : '▸'
+                }}</span>
+              </button>
+            </div>
             <div class="task-row-leading">
               <button
                 v-if="rowHoveredId === row.task.id"
@@ -349,11 +482,18 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
 .group-header:hover {
   background: var(--color-bg-muted);
 }
+.tree-chevron-glyph {
+  font-size: 15px;
+  line-height: 1;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-muted);
+}
+
 .group-toggle {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   text-align: left;
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-semibold);
@@ -362,11 +502,15 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
   border: none;
   cursor: pointer;
   padding: 0;
+  min-height: 32px;
 }
-.group-chevron {
+.group-toggle-chevron {
   flex: 0 0 auto;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .group-title {
   flex: 0 0 auto;
@@ -376,12 +520,43 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
   color: var(--color-text-muted);
   margin-left: 4px;
 }
-.group-create {
+.group-subtask-bulk {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.group-subtask-bulk-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.group-subtask-bulk-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+.group-subtask-bulk-icon {
   width: 20px;
   height: 20px;
+  flex-shrink: 0;
+}
+.group-create {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border-radius: var(--radius-sm);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-body);
   color: var(--color-text-muted);
   flex-shrink: 0;
 }
@@ -395,12 +570,42 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
 }
 
 /* 行：分割线更轻；选中态仅左侧条，背景与 hover 一致不抢眼 */
+.task-row-sub-expand {
+  flex: 0 0 34px;
+  width: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.task-row-sub-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  min-height: 34px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-text-muted);
+}
+.task-row-sub-toggle:hover {
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+}
+.task-row-sub-toggle:hover .tree-chevron-glyph {
+  color: var(--color-text-secondary);
+}
+
 .task-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 32px;
-  height: 32px;
+  min-height: 36px;
+  height: 36px;
   padding: 0 12px;
   cursor: pointer;
   border-bottom: 1px solid var(--list-row-border);

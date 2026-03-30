@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Task, User } from '../types/domain'
 import type { ViewConfig } from './viewPreference'
-import { buildTaskGroups, getAdjacentTaskIds } from './taskView'
+import { buildTaskGroups, filterVisibleTaskRows, getAdjacentTaskIds } from './taskView'
 
 const tasks: Task[] = [
   {
@@ -121,6 +121,44 @@ describe('buildTaskGroups', () => {
     )
 
     expect(groups[0]?.tasks.map((task) => task.id)).toEqual(['ENG-3', 'ENG-1', 'ENG-2'])
+  })
+
+  it('when showSubIssues, rows include subtaskExpandPath for nested list collapse', () => {
+    const withSubs: Task[] = [
+      {
+        id: 'ENG-1',
+        numericId: 101,
+        title: 'Parent',
+        status: 'todo',
+        priority: 'high',
+        createdAt: 1,
+        updatedAt: 1,
+        subIssueCount: 1
+      },
+      {
+        id: 'ENG-2',
+        numericId: 102,
+        title: 'Child',
+        status: 'todo',
+        priority: 'high',
+        parentId: '101',
+        createdAt: 2,
+        updatedAt: 2
+      }
+    ]
+    const groups = buildTaskGroups(withSubs, { ...baseConfig, showSubIssues: true }, users)
+    const rows = groups[0]?.rows ?? []
+    expect(rows.map((r) => r.task.id)).toEqual(['ENG-1', 'ENG-2'])
+    expect(rows[0]?.depth).toBe(0)
+    expect(rows[0]?.subtaskExpandPath).toBeUndefined()
+    expect(rows[1]?.depth).toBe(1)
+    expect(rows[1]?.subtaskExpandPath).toEqual(['ENG-1'])
+
+    const collapsed = filterVisibleTaskRows(rows, {})
+    expect(collapsed.map((r) => r.task.id)).toEqual(['ENG-1'])
+
+    const expanded = filterVisibleTaskRows(rows, { 'ENG-1': true })
+    expect(expanded.map((r) => r.task.id)).toEqual(['ENG-1', 'ENG-2'])
   })
 })
 
