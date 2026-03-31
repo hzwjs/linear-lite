@@ -1,10 +1,14 @@
 export type Granularity = 'day' | 'week' | 'month' | 'year'
 
+export type TaskListScope = 'created' | 'completed' | 'due' | 'all'
+
 export interface AnalyticsQuery {
   projectId: number
   granularity: Granularity
   from: string // ISO datetime
   to: string
+  /** 任务明细 API：与当日指标联动；周视图默认 all（按创建时间） */
+  taskListScope?: TaskListScope
 }
 
 export interface TrendBucket {

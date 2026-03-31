@@ -10,7 +10,7 @@ import StatusBreakdownChart from '../components/analytics/StatusBreakdownChart.v
 import AssigneeBreakdownChart from '../components/analytics/AssigneeBreakdownChart.vue'
 import PriorityBreakdownChart from '../components/analytics/PriorityBreakdownChart.vue'
 import TaskSnapshotList from '../components/analytics/TaskSnapshotList.vue'
-import type { Granularity } from '../types/analytics'
+import type { Granularity, TaskListScope } from '../types/analytics'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
@@ -21,8 +21,28 @@ const now = new Date()
 const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
 const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
 
+/** 本地日历 YYYY-MM-DD（与 date 输入、后端按日历日 interpret 一致） */
 function toDateStr(d: Date): string {
-  return d.toISOString().substring(0, 10)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/** 当天所在自然周：周一 00:00 本地、周日 本地（与后端 week 桶 Monday～Sunday 一致） */
+function currentWeekRangeFrom(today = new Date()): { from: string; to: string } {
+  const dow = today.getDay()
+  const offsetToMonday = dow === 0 ? -6 : 1 - dow
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offsetToMonday)
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6)
+  return { from: toDateStr(monday), to: toDateStr(sunday) }
+}
+
+/** 当天所在自然月 */
+function currentMonthRangeFrom(today = new Date()): { from: string; to: string } {
+  const ms = new Date(today.getFullYear(), today.getMonth(), 1)
+  const me = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+  return { from: toDateStr(ms), to: toDateStr(me) }
 }
 
 const fromDate = ref(toDateStr(monthStart))
@@ -76,49 +96,63 @@ const dayMetricCards = computed(() => [
   }
 ])
 
-const filteredTaskPage = computed(() => {
-  const page = analyticsStore.taskPage
-  if (!page || !isDayGranularity.value || activeDayMetric.value === 'all') {
-    return page
-  }
-  const fromDay = fromDate.value
-  const toDay = toDate.value
-  const items = page.items.filter((item) => {
-    if (activeDayMetric.value === 'created') {
-      const createdDay = item.createdAt?.substring(0, 10)
-      return createdDay >= fromDay && createdDay <= toDay
-    }
-    if (activeDayMetric.value === 'completed') {
-      const completedDay = item.completedAt?.substring(0, 10)
-      return completedDay != null && completedDay >= fromDay && completedDay <= toDay
-    }
-    const dueDay = item.dueDate?.substring(0, 10)
-    return dueDay != null && dueDay >= fromDay && dueDay <= toDay
-  })
-  return {
-    ...page,
-    items,
-    total: items.length,
-    page: 1
-  }
-})
+/** 任务明细与指标一致：后端按 taskListScope 筛选，避免「到期数」与「仅按创建时间拉列表」脱节 */
+function resolveTaskListScope(): TaskListScope {
+  if (!isDayGranularity.value) return 'all'
+  const m = activeDayMetric.value
+  if (m === 'completed') return 'completed'
+  if (m === 'due') return 'due'
+  return 'created'
+}
 
 function fetchAll() {
   const pid = projectStore.activeProjectId
   if (pid == null) return
   analyticsStore.fetchSummary(pid, fromISO.value, toISO.value)
   if (analyticsStore.showTaskList) {
-    analyticsStore.fetchTasks(pid, fromISO.value, toISO.value, 1)
+    analyticsStore.fetchTasks(pid, fromISO.value, toISO.value, 1, resolveTaskListScope())
   }
+}
+
+function onDayMetricSelect(key: DayMetricKey) {
+  activeDayMetric.value = key
+  if (!isDayGranularity.value || !analyticsStore.showTaskList) return
+  const pid = projectStore.activeProjectId
+  if (pid == null) return
+  const scope: TaskListScope =
+    key === 'completed' ? 'completed' : key === 'due' ? 'due' : 'created'
+  analyticsStore.fetchTasks(pid, fromISO.value, toISO.value, 1, scope)
 }
 
 function onGranularityChange(g: Granularity) {
   analyticsStore.setGranularity(g)
   activeDayMetric.value = g === 'day' ? 'completed' : 'all'
+  /** 每次切换粒度都按目标粒度的「当前」默认重置，避免其它视图日期残留 */
+  const today = new Date()
   if (g === 'day') {
-    toDate.value = fromDate.value
+    const d = toDateStr(today)
+    fromDate.value = d
+    toDate.value = d
+  } else if (g === 'week') {
+    const w = currentWeekRangeFrom(today)
+    fromDate.value = w.from
+    toDate.value = w.to
+  } else if (g === 'month') {
+    const m = currentMonthRangeFrom(today)
+    fromDate.value = m.from
+    toDate.value = m.to
+  } else if (g === 'year') {
+    const y = today.getFullYear()
+    fromDate.value = `${y}-01-01`
+    toDate.value = `${y}-12-31`
   }
   fetchAll()
+}
+
+function onYearRangeSelect(y: number) {
+  fromDate.value = `${y}-01-01`
+  toDate.value = `${y}-12-31`
+  onDateChange()
 }
 
 function onDateChange() {
@@ -129,7 +163,7 @@ function onDateChange() {
 function onPageChange(page: number) {
   const pid = projectStore.activeProjectId
   if (pid == null) return
-  analyticsStore.fetchTasks(pid, fromISO.value, toISO.value, page)
+  analyticsStore.fetchTasks(pid, fromISO.value, toISO.value, page, resolveTaskListScope())
 }
 
 onMounted(() => {
@@ -156,6 +190,7 @@ watch(() => projectStore.activeProjectId, fetchAll)
       @update:granularity="onGranularityChange"
       @update:from="(v) => { fromDate = v; if (analyticsStore.granularity === 'day') toDate = v; onDateChange() }"
       @update:to="(v) => { toDate = v; onDateChange() }"
+      @year-range="onYearRangeSelect"
     />
 
     <!-- 加载中 -->
@@ -189,7 +224,7 @@ watch(() => projectStore.activeProjectId, fetchAll)
                 'focus-metric--active': activeDayMetric === card.key,
                 'focus-metric--due': card.key === 'due'
               }"
-              @click="activeDayMetric = card.key"
+              @click="onDayMetricSelect(card.key)"
             >
               <div class="focus-metric-value">{{ card.value }}</div>
               <div class="focus-metric-label">{{ card.label }}</div>
@@ -214,8 +249,8 @@ watch(() => projectStore.activeProjectId, fetchAll)
           <button type="button" @click="onPageChange(analyticsStore.currentPage)">{{ t('analytics.retry') }}</button>
         </div>
         <TaskSnapshotList
-          v-else-if="filteredTaskPage"
-          :data="filteredTaskPage"
+          v-else-if="analyticsStore.taskPage"
+          :data="analyticsStore.taskPage"
           :from="fromDate"
           :to="toDate"
           :metric="activeDayMetric"

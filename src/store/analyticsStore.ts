@@ -4,7 +4,8 @@ import { analyticsApi } from '../services/api/analytics'
 import type {
   Granularity,
   AnalyticsSummaryResponse,
-  TaskSnapshotPageResponse
+  TaskSnapshotPageResponse,
+  TaskListScope
 } from '../types/analytics'
 
 export const useAnalyticsStore = defineStore('analyticsStore', () => {
@@ -41,7 +42,13 @@ export const useAnalyticsStore = defineStore('analyticsStore', () => {
     }
   }
 
-  async function fetchTasks(projectId: number, from: string, to: string, page = 1) {
+  async function fetchTasks(
+    projectId: number,
+    from: string,
+    to: string,
+    page = 1,
+    taskListScope: TaskListScope = 'all'
+  ) {
     taskPageLoading.value = true
     taskPageError.value = null
     currentPage.value = page
@@ -52,7 +59,8 @@ export const useAnalyticsStore = defineStore('analyticsStore', () => {
         from,
         to,
         page,
-        pageSize: 50
+        pageSize: 50,
+        taskListScope
       })
     } catch (e: any) {
       taskPageError.value = e?.message ?? '加载任务列表失败'

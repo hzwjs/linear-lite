@@ -61,6 +61,38 @@ public interface AnalyticsMapper {
     @Select("SELECT COUNT(*) FROM tasks WHERE project_id = #{projectId} AND created_at >= #{from} AND created_at < #{to}")
     int countTaskSnapshot(@Param("projectId") Long projectId, @Param("from") String from, @Param("to") String to);
 
+    @Select("SELECT t.task_key AS taskKey, t.title, t.status, t.priority, t.assignee_id AS assigneeId, " +
+            "COALESCE(u.username, '') AS assigneeName, t.created_at AS createdAt, t.completed_at AS completedAt, t.due_date AS dueDate " +
+            "FROM tasks t LEFT JOIN users u ON t.assignee_id = u.id " +
+            "WHERE t.project_id = #{projectId} AND t.completed_at IS NOT NULL " +
+            "AND t.completed_at >= #{from} AND t.completed_at < #{to} " +
+            "ORDER BY t.completed_at DESC LIMIT #{limit} OFFSET #{offset}")
+    List<TaskSnapshotItem> selectTaskSnapshotByCompleted(@Param("projectId") Long projectId,
+                                                        @Param("from") String from,
+                                                        @Param("to") String to,
+                                                        @Param("limit") int limit,
+                                                        @Param("offset") int offset);
+
+    @Select("SELECT COUNT(*) FROM tasks WHERE project_id = #{projectId} AND completed_at IS NOT NULL " +
+            "AND completed_at >= #{from} AND completed_at < #{to}")
+    int countTaskSnapshotByCompleted(@Param("projectId") Long projectId, @Param("from") String from, @Param("to") String to);
+
+    @Select("SELECT t.task_key AS taskKey, t.title, t.status, t.priority, t.assignee_id AS assigneeId, " +
+            "COALESCE(u.username, '') AS assigneeName, t.created_at AS createdAt, t.completed_at AS completedAt, t.due_date AS dueDate " +
+            "FROM tasks t LEFT JOIN users u ON t.assignee_id = u.id " +
+            "WHERE t.project_id = #{projectId} AND t.due_date IS NOT NULL " +
+            "AND t.due_date >= #{from} AND t.due_date < #{to} " +
+            "ORDER BY t.due_date DESC, t.created_at DESC LIMIT #{limit} OFFSET #{offset}")
+    List<TaskSnapshotItem> selectTaskSnapshotByDue(@Param("projectId") Long projectId,
+                                                   @Param("from") String from,
+                                                   @Param("to") String to,
+                                                   @Param("limit") int limit,
+                                                   @Param("offset") int offset);
+
+    @Select("SELECT COUNT(*) FROM tasks WHERE project_id = #{projectId} AND due_date IS NOT NULL " +
+            "AND due_date >= #{from} AND due_date < #{to}")
+    int countTaskSnapshotByDue(@Param("projectId") Long projectId, @Param("from") String from, @Param("to") String to);
+
     // -------- 趋势：created count per bucket --------
 
     @Select("SELECT DATE(created_at) AS bucketStart, COUNT(*) AS createdCount FROM tasks " +

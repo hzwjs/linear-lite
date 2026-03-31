@@ -434,6 +434,7 @@ const zhCN = {
     },
     dateRange: '日期范围',
     dateSingle: '日期',
+    yearSingle: '年份',
     trend: '趋势',
     created: '新建',
     completed: '完成',

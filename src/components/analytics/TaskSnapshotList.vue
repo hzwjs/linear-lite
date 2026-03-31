@@ -51,6 +51,7 @@ const rangeSubtitle = computed(() =>
           <th>{{ t('common.priority') }}</th>
           <th>{{ t('common.assignee') }}</th>
           <th>{{ t('common.created') }}</th>
+          <th>{{ t('common.dueDate') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -61,6 +62,7 @@ const rangeSubtitle = computed(() =>
           <td>{{ t(`priority.${item.priority}`, item.priority) }}</td>
           <td>{{ item.assigneeName || t('analytics.unassigned') }}</td>
           <td class="cell-date">{{ item.createdAt?.substring(0, 10) }}</td>
+          <td class="cell-date">{{ item.dueDate ? item.dueDate.substring(0, 10) : t('common.none') }}</td>
         </tr>
       </tbody>
     </table>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Granularity } from '../../types/analytics'
 
@@ -14,9 +15,23 @@ const emit = defineEmits<{
   'update:granularity': [value: Granularity]
   'update:from': [value: string]
   'update:to': [value: string]
+  'yearRange': [year: number]
 }>()
 
+function onYearNumberInput(e: Event) {
+  const raw = (e.target as HTMLInputElement).value
+  const y = parseInt(raw, 10)
+  if (!Number.isFinite(y) || y < 1970 || y > 2100) return
+  emit('yearRange', y)
+}
+
 const granularities: Granularity[] = ['day', 'week', 'month', 'year']
+
+const yearFromFrom = computed(() => {
+  const s = props.from?.slice(0, 4) ?? ''
+  const y = parseInt(s, 10)
+  return Number.isFinite(y) ? y : new Date().getFullYear()
+})
 </script>
 
 <template>
@@ -42,6 +57,18 @@ const granularities: Granularity[] = ['day', 'week', 'month', 'year']
           class="date-input"
           :value="from"
           @input="emit('update:from', ($event.target as HTMLInputElement).value)"
+        />
+      </template>
+      <template v-else-if="granularity === 'year'">
+        <label class="date-label">{{ t('analytics.yearSingle') }}</label>
+        <input
+          type="number"
+          class="date-input date-input--year"
+          :value="yearFromFrom"
+          min="1970"
+          max="2100"
+          step="1"
+          @change="onYearNumberInput"
         />
       </template>
       <template v-else>
@@ -114,6 +141,9 @@ const granularities: Granularity[] = ['day', 'week', 'month', 'year']
   background: var(--color-bg-base);
   color: var(--color-text-primary);
   font-size: 13px;
+}
+.date-input--year {
+  width: 5.5rem;
 }
 .date-sep {
   color: var(--color-text-muted);

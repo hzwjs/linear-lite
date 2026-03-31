@@ -434,6 +434,7 @@ const en = {
     },
     dateRange: 'Date range',
     dateSingle: 'Date',
+    yearSingle: 'Year',
     trend: 'Trend',
     created: 'Created',
     completed: 'Completed',

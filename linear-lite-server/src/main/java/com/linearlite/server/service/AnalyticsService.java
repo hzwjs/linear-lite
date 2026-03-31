@@ -23,6 +23,7 @@ import java.util.*;
 public class AnalyticsService {
 
     private static final Set<String> VALID_GRANULARITY = Set.of("day", "week", "month", "year");
+    private static final Set<String> VALID_TASK_LIST_SCOPE = Set.of("created", "completed", "due", "all");
     private static final int MAX_PAGE_SIZE = 200;
     private static final int DEFAULT_PAGE_SIZE = 50;
 
@@ -48,6 +49,10 @@ public class AnalyticsService {
         LocalDateTime to = LocalDateTime.parse(query.getTo());
         if (from.isAfter(to)) {
             throw new IllegalArgumentException("from 不能晚于 to");
+        }
+        String scope = query.getTaskListScope();
+        if (scope != null && !scope.isBlank() && !VALID_TASK_LIST_SCOPE.contains(scope)) {
+            throw new IllegalArgumentException("不支持的 taskListScope: " + scope);
         }
     }
 
@@ -97,9 +102,22 @@ public class AnalyticsService {
         int safePage = Math.max(1, page);
         int offset = (safePage - 1) * cappedPageSize;
 
-        List<TaskSnapshotItem> items = analyticsMapper.selectTaskSnapshot(
-                projectId, query.getFrom(), query.getTo(), cappedPageSize, offset);
-        int total = analyticsMapper.countTaskSnapshot(projectId, query.getFrom(), query.getTo());
+        String scope = query.getTaskListScope();
+        String normalized = (scope == null || scope.isBlank() || "all".equals(scope) || "created".equals(scope))
+                ? "created" : scope;
+
+        List<TaskSnapshotItem> items;
+        int total;
+        if ("completed".equals(normalized)) {
+            items = analyticsMapper.selectTaskSnapshotByCompleted(projectId, query.getFrom(), query.getTo(), cappedPageSize, offset);
+            total = analyticsMapper.countTaskSnapshotByCompleted(projectId, query.getFrom(), query.getTo());
+        } else if ("due".equals(normalized)) {
+            items = analyticsMapper.selectTaskSnapshotByDue(projectId, query.getFrom(), query.getTo(), cappedPageSize, offset);
+            total = analyticsMapper.countTaskSnapshotByDue(projectId, query.getFrom(), query.getTo());
+        } else {
+            items = analyticsMapper.selectTaskSnapshot(projectId, query.getFrom(), query.getTo(), cappedPageSize, offset);
+            total = analyticsMapper.countTaskSnapshot(projectId, query.getFrom(), query.getTo());
+        }
 
         return new TaskSnapshotPageResponse(items, total, safePage, cappedPageSize);
     }

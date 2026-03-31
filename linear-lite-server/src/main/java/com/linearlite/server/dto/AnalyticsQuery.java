@@ -9,6 +9,8 @@ public class AnalyticsQuery {
     private String granularity; // day | week | month | year
     private String from;        // ISO 日期时间
     private String to;          // ISO 日期时间
+    /** 任务明细口径：created | completed | due | all；空/all/created 均按 created_at 筛 */
+    private String taskListScope;
 
     public Long getProjectId() {
         return projectId;
@@ -40,5 +42,13 @@ public class AnalyticsQuery {
 
     public void setTo(String to) {
         this.to = to;
+    }
+
+    public String getTaskListScope() {
+        return taskListScope;
+    }
+
+    public void setTaskListScope(String taskListScope) {
+        this.taskListScope = taskListScope;
     }
 }
