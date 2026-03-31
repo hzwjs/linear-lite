@@ -7,18 +7,7 @@ import {
   PriorityMediumIcon,
   PriorityLowIcon
 } from './icons/PriorityIcons'
-import {
-  Circle,
-  CircleDashed,
-  CircleX,
-  CheckCircle,
-  Copy,
-  Eye,
-  FoldVertical,
-  Loader2,
-  UnfoldVertical,
-  User as UserIcon
-} from 'lucide-vue-next'
+import { Circle, CheckCircle, FoldVertical, UnfoldVertical, User as UserIcon } from 'lucide-vue-next'
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
@@ -27,6 +16,7 @@ import type { VisibleProperty } from '../utils/viewPreference'
 import { getSubtaskProgressDisplay } from '../utils/subtaskProgress'
 import { getInitials, getAvatarColor } from '../utils/avatar'
 import { getStatusLabel } from '../utils/enumLabels'
+import TaskRowStatusPicker from './TaskRowStatusPicker.vue'
 
 const props = defineProps<{
   groups: TaskGroup[]
@@ -55,16 +45,6 @@ const priorityIcons: Record<Priority, typeof PriorityUrgentIcon> = {
   high: PriorityHighIcon,
   medium: PriorityMediumIcon,
   low: PriorityLowIcon
-}
-
-const statusIcons: Record<Status, typeof Circle> = {
-  backlog: CircleDashed,
-  todo: Circle,
-  in_progress: Loader2,
-  in_review: Eye,
-  done: CheckCircle,
-  canceled: CircleX,
-  duplicate: Copy
 }
 
 function toggle(groupKey: string) {
@@ -127,6 +107,10 @@ async function toggleComplete(e: MouseEvent, task: Task) {
   await store.transitionTask(task.id, newStatus)
 }
 
+async function onStatusPicked(task: Task, next: Status) {
+  await store.transitionTask(task.id, next)
+}
+
 function onRowClick(task: Task) {
   emit('rowClick', task)
 }
@@ -165,17 +149,18 @@ function hasExpandableSubtasksInGroup(task: Task, group: TaskGroup): boolean {
   return path != null && path.length > 0 && path[path.length - 1] === task.id
 }
 
+/** 与 filterVisibleTaskRows 一致：凡出现在子行 path 中的父 id 都需展开，避免仅靠 subIssueCount/邻行判断漏掉多级祖先 */
 function expandableParentTaskIdsInGroup(group: TaskGroup): string[] {
   const rows = groupListRows(group)
-  const out: string[] = []
-  const seen = new Set<string>()
+  const idSet = new Set<string>()
   for (const row of rows) {
-    if (!hasExpandableSubtasksInGroup(row.task, group)) continue
-    if (seen.has(row.task.id)) continue
-    seen.add(row.task.id)
-    out.push(row.task.id)
+    const path = row.subtaskExpandPath
+    if (!path?.length) continue
+    for (const id of path) {
+      idSet.add(id)
+    }
   }
-  return out
+  return [...idSet]
 }
 
 function groupHasExpandableSubtasks(group: TaskGroup): boolean {
@@ -352,9 +337,11 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
               />
             </div>
             <span class="task-row-key">{{ row.task.id }}</span>
-            <span class="task-row-status">
-              <component :is="statusIcons[row.task.status]" class="icon icon-14 status-icon" />
-            </span>
+            <TaskRowStatusPicker
+              :task-id="row.task.id"
+              :status="row.task.status"
+              @change="(s) => onStatusPicked(row.task, s)"
+            />
             <div class="task-row-content">
               <span class="task-row-title-cluster">
                 <span class="task-row-title">{{ rowTitle(row) }}</span>
@@ -491,6 +478,7 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
 
 .group-toggle {
   flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -666,10 +654,6 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
 .priority-icon {
   color: var(--color-text-muted);
 }
-.status-icon {
-  color: var(--color-text-secondary);
-}
-
 .task-row-key {
   flex: 0 0 auto;
   min-width: 56px;
@@ -681,14 +665,6 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.task-row-status {
-  flex: 0 0 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
 }
 
 .task-row-content {

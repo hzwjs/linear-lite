@@ -380,6 +380,7 @@ const en = {
     monthsAgo: '{count}mo ago'
   },
   taskList: {
+    changeStatus: 'Change status',
     createIssueInGroup: 'Create issue in group',
     markDone: 'Mark done',
     markNotDone: 'Mark not done',

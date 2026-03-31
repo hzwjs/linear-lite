@@ -380,6 +380,7 @@ const zhCN = {
     monthsAgo: '{count} 个月前'
   },
   taskList: {
+    changeStatus: '更改状态',
     createIssueInGroup: '在分组中创建任务',
     markDone: '标记为已完成',
     markNotDone: '标记为未完成',
