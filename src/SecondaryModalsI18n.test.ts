@@ -54,6 +54,7 @@ describe('secondary modal translations exist in catalogs', () => {
     expect(
       i18n.global.t('projectSettingsModal.deleteConfirm', { name: 'Foo' })
     ).toBe('Delete project \"Foo\" and all its tasks? This cannot be undone.')
+    expect(i18n.global.t('projectSettingsModal.invitePlaceholder')).toBe('name@example.com')
     expect(i18n.global.t('taskImportModal.dropzone.copy')).toBe(
       'Required template columns: `title`, `importId`. Optional: `parentImportId`, `description`, `status`, `priority`, `assignee`, `dueDate`.'
     )
@@ -69,6 +70,7 @@ describe('secondary modal translations exist in catalogs', () => {
     expect(
       i18n.global.t('projectSettingsModal.deleteConfirm', { name: 'Foo' })
     ).toBe('删除项目“Foo”及其所有任务？该操作无法撤销。')
+    expect(i18n.global.t('projectSettingsModal.invitePlaceholder')).toBe('name@example.com')
     expect(i18n.global.t('taskImportModal.dropzone.copy')).toBe(
       '必填模板列：`title`、`importId`。可选：`parentImportId`、`description`、`status`、`priority`、`assignee`、`dueDate`。'
     )

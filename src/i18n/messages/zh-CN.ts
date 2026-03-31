@@ -104,7 +104,7 @@ const zhCN = {
     inviteButton: '邀请',
     inviting: '邀请中…',
     inviteSuccess: '邀请已发送。',
-    invitePlaceholder: 'name@example.com',
+    invitePlaceholder: "name{'@'}example.com",
     deleteTitle: '删除项目',
     deleteDescription: '此操作将永久删除项目及其所有任务。',
     deleteButton: '删除项目',

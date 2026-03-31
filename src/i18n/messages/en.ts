@@ -104,7 +104,7 @@ const en = {
     inviteButton: 'Invite',
     inviting: 'Inviting...',
     inviteSuccess: 'Invitation sent.',
-    invitePlaceholder: 'name@example.com',
+    invitePlaceholder: "name{'@'}example.com",
     deleteTitle: 'Delete project',
     deleteDescription: 'This deletes the project and all tasks permanently.',
     deleteButton: 'Delete project',
