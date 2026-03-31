@@ -74,6 +74,7 @@ const en = {
     projects: 'Projects',
     newProjectTitle: 'New project',
     projectSettings: 'Project settings',
+    analytics: 'Analytics',
     signOut: 'Sign out',
     hideSidebar: 'Hide sidebar',
     showSidebar: 'Show sidebar'
@@ -422,6 +423,43 @@ const en = {
     changedFromTo: '{actor} changed {field} from {oldValue} to {newValue}',
     updated: '{actor} updated the issue',
     emptyValue: 'empty'
+  },
+  analytics: {
+    title: 'Project Analytics',
+    granularity: {
+      day: 'Day',
+      week: 'Week',
+      month: 'Month',
+      year: 'Year'
+    },
+    dateRange: 'Date range',
+    dateSingle: 'Date',
+    trend: 'Trend',
+    created: 'Created',
+    completed: 'Completed',
+    due: 'Due',
+    currentSnapshot: 'Current Snapshot',
+    totalTasks: 'Total tasks',
+    overdue: 'Overdue',
+    statusBreakdown: 'Status Distribution',
+    assigneeBreakdown: 'Assignee Distribution',
+    priorityBreakdown: 'Priority Distribution',
+    taskList: 'Task Details',
+    dayFocus: 'Daily Key Metrics',
+    allTasks: 'All Tasks',
+    createdToday: 'Created Today',
+    completedToday: 'Completed Today',
+    dueToday: 'Due Today',
+    noData: 'No data',
+    loading: 'Loading...',
+    loadError: 'Load failed',
+    retry: 'Retry',
+    netChange: 'Net change',
+    unassigned: 'Unassigned',
+    page: 'Page {page}',
+    totalItems: '{total} items',
+    prevPage: 'Previous',
+    nextPage: 'Next'
   }
 } as const
 

@@ -74,6 +74,7 @@ const zhCN = {
     projects: '项目',
     newProjectTitle: '新建项目',
     projectSettings: '项目设置',
+    analytics: '统计',
     signOut: '登出',
     hideSidebar: '隐藏侧边栏',
     showSidebar: '显示侧边栏'
@@ -422,6 +423,43 @@ const zhCN = {
     changedFromTo: '{actor} 将 {field} 从 {oldValue} 改为 {newValue}',
     updated: '{actor} 更新了任务',
     emptyValue: '空'
+  },
+  analytics: {
+    title: '项目统计',
+    granularity: {
+      day: '天',
+      week: '周',
+      month: '月',
+      year: '年'
+    },
+    dateRange: '日期范围',
+    dateSingle: '日期',
+    trend: '趋势',
+    created: '新建',
+    completed: '完成',
+    due: '到期',
+    currentSnapshot: '当前快照',
+    totalTasks: '总任务',
+    overdue: '逾期',
+    statusBreakdown: '状态分布',
+    assigneeBreakdown: '负责人分布',
+    priorityBreakdown: '优先级分布',
+    taskList: '任务明细',
+    dayFocus: '当日关键指标',
+    allTasks: '全部任务',
+    createdToday: '当日新增',
+    completedToday: '当日完成',
+    dueToday: '当日到期',
+    noData: '暂无数据',
+    loading: '加载中...',
+    loadError: '加载失败',
+    retry: '重试',
+    netChange: '净增量',
+    unassigned: '未分配',
+    page: '第 {page} 页',
+    totalItems: '共 {total} 项',
+    prevPage: '上一页',
+    nextPage: '下一页'
   }
 } as const
 

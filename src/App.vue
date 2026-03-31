@@ -27,7 +27,8 @@ import {
   Star,
   PanelLeft,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  BarChart3
 } from 'lucide-vue-next'
 
 const SIDEBAR_HIDDEN_KEY = 'linear-lite.sidebarHidden'
@@ -344,6 +345,18 @@ onUnmounted(() => {
           </button>
         </div>
       </nav>
+      <nav class="sidebar-nav sidebar-nav--analytics">
+        <button
+          type="button"
+          class="sidebar-item"
+          :class="{ active: route.path === '/analytics' }"
+          data-testid="sidebar-analytics"
+          @click="router.push('/analytics')"
+        >
+          <BarChart3 class="sidebar-item-icon" />
+          <span class="sidebar-item-name">{{ t('sidebar.analytics') }}</span>
+        </button>
+      </nav>
       <div class="sidebar-footer">
         <div class="locale-switcher">
           <button
@@ -530,6 +543,10 @@ onUnmounted(() => {
 }
 .sidebar-nav--projects {
   flex: 1;
+}
+.sidebar-nav--analytics {
+  padding: 4px 16px 8px 28px;
+  border-top: 1px solid var(--color-border-subtle, var(--color-border));
 }
 .sidebar-item {
   display: flex;

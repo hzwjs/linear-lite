@@ -83,6 +83,14 @@ CREATE INDEX idx_tasks_task_key ON tasks (task_key);
 CREATE INDEX idx_tasks_creator_id  ON tasks (creator_id);
 CREATE INDEX idx_tasks_assignee_id ON tasks (assignee_id);
 
+-- 统计模块复合索引（仅索引，无外键）
+CREATE INDEX idx_tasks_project_created_at ON tasks (project_id, created_at);
+CREATE INDEX idx_tasks_project_completed_at ON tasks (project_id, completed_at);
+CREATE INDEX idx_tasks_project_due_date ON tasks (project_id, due_date);
+CREATE INDEX idx_tasks_project_status ON tasks (project_id, status);
+CREATE INDEX idx_tasks_project_assignee ON tasks (project_id, assignee_id);
+CREATE INDEX idx_tasks_project_priority ON tasks (project_id, priority);
+
 CREATE TABLE IF NOT EXISTS task_favorites (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id     BIGINT       NOT NULL,
