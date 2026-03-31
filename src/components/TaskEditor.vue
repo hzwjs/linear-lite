@@ -42,6 +42,7 @@ import {
   Folder,
   Send
 } from 'lucide-vue-next'
+import TaskRowStatusPicker from './TaskRowStatusPicker.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -281,6 +282,11 @@ async function submitSubIssue() {
   } finally {
     subIssueSaving.value = false
   }
+}
+
+async function onSubIssueStatusPicked(task: Task, nextStatus: Status) {
+  await store.transitionTask(task.id, nextStatus)
+  await loadSubIssues()
 }
 
 async function loadAttachments() {
@@ -774,16 +780,19 @@ async function toggleFavorite() {
                 <li
                   v-for="row in subIssueRows"
                   :key="row.task.id"
-                  class="linear-sub-item"
+                  class="linear-sub-item linear-sub-row"
                   :style="{ paddingLeft: row.depth > 0 ? `${row.depth * 16}px` : undefined }"
                 >
+                  <TaskRowStatusPicker
+                    :task-id="row.task.id"
+                    :status="row.task.status"
+                    @change="(s) => onSubIssueStatusPicked(row.task, s)"
+                  />
                   <button
                     type="button"
                     class="linear-sub-link"
                     @click="navigateTo(row.task.id)"
                   >
-                    <CheckCircle v-if="row.task.status === 'done'" class="icon-14 icon-done" />
-                    <Circle v-else class="icon-14 icon-circle" />
                     <span>{{ row.task.title }}</span>
                     <span v-if="(row.task.subIssueCount ?? 0) > 0" class="linear-sub-xy">{{ row.task.completedSubIssueCount ?? 0 }}/{{ row.task.subIssueCount }}</span>
                   </button>
@@ -1298,6 +1307,11 @@ async function toggleFavorite() {
 .linear-sub-item {
   margin: 2px 0;
 }
+.linear-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .linear-sub-link {
   display: inline-flex;
   align-items: center;
@@ -1310,6 +1324,7 @@ async function toggleFavorite() {
   cursor: pointer;
   text-align: left;
   width: 100%;
+  min-width: 0;
 }
 .linear-sub-link:hover {
   color: var(--color-accent);
