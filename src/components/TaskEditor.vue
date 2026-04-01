@@ -15,7 +15,7 @@ import { activityApi } from '../services/api/activity'
 import { attachmentsApi } from '../services/api/attachments'
 import type { TaskAttachment } from '../services/api/types'
 import { formatTaskActivity, getActivityAvatarLabel } from '../utils/taskActivity'
-import { formatDateInputValue, parseDateInputValue } from '../utils/taskDate'
+import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import TiptapEditor from './TiptapEditor.vue'
@@ -464,7 +464,7 @@ const loadForm = () => {
     formStatus.value = props.defaultStatus ?? 'todo'
     formPriority.value = 'medium'
     formAssigneeId.value = ''
-    formPlannedStartDate.value = ''
+    formPlannedStartDate.value = todayDateInputValue()
     formDueDate.value = ''
     formProgressPercent.value = 0
   }

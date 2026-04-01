@@ -3,6 +3,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import { useViewModeStore } from './viewModeStore'
 
+const VIEW_PREF_KEY = 'linear-lite-view'
+
 describe('viewModeStore', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -22,8 +24,7 @@ describe('viewModeStore', () => {
       'dueDate',
       'plannedStart',
       'priority',
-      'progress',
-      'updatedAt'
+      'progress'
     ])
   })
 
@@ -60,9 +61,52 @@ describe('viewModeStore', () => {
     const store = useViewModeStore()
 
     store.toggleVisibleProperty('priority')
-    store.toggleVisibleProperty('updatedAt')
 
     expect(store.visibleProperties).toEqual(['assignee', 'dueDate', 'plannedStart', 'progress'])
+  })
+
+  it('migrates legacy stored visibleProperties to include progress and plannedStart once', () => {
+    localStorage.setItem(
+      VIEW_PREF_KEY,
+      JSON.stringify({
+        layout: 'list',
+        groupBy: 'status',
+        orderBy: 'updatedAt',
+        orderDirection: 'desc',
+        visibleProperties: ['assignee', 'dueDate', 'priority', 'updatedAt'],
+        showEmptyGroups: false,
+        completedVisibility: 'all',
+        showSubIssues: true,
+        nestedSubIssues: true
+      })
+    )
+    setActivePinia(createPinia())
+    const store = useViewModeStore()
+
+    expect(store.visibleProperties).toContain('progress')
+    expect(store.visibleProperties).toContain('plannedStart')
+    expect(store.viewConfig.viewPrefVersion).toBe(2)
+  })
+
+  it('does not re-add progress after user turned it off on v2 config', async () => {
+    localStorage.setItem(
+      VIEW_PREF_KEY,
+      JSON.stringify({
+        layout: 'list',
+        groupBy: 'status',
+        orderBy: 'updatedAt',
+        orderDirection: 'desc',
+        visibleProperties: ['assignee', 'dueDate', 'plannedStart', 'priority', 'updatedAt'],
+        showEmptyGroups: false,
+        completedVisibility: 'all',
+        showSubIssues: true,
+        nestedSubIssues: true,
+        viewPrefVersion: 2
+      })
+    )
+    setActivePinia(createPinia())
+    const store = useViewModeStore()
+    expect(store.visibleProperties).not.toContain('progress')
   })
 
   it('persists and restores full view config', async () => {
@@ -70,7 +114,7 @@ describe('viewModeStore', () => {
     store.setView('list')
     store.setGroupBy('priority')
     store.setOrderBy('createdAt')
-    store.toggleVisibleProperty('updatedAt')
+    store.toggleVisibleProperty('priority')
     store.setCompletedVisibility('open_only')
     await nextTick()
 
@@ -80,7 +124,7 @@ describe('viewModeStore', () => {
     expect(store.viewConfig.layout).toBe('list')
     expect(store.viewConfig.groupBy).toBe('priority')
     expect(store.viewConfig.orderBy).toBe('createdAt')
-    expect(store.visibleProperties).not.toContain('updatedAt')
+    expect(store.visibleProperties).not.toContain('priority')
     expect(store.viewConfig.completedVisibility).toBe('open_only')
   })
 })

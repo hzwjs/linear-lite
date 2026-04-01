@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useTaskStore } from '../store/taskStore'
 import type { Priority, Status, User } from '../types/domain'
 import { userApi } from '../services/api/user'
-import { parseDateInputValue } from '../utils/taskDate'
+import { parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import TiptapEditor from './TiptapEditor.vue'
 import CustomSelect from './ui/CustomSelect.vue'
@@ -49,6 +49,7 @@ const descriptionUploadState = ref({ hasPending: false, hasFailed: false })
 const status = ref<Status>('todo')
 const priority = ref<Priority>('medium')
 const assigneeId = ref<string | number>('')
+const plannedStartDate = ref('')
 const dueDate = ref('')
 const createMore = ref(false)
 const isSaving = ref(false)
@@ -103,6 +104,7 @@ function resetForm() {
   status.value = props.defaultStatus ?? 'todo'
   priority.value = 'medium'
   assigneeId.value = ''
+  plannedStartDate.value = todayDateInputValue()
   dueDate.value = ''
 }
 
@@ -134,6 +136,7 @@ async function handleCreate() {
   if (descriptionUploadState.value.hasPending || descriptionUploadState.value.hasFailed) return
 
   isSaving.value = true
+  const plannedStartMs = parseDateInputValue(plannedStartDate.value)
   const dueDateMs = parseDateInputValue(dueDate.value)
 
   try {
@@ -151,6 +154,7 @@ async function handleCreate() {
       status: status.value,
       priority: priority.value,
       assigneeId: assigneeIdForApi,
+      plannedStartDate: plannedStartMs,
       dueDate: dueDateMs,
       parentId: props.parentNumericId ?? undefined
     })
@@ -236,6 +240,13 @@ async function handleCreate() {
               :options="assigneeOptions"
               :placeholder="t('common.assignee')"
               :aria-label="t('common.assignee')"
+              trigger-class="composer-trigger"
+            />
+            <CustomDatePicker
+              id="composer-planned-start"
+              v-model="plannedStartDate"
+              :placeholder="t('common.plannedStartDate')"
+              :aria-label="t('common.plannedStartDate')"
               trigger-class="composer-trigger"
             />
             <CustomDatePicker

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { formatDateInputValue, parseDateInputValue, toApiDateTime } from './taskDate'
+import {
+  formatDateInputValue,
+  parseDateInputValue,
+  todayDateInputValue,
+  toApiDateTime
+} from './taskDate'
 
 describe('taskDate helpers', () => {
   it('formats stored local-midnight timestamp without shifting calendar day', () => {
@@ -18,5 +23,10 @@ describe('taskDate helpers', () => {
     const ms = parseDateInputValue('2026-03-10')
 
     expect(toApiDateTime(ms)).toBe('2026-03-10T00:00:00')
+  })
+
+  it('todayDateInputValue is local calendar today in YYYY-MM-DD', () => {
+    expect(todayDateInputValue()).toBe(formatDateInputValue(Date.now()))
+    expect(todayDateInputValue()).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 })
