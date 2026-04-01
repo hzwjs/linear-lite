@@ -161,6 +161,7 @@ const zhCN = {
     noTasksMatchSearchAndFilters: '没有任务同时匹配当前搜索与筛选条件。',
     filterByStatus: '按状态筛选',
     filterByPriority: '按优先级筛选',
+    assigneeQuickFilter: '负责人快速筛选',
     filterByAssignee: '按处理人筛选',
     groupBy: '分组方式',
     groupTasks: '任务分组',

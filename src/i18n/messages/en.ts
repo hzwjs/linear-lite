@@ -161,6 +161,7 @@ const en = {
     noTasksMatchSearchAndFilters: 'No issues match both your search and filters.',
     filterByStatus: 'Filter by status',
     filterByPriority: 'Filter by priority',
+    assigneeQuickFilter: 'Quick assignee filter',
     filterByAssignee: 'Filter by assignee',
     groupBy: 'Group by',
     groupTasks: 'Group tasks',
