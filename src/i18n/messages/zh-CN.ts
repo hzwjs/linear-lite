@@ -383,6 +383,8 @@ const zhCN = {
   taskList: {
     changeStatus: '更改状态',
     createIssueInGroup: '在分组中创建任务',
+    copyTitle: '复制标题',
+    titleCopied: '已复制',
     markDone: '标记为已完成',
     markNotDone: '标记为未完成',
     addSubIssue: '添加子任务',

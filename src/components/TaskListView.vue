@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   PriorityUrgentIcon,
@@ -7,7 +7,7 @@ import {
   PriorityMediumIcon,
   PriorityLowIcon
 } from './icons/PriorityIcons'
-import { Circle, CheckCircle, FoldVertical, UnfoldVertical, User as UserIcon } from 'lucide-vue-next'
+import { Check, Circle, CheckCircle, Copy, FoldVertical, UnfoldVertical, User as UserIcon } from 'lucide-vue-next'
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
@@ -37,6 +37,17 @@ const store = useTaskStore()
 const { t } = useI18n()
 const collapsed = ref<Record<string, boolean>>({})
 const rowHoveredId = ref<string | null>(null)
+/** 复制成功后的短暂反馈（图标与提示文案） */
+const copyFeedbackTaskId = ref<string | null>(null)
+let copyFeedbackClearTimer: ReturnType<typeof setTimeout> | null = null
+const COPY_FEEDBACK_MS = 1800
+
+onUnmounted(() => {
+  if (copyFeedbackClearTimer != null) {
+    clearTimeout(copyFeedbackClearTimer)
+    copyFeedbackClearTimer = null
+  }
+})
 const subtaskRingRadius = 5
 const subtaskRingCircumference = 2 * Math.PI * subtaskRingRadius
 
@@ -227,6 +238,34 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
   e.stopPropagation()
   emit('addSubIssue', task)
 }
+
+async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
+  e.stopPropagation()
+  try {
+    await navigator.clipboard.writeText(title)
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = title
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    try {
+      document.execCommand('copy')
+    } finally {
+      document.body.removeChild(ta)
+    }
+  }
+  if (copyFeedbackClearTimer != null) {
+    clearTimeout(copyFeedbackClearTimer)
+  }
+  copyFeedbackTaskId.value = taskId
+  copyFeedbackClearTimer = setTimeout(() => {
+    copyFeedbackTaskId.value = null
+    copyFeedbackClearTimer = null
+  }, COPY_FEEDBACK_MS)
+}
 </script>
 
 <template>
@@ -345,6 +384,29 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
             <div class="task-row-content">
               <span class="task-row-title-cluster">
                 <span class="task-row-title">{{ rowTitle(row) }}</span>
+                <button
+                  type="button"
+                  class="task-row-copy-title"
+                  :class="{
+                    visible: rowHoveredId === row.task.id || copyFeedbackTaskId === row.task.id,
+                    success: copyFeedbackTaskId === row.task.id
+                  }"
+                  :aria-label="
+                    copyFeedbackTaskId === row.task.id ? t('taskList.titleCopied') : t('taskList.copyTitle')
+                  "
+                  :title="
+                    copyFeedbackTaskId === row.task.id ? t('taskList.titleCopied') : t('taskList.copyTitle')
+                  "
+                  @click.stop="copyTaskTitle($event, row.task.id, rowTitle(row))"
+                >
+                  <Check
+                    v-if="copyFeedbackTaskId === row.task.id"
+                    class="task-row-copy-title-icon"
+                    stroke-width="2.5"
+                    aria-hidden="true"
+                  />
+                  <Copy v-else class="task-row-copy-title-icon" stroke-width="2" aria-hidden="true" />
+                </button>
                 <span
                   v-if="subtaskProgress(row.task).visible"
                   class="task-row-sub-count"
@@ -691,6 +753,37 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.25;
+}
+.task-row-copy-title {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+}
+.task-row-copy-title.visible {
+  opacity: 1;
+}
+.task-row-copy-title.success {
+  color: var(--color-status-done);
+  pointer-events: none;
+}
+.task-row-copy-title:hover:not(.success) {
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+}
+.task-row-copy-title-icon {
+  width: 14px;
+  height: 14px;
 }
 .task-row-sub-count {
   flex: 0 0 auto;

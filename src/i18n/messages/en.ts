@@ -383,6 +383,8 @@ const en = {
   taskList: {
     changeStatus: 'Change status',
     createIssueInGroup: 'Create issue in group',
+    copyTitle: 'Copy title',
+    titleCopied: 'Copied',
     markDone: 'Mark done',
     markNotDone: 'Mark not done',
     addSubIssue: 'Add sub-issue',
