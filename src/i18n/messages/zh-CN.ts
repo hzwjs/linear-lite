@@ -387,7 +387,8 @@ const zhCN = {
     minutesAgo: '{count} 分钟前',
     hoursAgo: '{count} 小时前',
     daysAgo: '{count} 天前',
-    monthsAgo: '{count} 个月前'
+    monthsAgo: '{count} 个月前',
+    importedAssigneeLine: '导入处理人：{name}'
   },
   taskList: {
     changeStatus: '更改状态',
@@ -403,7 +404,11 @@ const zhCN = {
     collapseAllSubtasks: '全部折叠',
     columnPlannedStart: '计划开始',
     columnDueDate: '截止日期',
-    columnProgress: '进度'
+    columnProgress: '进度',
+    changeAssignee: '更改负责人',
+    assigneeSearchPlaceholder: '搜索成员',
+    clearDate: '清除日期',
+    progressDragAria: '拖动或左右键调整进度'
   },
   status: {
     backlog: '待办',

@@ -13,7 +13,6 @@ import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
-import com.linearlite.server.mapper.UserMapper;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,8 +44,6 @@ class TaskServiceTest {
     @Mock
     private TaskActivityService taskActivityService;
     @Mock
-    private UserMapper userMapper;
-    @Mock
     private ProjectMemberMapper projectMemberMapper;
 
     private TaskService taskService;
@@ -58,7 +55,6 @@ class TaskServiceTest {
                 projectMapper,
                 taskFavoriteMapper,
                 taskActivityService,
-                userMapper,
                 projectMemberMapper
         );
     }
@@ -249,8 +245,6 @@ class TaskServiceTest {
 
         when(projectMapper.selectById(1L)).thenReturn(project);
         when(taskMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
-        when(userMapper.selectById(1L)).thenReturn(new com.linearlite.server.entity.User());
-        when(userMapper.selectById(2L)).thenReturn(new com.linearlite.server.entity.User());
         when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
         doAnswer(invocation -> {
             Task task = invocation.getArgument(0);
@@ -270,9 +264,51 @@ class TaskServiceTest {
         assertEquals(1, response.getParentCount());
         assertEquals(1, response.getSubtaskCount());
         assertEquals(2, response.getCreatedCount());
+        assertEquals(null, inserted.get(0).getAssigneeDisplayName());
+        assertEquals(null, inserted.get(1).getAssigneeDisplayName());
         verify(taskMapper).updateById(org.mockito.ArgumentMatchers.argThat(task ->
                 task.getId().equals(102L) && task.getParentId().equals(101L)
         ));
+    }
+
+    @Test
+    void importTasksStoresAssigneeDisplayNameWhenNoAssigneeId() {
+        Project project = new Project();
+        project.setId(1L);
+        project.setIdentifier("ENG");
+
+        TaskImportRowRequest row = new TaskImportRowRequest();
+        row.setImportId("X-1");
+        row.setTitle("External assignee");
+        row.setAssigneeId(null);
+        row.setAssigneeDisplayName("  外部处理人  ");
+
+        TaskImportRequest request = new TaskImportRequest();
+        request.setProjectId(1L);
+        request.setRows(List.of(row));
+
+        Task inserted = new Task();
+        inserted.setId(201L);
+        inserted.setTaskKey("ENG-1");
+        inserted.setProjectId(1L);
+
+        when(projectMapper.selectById(1L)).thenReturn(project);
+        when(taskMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        doAnswer(invocation -> {
+            Task task = invocation.getArgument(0);
+            task.setId(201L);
+            return 1;
+        }).when(taskMapper).insert(any(Task.class));
+        when(taskMapper.selectById(201L)).thenReturn(inserted);
+
+        taskService.importTasks(request, 7L);
+
+        ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
+        verify(taskMapper).insert(taskCaptor.capture());
+        Task captured = taskCaptor.getValue();
+        assertEquals(null, captured.getAssigneeId());
+        assertEquals("外部处理人", captured.getAssigneeDisplayName());
     }
 
     @Test

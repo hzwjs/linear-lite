@@ -6,6 +6,7 @@ import {
   buildTaskImportPreview,
   getTaskImportTemplateCsv,
   getTaskImportFileKind,
+  parseTaskImportFile,
   TASK_IMPORT_FIELD_ALIASES,
   type TaskImportColumnMapping
 } from './taskImport'
@@ -41,6 +42,24 @@ describe('taskImport helpers', () => {
     expect(getTaskImportFileKind('tasks.txt')).toBe(null)
   })
 
+  it('parses UTF-8 CSV text without mojibake', async () => {
+    const csv = 'title,importId\n系统管理,T-1\n'
+    const parsed = await parseTaskImportFile(new File([csv], 'tasks.csv', { type: 'text/csv' }))
+    expect(parsed.rows[0]?.title).toBe('系统管理')
+    expect(parsed.rows[0]?.importId).toBe('T-1')
+  })
+
+  it('strips UTF-8 BOM from CSV so headers map correctly', async () => {
+    const bom = new Uint8Array([0xef, 0xbb, 0xbf])
+    const rest = new TextEncoder().encode('title,importId\nx,T-1\n')
+    const bytes = new Uint8Array(bom.length + rest.length)
+    bytes.set(bom, 0)
+    bytes.set(rest, bom.length)
+    const parsed = await parseTaskImportFile(new File([bytes], 'b.csv', { type: 'text/csv' }))
+    expect(parsed.headers[0]).toBe('title')
+    expect(parsed.rows[0]?.title).toBe('x')
+  })
+
   it('builds a downloadable csv template with sample parent-child rows', () => {
     expect(getTaskImportTemplateCsv()).toBe(
       [
@@ -67,6 +86,23 @@ describe('taskImport helpers', () => {
 
     expect(mapping).toEqual(fullMapping())
     expect(TASK_IMPORT_FIELD_ALIASES.title).toContain('task name')
+  })
+
+  it('auto-maps official template camelCase headers', () => {
+    const headerLine = getTaskImportTemplateCsv().split('\n')[0] ?? ''
+    const headers = headerLine.split(',')
+    const mapping = autoMapTaskImportColumns(headers)
+
+    expect(mapping.title).toBe('title')
+    expect(mapping.importId).toBe('importId')
+    expect(mapping.parentImportId).toBe('parentImportId')
+    expect(mapping.description).toBe('description')
+    expect(mapping.status).toBe('status')
+    expect(mapping.priority).toBe('priority')
+    expect(mapping.assignee).toBe('assignee')
+    expect(mapping.plannedStartDate).toBe('plannedStartDate')
+    expect(mapping.dueDate).toBe('dueDate')
+    expect(mapping.progressPercent).toBe('progressPercent')
   })
 
   it('rejects files with more than 800 rows', () => {
@@ -252,6 +288,7 @@ describe('taskImport helpers', () => {
         status: 'todo',
         priority: 'high',
         assigneeId: 1,
+        assigneeDisplayName: null,
         dueDate: '2026-03-20T00:00:00',
         plannedStartDate: '2026-03-18T00:00:00',
         progressPercent: 0
@@ -265,10 +302,37 @@ describe('taskImport helpers', () => {
         status: 'in_progress',
         priority: 'medium',
         assigneeId: 2,
+        assigneeDisplayName: null,
         dueDate: null,
         plannedStartDate: null,
         progressPercent: 40
       }
     ])
+  })
+
+  it('sets assigneeDisplayName when owner is not a system user', () => {
+    const preview = buildTaskImportPreview(
+      [
+        {
+          'Task Name': 'Task ext',
+          Details: '',
+          State: 'todo',
+          Severity: 'medium',
+          Owner: '外部姓名',
+          'Due Date': '2026-03-20',
+          'Row ID': 'E-1',
+          'Parent Row ID': ''
+        }
+      ],
+      {
+        mapping: fullMapping(),
+        users
+      }
+    )
+
+    expect(preview.rowErrors).toEqual([])
+    expect(preview.rows).toHaveLength(1)
+    expect(preview.rows[0]?.assigneeId).toBeNull()
+    expect(preview.rows[0]?.assigneeDisplayName).toBe('外部姓名')
   })
 })

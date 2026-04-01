@@ -387,7 +387,8 @@ const en = {
     minutesAgo: '{count}m ago',
     hoursAgo: '{count}h ago',
     daysAgo: '{count}d ago',
-    monthsAgo: '{count}mo ago'
+    monthsAgo: '{count}mo ago',
+    importedAssigneeLine: 'Imported assignee: {name}'
   },
   taskList: {
     changeStatus: 'Change status',
@@ -403,7 +404,11 @@ const en = {
     collapseAllSubtasks: 'Collapse all',
     columnPlannedStart: 'Planned start',
     columnDueDate: 'Due date',
-    columnProgress: 'Progress'
+    columnProgress: 'Progress',
+    changeAssignee: 'Change assignee',
+    assigneeSearchPlaceholder: 'Search members',
+    clearDate: 'Clear date',
+    progressDragAria: 'Drag or use arrow keys to adjust progress'
   },
   status: {
     backlog: 'Backlog',

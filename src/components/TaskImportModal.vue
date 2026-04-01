@@ -15,7 +15,8 @@ import {
   TASK_IMPORT_REQUIRED_FIELDS,
   type ParsedTaskImportFile,
   type TaskImportColumnMapping,
-  type TaskImportField
+  type TaskImportField,
+  type TaskImportPreviewRow
 } from '../utils/taskImport'
 
 const props = defineProps<{
@@ -138,6 +139,16 @@ function goBack() {
     return
   }
   emit('close')
+}
+
+function previewAssigneeLabel(row: TaskImportPreviewRow) {
+  if (row.assigneeId != null) {
+    const u = props.users.find((x) => x.id === row.assigneeId)
+    if (u) return u.username
+    return String(row.assigneeId)
+  }
+  if (row.assigneeDisplayName?.trim()) return row.assigneeDisplayName.trim()
+  return t('common.unassigned')
 }
 
 function downloadTemplate() {
@@ -327,7 +338,7 @@ async function submitImport() {
                   <td>{{ row.title }}</td>
                   <td>{{ row.status }}</td>
                   <td>{{ row.priority }}</td>
-                  <td>{{ row.assigneeId ?? t('common.unassigned') }}</td>
+                  <td>{{ previewAssigneeLabel(row) }}</td>
                   <td>{{ row.plannedStartDate ? row.plannedStartDate.slice(0, 10) : '—' }}</td>
                   <td>{{ row.progressPercent }}%</td>
                   <td>{{ row.parentImportId ?? t('taskImportModal.preview.table.topLevel') }}</td>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, useSlots } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const props = withDefaults(
@@ -8,8 +8,10 @@ const props = withDefaults(
     placeholder?: string
     ariaLabel?: string
     triggerClass?: string
+    /** 多个日历同时存在时用于面板 aria id，避免重复 */
+    panelDomId?: string
   }>(),
-  { placeholder: '', ariaLabel: '', triggerClass: '' }
+  { placeholder: '', ariaLabel: '', triggerClass: '', panelDomId: 'date-picker-panel' }
 )
 
 const emit = defineEmits<{
@@ -35,6 +37,9 @@ const weekdayLabels = computed(() => [
   t('datePicker.weekdays.sun')
 ])
 const localeTag = computed(() => locale.value)
+const slots = useSlots()
+const hasTriggerSlot = computed(() => typeof slots.trigger === 'function')
+const resolvedPanelId = computed(() => props.panelDomId || 'date-picker-panel')
 
 const displayText = computed(() => {
   if (!props.modelValue) return resolvedPlaceholder.value
@@ -84,9 +89,28 @@ function open() {
     }
   }
 }
+function focusTrigger() {
+  const root = triggerRef.value
+  if (!root) return
+  if (root instanceof HTMLButtonElement || root instanceof HTMLAnchorElement) {
+    root.focus()
+    return
+  }
+  const el = root.querySelector<HTMLElement>(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  )
+  el?.focus()
+}
+
 function close() {
   isOpen.value = false
 }
+
+function toggleOpen() {
+  if (isOpen.value) close()
+  else open()
+}
+
 function selectDay(y: number, m: number, day: number) {
   const d = new Date(y, m, day)
   const yy = d.getFullYear()
@@ -94,7 +118,7 @@ function selectDay(y: number, m: number, day: number) {
   const dd = String(d.getDate()).padStart(2, '0')
   emit('update:modelValue', `${yy}-${mm}-${dd}`)
   close()
-  triggerRef.value?.focus()
+  nextTick(() => focusTrigger())
 }
 
 const calendarDays = computed(() => {
@@ -137,7 +161,7 @@ function selectToday() {
   viewYear.value = yy
   viewMonth.value = t.month
   close()
-  triggerRef.value?.focus()
+  nextTick(() => focusTrigger())
 }
 
 function prevMonth() {
@@ -169,7 +193,7 @@ function onPanelKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     e.preventDefault()
     close()
-    triggerRef.value?.focus()
+    nextTick(() => focusTrigger())
   }
 }
 
@@ -209,11 +233,17 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
   if (removeListeners) removeListeners()
 })
+
+defineExpose({ open, close, toggleOpen })
 </script>
 
 <template>
-  <div class="custom-date-picker">
+  <div class="custom-date-picker" :class="{ 'has-slot-trigger': hasTriggerSlot }">
+    <div v-if="hasTriggerSlot" ref="triggerRef" class="custom-date-picker-slot-anchor">
+      <slot name="trigger" :is-open="isOpen" :open="open" :close="close" :toggle="toggleOpen" />
+    </div>
     <button
+      v-else
       ref="triggerRef"
       type="button"
       class="custom-date-picker-trigger"
@@ -221,7 +251,7 @@ onUnmounted(() => {
       :aria-label="resolvedAriaLabel"
       :aria-expanded="isOpen"
       :aria-haspopup="'dialog'"
-      :aria-controls="isOpen ? 'date-picker-panel' : undefined"
+      :aria-controls="isOpen ? resolvedPanelId : undefined"
       @click="isOpen ? close() : open()"
       @keydown="onTriggerKeydown"
     >
@@ -231,7 +261,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-show="isOpen"
-        id="date-picker-panel"
+        :id="resolvedPanelId"
         ref="panelRef"
         class="custom-date-picker-panel"
         :style="panelStyle"
@@ -277,6 +307,7 @@ onUnmounted(() => {
       </div>
         <div class="calendar-footer">
           <button type="button" class="today-btn" @click="selectToday">{{ t('datePicker.today') }}</button>
+          <slot name="panel-footer" />
         </div>
       </div>
     </Teleport>
@@ -287,6 +318,11 @@ onUnmounted(() => {
 .custom-date-picker {
   position: relative;
   display: inline-block;
+}
+.custom-date-picker-slot-anchor {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
 }
 .custom-date-picker-trigger {
   display: inline-flex;
@@ -399,6 +435,9 @@ onUnmounted(() => {
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid var(--color-border-subtle, #e5e7eb);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .today-btn {
   width: 100%;

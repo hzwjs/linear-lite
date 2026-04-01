@@ -153,6 +153,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     updates: Partial<Omit<Task, 'id' | 'createdAt'>> & {
       clearAssignee?: boolean
       clearPlannedStart?: boolean
+      clearDueDate?: boolean
     }
   ) {
     const index = tasks.value.findIndex((t) => t.id === id)
@@ -166,10 +167,18 @@ export const useTaskStore = defineStore('taskStore', () => {
     if (updates.priority !== undefined) next.priority = updates.priority
     if (updates.clearAssignee === true) {
       next.assigneeId = undefined
+      next.assigneeDisplayName = undefined
     } else if (updates.assigneeId !== undefined) {
       next.assigneeId = updates.assigneeId
+      if (updates.assigneeId != null) {
+        next.assigneeDisplayName = undefined
+      }
     }
-    if (updates.dueDate !== undefined) next.dueDate = updates.dueDate
+    if (updates.clearDueDate === true) {
+      next.dueDate = undefined
+    } else if (updates.dueDate !== undefined) {
+      next.dueDate = updates.dueDate
+    }
     if (updates.clearPlannedStart === true) {
       next.plannedStartDate = undefined
     } else if (updates.plannedStartDate !== undefined) {
@@ -193,6 +202,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     updates: Partial<Omit<Task, 'id' | 'createdAt'>> & {
       clearAssignee?: boolean
       clearPlannedStart?: boolean
+      clearDueDate?: boolean
     }
   ) {
     applyLocalTaskPatch(id, updates)
@@ -207,6 +217,7 @@ export const useTaskStore = defineStore('taskStore', () => {
         assigneeId: updates.assigneeId,
         clearAssignee: updates.clearAssignee,
         dueDate: toApiDateTime(updates.dueDate),
+        clearDueDate: updates.clearDueDate,
         parentId: updates.parentId,
         plannedStartDate: toApiDateTime(updates.plannedStartDate),
         clearPlannedStart: updates.clearPlannedStart,

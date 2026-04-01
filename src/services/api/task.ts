@@ -20,6 +20,7 @@ function toTask(t: ApiTask): Task {
     projectId: t.projectId,
     creatorId: t.creatorId ?? undefined,
     assigneeId: t.assigneeId ?? undefined,
+    assigneeDisplayName: t.assigneeDisplayName ?? undefined,
     dueDate: t.dueDate ? new Date(t.dueDate).getTime() : undefined,
     plannedStartDate: t.plannedStartDate ? new Date(t.plannedStartDate).getTime() : undefined,
     progressPercent: t.progressPercent != null ? t.progressPercent : 0,

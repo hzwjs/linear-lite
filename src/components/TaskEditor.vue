@@ -89,6 +89,12 @@ function onDescriptionUploadStateChange(state: { hasPending: boolean; hasFailed:
 const formStatus = ref<Status>('todo')
 const formPriority = ref<Priority>('medium')
 const formAssigneeId = ref<string | number>('')
+
+const importedAssigneeOnlyLabel = computed(() => {
+  if (props.mode !== 'edit' || !props.task) return ''
+  if (props.task.assigneeId != null) return ''
+  return props.task.assigneeDisplayName?.trim() ?? ''
+})
 const formPlannedStartDate = ref('') // YYYY-MM-DD
 const formDueDate = ref('') // YYYY-MM-DD for input[type=date]
 /** 0–100，与后端 progressPercent 一致 */
@@ -570,6 +576,8 @@ async function performAutoSave() {
 
   const clearPlannedStart =
     !formPlannedStartDate.value && props.task.plannedStartDate != null ? true : undefined
+  const clearDueDate =
+    !formDueDate.value && props.task.dueDate != null ? true : undefined
 
   persistFormDraftIfNeeded()
 
@@ -582,10 +590,13 @@ async function performAutoSave() {
       status: payload.status,
       priority: payload.priority,
       assigneeId: payload.assigneeId,
-      clearAssignee: payload.assigneeId === null,
+      clearAssignee:
+        payload.assigneeId === null &&
+        (props.task.assigneeId != null || !!(props.task.assigneeDisplayName?.trim())),
       plannedStartDate: payload.plannedStartDate,
       clearPlannedStart,
       dueDate: payload.dueDate,
+      clearDueDate,
       progressPercent: payload.progressPercent
     })
     // 保存后故意跳过 loadForm，避免覆盖正文；服务端进度↔状态联动需从合并结果写回
@@ -1076,14 +1087,19 @@ async function toggleFavorite() {
           </div>
           <div class="prop-row">
             <span class="prop-label">{{ t('common.assignee') }}</span>
-            <CustomSelect
-              id="task-assignee"
-              v-model="formAssigneeId"
-              :options="assigneeOptions"
-              :placeholder="t('common.assignee')"
-              :aria-label="t('common.assignee')"
-              trigger-class="prop-trigger prop-trigger--linear"
-            />
+            <div class="prop-assignee-stack">
+              <CustomSelect
+                id="task-assignee"
+                v-model="formAssigneeId"
+                :options="assigneeOptions"
+                :placeholder="t('common.assignee')"
+                :aria-label="t('common.assignee')"
+                trigger-class="prop-trigger prop-trigger--linear"
+              />
+              <p v-if="importedAssigneeOnlyLabel" class="external-assignee-hint">
+                {{ t('taskEditor.importedAssigneeLine', { name: importedAssigneeOnlyLabel }) }}
+              </p>
+            </div>
           </div>
           <div class="prop-row">
             <span class="prop-label">{{ t('common.plannedStartDate') }}</span>
@@ -1794,6 +1810,18 @@ async function toggleFavorite() {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.prop-assignee-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.external-assignee-hint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: 1.35;
 }
 .prop-label {
   font-size: var(--font-size-xs);

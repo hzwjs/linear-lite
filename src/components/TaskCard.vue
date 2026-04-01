@@ -5,6 +5,7 @@ import type { Task, Status } from '../types/domain'
 import type { User } from '../types/domain'
 import type { VisibleProperty } from '../utils/viewPreference'
 import { getInitials, getAvatarColor } from '../utils/avatar'
+import { assigneeDisplayLabel, resolveAssigneeUser } from '../utils/taskAssigneeDisplay'
 
 const props = defineProps<{
   task: Task
@@ -28,19 +29,16 @@ const priorityLabel = computed(() => {
   return map[props.task.priority] || props.task.priority
 })
 
-const assignee = computed(() => {
-  if (props.task.assigneeId == null || !props.users?.length) return null
-  return props.users.find((u) => u.id === props.task.assigneeId) ?? null
-})
+const assigneeUser = computed(() => resolveAssigneeUser(props.task, props.users))
 
-const assigneeDisplay = computed(() => assignee.value?.username ?? 'Unassigned')
-
-const assigneeInitial = computed(() =>
-  getInitials(assignee.value?.username ?? 'Unassigned')
+const assigneeDisplay = computed(() =>
+  assigneeDisplayLabel(props.task, props.users, 'Unassigned')
 )
 
+const assigneeInitial = computed(() => getInitials(assigneeDisplay.value))
+
 const assigneeAvatarStyle = computed(() =>
-  assignee.value ? getAvatarColor(assignee.value.id) : undefined
+  assigneeUser.value ? getAvatarColor(assigneeUser.value.id) : undefined
 )
 
 const dueDateText = computed(() => {
@@ -110,8 +108,12 @@ const handleTransition = (e: Event) => {
     </div>
     <div v-if="show('assignee')" class="assignee-row">
       <span class="assignee" :title="assigneeDisplay">
-        <span class="avatar" :class="{ placeholder: !assignee }" :style="assigneeAvatarStyle">
-          <img v-if="assignee?.avatar_url" :src="assignee.avatar_url" :alt="assignee.username" />
+        <span class="avatar" :class="{ placeholder: !assigneeUser }" :style="assigneeAvatarStyle">
+          <img
+            v-if="assigneeUser?.avatar_url"
+            :src="assigneeUser.avatar_url"
+            :alt="assigneeUser.username"
+          />
           <span v-else>{{ assigneeInitial }}</span>
         </span>
         <span class="assignee-name">{{ assigneeDisplay }}</span>

@@ -19,6 +19,8 @@ export interface Task {
   projectId?: number
   creatorId?: number
   assigneeId?: number | null
+  /** 导入或外部处理人展示名；有系统 assigneeId 时通常为空 */
+  assigneeDisplayName?: string | null
   dueDate?: number | null // 截止日期，毫秒时间戳
   /** 计划开始日期，毫秒时间戳 */
   plannedStartDate?: number | null

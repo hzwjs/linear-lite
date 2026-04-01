@@ -23,6 +23,8 @@ public class Task {
     private Long parentId;
     private Long creatorId;
     private Long assigneeId;
+    /** 导入或外部处理人展示名；与 assignee_id 互斥，有系统负责人时应为 null */
+    private String assigneeDisplayName;
     private LocalDateTime dueDate;
     /** 计划开始日期 */
     private LocalDateTime plannedStartDate;
@@ -120,6 +122,14 @@ public class Task {
 
     public void setAssigneeId(Long assigneeId) {
         this.assigneeId = assigneeId;
+    }
+
+    public String getAssigneeDisplayName() {
+        return assigneeDisplayName;
+    }
+
+    public void setAssigneeDisplayName(String assigneeDisplayName) {
+        this.assigneeDisplayName = assigneeDisplayName;
     }
 
     public LocalDateTime getDueDate() {

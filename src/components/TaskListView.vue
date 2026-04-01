@@ -12,8 +12,6 @@ import {
   Circle,
   CheckCircle,
   Copy,
-  Calendar,
-  CalendarClock,
   FoldVertical,
   UnfoldVertical,
   User as UserIcon
@@ -25,8 +23,16 @@ import { filterVisibleTaskRows, type TaskGroup, type TaskRow } from '../utils/ta
 import type { VisibleProperty } from '../utils/viewPreference'
 import { getSubtaskProgressDisplay } from '../utils/subtaskProgress'
 import { getInitials, getAvatarColor } from '../utils/avatar'
+import {
+  assigneeDisplayLabel,
+  resolveAssigneeUser,
+  taskHasAssignableDisplay
+} from '../utils/taskAssigneeDisplay'
 import { getStatusLabel } from '../utils/enumLabels'
 import TaskRowStatusPicker from './TaskRowStatusPicker.vue'
+import TaskRowAssigneePicker from './TaskRowAssigneePicker.vue'
+import TaskRowInlineDateCell from './TaskRowInlineDateCell.vue'
+import TaskRowProgressCell from './TaskRowProgressCell.vue'
 
 const props = defineProps<{
   groups: TaskGroup[]
@@ -73,20 +79,16 @@ function toggle(groupKey: string) {
 }
 
 function assigneeName(task: Task): string {
-  if (task.assigneeId == null || !props.users?.length) return t('common.unassigned')
-  const u = props.users.find((u) => u.id === task.assigneeId)
-  return u?.username ?? t('common.unassigned')
+  return assigneeDisplayLabel(task, props.users, t('common.unassigned'))
 }
 
 function assigneeAvatar(task: Task): string | null {
-  if (task.assigneeId == null || !props.users?.length) return null
-  const u = props.users.find((u) => u.id === task.assigneeId)
+  const u = resolveAssigneeUser(task, props.users)
   return u?.avatar_url ?? null
 }
 
 function hasAssignee(task: Task): boolean {
-  if (task.assigneeId == null || !props.users?.length) return false
-  return props.users.some((u) => u.id === task.assigneeId)
+  return taskHasAssignableDisplay(task, props.users)
 }
 
 function assigneeInitial(task: Task): string {
@@ -94,33 +96,13 @@ function assigneeInitial(task: Task): string {
 }
 
 function assigneeFallbackStyle(task: Task): { background: string; color: string } | undefined {
-  if (task.assigneeId == null || !hasAssignee(task)) return undefined
-  return getAvatarColor(task.assigneeId)
-}
-
-function dueDateText(task: Task): string {
-  if (task.dueDate == null) return '—'
-  return new Date(task.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
-function plannedStartText(task: Task): string {
-  if (task.plannedStartDate == null) return '—'
-  return new Date(task.plannedStartDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  const u = resolveAssigneeUser(task, props.users)
+  if (u == null) return undefined
+  return getAvatarColor(u.id)
 }
 
 function updatedText(task: Task): string {
   return new Date(task.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
-function progressText(task: Task): string {
-  const p = task.progressPercent ?? 0
-  return `${p}%`
-}
-
-/** 0–100 for progress bar width */
-function clampedProgressPercent(task: Task): number {
-  const n = task.progressPercent ?? 0
-  return Math.min(100, Math.max(0, n))
 }
 
 function projectText(task: Task): string | null {
@@ -146,6 +128,40 @@ async function toggleComplete(e: MouseEvent, task: Task) {
 
 async function onStatusPicked(task: Task, next: Status) {
   await store.transitionTask(task.id, next)
+}
+
+async function onAssigneePicked(
+  task: Task,
+  userId: number | null,
+  opts: { clearAssignee: boolean }
+) {
+  try {
+    if (opts.clearAssignee) {
+      await store.updateTask(task.id, { clearAssignee: true })
+    } else if (userId != null) {
+      await store.updateTask(task.id, { assigneeId: userId })
+    }
+  } catch {
+    /* store.error */
+  }
+}
+
+async function onInlinePlannedCommit(task: Task, value: number | null) {
+  try {
+    if (value == null) await store.updateTask(task.id, { clearPlannedStart: true })
+    else await store.updateTask(task.id, { plannedStartDate: value })
+  } catch {
+    /* store.error */
+  }
+}
+
+async function onInlineDueCommit(task: Task, value: number | null) {
+  try {
+    if (value == null) await store.updateTask(task.id, { clearDueDate: true })
+    else await store.updateTask(task.id, { dueDate: value })
+  } catch {
+    /* store.error */
+  }
 }
 
 function onRowClick(task: Task) {
@@ -467,11 +483,12 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
               <template v-if="show('assignee')">
                 <span class="task-meta-slot task-meta-slot-assignee">
                   <span class="task-meta task-meta-assignee">
-                    <span
-                      class="task-assignee-trigger"
-                      :class="{ assigned: hasAssignee(row.task), unassigned: !hasAssignee(row.task) }"
-                      :data-tooltip="assigneeName(row.task)"
-                      tabindex="0"
+                    <TaskRowAssigneePicker
+                      :task-id="row.task.id"
+                      :task="row.task"
+                      :users="users"
+                      :tooltip="assigneeName(row.task)"
+                      @pick="(uid, o) => onAssigneePicked(row.task, uid, o)"
                     >
                       <img
                         v-if="assigneeAvatar(row.task)"
@@ -485,47 +502,34 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
                         :style="assigneeFallbackStyle(row.task)"
                       >{{ assigneeInitial(row.task) }}</span>
                       <UserIcon v-else class="task-assignee-icon" aria-hidden="true" />
-                    </span>
+                    </TaskRowAssigneePicker>
                   </span>
                 </span>
               </template>
               <template v-if="show('plannedStart')">
                 <span class="task-meta-slot task-meta-slot-date task-meta-slot-planned-start">
-                  <span
-                    class="task-meta task-meta-with-icon"
-                    :title="t('taskList.columnPlannedStart')"
-                  >
-                    <CalendarClock class="task-meta-date-icon" stroke-width="2" aria-hidden="true" />
-                    {{ plannedStartText(row.task) }}
-                  </span>
+                  <TaskRowInlineDateCell
+                    :task-id="row.task.id"
+                    :date-ms="row.task.plannedStartDate"
+                    variant="planned"
+                    @commit="(v) => onInlinePlannedCommit(row.task, v)"
+                  />
                 </span>
               </template>
               <template v-if="show('dueDate')">
                 <span class="task-meta-slot task-meta-slot-date task-meta-slot-due">
-                  <span
-                    class="task-meta task-meta-with-icon"
-                    :class="{ overdue: isOverdue(row.task) }"
-                    :title="t('taskList.columnDueDate')"
-                  >
-                    <Calendar class="task-meta-date-icon" stroke-width="2" aria-hidden="true" />
-                    {{ dueDateText(row.task) }}
-                  </span>
+                  <TaskRowInlineDateCell
+                    :task-id="row.task.id"
+                    :date-ms="row.task.dueDate"
+                    variant="due"
+                    :overdue="isOverdue(row.task)"
+                    @commit="(v) => onInlineDueCommit(row.task, v)"
+                  />
                 </span>
               </template>
               <template v-if="show('progress')">
                 <span class="task-meta-slot task-meta-slot-progress">
-                  <span
-                    class="task-meta task-meta-progress-cell"
-                    :title="`${t('taskList.columnProgress')}: ${progressText(row.task)}`"
-                  >
-                    <span class="task-progress-track" aria-hidden="true">
-                      <span
-                        class="task-progress-fill"
-                        :style="{ width: `${clampedProgressPercent(row.task)}%` }"
-                      />
-                    </span>
-                    <span class="task-progress-pct">{{ progressText(row.task) }}</span>
-                  </span>
+                  <TaskRowProgressCell :task="row.task" />
                 </span>
               </template>
               <template v-if="show('updatedAt')">
@@ -1025,13 +1029,11 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   color: var(--color-text-muted);
   outline: none;
 }
-.task-assignee-trigger:focus-visible::before,
-.task-assignee-trigger:hover::before {
+.task-assignee-trigger:focus-visible::before {
   opacity: 1;
   transform: translate(-50%, -2px);
 }
-.task-assignee-trigger:focus-visible::after,
-.task-assignee-trigger:hover::after {
+.task-assignee-trigger:focus-visible::after {
   opacity: 1;
   transform: translateX(-50%);
 }

@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     parent_id   BIGINT       DEFAULT NULL COMMENT '父任务 ID，NULL 表示顶层任务',
     creator_id  BIGINT       NOT NULL,
     assignee_id BIGINT       DEFAULT NULL,
+    assignee_display_name VARCHAR(128) DEFAULT NULL COMMENT '导入或外部处理人展示名，无系统用户时使用',
     due_date    DATETIME     DEFAULT NULL COMMENT '预计完成/截止日期',
     planned_start_date DATETIME DEFAULT NULL COMMENT '计划开始日期',
     progress_percent TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '完成进度 0–100',

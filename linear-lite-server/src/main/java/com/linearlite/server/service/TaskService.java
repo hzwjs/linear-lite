@@ -10,14 +10,12 @@ import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.ProjectMember;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskFavorite;
-import com.linearlite.server.entity.User;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
-import com.linearlite.server.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +26,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -45,12 +44,12 @@ public class TaskService {
     private static final Set<String> OPEN_STATUSES_FOR_PROGRESS_LINKAGE = Set.of(
             "backlog", "todo", "in_progress", "in_review");
     private static final int TASK_IMPORT_MAX_ROWS = 800;
+    private static final int ASSIGNEE_DISPLAY_NAME_MAX_LEN = 128;
 
     private final TaskMapper taskMapper;
     private final ProjectMapper projectMapper;
     private final TaskFavoriteMapper taskFavoriteMapper;
     private final TaskActivityService taskActivityService;
-    private final UserMapper userMapper;
     private final ProjectMemberMapper projectMemberMapper;
 
     public TaskService(
@@ -58,13 +57,11 @@ public class TaskService {
             ProjectMapper projectMapper,
             TaskFavoriteMapper taskFavoriteMapper,
             TaskActivityService taskActivityService,
-            UserMapper userMapper,
             ProjectMemberMapper projectMemberMapper) {
         this.taskMapper = taskMapper;
         this.projectMapper = projectMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
         this.taskActivityService = taskActivityService;
-        this.userMapper = userMapper;
         this.projectMemberMapper = projectMemberMapper;
     }
 
@@ -220,7 +217,13 @@ public class TaskService {
             task.setPriority(defaultPriority(row.getPriority()));
             task.setProjectId(request.getProjectId());
             task.setCreatorId(creatorId);
-            task.setAssigneeId(row.getAssigneeId());
+            Long assigneeId = row.getAssigneeId();
+            task.setAssigneeId(assigneeId);
+            if (assigneeId != null) {
+                task.setAssigneeDisplayName(null);
+            } else {
+                task.setAssigneeDisplayName(truncateAssigneeDisplayName(trimToNull(row.getAssigneeDisplayName())));
+            }
             task.setDueDate(row.getDueDate());
             task.setPlannedStartDate(row.getPlannedStartDate());
             task.setProgressPercent(clampProgressPercent(row.getProgressPercent()));
@@ -369,13 +372,26 @@ public class TaskService {
                 wrapper.set("assignee_id", null);
                 hasUpdate = true;
             }
+            if (trimToNull(existing.getAssigneeDisplayName()) != null) {
+                wrapper.set("assignee_display_name", null);
+                hasUpdate = true;
+            }
         } else if (request.getAssigneeId() != null) {
-            if (!request.getAssigneeId().equals(existing.getAssigneeId())) {
+            if (!Objects.equals(request.getAssigneeId(), existing.getAssigneeId())) {
                 wrapper.set("assignee_id", request.getAssigneeId());
                 hasUpdate = true;
             }
+            if (trimToNull(existing.getAssigneeDisplayName()) != null) {
+                wrapper.set("assignee_display_name", null);
+                hasUpdate = true;
+            }
         }
-        if (request.getDueDate() != null) {
+        if (Boolean.TRUE.equals(request.getClearDueDate())) {
+            if (existing.getDueDate() != null) {
+                wrapper.set("due_date", null);
+                hasUpdate = true;
+            }
+        } else if (request.getDueDate() != null) {
             if (!equalsNullable(request.getDueDate(), existing.getDueDate())) {
                 wrapper.set("due_date", request.getDueDate());
                 hasUpdate = true;
@@ -620,12 +636,6 @@ public class TaskService {
         if (priority != null && !ALLOWED_PRIORITIES.contains(priority)) {
             throw new IllegalArgumentException("Invalid priority: " + priority);
         }
-        if (row.getAssigneeId() != null) {
-            User assignee = userMapper.selectById(row.getAssigneeId());
-            if (assignee == null) {
-                throw new IllegalArgumentException("Assignee does not exist: " + row.getAssigneeId());
-            }
-        }
         if (row.getProgressPercent() != null) {
             int p = row.getProgressPercent();
             if (p < 0 || p > 100) {
@@ -664,6 +674,16 @@ public class TaskService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String truncateAssigneeDisplayName(String value) {
+        if (value == null) {
+            return null;
+        }
+        if (value.length() <= ASSIGNEE_DISPLAY_NAME_MAX_LEN) {
+            return value;
+        }
+        return value.substring(0, ASSIGNEE_DISPLAY_NAME_MAX_LEN);
     }
 
     private void fillFavoriteState(List<Task> tasks, Long userId) {

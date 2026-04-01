@@ -16,6 +16,7 @@ export interface ApiTask {
   projectId: number
   creatorId?: number
   assigneeId?: number | null
+  assigneeDisplayName?: string | null
   dueDate?: string | null
   plannedStartDate?: string | null
   progressPercent?: number | null
@@ -84,6 +85,8 @@ export interface UpdateTaskRequest {
   /** true 时清空指派人 */
   clearAssignee?: boolean
   dueDate?: string | null // ISO 8601
+  /** true 时清空截止日期 */
+  clearDueDate?: boolean
   parentId?: string | null
   plannedStartDate?: string | null // ISO 8601
   /** true 时清空计划开始日期 */
@@ -101,6 +104,7 @@ export interface TaskImportRowRequest {
   status: string
   priority: string
   assigneeId?: number | null
+  assigneeDisplayName?: string | null
   dueDate?: string | null
   plannedStartDate?: string | null
   progressPercent?: number | null

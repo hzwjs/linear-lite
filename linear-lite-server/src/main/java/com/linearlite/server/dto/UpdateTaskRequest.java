@@ -20,6 +20,8 @@ public class UpdateTaskRequest {
     /** 为 true 时清空指派人（将 assignee_id 置为 null） */
     private Boolean clearAssignee;
     private LocalDateTime dueDate;
+    /** 为 true 时清空截止日期 */
+    private Boolean clearDueDate;
     private LocalDateTime plannedStartDate;
     /** 为 true 时清空计划开始日期 */
     private Boolean clearPlannedStart;
@@ -96,6 +98,14 @@ public class UpdateTaskRequest {
 
     public void setDueDate(LocalDateTime dueDate) {
         this.dueDate = dueDate;
+    }
+
+    public Boolean getClearDueDate() {
+        return clearDueDate;
+    }
+
+    public void setClearDueDate(Boolean clearDueDate) {
+        this.clearDueDate = clearDueDate;
     }
 
     public LocalDateTime getPlannedStartDate() {

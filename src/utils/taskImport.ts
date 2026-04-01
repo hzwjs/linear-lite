@@ -29,6 +29,8 @@ export interface TaskImportPreviewRow {
   plannedStartDate: string | null
   /** 0–100 */
   progressPercent: number
+  /** 未匹配系统用户时的处理人原文 */
+  assigneeDisplayName: string | null
 }
 
 export interface TaskImportPreviewError {
@@ -56,6 +58,13 @@ export interface ParsedTaskImportFile {
 }
 
 export const TASK_IMPORT_MAX_ROWS = 800
+/** 与后端 TaskService.ASSIGNEE_DISPLAY_NAME_MAX_LEN 一致 */
+export const TASK_IMPORT_ASSIGNEE_DISPLAY_NAME_MAX_LEN = 128
+
+function truncateAssigneeDisplayName(raw: string): string {
+  if (raw.length <= TASK_IMPORT_ASSIGNEE_DISPLAY_NAME_MAX_LEN) return raw
+  return raw.slice(0, TASK_IMPORT_ASSIGNEE_DISPLAY_NAME_MAX_LEN)
+}
 export const TASK_IMPORT_REQUIRED_FIELDS: TaskImportField[] = ['title', 'importId']
 export const TASK_IMPORT_OPTIONAL_FIELDS: TaskImportField[] = [
   'description',
@@ -90,14 +99,23 @@ export const TASK_IMPORT_FIELD_ALIASES: Record<TaskImportField, string[]> = {
   plannedStartDate: [
     'planned start',
     'planned start date',
+    'plannedstartdate',
     'plan start',
     'start date',
     'startdate',
     'begin date'
   ],
-  progressPercent: ['progress', 'progress percent', 'percent', 'completion', '% complete'],
-  importId: ['import id', 'row id', 'id'],
-  parentImportId: ['parent import id', 'parent row id', 'parent id']
+  progressPercent: [
+    'progress',
+    'progress percent',
+    'progress %',
+    'progresspercent',
+    'percent',
+    'completion',
+    '% complete'
+  ],
+  importId: ['import id', 'importid', 'row id', 'id'],
+  parentImportId: ['parent import id', 'parentimportid', 'parent row id', 'parent id']
 }
 
 const STATUS_VALUES: Status[] = [
@@ -256,9 +274,12 @@ export function buildTaskImportPreview(
     }
 
     let assigneeId: number | null = null
+    let assigneeDisplayName: string | null = null
     if (assigneeInput) {
       assigneeId = userIdByUsername.get(assigneeInput.toLowerCase()) ?? null
-      // 未匹配到时不再报错，仅不分配负责人
+      if (assigneeId == null) {
+        assigneeDisplayName = truncateAssigneeDisplayName(assigneeInput.trim())
+      }
     }
 
     let dueDate: string | null = null
@@ -307,6 +328,7 @@ export function buildTaskImportPreview(
       status: status ?? 'backlog',
       priority: priority ?? 'medium',
       assigneeId,
+      assigneeDisplayName,
       dueDate,
       plannedStartDate,
       progressPercent: progressParse.ok ? progressParse.value : 0
@@ -363,6 +385,15 @@ export function buildTaskImportPreview(
   }
 }
 
+/**
+ * SheetJS 对 CSV 使用 `type: 'array'` 时常按单字节页解释字节，UTF-8 中文会变为 mojibake。
+ * 先按 UTF-8 解码再以字符串解析；去掉 UTF-8 BOM，避免首列表头变成 "\uFEFFtitle"。
+ */
+function decodeUtf8CsvToString(buffer: ArrayBuffer): string {
+  const text = new TextDecoder('utf-8', { fatal: false }).decode(buffer)
+  return text.length > 0 && text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
+}
+
 export async function parseTaskImportFile(file: File): Promise<ParsedTaskImportFile> {
   const kind = getTaskImportFileKind(file.name)
   if (!kind) {
@@ -375,7 +406,11 @@ export async function parseTaskImportFile(file: File): Promise<ParsedTaskImportF
     )
   }
 
-  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+  const buffer = await file.arrayBuffer()
+  const workbook =
+    kind === 'csv'
+      ? XLSX.read(decodeUtf8CsvToString(buffer), { type: 'string' })
+      : XLSX.read(buffer, { type: 'array' })
   const firstSheetName = workbook.SheetNames[0]
   if (!firstSheetName) {
     throw new Error(
