@@ -23,6 +23,8 @@ function fullMapping(): TaskImportColumnMapping {
     priority: 'Severity',
     assignee: 'Owner',
     dueDate: 'Due Date',
+    plannedStartDate: 'Planned Start',
+    progressPercent: 'Progress',
     importId: 'Row ID',
     parentImportId: 'Parent Row ID'
   }
@@ -42,9 +44,9 @@ describe('taskImport helpers', () => {
   it('builds a downloadable csv template with sample parent-child rows', () => {
     expect(getTaskImportTemplateCsv()).toBe(
       [
-        'title,importId,parentImportId,description,status,priority,assignee,dueDate',
-        'Project kickoff,T-1,,Top-level issue,todo,high,alice,2026-03-20',
-        'Write checklist,T-2,T-1,Child issue,in_progress,medium,bob,2026-03-21'
+        'title,importId,parentImportId,description,status,priority,assignee,plannedStartDate,dueDate,progressPercent',
+        'Project kickoff,T-1,,Top-level issue,todo,high,alice,2026-03-18,2026-03-20,0',
+        'Write checklist,T-2,T-1,Child issue,in_progress,medium,bob,,2026-03-21,40'
       ].join('\n')
     )
   })
@@ -57,6 +59,8 @@ describe('taskImport helpers', () => {
       'Severity',
       'Owner',
       'Due Date',
+      'Planned Start',
+      'Progress',
       'Row ID',
       'Parent Row ID'
     ])
@@ -207,6 +211,8 @@ describe('taskImport helpers', () => {
           Severity: 'high',
           Owner: 'alice',
           'Due Date': '2026-03-20',
+          'Planned Start': '2026-03-18',
+          Progress: '0',
           'Row ID': 'A-1',
           'Parent Row ID': ''
         },
@@ -217,6 +223,8 @@ describe('taskImport helpers', () => {
           Severity: 'medium',
           Owner: 'bob',
           'Due Date': '',
+          'Planned Start': '',
+          Progress: '40',
           'Row ID': 'A-2',
           'Parent Row ID': 'A-1'
         }
@@ -244,7 +252,9 @@ describe('taskImport helpers', () => {
         status: 'todo',
         priority: 'high',
         assigneeId: 1,
-        dueDate: '2026-03-20T00:00:00'
+        dueDate: '2026-03-20T00:00:00',
+        plannedStartDate: '2026-03-18T00:00:00',
+        progressPercent: 0
       },
       {
         lineNumber: 3,
@@ -255,7 +265,9 @@ describe('taskImport helpers', () => {
         status: 'in_progress',
         priority: 'medium',
         assigneeId: 2,
-        dueDate: null
+        dueDate: null,
+        plannedStartDate: null,
+        progressPercent: 40
       }
     ])
   })

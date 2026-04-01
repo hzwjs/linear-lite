@@ -9,6 +9,8 @@ export type TaskImportField =
   | 'priority'
   | 'assignee'
   | 'dueDate'
+  | 'plannedStartDate'
+  | 'progressPercent'
   | 'importId'
   | 'parentImportId'
 
@@ -24,6 +26,9 @@ export interface TaskImportPreviewRow {
   priority: Priority
   assigneeId: number | null
   dueDate: string | null
+  plannedStartDate: string | null
+  /** 0–100 */
+  progressPercent: number
 }
 
 export interface TaskImportPreviewError {
@@ -58,6 +63,8 @@ export const TASK_IMPORT_OPTIONAL_FIELDS: TaskImportField[] = [
   'priority',
   'assignee',
   'dueDate',
+  'plannedStartDate',
+  'progressPercent',
   'parentImportId'
 ]
 export const TASK_IMPORT_FIELD_LABELS: Record<TaskImportField, string> = {
@@ -67,6 +74,8 @@ export const TASK_IMPORT_FIELD_LABELS: Record<TaskImportField, string> = {
   priority: 'Priority',
   assignee: 'Assignee',
   dueDate: 'Due date',
+  plannedStartDate: 'Planned start',
+  progressPercent: 'Progress %',
   importId: 'Import ID',
   parentImportId: 'Parent Import ID'
 }
@@ -78,6 +87,15 @@ export const TASK_IMPORT_FIELD_ALIASES: Record<TaskImportField, string[]> = {
   priority: ['priority', 'severity'],
   assignee: ['assignee', 'owner', 'assigned to'],
   dueDate: ['due date', 'duedate', 'due'],
+  plannedStartDate: [
+    'planned start',
+    'planned start date',
+    'plan start',
+    'start date',
+    'startdate',
+    'begin date'
+  ],
+  progressPercent: ['progress', 'progress percent', 'percent', 'completion', '% complete'],
   importId: ['import id', 'row id', 'id'],
   parentImportId: ['parent import id', 'parent row id', 'parent id']
 }
@@ -120,9 +138,9 @@ export function autoMapTaskImportColumns(headers: string[]): TaskImportColumnMap
 
 export function getTaskImportTemplateCsv(): string {
   return [
-    'title,importId,parentImportId,description,status,priority,assignee,dueDate',
-    'Project kickoff,T-1,,Top-level issue,todo,high,alice,2026-03-20',
-    'Write checklist,T-2,T-1,Child issue,in_progress,medium,bob,2026-03-21'
+    'title,importId,parentImportId,description,status,priority,assignee,plannedStartDate,dueDate,progressPercent',
+    'Project kickoff,T-1,,Top-level issue,todo,high,alice,2026-03-18,2026-03-20,0',
+    'Write checklist,T-2,T-1,Child issue,in_progress,medium,bob,,2026-03-21,40'
   ].join('\n')
 }
 
@@ -178,6 +196,8 @@ export function buildTaskImportPreview(
     const priorityInput = getMappedValue(rawRow, options.mapping.priority).trim().toLowerCase()
     const assigneeInput = getMappedValue(rawRow, options.mapping.assignee).trim()
     const dueDateInput = getMappedValue(rawRow, options.mapping.dueDate).trim()
+    const plannedStartInput = getMappedValue(rawRow, options.mapping.plannedStartDate).trim()
+    const progressInput = getMappedValue(rawRow, options.mapping.progressPercent).trim()
     const importId = getMappedValue(rawRow, options.mapping.importId).trim()
     const parentImportIdValue = getMappedValue(rawRow, options.mapping.parentImportId).trim()
     const parentImportId = parentImportIdValue || null
@@ -253,6 +273,31 @@ export function buildTaskImportPreview(
       }
     }
 
+    let plannedStartDate: string | null = null
+    if (plannedStartInput) {
+      plannedStartDate = normalizeDueDate(plannedStartInput)
+      if (!plannedStartDate) {
+        rowErrors.push({
+          lineNumber,
+          field: 'plannedStartDate',
+          message: translate(
+            'taskImport.errors.invalidPlannedStartDate',
+            undefined,
+            'Planned start date must use YYYY-MM-DD.'
+          )
+        })
+      }
+    }
+
+    const progressParse = parseTaskProgressPercent(progressInput)
+    if (!progressParse.ok) {
+      rowErrors.push({
+        lineNumber,
+        field: 'progressPercent',
+        message: progressParse.message
+      })
+    }
+
     rows.push({
       lineNumber,
       importId,
@@ -262,7 +307,9 @@ export function buildTaskImportPreview(
       status: status ?? 'backlog',
       priority: priority ?? 'medium',
       assigneeId,
-      dueDate
+      dueDate,
+      plannedStartDate,
+      progressPercent: progressParse.ok ? progressParse.value : 0
     })
   }
 
@@ -389,6 +436,36 @@ function normalizeStatus(value: string): Status | null {
 function normalizePriority(value: string): Priority | null {
   if (!value) return null
   return PRIORITY_VALUES.find((priority) => priority === value) ?? null
+}
+
+function parseTaskProgressPercent(
+  raw: string
+): { ok: true; value: number } | { ok: false; message: string } {
+  const s = raw.trim()
+  if (!s) return { ok: true, value: 0 }
+  const withoutPct = s.endsWith('%') ? s.slice(0, -1).trim() : s
+  if (!/^\d+$/.test(withoutPct)) {
+    return {
+      ok: false,
+      message: translate(
+        'taskImport.errors.invalidProgress',
+        undefined,
+        'Progress must be an integer from 0 to 100 (optional % suffix).'
+      )
+    }
+  }
+  const n = parseInt(withoutPct, 10)
+  if (n < 0 || n > 100) {
+    return {
+      ok: false,
+      message: translate(
+        'taskImport.errors.invalidProgress',
+        undefined,
+        'Progress must be an integer from 0 to 100 (optional % suffix).'
+      )
+    }
+  }
+  return { ok: true, value: n }
 }
 
 function normalizeDueDate(value: string): string | null {

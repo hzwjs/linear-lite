@@ -24,6 +24,10 @@ public class Task {
     private Long creatorId;
     private Long assigneeId;
     private LocalDateTime dueDate;
+    /** 计划开始日期 */
+    private LocalDateTime plannedStartDate;
+    /** 完成进度 0–100 */
+    private Integer progressPercent;
     private LocalDateTime completedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -124,6 +128,22 @@ public class Task {
 
     public void setDueDate(LocalDateTime dueDate) {
         this.dueDate = dueDate;
+    }
+
+    public LocalDateTime getPlannedStartDate() {
+        return plannedStartDate;
+    }
+
+    public void setPlannedStartDate(LocalDateTime plannedStartDate) {
+        this.plannedStartDate = plannedStartDate;
+    }
+
+    public Integer getProgressPercent() {
+        return progressPercent;
+    }
+
+    public void setProgressPercent(Integer progressPercent) {
+        this.progressPercent = progressPercent;
     }
 
     public LocalDateTime getCompletedAt() {

@@ -53,6 +53,7 @@ const zhCN = {
     created: '创建时间',
     updated: '更新时间',
     dueDate: '截止日期',
+    plannedStartDate: '计划开始',
     close: '关闭',
     cancel: '取消',
     save: '保存',
@@ -173,7 +174,9 @@ const zhCN = {
     addIssue: '添加任务',
     addIssueToColumn: '向此列添加任务',
     openOnly: '仅未完成',
-    id: 'ID'
+    id: 'ID',
+    progress: '进度',
+    plannedStart: '计划开始'
   },
   issueComposer: {
     dialogLabel: '创建任务',
@@ -272,7 +275,9 @@ const zhCN = {
       unsupportedFileType: '仅支持 .csv 和 .xlsx 文件。',
       noSheets: '文件中不包含工作表。',
       firstSheetUnreadable: '无法读取第一个工作表。',
-      missingHeader: '文件必须包含表头行。'
+      missingHeader: '文件必须包含表头行。',
+      invalidPlannedStartDate: '计划开始日期必须使用 YYYY-MM-DD 格式。',
+      invalidProgress: '进度须为 0–100 的整数（可带 % 后缀）。'
     }
   },
   taskImportModal: {
@@ -288,7 +293,7 @@ const zhCN = {
     downloadTemplate: '下载模板',
     dropzone: {
       title: '选择 `.csv` 或 `.xlsx` 文件',
-      copy: '必填模板列：`title`、`importId`。可选：`parentImportId`、`description`、`status`、`priority`、`assignee`、`dueDate`。'
+      copy: '必填模板列：`title`、`importId`。可选：`parentImportId`、`description`、`status`、`priority`、`assignee`、`plannedStartDate`、`dueDate`、`progressPercent`。'
     },
     fileMeta: {
       file: '文件',
@@ -302,7 +307,9 @@ const zhCN = {
     },
     fields: {
       importId: '导入 ID',
-      parentImportId: '父级导入 ID'
+      parentImportId: '父级导入 ID',
+      progressPercent: '进度 %',
+      plannedStartDate: '计划开始'
     },
     preview: {
       summary: {
@@ -374,6 +381,8 @@ const zhCN = {
     addLabel: '添加标签',
     addToProject: '添加到项目',
     completedAt: '完成时间',
+    progress: '进度',
+    progressAria: '完成进度，0 到 100',
     justNow: '刚刚',
     minutesAgo: '{count} 分钟前',
     hoursAgo: '{count} 小时前',
@@ -391,7 +400,10 @@ const zhCN = {
     expandSubtasks: '展开子任务',
     collapseSubtasks: '折叠子任务',
     expandAllSubtasks: '全部展开',
-    collapseAllSubtasks: '全部折叠'
+    collapseAllSubtasks: '全部折叠',
+    columnPlannedStart: '计划开始',
+    columnDueDate: '截止日期',
+    columnProgress: '进度'
   },
   status: {
     backlog: '待办',
@@ -410,7 +422,9 @@ const zhCN = {
   },
   fieldLabel: {
     assigneeId: '负责人',
+    progressPercent: '进度',
     dueDate: '截止日期',
+    plannedStartDate: '计划开始',
     title: '标题',
     description: '描述',
     status: '状态',

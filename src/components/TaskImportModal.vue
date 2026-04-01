@@ -51,6 +51,8 @@ const fieldLabels = computed<Record<TaskImportField, string>>(() => ({
   priority: t('common.priority'),
   assignee: t('common.assignee'),
   dueDate: t('common.dueDate'),
+  plannedStartDate: t('taskImportModal.fields.plannedStartDate'),
+  progressPercent: t('taskImportModal.fields.progressPercent'),
   importId: t('taskImportModal.fields.importId'),
   parentImportId: t('taskImportModal.fields.parentImportId')
 }))
@@ -315,6 +317,8 @@ async function submitImport() {
                   <th>{{ t('common.status') }}</th>
                   <th>{{ t('common.priority') }}</th>
                   <th>{{ t('common.assignee') }}</th>
+                  <th>{{ t('taskImportModal.fields.plannedStartDate') }}</th>
+                  <th>{{ t('taskImportModal.fields.progressPercent') }}</th>
                   <th>{{ t('taskImportModal.preview.table.parent') }}</th>
                 </tr>
               </thead>
@@ -324,6 +328,8 @@ async function submitImport() {
                   <td>{{ row.status }}</td>
                   <td>{{ row.priority }}</td>
                   <td>{{ row.assigneeId ?? t('common.unassigned') }}</td>
+                  <td>{{ row.plannedStartDate ? row.plannedStartDate.slice(0, 10) : '—' }}</td>
+                  <td>{{ row.progressPercent }}%</td>
                   <td>{{ row.parentImportId ?? t('taskImportModal.preview.table.topLevel') }}</td>
                 </tr>
               </tbody>

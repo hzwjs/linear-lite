@@ -17,6 +17,8 @@ export interface ApiTask {
   creatorId?: number
   assigneeId?: number | null
   dueDate?: string | null
+  plannedStartDate?: string | null
+  progressPercent?: number | null
   completedAt?: string | null
   createdAt: string
   updatedAt: string
@@ -68,6 +70,9 @@ export interface CreateTaskRequest {
   dueDate?: string | null // ISO 8601
   /** 父任务数据库 id（Long），非 task_key */
   parentId?: number | null
+  plannedStartDate?: string | null // ISO 8601
+  /** 完成进度 0–100 */
+  progressPercent?: number | null
 }
 
 export interface UpdateTaskRequest {
@@ -80,6 +85,11 @@ export interface UpdateTaskRequest {
   clearAssignee?: boolean
   dueDate?: string | null // ISO 8601
   parentId?: string | null
+  plannedStartDate?: string | null // ISO 8601
+  /** true 时清空计划开始日期 */
+  clearPlannedStart?: boolean
+  /** 完成进度 0–100 */
+  progressPercent?: number | null
 }
 
 export interface TaskImportRowRequest {
@@ -92,6 +102,8 @@ export interface TaskImportRowRequest {
   priority: string
   assigneeId?: number | null
   dueDate?: string | null
+  plannedStartDate?: string | null
+  progressPercent?: number | null
 }
 
 export interface TaskImportRequest {

@@ -125,6 +125,8 @@ const visiblePropertyOptions = computed<Array<{ value: VisibleProperty; label: s
   { value: 'assignee', label: t('common.assignee') },
   { value: 'project', label: t('common.project') },
   { value: 'dueDate', label: t('common.dueDate') },
+  { value: 'plannedStart', label: t('boardView.plannedStart') },
+  { value: 'progress', label: t('boardView.progress') },
   { value: 'updatedAt', label: t('common.updated') }
 ])
 

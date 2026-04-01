@@ -56,7 +56,7 @@ describe('secondary modal translations exist in catalogs', () => {
     ).toBe('Delete project \"Foo\" and all its tasks? This cannot be undone.')
     expect(i18n.global.t('projectSettingsModal.invitePlaceholder')).toBe('name@example.com')
     expect(i18n.global.t('taskImportModal.dropzone.copy')).toBe(
-      'Required template columns: `title`, `importId`. Optional: `parentImportId`, `description`, `status`, `priority`, `assignee`, `dueDate`.'
+      'Required template columns: `title`, `importId`. Optional: `parentImportId`, `description`, `status`, `priority`, `assignee`, `plannedStartDate`, `dueDate`, `progressPercent`.'
     )
     expect(i18n.global.t('taskImportModal.footer.importIssues')).toBe('Import issues')
     expect(i18n.global.t('attachments.uploading')).toBe('Uploading...')
@@ -72,7 +72,7 @@ describe('secondary modal translations exist in catalogs', () => {
     ).toBe('删除项目“Foo”及其所有任务？该操作无法撤销。')
     expect(i18n.global.t('projectSettingsModal.invitePlaceholder')).toBe('name@example.com')
     expect(i18n.global.t('taskImportModal.dropzone.copy')).toBe(
-      '必填模板列：`title`、`importId`。可选：`parentImportId`、`description`、`status`、`priority`、`assignee`、`dueDate`。'
+      '必填模板列：`title`、`importId`。可选：`parentImportId`、`description`、`status`、`priority`、`assignee`、`plannedStartDate`、`dueDate`、`progressPercent`。'
     )
     expect(i18n.global.t('taskImportModal.footer.importIssues')).toBe('导入任务')
     expect(i18n.global.t('attachments.uploading')).toBe('上传中...')

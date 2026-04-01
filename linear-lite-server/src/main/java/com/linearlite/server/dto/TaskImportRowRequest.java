@@ -13,6 +13,9 @@ public class TaskImportRowRequest {
     private String priority;
     private Long assigneeId;
     private LocalDateTime dueDate;
+    private LocalDateTime plannedStartDate;
+    /** 完成进度 0–100，缺省为 0 */
+    private Integer progressPercent;
 
     public Integer getLineNumber() {
         return lineNumber;
@@ -84,5 +87,21 @@ public class TaskImportRowRequest {
 
     public void setDueDate(LocalDateTime dueDate) {
         this.dueDate = dueDate;
+    }
+
+    public LocalDateTime getPlannedStartDate() {
+        return plannedStartDate;
+    }
+
+    public void setPlannedStartDate(LocalDateTime plannedStartDate) {
+        this.plannedStartDate = plannedStartDate;
+    }
+
+    public Integer getProgressPercent() {
+        return progressPercent;
+    }
+
+    public void setProgressPercent(Integer progressPercent) {
+        this.progressPercent = progressPercent;
     }
 }

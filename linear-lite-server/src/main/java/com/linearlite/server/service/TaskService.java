@@ -41,6 +41,9 @@ public class TaskService {
     private static final Set<String> ALLOWED_STATUSES = Set.of(
             "backlog", "todo", "in_progress", "in_review", "done", "canceled", "duplicate");
     private static final Set<String> ALLOWED_PRIORITIES = Set.of("low", "medium", "high", "urgent");
+    /** 进度 100% 时可自动置为 done 的开放状态（不含 canceled / duplicate） */
+    private static final Set<String> OPEN_STATUSES_FOR_PROGRESS_LINKAGE = Set.of(
+            "backlog", "todo", "in_progress", "in_review");
     private static final int TASK_IMPORT_MAX_ROWS = 800;
 
     private final TaskMapper taskMapper;
@@ -96,7 +99,9 @@ public class TaskService {
      */
     @Transactional(rollbackFor = Exception.class)
     public Task create(Long projectId, Long creatorId, Long parentId, String title, String description,
-                       String status, String priority, Long assigneeId, LocalDateTime dueDate) {
+                       String status, String priority, Long assigneeId, LocalDateTime dueDate,
+                       LocalDateTime plannedStartDate,
+                       Integer progressPercent) {
         if (projectId == null) {
             throw new IllegalArgumentException("projectId 不能为空");
         }
@@ -138,6 +143,12 @@ public class TaskService {
         task.setCreatorId(creatorId);
         task.setAssigneeId(assigneeId);
         task.setDueDate(dueDate);
+        task.setPlannedStartDate(plannedStartDate);
+        task.setProgressPercent(clampProgressPercent(progressPercent));
+        normalizeProgressStatusForNewTask(task);
+        if (isTerminalStatus(task.getStatus())) {
+            task.setCompletedAt(LocalDateTime.now());
+        }
 
         taskMapper.insert(task);
         Task inserted = taskMapper.selectById(task.getId());
@@ -211,6 +222,12 @@ public class TaskService {
             task.setCreatorId(creatorId);
             task.setAssigneeId(row.getAssigneeId());
             task.setDueDate(row.getDueDate());
+            task.setPlannedStartDate(row.getPlannedStartDate());
+            task.setProgressPercent(clampProgressPercent(row.getProgressPercent()));
+            normalizeProgressStatusForNewTask(task);
+            if (isTerminalStatus(task.getStatus())) {
+                task.setCompletedAt(LocalDateTime.now());
+            }
             taskMapper.insert(task);
 
             Task inserted = taskMapper.selectById(task.getId());
@@ -307,18 +324,38 @@ public class TaskService {
                 hasUpdate = true;
             }
         }
-        if (request.getStatus() != null && !request.getStatus().isBlank()) {
-            String newStatus = request.getStatus();
-            if (!newStatus.equals(existing.getStatus())) {
-                wrapper.set("status", newStatus);
+        boolean touchStatusOrProgress =
+                (request.getStatus() != null && !request.getStatus().isBlank())
+                        || request.getProgressPercent() != null;
+        if (touchStatusOrProgress) {
+            String proposedStatus = existing.getStatus();
+            if (request.getStatus() != null && !request.getStatus().isBlank()) {
+                proposedStatus = request.getStatus().trim();
+            }
+            int proposedProgress = existing.getProgressPercent() != null ? existing.getProgressPercent() : 0;
+            if (request.getProgressPercent() != null) {
+                proposedProgress = clampProgressPercent(request.getProgressPercent());
+            }
+            boolean statusTouched = request.getStatus() != null && !request.getStatus().isBlank();
+            boolean progressTouched = request.getProgressPercent() != null;
+            ResolvedStatusProgress resolved = resolveStatusProgressLinkage(
+                    existing, statusTouched, progressTouched, proposedStatus, proposedProgress);
+
+            if (!resolved.status.equalsIgnoreCase(existing.getStatus())) {
+                wrapper.set("status", resolved.status);
                 hasUpdate = true;
                 boolean wasTerminal = isTerminalStatus(existing.getStatus());
-                boolean nowTerminal = isTerminalStatus(newStatus);
+                boolean nowTerminal = isTerminalStatus(resolved.status);
                 if (nowTerminal) {
                     wrapper.set("completed_at", LocalDateTime.now());
                 } else if (wasTerminal) {
                     wrapper.set("completed_at", null);
                 }
+            }
+            int existingProgress = existing.getProgressPercent() != null ? existing.getProgressPercent() : 0;
+            if (resolved.progressPercent != existingProgress) {
+                wrapper.set("progress_percent", resolved.progressPercent);
+                hasUpdate = true;
             }
         }
         if (request.getPriority() != null && !request.getPriority().isBlank()) {
@@ -341,6 +378,17 @@ public class TaskService {
         if (request.getDueDate() != null) {
             if (!equalsNullable(request.getDueDate(), existing.getDueDate())) {
                 wrapper.set("due_date", request.getDueDate());
+                hasUpdate = true;
+            }
+        }
+        if (Boolean.TRUE.equals(request.getClearPlannedStart())) {
+            if (existing.getPlannedStartDate() != null) {
+                wrapper.set("planned_start_date", null);
+                hasUpdate = true;
+            }
+        } else if (request.getPlannedStartDate() != null) {
+            if (!equalsNullable(request.getPlannedStartDate(), existing.getPlannedStartDate())) {
+                wrapper.set("planned_start_date", request.getPlannedStartDate());
                 hasUpdate = true;
             }
         }
@@ -477,6 +525,81 @@ public class TaskService {
         return status != null && TERMINAL_STATUSES.contains(status.toLowerCase());
     }
 
+    private static boolean isOpenForProgressLinkage(String status) {
+        return status != null && OPEN_STATUSES_FOR_PROGRESS_LINKAGE.contains(status.toLowerCase());
+    }
+
+    /**
+     * 新建/导入入库前：开放态且 100% → done；done → 进度 100。
+     */
+    private static void normalizeProgressStatusForNewTask(Task task) {
+        if (task == null || task.getStatus() == null) {
+            return;
+        }
+        String st = task.getStatus().trim();
+        int pr = task.getProgressPercent() != null ? task.getProgressPercent() : 0;
+        if (pr == 100 && isOpenForProgressLinkage(st)) {
+            st = "done";
+        }
+        if ("done".equalsIgnoreCase(st)) {
+            pr = 100;
+        }
+        task.setStatus(st);
+        task.setProgressPercent(pr);
+    }
+
+    /**
+     * 更新任务时：进度与 done / 进行中联动。
+     */
+    static ResolvedStatusProgress resolveStatusProgressLinkage(
+            Task existing,
+            boolean statusTouched,
+            boolean progressTouched,
+            String proposedStatus,
+            int proposedProgress) {
+        String st = proposedStatus;
+        int pr = proposedProgress;
+
+        // 显式从 done 回到开放态且进度仍 >=100：降为 99，避免立刻被「100%→done」拉回完成态
+        if (statusTouched
+                && existing.getStatus() != null
+                && "done".equalsIgnoreCase(existing.getStatus())
+                && isOpenForProgressLinkage(st)
+                && pr >= 100) {
+            pr = 99;
+        }
+
+        // 当前为 done、请求仍声明 done 且把进度调到 <100：回到进行中（前端自动保存常同时带 status + progressPercent，statusTouched 恒为 true）
+        if (progressTouched
+                && pr < 100
+                && existing.getStatus() != null
+                && "done".equalsIgnoreCase(existing.getStatus())
+                && "done".equalsIgnoreCase(st)) {
+            st = "in_progress";
+        }
+
+        // 开放态 + 100% → done；done → 100%
+        if (pr == 100 && isOpenForProgressLinkage(st)) {
+            st = "done";
+        }
+        if ("done".equalsIgnoreCase(st)) {
+            pr = 100;
+        }
+
+        return new ResolvedStatusProgress(st, pr);
+    }
+
+    /** 联动解析结果（包内可见供单测断言） */
+    static final class ResolvedStatusProgress {
+        final String status;
+        final int progressPercent;
+
+        ResolvedStatusProgress(String status, int progressPercent) {
+            this.status = status;
+            this.progressPercent = progressPercent;
+        }
+    }
+
     private void validateImportRow(TaskImportRowRequest row) {
         if (row == null) {
             throw new IllegalArgumentException("导入行不能为空");
@@ -501,6 +624,12 @@ public class TaskService {
             User assignee = userMapper.selectById(row.getAssigneeId());
             if (assignee == null) {
                 throw new IllegalArgumentException("Assignee does not exist: " + row.getAssigneeId());
+            }
+        }
+        if (row.getProgressPercent() != null) {
+            int p = row.getProgressPercent();
+            if (p < 0 || p > 100) {
+                throw new IllegalArgumentException("Progress must be between 0 and 100: " + p);
             }
         }
     }
@@ -602,6 +731,18 @@ public class TaskService {
             taskActivityService.recordAssigneeChange(existing.getId(), userId, existing.getAssigneeId(), updated.getAssigneeId());
         }
         recordFieldChange(existing.getId(), userId, "dueDate", stringify(existing.getDueDate()), stringify(updated.getDueDate()));
+        recordFieldChange(
+                existing.getId(),
+                userId,
+                "plannedStartDate",
+                stringify(existing.getPlannedStartDate()),
+                stringify(updated.getPlannedStartDate()));
+        recordFieldChange(
+                existing.getId(),
+                userId,
+                "progressPercent",
+                stringifyProgress(existing.getProgressPercent()),
+                stringifyProgress(updated.getProgressPercent()));
     }
 
     private void recordFieldChange(Long taskId, Long userId, String fieldName, String oldValue, String newValue) {
@@ -617,5 +758,16 @@ public class TaskService {
 
     private static boolean equalsNullable(Object left, Object right) {
         return left == null ? right == null : left.equals(right);
+    }
+
+    private static int clampProgressPercent(Integer value) {
+        if (value == null) {
+            return 0;
+        }
+        return Math.max(0, Math.min(100, value));
+    }
+
+    private static String stringifyProgress(Integer value) {
+        return String.valueOf(value != null ? value : 0);
     }
 }

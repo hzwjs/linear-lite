@@ -130,7 +130,9 @@ export const useTaskStore = defineStore('taskStore', () => {
         priority: data.priority,
         assigneeId: data.assigneeId ?? null,
         dueDate: toApiDateTime(data.dueDate),
-        parentId: data.parentId ?? undefined
+        plannedStartDate: toApiDateTime(data.plannedStartDate),
+        parentId: data.parentId ?? undefined,
+        progressPercent: data.progressPercent ?? 0
       })
       tasks.value = [newTask, ...tasks.value]
       return newTask
@@ -143,10 +145,57 @@ export const useTaskStore = defineStore('taskStore', () => {
     }
   }
 
+  /**
+   * 同步合并到内存任务列表（不请求网络）。updateTask 会先调用此方法再 PUT，避免防抖未触发时关抽屉已丢变更。
+   */
+  function applyLocalTaskPatch(
+    id: string,
+    updates: Partial<Omit<Task, 'id' | 'createdAt'>> & {
+      clearAssignee?: boolean
+      clearPlannedStart?: boolean
+    }
+  ) {
+    const index = tasks.value.findIndex((t) => t.id === id)
+    if (index === -1) return
+    const prev = tasks.value[index]
+    if (prev === undefined) return
+    const next: Task = { ...prev, updatedAt: Date.now() }
+    if (updates.title !== undefined) next.title = updates.title
+    if (updates.description !== undefined) next.description = updates.description
+    if (updates.status !== undefined) next.status = updates.status
+    if (updates.priority !== undefined) next.priority = updates.priority
+    if (updates.clearAssignee === true) {
+      next.assigneeId = undefined
+    } else if (updates.assigneeId !== undefined) {
+      next.assigneeId = updates.assigneeId
+    }
+    if (updates.dueDate !== undefined) next.dueDate = updates.dueDate
+    if (updates.clearPlannedStart === true) {
+      next.plannedStartDate = undefined
+    } else if (updates.plannedStartDate !== undefined) {
+      next.plannedStartDate = updates.plannedStartDate
+    }
+    if (updates.parentId !== undefined) next.parentId = updates.parentId
+    if (updates.progressPercent !== undefined) next.progressPercent = updates.progressPercent
+    if (updates.projectId !== undefined) next.projectId = updates.projectId
+    if (updates.creatorId !== undefined) next.creatorId = updates.creatorId
+    if (updates.completedAt !== undefined) next.completedAt = updates.completedAt
+    tasks.value[index] = next
+    recomputeParentSubIssueProgress(prev.parentId)
+    recomputeParentSubIssueProgress(next.parentId)
+    if (next.favorited) {
+      useFavoriteStore().syncTask(next)
+    }
+  }
+
   async function updateTask(
     id: string,
-    updates: Partial<Omit<Task, 'id' | 'createdAt'>> & { clearAssignee?: boolean }
+    updates: Partial<Omit<Task, 'id' | 'createdAt'>> & {
+      clearAssignee?: boolean
+      clearPlannedStart?: boolean
+    }
   ) {
+    applyLocalTaskPatch(id, updates)
     error.value = null
     try {
       const existing = tasks.value.find((t) => t.id === id) ?? null
@@ -158,7 +207,10 @@ export const useTaskStore = defineStore('taskStore', () => {
         assigneeId: updates.assigneeId,
         clearAssignee: updates.clearAssignee,
         dueDate: toApiDateTime(updates.dueDate),
-        parentId: updates.parentId
+        parentId: updates.parentId,
+        plannedStartDate: toApiDateTime(updates.plannedStartDate),
+        clearPlannedStart: updates.clearPlannedStart,
+        progressPercent: updates.progressPercent
       })
       const index = tasks.value.findIndex((t) => t.id === id)
       const merged = {
@@ -202,6 +254,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     fetchTasks,
     fetchSubIssues,
     createTask,
+    applyLocalTaskPatch,
     updateTask,
     transitionTask
   }

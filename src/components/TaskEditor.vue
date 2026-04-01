@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, computed, nextTick } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const AUTO_SAVE_DEBOUNCE_MS = 600
@@ -16,6 +16,7 @@ import { attachmentsApi } from '../services/api/attachments'
 import type { TaskAttachment } from '../services/api/types'
 import { formatTaskActivity, getActivityAvatarLabel } from '../utils/taskActivity'
 import { formatDateInputValue, parseDateInputValue } from '../utils/taskDate'
+import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import TiptapEditor from './TiptapEditor.vue'
 import CustomSelect from './ui/CustomSelect.vue'
@@ -88,7 +89,10 @@ function onDescriptionUploadStateChange(state: { hasPending: boolean; hasFailed:
 const formStatus = ref<Status>('todo')
 const formPriority = ref<Priority>('medium')
 const formAssigneeId = ref<string | number>('')
+const formPlannedStartDate = ref('') // YYYY-MM-DD
 const formDueDate = ref('') // YYYY-MM-DD for input[type=date]
+/** 0–100，与后端 progressPercent 一致 */
+const formProgressPercent = ref(0)
 const userList = ref<User[]>([])
 const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
 const activities = ref<TaskActivity[]>([])
@@ -401,6 +405,27 @@ function toDateInputValue(ms: number | undefined | null): string {
 }
 
 /** 全选删除列表后可能留下仅空列表项（如 "- \n- "）。仅在保存时视为空，不往编辑器回写，避免可见的覆盖过程 */
+function clampTaskProgress(value: unknown): number {
+  const n = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 0
+  return Math.max(0, Math.min(100, n))
+}
+
+/** 与 TaskService.OPEN_STATUSES_FOR_PROGRESS_LINKAGE 一致，用于拖动进度时即时联动状态 */
+const OPEN_STATUSES_FOR_PROGRESS: Status[] = ['backlog', 'todo', 'in_progress', 'in_review']
+
+function syncFormStatusFromProgress() {
+  if (props.mode !== 'edit' || !props.task) return
+  const p = clampTaskProgress(formProgressPercent.value)
+  const st = formStatus.value
+  if (st === 'done' && p < 100) {
+    formStatus.value = 'in_progress'
+    return
+  }
+  if (p === 100 && OPEN_STATUSES_FOR_PROGRESS.includes(st)) {
+    formStatus.value = 'done'
+  }
+}
+
 function descriptionForSave(desc: string | undefined): string {
   const s = (desc ?? '').trim()
   if (!s) return ''
@@ -416,14 +441,32 @@ const loadForm = () => {
     formStatus.value = props.task.status
     formPriority.value = props.task.priority
     formAssigneeId.value = props.task.assigneeId ?? ''
+    formPlannedStartDate.value = toDateInputValue(props.task.plannedStartDate ?? undefined)
     formDueDate.value = toDateInputValue(props.task.dueDate ?? undefined)
+    formProgressPercent.value = clampTaskProgress(props.task.progressPercent ?? 0)
+
+    const draft = readTaskEditDraft(props.task.id)
+    if (draft && draft.savedAt > props.task.updatedAt) {
+      formTitle.value = draft.title
+      formDescription.value = draft.description
+      formStatus.value = draft.status
+      formPriority.value = draft.priority
+      formAssigneeId.value = draft.assigneeId == null ? '' : draft.assigneeId
+      formPlannedStartDate.value = draft.plannedStartDate
+      formDueDate.value = draft.dueDate
+      formProgressPercent.value = clampTaskProgress(draft.progressPercent)
+    } else if (draft) {
+      clearTaskEditDraft(props.task.id)
+    }
   } else {
     formTitle.value = ''
     formDescription.value = ''
     formStatus.value = props.defaultStatus ?? 'todo'
     formPriority.value = 'medium'
     formAssigneeId.value = ''
+    formPlannedStartDate.value = ''
     formDueDate.value = ''
+    formProgressPercent.value = 0
   }
 }
 
@@ -443,7 +486,10 @@ watch(() => props.defaultStatus, () => {
   if (props.mode === 'create') formStatus.value = props.defaultStatus ?? 'todo'
 })
 
+watch(formProgressPercent, () => syncFormStatusFromProgress())
+
 function getPayload() {
+  const plannedStartMs = parseDateInputValue(formPlannedStartDate.value)
   const dueDateMs = parseDateInputValue(formDueDate.value)
   const rawAssignee = formAssigneeId.value
   const assigneeId =
@@ -459,7 +505,9 @@ function getPayload() {
     status: formStatus.value,
     priority: formPriority.value,
     assigneeId,
-    dueDate: dueDateMs
+    plannedStartDate: plannedStartMs,
+    dueDate: dueDateMs,
+    progressPercent: clampTaskProgress(formProgressPercent.value)
   }
 }
 
@@ -470,8 +518,26 @@ function dueDateKey(ms: number | undefined | null): string {
 }
 
 function isPayloadEqual(
-  a: { title: string; description?: string; status: Status; priority: Priority; assigneeId: number | null; dueDate?: number },
-  b: { title: string; description?: string; status: Status; priority: Priority; assigneeId?: number | null; dueDate?: number | null }
+  a: {
+    title: string
+    description?: string
+    status: Status
+    priority: Priority
+    assigneeId: number | null
+    plannedStartDate?: number
+    dueDate?: number
+    progressPercent: number
+  },
+  b: {
+    title: string
+    description?: string
+    status: Status
+    priority: Priority
+    assigneeId?: number | null
+    plannedStartDate?: number | null
+    dueDate?: number | null
+    progressPercent?: number
+  }
 ) {
   return (
     a.title === (b.title ?? '') &&
@@ -479,7 +545,9 @@ function isPayloadEqual(
     a.status === b.status &&
     a.priority === b.priority &&
     (a.assigneeId ?? null) === (b.assigneeId ?? null) &&
-    dueDateKey(a.dueDate) === dueDateKey(b.dueDate ?? undefined)
+    dueDateKey(a.plannedStartDate) === dueDateKey(b.plannedStartDate ?? undefined) &&
+    dueDateKey(a.dueDate) === dueDateKey(b.dueDate ?? undefined) &&
+    a.progressPercent === clampTaskProgress(b.progressPercent ?? 0)
   )
 }
 
@@ -493,23 +561,37 @@ async function performAutoSave() {
     status: props.task.status,
     priority: props.task.priority,
     assigneeId: props.task.assigneeId ?? null,
-    dueDate: props.task.dueDate ?? null
+    plannedStartDate: props.task.plannedStartDate ?? null,
+    dueDate: props.task.dueDate ?? null,
+    progressPercent: props.task.progressPercent ?? 0
   }
   if (isPayloadEqual(payload, current)) return
   if (descriptionUploadState.value.hasPending || descriptionUploadState.value.hasFailed) return
 
+  const clearPlannedStart =
+    !formPlannedStartDate.value && props.task.plannedStartDate != null ? true : undefined
+
+  persistFormDraftIfNeeded()
+
   saveStatus.value = 'saving'
   justSavedTaskId.value = props.task.id
   try {
-    await store.updateTask(props.task.id, {
+    const merged = await store.updateTask(props.task.id, {
       title: payload.title,
       description: payload.description,
       status: payload.status,
       priority: payload.priority,
       assigneeId: payload.assigneeId,
       clearAssignee: payload.assigneeId === null,
-      dueDate: payload.dueDate
+      plannedStartDate: payload.plannedStartDate,
+      clearPlannedStart,
+      dueDate: payload.dueDate,
+      progressPercent: payload.progressPercent
     })
+    // 保存后故意跳过 loadForm，避免覆盖正文；服务端进度↔状态联动需从合并结果写回
+    formStatus.value = merged.status
+    formProgressPercent.value = clampTaskProgress(merged.progressPercent ?? 0)
+    clearTaskEditDraft(props.task.id)
     await loadActivities({ silent: true })
     saveStatus.value = 'saved'
     setTimeout(() => {
@@ -522,6 +604,22 @@ async function performAutoSave() {
   }
 }
 
+function persistFormDraftIfNeeded() {
+  if (props.mode !== 'edit' || !props.task) return
+  const payload = getPayload()
+  if (!payload.title) return
+  saveTaskEditDraft(props.task.id, {
+    title: payload.title,
+    description: payload.description ?? '',
+    status: payload.status,
+    priority: payload.priority,
+    assigneeId: payload.assigneeId,
+    plannedStartDate: formPlannedStartDate.value,
+    dueDate: formDueDate.value,
+    progressPercent: payload.progressPercent
+  })
+}
+
 function scheduleAutoSave() {
   if (autoSaveTimer) clearTimeout(autoSaveTimer)
   autoSaveTimer = setTimeout(() => {
@@ -530,10 +628,44 @@ function scheduleAutoSave() {
   }, AUTO_SAVE_DEBOUNCE_MS)
 }
 
+/** 关抽屉 / 切换任务前调用：取消防抖并立刻走一遍保存（先本地合并与 localStorage，再 PUT） */
+async function flushPendingSave() {
+  if (props.mode !== 'edit' || !props.task) return
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+  }
+  await performAutoSave()
+}
+
+onBeforeUnmount(() => {
+  void flushPendingSave()
+})
+
+defineExpose({ flushPendingSave })
+
 /** 仅描述与当前任务不同且其它字段相同：不触发防抖保存，等描述失焦时再保存，避免一次编辑产生多条活动。 */
 function isOnlyDescriptionDirty(
-  payload: { title: string; description?: string; status: Status; priority: Priority; assigneeId: number | null; dueDate?: number },
-  current: { title: string; description?: string; status: Status; priority: Priority; assigneeId: number | null; dueDate?: number | null }
+  payload: {
+    title: string
+    description?: string
+    status: Status
+    priority: Priority
+    assigneeId: number | null
+    plannedStartDate?: number
+    dueDate?: number
+    progressPercent: number
+  },
+  current: {
+    title: string
+    description?: string
+    status: Status
+    priority: Priority
+    assigneeId: number | null
+    plannedStartDate?: number | null
+    dueDate?: number | null
+    progressPercent?: number
+  }
 ): boolean {
   return (
     descriptionForSave(payload.description) !== descriptionForSave(current.description) &&
@@ -541,7 +673,9 @@ function isOnlyDescriptionDirty(
     payload.status === current.status &&
     payload.priority === current.priority &&
     (payload.assigneeId ?? null) === (current.assigneeId ?? null) &&
-    (payload.dueDate ?? null) === (current.dueDate ?? null)
+    dueDateKey(payload.plannedStartDate) === dueDateKey(current.plannedStartDate ?? undefined) &&
+    (payload.dueDate ?? null) === (current.dueDate ?? null) &&
+    payload.progressPercent === clampTaskProgress(current.progressPercent ?? 0)
   )
 }
 
@@ -554,7 +688,9 @@ function onDescriptionBlur() {
     status: props.task.status,
     priority: props.task.priority,
     assigneeId: props.task.assigneeId ?? null,
-    dueDate: props.task.dueDate ?? null
+    plannedStartDate: props.task.plannedStartDate ?? null,
+    dueDate: props.task.dueDate ?? null,
+    progressPercent: props.task.progressPercent ?? 0
   }
   if (isPayloadEqual(payload, current)) return
   void performAutoSave()
@@ -567,7 +703,9 @@ watch(
     formStatus.value,
     formPriority.value,
     formAssigneeId.value,
-    formDueDate.value
+    formPlannedStartDate.value,
+    formDueDate.value,
+    formProgressPercent.value
   ],
   () => {
     if (props.mode !== 'edit' || !props.task) return
@@ -578,9 +716,15 @@ watch(
       status: props.task.status,
       priority: props.task.priority,
       assigneeId: props.task.assigneeId ?? null,
-      dueDate: props.task.dueDate ?? null
+      plannedStartDate: props.task.plannedStartDate ?? null,
+      dueDate: props.task.dueDate ?? null,
+      progressPercent: props.task.progressPercent ?? 0
     }
-    if (isPayloadEqual(payload, current)) return
+    if (isPayloadEqual(payload, current)) {
+      clearTaskEditDraft(props.task.id)
+      return
+    }
+    persistFormDraftIfNeeded()
     if (isOnlyDescriptionDirty(payload, current)) return
     scheduleAutoSave()
   },
@@ -942,6 +1086,16 @@ async function toggleFavorite() {
             />
           </div>
           <div class="prop-row">
+            <span class="prop-label">{{ t('common.plannedStartDate') }}</span>
+            <CustomDatePicker
+              id="task-planned-start"
+              v-model="formPlannedStartDate"
+              :placeholder="t('common.plannedStartDate')"
+              :aria-label="t('common.plannedStartDate')"
+              trigger-class="prop-trigger prop-trigger--linear"
+            />
+          </div>
+          <div class="prop-row">
             <span class="prop-label">{{ t('common.dueDate') }}</span>
             <CustomDatePicker
               id="task-due"
@@ -950,6 +1104,22 @@ async function toggleFavorite() {
               :aria-label="t('common.dueDate')"
               trigger-class="prop-trigger prop-trigger--linear"
             />
+          </div>
+          <div v-if="mode === 'edit'" class="prop-row">
+            <span class="prop-label">{{ t('taskEditor.progress') }}</span>
+            <div class="prop-progress-control">
+              <input
+                id="task-progress"
+                v-model.number="formProgressPercent"
+                class="prop-progress-range"
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                :aria-label="t('taskEditor.progressAria')"
+              />
+              <span class="prop-progress-value">{{ clampTaskProgress(formProgressPercent) }}%</span>
+            </div>
           </div>
           <div class="prop-row prop-row--linear-action">
             <span class="prop-label">{{ t('common.labels') }}</span>
@@ -1672,6 +1842,28 @@ async function toggleFavorite() {
 .read-only .read-only-value {
   font-size: var(--font-size-caption);
   color: var(--color-text-secondary);
+}
+
+.prop-progress-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--control-padding-y) var(--control-padding-x);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-muted);
+}
+.prop-progress-range {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--color-accent, #6366f1);
+}
+.prop-progress-value {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+  min-width: 2.75rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 1100px) {

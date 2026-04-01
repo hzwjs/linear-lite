@@ -303,4 +303,60 @@ class TaskServiceTest {
         assertEquals("Import ID must be unique within the file: A-1", error.getMessage());
         verify(taskMapper, never()).insert(any());
     }
+
+    @Test
+    void progressStatusLinkageHundredPercentFromOpenBecomesDone() {
+        Task existing = new Task();
+        existing.setStatus("todo");
+        existing.setProgressPercent(20);
+        TaskService.ResolvedStatusProgress r =
+                TaskService.resolveStatusProgressLinkage(existing, false, true, "todo", 100);
+        assertEquals("done", r.status);
+        assertEquals(100, r.progressPercent);
+    }
+
+    @Test
+    void progressStatusLinkageLoweringProgressFromDoneReopens() {
+        Task existing = new Task();
+        existing.setStatus("done");
+        existing.setProgressPercent(100);
+        TaskService.ResolvedStatusProgress r =
+                TaskService.resolveStatusProgressLinkage(existing, false, true, "done", 40);
+        assertEquals("in_progress", r.status);
+        assertEquals(40, r.progressPercent);
+    }
+
+    /** 与 TaskEditor 自动保存一致：PUT 同时携带 status 与 progressPercent */
+    @Test
+    void progressStatusLinkageLoweringProgressFromDoneReopensWhenStatusAlsoSent() {
+        Task existing = new Task();
+        existing.setStatus("done");
+        existing.setProgressPercent(100);
+        TaskService.ResolvedStatusProgress r =
+                TaskService.resolveStatusProgressLinkage(existing, true, true, "done", 47);
+        assertEquals("in_progress", r.status);
+        assertEquals(47, r.progressPercent);
+    }
+
+    @Test
+    void progressStatusLinkageExplicitDoneRaisesProgress() {
+        Task existing = new Task();
+        existing.setStatus("todo");
+        existing.setProgressPercent(10);
+        TaskService.ResolvedStatusProgress r =
+                TaskService.resolveStatusProgressLinkage(existing, true, false, "done", 10);
+        assertEquals("done", r.status);
+        assertEquals(100, r.progressPercent);
+    }
+
+    @Test
+    void progressStatusLinkageReopenFromDoneClampsHundredToNinetyNine() {
+        Task existing = new Task();
+        existing.setStatus("done");
+        existing.setProgressPercent(100);
+        TaskService.ResolvedStatusProgress r =
+                TaskService.resolveStatusProgressLinkage(existing, true, false, "todo", 100);
+        assertEquals("todo", r.status);
+        assertEquals(99, r.progressPercent);
+    }
 }

@@ -7,7 +7,17 @@ import {
   PriorityMediumIcon,
   PriorityLowIcon
 } from './icons/PriorityIcons'
-import { Check, Circle, CheckCircle, Copy, FoldVertical, UnfoldVertical, User as UserIcon } from 'lucide-vue-next'
+import {
+  Check,
+  Circle,
+  CheckCircle,
+  Copy,
+  Calendar,
+  CalendarClock,
+  FoldVertical,
+  UnfoldVertical,
+  User as UserIcon
+} from 'lucide-vue-next'
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
@@ -93,8 +103,24 @@ function dueDateText(task: Task): string {
   return new Date(task.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
+function plannedStartText(task: Task): string {
+  if (task.plannedStartDate == null) return '—'
+  return new Date(task.plannedStartDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
 function updatedText(task: Task): string {
   return new Date(task.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function progressText(task: Task): string {
+  const p = task.progressPercent ?? 0
+  return `${p}%`
+}
+
+/** 0–100 for progress bar width */
+function clampedProgressPercent(task: Task): number {
+  const n = task.progressPercent ?? 0
+  return Math.min(100, Math.max(0, n))
 }
 
 function projectText(task: Task): string | null {
@@ -463,9 +489,43 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
                   </span>
                 </span>
               </template>
+              <template v-if="show('plannedStart')">
+                <span class="task-meta-slot task-meta-slot-date task-meta-slot-planned-start">
+                  <span
+                    class="task-meta task-meta-with-icon"
+                    :title="t('taskList.columnPlannedStart')"
+                  >
+                    <CalendarClock class="task-meta-date-icon" stroke-width="2" aria-hidden="true" />
+                    {{ plannedStartText(row.task) }}
+                  </span>
+                </span>
+              </template>
               <template v-if="show('dueDate')">
-                <span class="task-meta-slot task-meta-slot-date">
-                  <span class="task-meta" :class="{ overdue: isOverdue(row.task) }">{{ dueDateText(row.task) }}</span>
+                <span class="task-meta-slot task-meta-slot-date task-meta-slot-due">
+                  <span
+                    class="task-meta task-meta-with-icon"
+                    :class="{ overdue: isOverdue(row.task) }"
+                    :title="t('taskList.columnDueDate')"
+                  >
+                    <Calendar class="task-meta-date-icon" stroke-width="2" aria-hidden="true" />
+                    {{ dueDateText(row.task) }}
+                  </span>
+                </span>
+              </template>
+              <template v-if="show('progress')">
+                <span class="task-meta-slot task-meta-slot-progress">
+                  <span
+                    class="task-meta task-meta-progress-cell"
+                    :title="`${t('taskList.columnProgress')}: ${progressText(row.task)}`"
+                  >
+                    <span class="task-progress-track" aria-hidden="true">
+                      <span
+                        class="task-progress-fill"
+                        :style="{ width: `${clampedProgressPercent(row.task)}%` }"
+                      />
+                    </span>
+                    <span class="task-progress-pct">{{ progressText(row.task) }}</span>
+                  </span>
                 </span>
               </template>
               <template v-if="show('updatedAt')">
@@ -864,7 +924,57 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   width: 26px;
 }
 .task-meta-slot-date {
-  width: 72px;
+  min-width: 88px;
+  width: 88px;
+}
+
+.task-meta-slot-progress {
+  min-width: 100px;
+}
+
+.task-meta-with-icon {
+  justify-content: flex-end;
+}
+
+.task-meta-date-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  opacity: 0.7;
+  color: var(--color-text-muted);
+}
+
+.task-meta.overdue .task-meta-date-icon {
+  color: var(--color-status-warning);
+  opacity: 1;
+}
+
+.task-meta-progress-cell {
+  gap: 8px;
+}
+
+.task-progress-track {
+  width: 52px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--color-bg-muted);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.task-progress-fill {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: 999px;
+  background: var(--color-accent, #5f6eea);
+  transition: width var(--transition-fast);
+}
+
+.task-progress-pct {
+  font-variant-numeric: tabular-nums;
+  min-width: 2.25rem;
+  text-align: right;
 }
 
 .task-meta {

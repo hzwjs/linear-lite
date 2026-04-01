@@ -20,6 +20,11 @@ public class UpdateTaskRequest {
     /** 为 true 时清空指派人（将 assignee_id 置为 null） */
     private Boolean clearAssignee;
     private LocalDateTime dueDate;
+    private LocalDateTime plannedStartDate;
+    /** 为 true 时清空计划开始日期 */
+    private Boolean clearPlannedStart;
+    /** 完成进度 0–100 */
+    private Integer progressPercent;
 
     public String getTitle() {
         return title;
@@ -91,5 +96,29 @@ public class UpdateTaskRequest {
 
     public void setDueDate(LocalDateTime dueDate) {
         this.dueDate = dueDate;
+    }
+
+    public LocalDateTime getPlannedStartDate() {
+        return plannedStartDate;
+    }
+
+    public void setPlannedStartDate(LocalDateTime plannedStartDate) {
+        this.plannedStartDate = plannedStartDate;
+    }
+
+    public Boolean getClearPlannedStart() {
+        return clearPlannedStart;
+    }
+
+    public void setClearPlannedStart(Boolean clearPlannedStart) {
+        this.clearPlannedStart = clearPlannedStart;
+    }
+
+    public Integer getProgressPercent() {
+        return progressPercent;
+    }
+
+    public void setProgressPercent(Integer progressPercent) {
+        this.progressPercent = progressPercent;
     }
 }

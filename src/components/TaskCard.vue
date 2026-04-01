@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Calendar, CalendarClock } from 'lucide-vue-next'
 import type { Task, Status } from '../types/domain'
 import type { User } from '../types/domain'
 import type { VisibleProperty } from '../utils/viewPreference'
@@ -46,12 +47,21 @@ const dueDateText = computed(() => {
   if (props.task.dueDate == null) return null
   return new Date(props.task.dueDate).toLocaleDateString()
 })
+const plannedStartText = computed(() => {
+  if (props.task.plannedStartDate == null) return null
+  return new Date(props.task.plannedStartDate).toLocaleDateString()
+})
 const updatedText = computed(() => new Date(props.task.updatedAt).toLocaleDateString())
 const projectText = computed(() => {
   if (props.task.projectId == null) return null
   return `Project ${props.task.projectId}`
 })
 const show = (property: VisibleProperty) => props.visibleProperties?.includes(property) ?? false
+
+const progressPercentClamped = computed(() => {
+  const n = props.task.progressPercent ?? 0
+  return Math.min(100, Math.max(0, n))
+})
 
 const TERMINAL_STATUSES: Status[] = ['done', 'canceled', 'duplicate']
 const isOverdue = computed(() => {
@@ -86,6 +96,18 @@ const handleTransition = (e: Event) => {
     <div v-if="show('project') && projectText" class="meta-row">
       <span class="meta-pill">{{ projectText }}</span>
     </div>
+    <div v-if="show('plannedStart') && plannedStartText" class="meta-row meta-row-icon">
+      <span class="meta-pill meta-pill-with-icon">
+        <CalendarClock class="meta-pill-icon" stroke-width="2" aria-hidden="true" />
+        {{ plannedStartText }}
+      </span>
+    </div>
+    <div v-if="show('progress')" class="meta-row meta-row-progress">
+      <span class="card-progress-track" aria-hidden="true">
+        <span class="card-progress-fill" :style="{ width: `${progressPercentClamped}%` }" />
+      </span>
+      <span class="card-progress-pct">{{ task.progressPercent ?? 0 }}%</span>
+    </div>
     <div v-if="show('assignee')" class="assignee-row">
       <span class="assignee" :title="assigneeDisplay">
         <span class="avatar" :class="{ placeholder: !assignee }" :style="assigneeAvatarStyle">
@@ -98,8 +120,14 @@ const handleTransition = (e: Event) => {
     <div class="card-footer">
       <span class="date">
         <template v-if="show('dueDate') && dueDateText">
-          <span v-if="isOverdue" class="due-overdue" title="Overdue">📅 {{ dueDateText }}</span>
-          <span v-else>📅 {{ dueDateText }}</span>
+          <span v-if="isOverdue" class="due-with-icon due-overdue" title="Overdue">
+            <Calendar class="footer-date-icon" stroke-width="2" aria-hidden="true" />
+            {{ dueDateText }}
+          </span>
+          <span v-else class="due-with-icon">
+            <Calendar class="footer-date-icon" stroke-width="2" aria-hidden="true" />
+            {{ dueDateText }}
+          </span>
         </template>
         <template v-else-if="show('updatedAt')">{{ updatedText }}</template>
       </span>
@@ -173,7 +201,44 @@ const handleTransition = (e: Event) => {
 }
 
 .assignee-row { font-size: var(--font-size-xs); }
-.meta-row { display: flex; }
+.meta-row { display: flex; align-items: center; }
+.meta-row-progress {
+  gap: 8px;
+}
+.meta-pill-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.meta-pill-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  opacity: 0.7;
+  color: var(--color-text-muted);
+}
+.card-progress-track {
+  flex: 1;
+  min-width: 0;
+  max-width: 120px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--color-bg-muted);
+  overflow: hidden;
+}
+.card-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-accent, #5f6eea);
+  transition: width var(--transition-fast);
+}
+.card-progress-pct {
+  flex: 0 0 auto;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
 .meta-pill {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
@@ -226,6 +291,21 @@ const handleTransition = (e: Event) => {
 .date {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
+}
+.due-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.footer-date-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+.due-overdue .footer-date-icon {
+  color: var(--color-status-warning);
+  opacity: 1;
 }
 .due-overdue {
   color: var(--color-status-warning);

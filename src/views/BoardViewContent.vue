@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onUnmounted } from 'vue'
+import { computed, ref, watch, onUnmounted, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useTaskStore } from '../store/taskStore'
@@ -34,6 +34,10 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const listSubtaskExpanded = ref<Record<string, boolean>>({})
+const taskEditorRef = ref<
+  ComponentPublicInstance & { flushPendingSave?: () => Promise<void> }
+ | null
+>(null)
 
 const DRAWER_OVERLAY_ID = 'task-editor-drawer'
 const COMPOSER_OVERLAY_ID = 'issue-composer'
@@ -94,7 +98,8 @@ function openEditEditor(task: { id: string }) {
   router.push(`/tasks/${task.id}`)
 }
 
-function closeEditor() {
+async function closeEditor() {
+  await taskEditorRef.value?.flushPendingSave?.()
   router.push('/')
 }
 
@@ -138,7 +143,8 @@ function onWorkspaceKeydown(event: KeyboardEvent) {
   }
 }
 
-function navigateWorkspace(taskId: string) {
+async function navigateWorkspace(taskId: string) {
+  await taskEditorRef.value?.flushPendingSave?.()
   openEditEditor({ id: taskId })
 }
 
@@ -221,6 +227,7 @@ onUnmounted(() => {
     </div>
     <div v-else-if="isEditorOpen" class="workspace-inline-editor">
       <TaskEditor
+        ref="taskEditorRef"
         variant="inline"
         :mode="editorMode"
         :task="store.currentTask"

@@ -4,7 +4,16 @@ export type ViewType = 'board' | 'list'
 export type GroupBy = 'status' | 'priority' | 'assignee' | 'project' | 'none'
 export type OrderBy = 'updatedAt' | 'createdAt' | 'priority' | 'dueDate' | 'title'
 export type OrderDirection = 'asc' | 'desc'
-export type VisibleProperty = 'priority' | 'assignee' | 'project' | 'dueDate' | 'updatedAt' | 'status' | 'id'
+export type VisibleProperty =
+  | 'priority'
+  | 'assignee'
+  | 'project'
+  | 'dueDate'
+  | 'plannedStart'
+  | 'updatedAt'
+  | 'status'
+  | 'id'
+  | 'progress'
 export type CompletedVisibility = 'all' | 'open_only'
 
 export interface ViewConfig {
@@ -26,7 +35,7 @@ export const DEFAULT_VIEW_CONFIG: ViewConfig = {
   groupBy: 'status',
   orderBy: 'updatedAt',
   orderDirection: 'desc',
-  visibleProperties: ['assignee', 'dueDate', 'priority', 'updatedAt'],
+  visibleProperties: ['assignee', 'dueDate', 'plannedStart', 'priority', 'progress', 'updatedAt'],
   showEmptyGroups: false,
   completedVisibility: 'all',
   showSubIssues: true,

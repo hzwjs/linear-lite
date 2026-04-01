@@ -53,6 +53,7 @@ const en = {
     created: 'Created',
     updated: 'Updated',
     dueDate: 'Due date',
+    plannedStartDate: 'Planned start',
     close: 'Close',
     cancel: 'Cancel',
     save: 'Save',
@@ -173,7 +174,9 @@ const en = {
     addIssue: 'Add issue',
     addIssueToColumn: 'Add issue to this column',
     openOnly: 'Open only',
-    id: 'ID'
+    id: 'ID',
+    progress: 'Progress',
+    plannedStart: 'Planned start'
   },
   issueComposer: {
     dialogLabel: 'Create issue',
@@ -272,7 +275,9 @@ const en = {
       unsupportedFileType: 'Only .csv and .xlsx files are supported.',
       noSheets: 'The file does not contain any sheets.',
       firstSheetUnreadable: 'The first sheet could not be read.',
-      missingHeader: 'The file must include a header row.'
+      missingHeader: 'The file must include a header row.',
+      invalidPlannedStartDate: 'Planned start date must use YYYY-MM-DD.',
+      invalidProgress: 'Progress must be an integer from 0 to 100 (optional % suffix).'
     }
   },
   taskImportModal: {
@@ -288,7 +293,7 @@ const en = {
     downloadTemplate: 'Download template',
     dropzone: {
       title: 'Choose a `.csv` or `.xlsx` file',
-      copy: 'Required template columns: `title`, `importId`. Optional: `parentImportId`, `description`, `status`, `priority`, `assignee`, `dueDate`.'
+      copy: 'Required template columns: `title`, `importId`. Optional: `parentImportId`, `description`, `status`, `priority`, `assignee`, `plannedStartDate`, `dueDate`, `progressPercent`.'
     },
     fileMeta: {
       file: 'File',
@@ -302,7 +307,9 @@ const en = {
     },
     fields: {
       importId: 'Import ID',
-      parentImportId: 'Parent Import ID'
+      parentImportId: 'Parent Import ID',
+      progressPercent: 'Progress %',
+      plannedStartDate: 'Planned start'
     },
     preview: {
       summary: {
@@ -374,6 +381,8 @@ const en = {
     addLabel: 'Add label',
     addToProject: 'Add to project',
     completedAt: 'Completed at',
+    progress: 'Progress',
+    progressAria: 'Completion progress from 0 to 100 percent',
     justNow: 'just now',
     minutesAgo: '{count}m ago',
     hoursAgo: '{count}h ago',
@@ -391,7 +400,10 @@ const en = {
     expandSubtasks: 'Expand subtasks',
     collapseSubtasks: 'Collapse subtasks',
     expandAllSubtasks: 'Expand all',
-    collapseAllSubtasks: 'Collapse all'
+    collapseAllSubtasks: 'Collapse all',
+    columnPlannedStart: 'Planned start',
+    columnDueDate: 'Due date',
+    columnProgress: 'Progress'
   },
   status: {
     backlog: 'Backlog',
@@ -410,7 +422,9 @@ const en = {
   },
   fieldLabel: {
     assigneeId: 'assignee',
+    progressPercent: 'progress',
     dueDate: 'due date',
+    plannedStartDate: 'planned start',
     title: 'title',
     description: 'description',
     status: 'status',

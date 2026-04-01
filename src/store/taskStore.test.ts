@@ -95,4 +95,33 @@ describe('taskStore', () => {
       dueDate: '2026-03-10T00:00:00'
     }))
   })
+
+  it('applies local task patch before API resolves', async () => {
+    const store = useTaskStore()
+    const task: Task = {
+      id: 'ENG-4',
+      numericId: 104,
+      title: 'Old',
+      status: 'todo',
+      priority: 'medium',
+      createdAt: 1,
+      updatedAt: 100
+    }
+    store.tasks = [task]
+    let resolveApi!: (value: Task) => void
+    const deferred = new Promise<Task>((resolve) => {
+      resolveApi = resolve
+    })
+    vi.mocked(taskApi.update).mockReturnValue(deferred)
+
+    const done = store.updateTask('ENG-4', { title: 'New' })
+    const row0 = () => store.tasks[0]
+    expect(row0()).toBeDefined()
+    expect(row0()!.title).toBe('New')
+    expect(row0()!.updatedAt).toBeGreaterThanOrEqual(100)
+    resolveApi({ ...task, title: 'New', updatedAt: 200 })
+    await done
+    expect(row0()!.title).toBe('New')
+    expect(row0()!.updatedAt).toBe(200)
+  })
 })

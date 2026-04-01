@@ -17,7 +17,14 @@ describe('viewModeStore', () => {
     expect(store.viewConfig.orderBy).toBe('updatedAt')
     expect(store.viewConfig.orderDirection).toBe('desc')
     expect(store.viewType).toBe('list')
-    expect(store.visibleProperties).toEqual(['assignee', 'dueDate', 'priority', 'updatedAt'])
+    expect(store.visibleProperties).toEqual([
+      'assignee',
+      'dueDate',
+      'plannedStart',
+      'priority',
+      'progress',
+      'updatedAt'
+    ])
   })
 
   it('updates the layout through setView', () => {
@@ -55,7 +62,7 @@ describe('viewModeStore', () => {
     store.toggleVisibleProperty('priority')
     store.toggleVisibleProperty('updatedAt')
 
-    expect(store.visibleProperties).toEqual(['assignee', 'dueDate'])
+    expect(store.visibleProperties).toEqual(['assignee', 'dueDate', 'plannedStart', 'progress'])
   })
 
   it('persists and restores full view config', async () => {

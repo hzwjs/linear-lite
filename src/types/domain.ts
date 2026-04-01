@@ -20,6 +20,10 @@ export interface Task {
   creatorId?: number
   assigneeId?: number | null
   dueDate?: number | null // 截止日期，毫秒时间戳
+  /** 计划开始日期，毫秒时间戳 */
+  plannedStartDate?: number | null
+  /** 完成进度 0–100 */
+  progressPercent?: number
   completedAt?: number | null // 实际完成时间，由后端在终态时写入
   createdAt: number
   updatedAt: number

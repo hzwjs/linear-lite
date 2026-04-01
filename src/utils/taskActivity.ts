@@ -15,7 +15,8 @@ function formatFieldValue(fieldName: string | null | undefined, value: string | 
   if (!value) return translate('activity.emptyValue')
   if (fieldName === 'status') return getStatusLabel(value)
   if (fieldName === 'priority') return getPriorityLabel(value)
-  if (fieldName === 'dueDate') return new Date(value).toLocaleDateString()
+  if (fieldName === 'dueDate' || fieldName === 'plannedStartDate') return new Date(value).toLocaleDateString()
+  if (fieldName === 'progressPercent') return `${value}%`
   return value
 }
 

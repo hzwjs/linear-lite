@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     creator_id  BIGINT       NOT NULL,
     assignee_id BIGINT       DEFAULT NULL,
     due_date    DATETIME     DEFAULT NULL COMMENT '预计完成/截止日期',
+    planned_start_date DATETIME DEFAULT NULL COMMENT '计划开始日期',
+    progress_percent TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '完成进度 0–100',
     completed_at DATETIME    DEFAULT NULL COMMENT '实际完成时间，终态时由系统写入',
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
