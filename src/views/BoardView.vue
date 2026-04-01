@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, computed, watch, ref, defineAsyncComponent } from 'vue'
+import { onMounted, onUnmounted, computed, watch, ref, defineAsyncComponent, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useTaskStore } from '../store/taskStore'
@@ -17,6 +17,8 @@ import {
   PriorityLowIcon
 } from '../components/icons/PriorityIcons'
 import {
+  ArrowDownWideNarrow,
+  ArrowUpWideNarrow,
   Circle,
   CircleDashed,
   CircleX,
@@ -27,10 +29,16 @@ import {
   LayoutList,
   Loader2,
   Plus,
-  Download
+  Download,
+  User as UserIcon
 } from 'lucide-vue-next'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import type { CompletedVisibility, GroupBy, OrderBy, VisibleProperty } from '../utils/viewPreference'
+import {
+  readProjectBoard,
+  writeProjectBoard,
+  type ProjectBoardSnapshot
+} from '../utils/projectBoardPreferences'
 
 const BoardViewContent = defineAsyncComponent(() => import('./BoardViewContent.vue'))
 
@@ -66,6 +74,133 @@ const filterPriority = computed({
   get: () => store.filterPriority,
   set: (val) => { store.filterPriority = val }
 })
+const filterAssigneeModel = computed({
+  get(): string | number | null {
+    return store.filterAssignee as string | number | null
+  },
+  set(val: string | number | null) {
+    if (val === 'unassigned') {
+      store.filterAssignee = 'unassigned'
+      store.filterAssigneeUsernameNorm = null
+    } else if (val === null) {
+      store.filterAssignee = null
+      store.filterAssigneeUsernameNorm = null
+    } else if (typeof val === 'number' && Number.isFinite(val)) {
+      store.filterAssignee = val
+      syncAssigneeFilterMeta()
+    } else if (typeof val === 'string') {
+      const n = Number(val)
+      store.filterAssignee = Number.isFinite(n) ? n : null
+      syncAssigneeFilterMeta()
+    } else {
+      store.filterAssignee = null
+      store.filterAssigneeUsernameNorm = null
+    }
+  }
+})
+
+const applyingBoardPrefs = ref(false)
+let boardPrefsSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+function buildBoardSnapshot(): ProjectBoardSnapshot {
+  const vc = viewModeStore.viewConfig
+  return {
+    filters: {
+      searchQuery: store.searchQuery,
+      filterStatus: store.filterStatus,
+      filterPriority: store.filterPriority,
+      filterAssignee: store.filterAssignee,
+      filterAssigneeUsernameNorm: store.filterAssigneeUsernameNorm
+    },
+    view: {
+      ...vc,
+      visibleProperties: [...vc.visibleProperties]
+    }
+  }
+}
+
+function applyBoardSnapshot(snap: ProjectBoardSnapshot) {
+  applyingBoardPrefs.value = true
+  try {
+    store.searchQuery = snap.filters.searchQuery
+    store.filterStatus = snap.filters.filterStatus
+    store.filterPriority = snap.filters.filterPriority
+    store.filterAssignee = snap.filters.filterAssignee
+    store.filterAssigneeUsernameNorm = snap.filters.filterAssigneeUsernameNorm
+    viewModeStore.hydrateViewConfig(snap.view)
+  } finally {
+    applyingBoardPrefs.value = false
+  }
+}
+
+function resetBoardFiltersForProject() {
+  applyingBoardPrefs.value = true
+  try {
+    store.searchQuery = ''
+    store.clearIssueFilters()
+  } finally {
+    applyingBoardPrefs.value = false
+  }
+}
+
+function flushSaveProjectBoard(projectId: number | null | undefined) {
+  if (projectId == null) return
+  writeProjectBoard(projectId, buildBoardSnapshot())
+}
+
+function scheduleSaveBoardPrefs() {
+  const pid = projectStore.activeProjectId
+  if (pid == null || applyingBoardPrefs.value) return
+  if (boardPrefsSaveTimer != null) clearTimeout(boardPrefsSaveTimer)
+  boardPrefsSaveTimer = setTimeout(() => {
+    boardPrefsSaveTimer = null
+    flushSaveProjectBoard(pid)
+  }, 280)
+}
+
+function syncAssigneeFilterMeta() {
+  const fa = store.filterAssignee
+  if (typeof fa === 'number') {
+    const u = users.value.find((x) => x.id === fa)
+    store.filterAssigneeUsernameNorm = u?.username?.trim().toLowerCase() ?? null
+  } else {
+    store.filterAssigneeUsernameNorm = null
+  }
+}
+
+const activeFilterCount = computed(() => {
+  let n = 0
+  if (store.filterStatus != null) n++
+  if (store.filterPriority != null) n++
+  if (store.filterAssignee != null) n++
+  return n
+})
+
+const filterButtonAria = computed(() =>
+  activeFilterCount.value > 0
+    ? t('boardView.filterButtonAriaActive', { n: activeFilterCount.value })
+    : t('common.filter')
+)
+
+function clearIssueFiltersPanel() {
+  store.clearIssueFilters()
+}
+
+function onFilterPanelKeydownCapture(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return
+  const t = e.target as HTMLElement | null
+  if (t?.closest('.custom-select-list')) return
+  e.preventDefault()
+  closeFilterPopover()
+  nextTick(() => filterTriggerRef.value?.querySelector<HTMLButtonElement>('button')?.focus())
+}
+
+function onDisplayPanelKeydownCapture(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return
+  e.preventDefault()
+  closeDisplayPopover()
+  nextTick(() => displayTriggerRef.value?.querySelector<HTMLButtonElement>('button')?.focus())
+}
 const groupBy = computed({
   get: () => viewModeStore.viewConfig.groupBy,
   set: (value) => viewModeStore.setGroupBy(value as GroupBy)
@@ -100,6 +235,16 @@ const filterPriorityOptions = computed<CustomSelectOption[]>(() => [
   { value: 'medium', label: getPriorityLabel('medium'), icon: PriorityMediumIcon },
   { value: 'low', label: getPriorityLabel('low'), icon: PriorityLowIcon }
 ])
+const filterAssigneeOptions = computed<CustomSelectOption[]>(() => {
+  const sorted = [...users.value].sort((a, b) =>
+    a.username.localeCompare(b.username, undefined, { sensitivity: 'base' })
+  )
+  return [
+    { value: null, label: t('boardView.allAssignees') },
+    { value: 'unassigned', label: t('common.unassigned'), icon: UserIcon },
+    ...sorted.map((u) => ({ value: u.id, label: u.username }))
+  ]
+})
 const groupingOptions = computed<CustomSelectOption[]>(() => [
   { value: 'status', label: t('common.status') },
   { value: 'priority', label: t('common.priority') },
@@ -164,6 +309,57 @@ watch(
   }
 )
 
+watch(
+  () => projectStore.activeProjectId,
+  (id, prev) => {
+    if (prev != null && prev !== id) flushSaveProjectBoard(prev)
+    if (id == null) {
+      resetBoardFiltersForProject()
+      return
+    }
+    const snap = readProjectBoard(id)
+    if (snap) applyBoardSnapshot(snap)
+    else if (prev != null) resetBoardFiltersForProject()
+  },
+  { immediate: true }
+)
+
+watch(
+  () => ({
+    q: store.searchQuery,
+    fs: store.filterStatus,
+    fp: store.filterPriority,
+    fa: store.filterAssignee,
+    fan: store.filterAssigneeUsernameNorm,
+    vc: viewModeStore.viewConfig
+  }),
+  () => {
+    if (applyingBoardPrefs.value) return
+    scheduleSaveBoardPrefs()
+  },
+  { deep: true }
+)
+
+watch(users, () => syncAssigneeFilterMeta(), { deep: true })
+
+watch(filterPopoverOpen, (open) => {
+  if (!open) return
+  nextTick(() => {
+    filterPopoverRef.value?.querySelector<HTMLButtonElement>('.custom-select-trigger')?.focus()
+  })
+})
+
+watch(displayPopoverOpen, (open) => {
+  if (!open) return
+  nextTick(() => {
+    const pop = displayPopoverRef.value
+    if (!pop) return
+    const input = pop.querySelector<HTMLInputElement>('input')
+    if (input) input.focus()
+    else pop.querySelector<HTMLElement>('.popover-display-option')?.focus()
+  })
+})
+
 /** P4-6.5: defaultStatus 用于列头 + 新建时指定默认状态；parentNumericId 用于列表行「Add sub-issue」 */
 function openCreateEditor(defaultStatus?: import('../types/domain').Status, parentNumericId?: number) {
   issuePanelStore.openComposer({
@@ -200,6 +396,11 @@ onMounted(() => {
   window.addEventListener('click', onClickOutsideDisplay, true)
 })
 onUnmounted(() => {
+  if (boardPrefsSaveTimer != null) {
+    clearTimeout(boardPrefsSaveTimer)
+    boardPrefsSaveTimer = null
+  }
+  flushSaveProjectBoard(projectStore.activeProjectId)
   window.removeEventListener('command-palette:new-task', onNewTaskCommand)
   window.removeEventListener('command-palette:focus-search', onFocusSearchCommand)
   window.removeEventListener('click', onClickOutsideFilter, true)
@@ -346,15 +547,18 @@ function onClickOutsideDisplay(event: MouseEvent) {
         <div ref="filterTriggerRef" class="popover-anchor popover-anchor-right">
           <button
             type="button"
-            class="command-btn"
-            :class="{ active: filterPopoverOpen }"
-            :aria-label="t('common.filter')"
+            class="command-btn command-btn-filter"
+            :class="{ active: filterPopoverOpen, 'has-active-filters': activeFilterCount > 0 }"
+            :aria-label="filterButtonAria"
             aria-haspopup="true"
             :aria-expanded="filterPopoverOpen"
             @click="filterPopoverOpen = !filterPopoverOpen"
           >
             <Filter class="icon-14" />
             <span>{{ t('common.filter') }}</span>
+            <span v-if="activeFilterCount > 0" class="filter-active-badge" aria-hidden="true">
+              {{ t('boardView.filterBadge', { n: activeFilterCount }) }}
+            </span>
           </button>
           <div
             v-show="filterPopoverOpen"
@@ -362,7 +566,9 @@ function onClickOutsideDisplay(event: MouseEvent) {
             class="popover popover-filter"
             role="dialog"
             :aria-label="t('boardView.filterOptions')"
+            @keydown.capture="onFilterPanelKeydownCapture"
           >
+            <h3 class="popover-section-title">{{ t('boardView.filterSectionTitle') }}</h3>
             <div class="popover-section">
               <label class="popover-label">{{ t('common.status') }}</label>
               <CustomSelect
@@ -383,6 +589,25 @@ function onClickOutsideDisplay(event: MouseEvent) {
                 trigger-class="popover-select"
               />
             </div>
+            <div class="popover-section">
+              <label class="popover-label">{{ t('common.assignee') }}</label>
+              <CustomSelect
+                v-model="filterAssigneeModel"
+                :options="filterAssigneeOptions"
+                :placeholder="t('boardView.allAssignees')"
+                :aria-label="t('boardView.filterByAssignee')"
+                filterable
+                trigger-class="popover-select"
+              />
+              <p class="popover-hint">{{ t('boardView.assigneeFilterHint') }}</p>
+            </div>
+            <div class="popover-section">
+              <button type="button" class="btn-clear-issue-filters" @click="clearIssueFiltersPanel">
+                {{ t('boardView.clearIssueFilters') }}
+              </button>
+            </div>
+            <div class="popover-divider" role="separator" />
+            <h3 class="popover-section-title">{{ t('boardView.viewSectionTitle') }}</h3>
             <div class="popover-section">
               <label class="popover-label">{{ t('boardView.groupBy') }}</label>
               <CustomSelect
@@ -414,8 +639,27 @@ function onClickOutsideDisplay(event: MouseEvent) {
               />
             </div>
             <div class="popover-section popover-section-row">
-              <button type="button" class="command-btn small" @click="toggleOrderDirection">
-                {{ viewModeStore.viewConfig.orderDirection === 'asc' ? t('boardView.orderAsc') : t('boardView.orderDesc') }}
+              <button
+                type="button"
+                class="command-btn small order-dir-btn"
+                :title="
+                  viewModeStore.viewConfig.orderDirection === 'asc'
+                    ? t('boardView.orderAscTitle')
+                    : t('boardView.orderDescTitle')
+                "
+                @click="toggleOrderDirection"
+              >
+                <ArrowUpWideNarrow
+                  v-if="viewModeStore.viewConfig.orderDirection === 'asc'"
+                  class="icon-14"
+                  aria-hidden="true"
+                />
+                <ArrowDownWideNarrow v-else class="icon-14" aria-hidden="true" />
+                <span>{{
+                  viewModeStore.viewConfig.orderDirection === 'asc'
+                    ? t('boardView.orderAsc')
+                    : t('boardView.orderDesc')
+                }}</span>
               </button>
               <label class="filter-check">
                 <input v-model="showEmptyGroups" type="checkbox" />
@@ -443,6 +687,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
             class="popover popover-display"
             role="dialog"
             :aria-label="t('boardView.displayOptions')"
+            @keydown.capture="onDisplayPanelKeydownCapture"
           >
             <div class="popover-section">
               <span class="popover-label">{{ t('boardView.showOnIssue') }}</span>
@@ -694,7 +939,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
   left: 0;
   margin-top: 4px;
   min-width: 200px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   background: var(--color-bg-base);
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
@@ -702,7 +947,79 @@ function onClickOutsideDisplay(event: MouseEvent) {
   z-index: 50;
 }
 .popover-filter {
-  min-width: 220px;
+  width: min(248px, calc(100vw - 24px));
+  box-sizing: border-box;
+}
+.popover-filter .popover-section {
+  min-width: 0;
+}
+.popover-filter :deep(.custom-select) {
+  display: block;
+  width: 100%;
+}
+.popover-filter :deep(.custom-select-trigger) {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.popover-filter :deep(.trigger-label) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.popover-section-title {
+  margin: 0 0 6px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  letter-spacing: 0.02em;
+}
+.popover-filter .popover-section-title:not(:first-child) {
+  margin-top: 2px;
+}
+.popover-divider {
+  height: 1px;
+  margin: 10px 0 12px;
+  background: var(--color-border-subtle);
+}
+.popover-hint {
+  margin: 6px 0 0;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+.btn-clear-issue-filters {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-muted);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.btn-clear-issue-filters:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.command-btn-filter.has-active-filters {
+  color: var(--color-accent);
+}
+.filter-active-badge {
+  margin-left: 4px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-accent);
+  background: var(--color-accent-muted);
+  border-radius: 999px;
+  line-height: 1.4;
+}
+.order-dir-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .popover-display {
   min-width: 180px;
@@ -716,8 +1033,11 @@ function onClickOutsideDisplay(event: MouseEvent) {
 .popover-section-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 10px;
   flex-wrap: wrap;
+  width: 100%;
+  box-sizing: border-box;
 }
 .popover-label {
   display: block;

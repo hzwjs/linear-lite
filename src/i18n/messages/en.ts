@@ -147,8 +147,21 @@ const en = {
     active: 'Active',
     backlog: 'Backlog',
     filterOptions: 'Filter options',
+    filterSectionTitle: 'Filter',
+    viewSectionTitle: 'View',
+    clearIssueFilters: 'Clear filters',
+    assigneeFilterHint:
+      'Tasks need a system assignee ID; imported issues count if the display name exactly matches the user’s username (case-insensitive).',
+    filterBadge: 'Filters · {n}',
+    filterButtonAriaActive: 'Filter ({n} active)',
+    orderAscTitle: 'Ascending: older, smaller, A→Z',
+    orderDescTitle: 'Descending: newer, larger, Z→A',
+    noTasksMatchSearchOnly: 'No issues match your search.',
+    noTasksMatchIssueFiltersOnly: 'No issues match status / priority / assignee filters.',
+    noTasksMatchSearchAndFilters: 'No issues match both your search and filters.',
     filterByStatus: 'Filter by status',
     filterByPriority: 'Filter by priority',
+    filterByAssignee: 'Filter by assignee',
     groupBy: 'Group by',
     groupTasks: 'Group tasks',
     sort: 'Sort',
@@ -157,6 +170,7 @@ const en = {
     completedVisibility: 'Completed visibility',
     allStatus: 'All Status',
     allPriorities: 'All Priorities',
+    allAssignees: 'All assignees',
     group: 'Group',
     orderAsc: '↑ Asc',
     orderDesc: '↓ Desc',
@@ -231,7 +245,8 @@ const en = {
   select: {
     placeholder: 'Select…',
     ariaLabel: 'Select option',
-    searchAria: 'Search'
+    searchAria: 'Search',
+    filterPlaceholder: 'Type to filter…'
   },
   datePicker: {
     placeholder: 'Select date',

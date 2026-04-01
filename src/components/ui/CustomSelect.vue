@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import type { Component } from 'vue'
 import { Check } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
@@ -23,8 +23,11 @@ const props = withDefaults(
     searchPlaceholder?: string
     /** 占位输入框右侧快捷键角标，如 "S" */
     searchShortcutBadge?: string
+    /** 为 true 时顶部为可输入过滤，选项按标签子串匹配（不区分大小写） */
+    filterable?: boolean
+    filterInputPlaceholder?: string
   }>(),
-  { placeholder: '', ariaLabel: '', triggerClass: '' }
+  { placeholder: '', ariaLabel: '', triggerClass: '', filterable: false, filterInputPlaceholder: '' }
 )
 
 const emit = defineEmits<{
@@ -35,23 +38,46 @@ const { t } = useI18n()
 const isOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
 const listRef = ref<HTMLElement | null>(null)
+const filterInputRef = ref<HTMLInputElement | null>(null)
+const filterQuery = ref('')
 const highlightedIndex = ref(-1)
 const resolvedPlaceholder = computed(() => props.placeholder || t('select.placeholder'))
 const resolvedAriaLabel = computed(() => props.ariaLabel || t('select.ariaLabel'))
+const resolvedFilterPlaceholder = computed(
+  () => props.filterInputPlaceholder || t('select.filterPlaceholder')
+)
 
 const selectedOption = computed(() =>
   props.options.find((o) => o.value === props.modelValue)
 )
 const displayLabel = computed(() => selectedOption.value?.label ?? resolvedPlaceholder.value)
 
+const displayedOptions = computed(() => {
+  if (!props.filterable || !filterQuery.value.trim()) return props.options
+  const q = filterQuery.value.trim().toLowerCase()
+  return props.options.filter((o) => o.label.toLowerCase().includes(q))
+})
+
+function syncHighlightToDisplayed() {
+  const opts = displayedOptions.value
+  let i = opts.findIndex((o) => o.value === props.modelValue)
+  if (i < 0) i = 0
+  highlightedIndex.value = opts.length > 0 ? Math.min(i, opts.length - 1) : -1
+}
+
 function open() {
+  if (props.filterable) filterQuery.value = ''
   isOpen.value = true
-  highlightedIndex.value = props.options.findIndex((o) => o.value === props.modelValue)
-  if (highlightedIndex.value < 0) highlightedIndex.value = 0
+  nextTick(() => {
+    syncHighlightToDisplayed()
+    if (props.filterable) filterInputRef.value?.focus()
+    else listRef.value?.focus()
+  })
 }
 function close() {
   isOpen.value = false
   highlightedIndex.value = -1
+  filterQuery.value = ''
 }
 function select(opt: CustomSelectOption) {
   emit('update:modelValue', opt.value)
@@ -62,7 +88,8 @@ function onTriggerKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault()
     if (isOpen.value) {
-      const opt = props.options[highlightedIndex.value]
+      const opts = displayedOptions.value
+      const opt = opts[highlightedIndex.value]
       if (opt) select(opt)
     } else open()
     return
@@ -76,7 +103,10 @@ function onTriggerKeydown(e: KeyboardEvent) {
   if (e.key === 'ArrowDown') {
     e.preventDefault()
     if (!isOpen.value) open()
-    else highlightedIndex.value = Math.min(highlightedIndex.value + 1, props.options.length - 1)
+    else {
+      const opts = displayedOptions.value
+      highlightedIndex.value = Math.min(highlightedIndex.value + 1, Math.max(0, opts.length - 1))
+    }
     return
   }
   if (e.key === 'ArrowUp') {
@@ -85,6 +115,13 @@ function onTriggerKeydown(e: KeyboardEvent) {
     else highlightedIndex.value = Math.max(highlightedIndex.value - 1, 0)
     return
   }
+}
+
+function moveHighlight(delta: number) {
+  const opts = displayedOptions.value
+  if (opts.length === 0) return
+  const next = Math.min(Math.max(highlightedIndex.value + delta, 0), opts.length - 1)
+  highlightedIndex.value = next
 }
 
 function onListKeydown(e: KeyboardEvent) {
@@ -96,27 +133,51 @@ function onListKeydown(e: KeyboardEvent) {
   }
   if (e.key === 'ArrowDown') {
     e.preventDefault()
-    highlightedIndex.value = Math.min(highlightedIndex.value + 1, props.options.length - 1)
+    moveHighlight(1)
     return
   }
   if (e.key === 'ArrowUp') {
     e.preventDefault()
-    highlightedIndex.value = Math.max(highlightedIndex.value - 1, 0)
+    moveHighlight(-1)
     return
   }
   if (e.key === 'Enter') {
     e.preventDefault()
-    const opt = props.options[highlightedIndex.value]
+    const opt = displayedOptions.value[highlightedIndex.value]
     if (opt) select(opt)
     return
   }
-  // Linear 风格：数字键直接选对应 shortcut 的选项
   if (e.key >= '1' && e.key <= '9') {
-    const opt = props.options.find((o) => o.shortcut === e.key)
+    const opt = displayedOptions.value.find((o) => o.shortcut === e.key)
     if (opt) {
       e.preventDefault()
       select(opt)
     }
+  }
+}
+
+function onFilterInputKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    close()
+    triggerRef.value?.focus()
+    return
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    moveHighlight(1)
+    return
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    moveHighlight(-1)
+    return
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    const opt = displayedOptions.value[highlightedIndex.value]
+    if (opt) select(opt)
+    return
   }
 }
 
@@ -133,8 +194,13 @@ function handleClickOutside(e: MouseEvent) {
   }
 }
 
+watch(filterQuery, () => {
+  if (!isOpen.value || !props.filterable) return
+  syncHighlightToDisplayed()
+})
+
 watch(isOpen, (open) => {
-  if (open) {
+  if (open && !props.filterable) {
     setTimeout(() => listRef.value?.focus(), 0)
   }
 })
@@ -171,11 +237,26 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
       role="listbox"
       tabindex="-1"
       :aria-activedescendant="
-        options[highlightedIndex] != null ? `opt-${options[highlightedIndex]!.value}` : undefined
+        displayedOptions[highlightedIndex] != null
+          ? `opt-${String(displayedOptions[highlightedIndex]!.value)}`
+          : undefined
       "
       @keydown="onListKeydown"
     >
-      <div v-if="searchPlaceholder" class="custom-select-search">
+      <div v-if="filterable" class="custom-select-search">
+        <input
+          ref="filterInputRef"
+          v-model="filterQuery"
+          type="text"
+          class="custom-select-search-input"
+          :placeholder="resolvedFilterPlaceholder"
+          :aria-label="resolvedFilterPlaceholder"
+          autocomplete="off"
+          @click.stop
+          @keydown="onFilterInputKeydown"
+        />
+      </div>
+      <div v-else-if="searchPlaceholder" class="custom-select-search">
         <input
           type="text"
           class="custom-select-search-input"
@@ -187,8 +268,8 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
         <kbd v-if="searchShortcutBadge" class="custom-select-search-badge">{{ searchShortcutBadge }}</kbd>
       </div>
       <button
-        v-for="(opt, i) in options"
-        :id="`opt-${opt.value}`"
+        v-for="(opt, i) in displayedOptions"
+        :id="`opt-${String(opt.value)}`"
         :key="String(opt.value)"
         type="button"
         class="custom-select-option"

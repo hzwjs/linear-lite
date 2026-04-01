@@ -90,7 +90,7 @@ function isViewType(value: unknown): value is ViewType {
   return value === 'board' || value === 'list'
 }
 
-function normalizeConfig(value: unknown): ViewConfig {
+export function normalizeViewConfig(value: unknown): ViewConfig {
   if (!value || typeof value !== 'object') return { ...DEFAULT_VIEW_CONFIG }
 
   const candidate = value as Partial<ViewConfig>
@@ -127,7 +127,7 @@ export function getStoredViewConfig(): ViewConfig {
       }
     }
 
-    return normalizeConfig(JSON.parse(raw))
+    return normalizeViewConfig(JSON.parse(raw))
   } catch (_) {
     return { ...DEFAULT_VIEW_CONFIG }
   }

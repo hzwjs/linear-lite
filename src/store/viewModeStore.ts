@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import {
   getStoredViewConfig,
   setStoredViewConfig,
+  normalizeViewConfig,
   type CompletedVisibility,
   type GroupBy,
   type OrderBy,
@@ -99,6 +100,11 @@ export const useViewModeStore = defineStore('viewModeStore', () => {
     }
   }
 
+  /** 按项目恢复视图配置等场景下整体替换（会规范化字段） */
+  function hydrateViewConfig(next: ViewConfig) {
+    viewConfig.value = normalizeViewConfig(next)
+  }
+
   return {
     viewConfig,
     viewType,
@@ -111,6 +117,7 @@ export const useViewModeStore = defineStore('viewModeStore', () => {
     setCompletedVisibility,
     setShowEmptyGroups,
     setShowSubIssues,
-    setNestedSubIssues
+    setNestedSubIssues,
+    hydrateViewConfig
   }
 })

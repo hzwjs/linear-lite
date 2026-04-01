@@ -48,7 +48,13 @@ const editorMode = computed<'create' | 'edit'>(() => (route.params.taskId ? 'edi
 
 const viewType = computed(() => viewModeStore.viewType)
 const taskGroups = computed(() =>
-  buildTaskGroups(store.filteredTasks, viewModeStore.viewConfig, props.users)
+  buildTaskGroups(store.filteredTasks, viewModeStore.viewConfig, props.users, {
+    searchActive: store.searchQuery.trim().length > 0,
+    taskFiltersActive:
+      store.filterStatus != null ||
+      store.filterPriority != null ||
+      store.filterAssignee != null
+  })
 )
 const localizedTaskGroups = computed(() =>
   taskGroups.value.map((group) => {
@@ -85,6 +91,17 @@ const flatTaskIds = computed(() =>
 const adjacentTaskIds = computed(() =>
   getAdjacentTaskIds(flatTaskIds.value, store.currentTaskId)
 )
+
+const emptyFilterHint = computed(() => {
+  const hasSearch = store.searchQuery.trim().length > 0
+  const hasIssueFilters =
+    store.filterStatus != null ||
+    store.filterPriority != null ||
+    store.filterAssignee != null
+  if (hasSearch && hasIssueFilters) return t('boardView.noTasksMatchSearchAndFilters')
+  if (hasSearch) return t('boardView.noTasksMatchSearchOnly')
+  return t('boardView.noTasksMatchIssueFiltersOnly')
+})
 
 function openCreateEditor(defaultStatus?: Status, parentNumericId?: number) {
   issuePanelStore.openComposer({
@@ -191,8 +208,7 @@ watch(
 
 function clearFilters() {
   store.searchQuery = ''
-  store.filterStatus = null
-  store.filterPriority = null
+  store.clearIssueFilters()
   viewModeStore.setCompletedVisibility('all')
 }
 
@@ -220,7 +236,7 @@ onUnmounted(() => {
     </div>
 
     <div v-else-if="store.isFilterEmpty" class="empty-state">
-      <p>{{ t('boardView.noTasksMatchFilters') }}</p>
+      <p>{{ emptyFilterHint }}</p>
       <button type="button" class="btn-text" @click="clearFilters">
         {{ t('boardView.clearFilters') }}
       </button>

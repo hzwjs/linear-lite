@@ -160,6 +160,68 @@ describe('buildTaskGroups', () => {
     const expanded = filterVisibleTaskRows(rows, { 'ENG-1': true })
     expect(expanded.map((r) => r.task.id)).toEqual(['ENG-1', 'ENG-2'])
   })
+
+  it('when taskFiltersActive, subtasks that pass the filter are grouped (not dropped as non-top-level)', () => {
+    const withSubs: Task[] = [
+      {
+        id: 'ENG-1',
+        numericId: 101,
+        title: 'Parent',
+        status: 'todo',
+        priority: 'high',
+        assigneeId: 1,
+        createdAt: 1,
+        updatedAt: 1
+      },
+      {
+        id: 'ENG-2',
+        numericId: 102,
+        title: 'Child',
+        status: 'todo',
+        priority: 'high',
+        parentId: '101',
+        assigneeId: 2,
+        createdAt: 2,
+        updatedAt: 2
+      }
+    ]
+    const filtered = withSubs.filter((t) => t.assigneeId === 2)
+    const groups = buildTaskGroups(filtered, baseConfig, users, { taskFiltersActive: true })
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.tasks.map((t) => t.id)).toEqual(['ENG-2'])
+  })
+
+  it('when searchActive, matching subtasks appear in groups as flat rows', () => {
+    const withSubs: Task[] = [
+      {
+        id: 'ENG-1',
+        numericId: 101,
+        title: 'Parent only',
+        status: 'todo',
+        priority: 'high',
+        createdAt: 1,
+        updatedAt: 1
+      },
+      {
+        id: 'ENG-2',
+        numericId: 102,
+        title: 'Child match',
+        status: 'todo',
+        priority: 'high',
+        parentId: '101',
+        createdAt: 2,
+        updatedAt: 2
+      }
+    ]
+    const filtered = withSubs.filter((t) => t.title.toLowerCase().includes('child'))
+    const groups = buildTaskGroups(filtered, { ...baseConfig, showSubIssues: true }, users, {
+      searchActive: true
+    })
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.tasks.map((t) => t.id)).toEqual(['ENG-2'])
+    const rows = groups[0]?.rows ?? []
+    expect(rows.map((r) => ({ id: r.task.id, depth: r.depth }))).toEqual([{ id: 'ENG-2', depth: 0 }])
+  })
 })
 
 describe('getAdjacentTaskIds', () => {

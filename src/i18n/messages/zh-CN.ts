@@ -147,8 +147,21 @@ const zhCN = {
     active: '进行中',
     backlog: '待办',
     filterOptions: '筛选选项',
+    filterSectionTitle: '筛选',
+    viewSectionTitle: '视图',
+    clearIssueFilters: '清除筛选条件',
+    assigneeFilterHint:
+      '仅系统用户的任务有负责人 ID；导入时填写与用户名完全一致的展示名也会被归入该用户。',
+    filterBadge: '筛选 · {n}',
+    filterButtonAriaActive: '筛选（{n} 项条件生效）',
+    orderAscTitle: '升序：较早、较小、A→Z',
+    orderDescTitle: '降序：较晚、较大、Z→A',
+    noTasksMatchSearchOnly: '没有任务匹配当前搜索。',
+    noTasksMatchIssueFiltersOnly: '没有任务符合当前筛选条件（状态 / 优先级 / 负责人）。',
+    noTasksMatchSearchAndFilters: '没有任务同时匹配当前搜索与筛选条件。',
     filterByStatus: '按状态筛选',
     filterByPriority: '按优先级筛选',
+    filterByAssignee: '按处理人筛选',
     groupBy: '分组方式',
     groupTasks: '任务分组',
     sort: '排序',
@@ -157,6 +170,7 @@ const zhCN = {
     completedVisibility: '完成项显示',
     allStatus: '全部状态',
     allPriorities: '全部优先级',
+    allAssignees: '全部处理人',
     group: '分组',
     orderAsc: '↑ 升序',
     orderDesc: '↓ 降序',
@@ -231,7 +245,8 @@ const zhCN = {
   select: {
     placeholder: '选择…',
     ariaLabel: '选择选项',
-    searchAria: '搜索'
+    searchAria: '搜索',
+    filterPlaceholder: '输入以筛选…'
   },
   datePicker: {
     placeholder: '选择日期',

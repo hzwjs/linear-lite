@@ -25,6 +25,16 @@ export interface AdjacentTaskIds {
   total: number
 }
 
+export interface BuildTaskGroupsOptions {
+  /** 为 true 时：过滤后的子任务也参与分组；列表不再挂嵌套子行，避免与扁平结果重复 */
+  searchActive?: boolean
+  /**
+   * 为 true 时：与 searchActive 相同，用过滤后的全部任务参与分组（含子任务）。
+   * 状态/优先级/负责人等筛选后，命中项可能仅为子任务，不能只取 parentId == null。
+   */
+  taskFiltersActive?: boolean
+}
+
 const STATUS_ORDER: Task['status'][] = [
   'backlog',
   'todo',
@@ -160,15 +170,22 @@ export function filterVisibleTaskRows(
 
 const TERMINAL_STATUSES: Task['status'][] = ['done', 'canceled', 'duplicate']
 
-export function buildTaskGroups(tasks: Task[], config: ViewConfig, users: User[] = []): TaskGroup[] {
+export function buildTaskGroups(
+  tasks: Task[],
+  config: ViewConfig,
+  users: User[] = [],
+  options?: BuildTaskGroupsOptions
+): TaskGroup[] {
+  const flatRoots =
+    options?.searchActive === true || options?.taskFiltersActive === true
   const source = config.completedVisibility === 'open_only'
     ? tasks.filter((task) => !TERMINAL_STATUSES.includes(task.status))
     : tasks
 
-  const topLevel = source.filter((t) => t.parentId == null)
+  const seeds = flatRoots ? source : source.filter((t) => t.parentId == null)
   const grouped = new Map<string, TaskGroup>()
 
-  for (const task of sortTasks(topLevel, config)) {
+  for (const task of sortTasks(seeds, config)) {
     const meta = groupMeta(task, config.groupBy, users)
     const existing = grouped.get(meta.key)
     if (existing) {
@@ -211,6 +228,10 @@ export function buildTaskGroups(tasks: Task[], config: ViewConfig, users: User[]
 
   if (config.showSubIssues) {
     for (const group of out) {
+      if (flatRoots) {
+        group.rows = group.tasks.map((task) => ({ task, depth: 0 }))
+        continue
+      }
       const rows: TaskRow[] = []
       for (const task of group.tasks) {
         rows.push({ task, depth: 0 })

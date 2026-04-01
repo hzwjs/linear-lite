@@ -1,9 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Task, Status, Priority } from '../types/domain'
+
+/** 清单/看板处理人筛选：null 全部；unassigned 无负责人展示；number 为 assigneeId */
+export type AssigneeFilter = null | 'unassigned' | number
 import { taskApi } from '../services/api/task'
 import { useProjectStore } from './projectStore'
-import { useViewModeStore } from './viewModeStore'
 import { useFavoriteStore } from './favoriteStore'
 import { toApiDateTime } from '../utils/taskDate'
 import { translate } from '../utils/i18n'
@@ -20,6 +22,9 @@ export const useTaskStore = defineStore('taskStore', () => {
   const searchQuery = ref('')
   const filterStatus = ref<Status | null>(null)
   const filterPriority = ref<Priority | null>(null)
+  const filterAssignee = ref<AssigneeFilter>(null)
+  /** 选中系统用户负责人时其 username 的小写形式，用于匹配仅 assigneeDisplayName 的导入任务 */
+  const filterAssigneeUsernameNorm = ref<string | null>(null)
 
   const currentTask = computed(() => {
     if (!currentTaskId.value) return null
@@ -37,6 +42,20 @@ export const useTaskStore = defineStore('taskStore', () => {
     }
     if (filterPriority.value) {
       result = result.filter((t) => t.priority === filterPriority.value)
+    }
+    const fa = filterAssignee.value
+    if (fa === 'unassigned') {
+      result = result.filter(
+        (t) => t.assigneeId == null && !(t.assigneeDisplayName?.trim())
+      )
+    } else if (fa !== null && typeof fa === 'number') {
+      const nameNorm = filterAssigneeUsernameNorm.value
+      result = result.filter((t) => {
+        if (Number(t.assigneeId) === fa) return true
+        if (t.assigneeId != null) return false
+        const ext = t.assigneeDisplayName?.trim().toLowerCase()
+        return nameNorm != null && ext != null && ext === nameNorm
+      })
     }
     return result
   })
@@ -75,7 +94,6 @@ export const useTaskStore = defineStore('taskStore', () => {
 
   async function fetchTasks() {
     const projectStore = useProjectStore()
-    const viewModeStore = useViewModeStore()
     const projectId = projectStore.activeProjectId
     if (projectId == null) {
       tasks.value = []
@@ -86,10 +104,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     isLoading.value = true
     error.value = null
     try {
-      const showSubIssues = viewModeStore.viewConfig.showSubIssues
-      tasks.value = await taskApi.list(projectId, {
-        topLevelOnly: !showSubIssues
-      })
+      tasks.value = await taskApi.list(projectId, { topLevelOnly: false })
     } catch (err: unknown) {
       error.value =
         err instanceof Error
@@ -249,6 +264,13 @@ export const useTaskStore = defineStore('taskStore', () => {
     return updateTask(id, { status: newStatus })
   }
 
+  function clearIssueFilters() {
+    filterStatus.value = null
+    filterPriority.value = null
+    filterAssignee.value = null
+    filterAssigneeUsernameNorm.value = null
+  }
+
   return {
     tasks,
     isLoading,
@@ -257,6 +279,8 @@ export const useTaskStore = defineStore('taskStore', () => {
     searchQuery,
     filterStatus,
     filterPriority,
+    filterAssignee,
+    filterAssigneeUsernameNorm,
     currentTask,
     filteredTasks,
     groupedTasks,
@@ -267,6 +291,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     createTask,
     applyLocalTaskPatch,
     updateTask,
-    transitionTask
+    transitionTask,
+    clearIssueFilters
   }
 })
