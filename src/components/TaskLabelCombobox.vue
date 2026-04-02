@@ -331,24 +331,35 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 .prop-label-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px;
   list-style: none;
   margin: 4px 0 0;
-  padding: 2px 0;
+  padding: 8px;
   background: var(--color-bg-base);
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-popover);
-  max-height: 200px;
+  max-height: 160px;
   overflow-y: auto;
   width: 100%;
   box-sizing: border-box;
 }
 .prop-label-suggestion {
-  padding: 5px 8px;
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+  background: var(--color-bg-muted);
   font-size: 11px;
   line-height: 1.35;
   cursor: pointer;
   color: var(--color-text-primary);
+  white-space: nowrap;
 }
 .prop-label-suggestion:hover {
   background: var(--color-bg-hover);
