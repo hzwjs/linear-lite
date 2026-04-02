@@ -24,7 +24,8 @@ async function mountCombobox(options?: { labels?: { id?: number; name: string }[
     updateModelValue: vi.fn(),
     pick: vi.fn(),
     create: vi.fn(),
-    remove: vi.fn()
+    remove: vi.fn(),
+    deleteDefinition: vi.fn()
   }
 
   const app = createApp(TaskLabelCombobox, {
@@ -36,11 +37,13 @@ async function mountCombobox(options?: { labels?: { id?: number; name: string }[
     taskId: 'ENG-1',
     placeholder: '添加标签',
     ariaLabel: '添加标签',
-    removeLabelAriaLabel: '移除标签',
+    removeLabelAriaLabel: '从任务移除',
+    deleteDefinitionAriaLabel: '从项目删除',
     'onUpdate:modelValue': events.updateModelValue,
     onPick: events.pick,
     onCreate: events.create,
-    onRemove: events.remove
+    onRemove: events.remove,
+    onDeleteLabelDefinition: events.deleteDefinition
   })
   app.mount(host)
   await nextTick()
@@ -128,12 +131,14 @@ describe('TaskLabelCombobox', () => {
       await nextTick()
       await flushPromises()
 
-      const suggestion = Array.from(view.host.querySelectorAll('[role="option"]')).find((el) =>
+      const option = Array.from(view.host.querySelectorAll('[role="option"]')).find((el) =>
         el.textContent?.includes('运维任务')
       ) as HTMLElement | undefined
-      expect(suggestion).toBeTruthy()
+      expect(option).toBeTruthy()
+      const mainBtn = option!.querySelector('.label-pill-main') as HTMLButtonElement
+      expect(mainBtn).toBeTruthy()
 
-      suggestion!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      mainBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
       await nextTick()
       await flushPromises()
 
@@ -163,7 +168,7 @@ describe('TaskLabelCombobox', () => {
       view.unmount()
     }
   })
-})
+
   it('closes suggestions when clicking another control inside the sidebar', async () => {
     const view = await mountCombobox()
     const siblingControl = document.createElement('button')
@@ -189,3 +194,23 @@ describe('TaskLabelCombobox', () => {
       view.unmount()
     }
   })
+
+  it('emits deleteLabelDefinition when suggestion row delete is clicked', async () => {
+    const view = await mountCombobox({ labels: [] })
+    try {
+      const input = view.host.querySelector('input') as HTMLInputElement
+      input.focus()
+      input.dispatchEvent(new FocusEvent('focus'))
+      await nextTick()
+      await flushPromises()
+
+      const del = view.host.querySelector('.label-pill-delete') as HTMLButtonElement
+      expect(del).toBeTruthy()
+      del.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      await nextTick()
+      expect(view.events.deleteDefinition).toHaveBeenCalled()
+    } finally {
+      view.unmount()
+    }
+  })
+})

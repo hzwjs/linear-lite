@@ -62,6 +62,19 @@ public class ProjectController {
     }
 
     /**
+     * 删除项目内一条标签定义，并解除所有任务对该标签的关联。
+     */
+    @DeleteMapping("/{id}/labels/{labelId}")
+    public ResponseEntity<ApiResponse<Void>> deleteLabel(
+            HttpServletRequest httpRequest,
+            @PathVariable("id") Long projectId,
+            @PathVariable("labelId") Long labelId) {
+        Long userId = (Long) httpRequest.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        labelService.deleteLabelDefinition(projectId, labelId, userId);
+        return ResponseEntity.ok(ApiResponse.success());
+    }
+
+    /**
      * 新建项目。请求体需包含 name、identifier。
      */
     @PostMapping

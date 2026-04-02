@@ -12,6 +12,7 @@ import { useProjectStore } from '../store/projectStore'
 import { useViewModeStore } from '../store/viewModeStore'
 import { useRouter } from 'vue-router'
 import { userApi } from '../services/api/user'
+import { projectApi } from '../services/api/project'
 import { activityApi } from '../services/api/activity'
 import { attachmentsApi } from '../services/api/attachments'
 import type { TaskLabelWriteItem } from '../services/api/types'
@@ -104,6 +105,9 @@ const formProgressPercent = ref(0)
 /** 侧栏标签编辑：有 id 为已持久化标签，无 id 为待创建 */
 const formLabels = ref<{ id?: number; name: string }[]>([])
 const labelInput = ref('')
+const taskLabelComboboxRef = ref<{
+  removeFromSuggestions: (labelId: number) => void
+} | null>(null)
 const editorPanelRef = ref<HTMLElement | null>(null)
 
 const userList = ref<User[]>([])
@@ -480,6 +484,19 @@ function commitLabelInput(name: string) {
 
 function removeFormLabel(idx: number) {
   formLabels.value = formLabels.value.filter((_, i) => i !== idx)
+}
+
+async function onDeleteLabelDefinition(labelId: number) {
+  const pid = effectiveProjectId.value
+  if (pid == null) return
+  try {
+    await projectApi.deleteLabel(pid, labelId)
+    store.stripProjectLabelFromTasks(pid, labelId)
+    formLabels.value = formLabels.value.filter((c) => c.id !== labelId)
+    taskLabelComboboxRef.value?.removeFromSuggestions(labelId)
+  } catch (e) {
+    console.error('Failed to delete project label:', e)
+  }
 }
 
 /** 全选删除列表后可能留下仅空列表项（如 "- \n- "）。仅在保存时视为空，不往编辑器回写，避免可见的覆盖过程 */
@@ -1234,6 +1251,7 @@ async function toggleFavorite() {
           <div v-if="showPropRowLabels" class="prop-row prop-row-labels">
             <span class="prop-label">{{ t('common.labels') }}</span>
             <TaskLabelCombobox
+              ref="taskLabelComboboxRef"
               v-model="labelInput"
               :labels="formLabels"
               :project-id="effectiveProjectId"
@@ -1242,10 +1260,12 @@ async function toggleFavorite() {
               :task-id="task?.id ?? null"
               :placeholder="t('taskEditor.addLabel')"
               :ariaLabel="t('taskEditor.addLabel')"
-              :removeLabelAriaLabel="t('taskEditor.removeLabel')"
+              :remove-label-aria-label="t('taskEditor.removeLabel')"
+              :delete-definition-aria-label="t('taskEditor.deleteProjectLabelDefinition')"
               @pick="pickSuggestion"
               @create="commitLabelInput"
               @remove="removeFormLabel"
+              @delete-label-definition="onDeleteLabelDefinition"
             />
           </div>
           <div class="prop-row prop-row--linear-action">

@@ -12,7 +12,10 @@ const props = defineProps<{
   taskId: string | null
   placeholder: string
   ariaLabel: string
+  /** 输入区内已选胶囊：仅从当前任务移除 */
   removeLabelAriaLabel: string
+  /** 联想列表内：永久删除标签定义 */
+  deleteDefinitionAriaLabel: string
 }>()
 
 const emit = defineEmits<{
@@ -20,6 +23,7 @@ const emit = defineEmits<{
   pick: [label: { id: number; name: string }]
   create: [name: string]
   remove: [index: number]
+  deleteLabelDefinition: [labelId: number]
 }>()
 
 const open = ref(false)
@@ -190,6 +194,16 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', handleDocumentMouseDown)
   clearSuggestTimer()
 })
+
+/** 删除定义成功后由父组件调用，从当前打开的联想列表中去掉该项 */
+function removeFromSuggestions(labelId: number) {
+  suggestions.value = suggestions.value.filter((l) => l.id !== labelId)
+  if (suggestions.value.length === 0) close()
+}
+
+defineExpose({
+  removeFromSuggestions
+})
 </script>
 
 <template>
@@ -200,13 +214,14 @@ onBeforeUnmount(() => {
         <span
           v-for="(chip, idx) in labels"
           :key="chip.id ?? `tmp-${idx}-${chip.name}`"
-          class="task-label-chip"
+          class="label-pill"
         >
-          {{ chip.name }}
+          <span class="label-pill-text">{{ chip.name }}</span>
+          <span class="label-pill-sep" aria-hidden="true" />
           <button
             v-if="!disabled"
             type="button"
-            class="task-label-chip-remove"
+            class="label-pill-delete"
             :aria-label="removeLabelAriaLabel"
             @click.stop="emit('remove', idx)"
           >
@@ -245,10 +260,26 @@ onBeforeUnmount(() => {
         v-for="suggestion in suggestions"
         :key="suggestion.id"
         role="option"
-        class="prop-label-suggestion"
-        @mousedown.prevent="pickSuggestion(suggestion)"
+        class="prop-label-suggestion-item"
       >
-        {{ suggestion.name }}
+        <span class="label-pill">
+          <button
+            type="button"
+            class="label-pill-main"
+            @mousedown.prevent="pickSuggestion(suggestion)"
+          >
+            {{ suggestion.name }}
+          </button>
+          <span class="label-pill-sep" aria-hidden="true" />
+          <button
+            type="button"
+            class="label-pill-delete"
+            :aria-label="`${deleteDefinitionAriaLabel}: ${suggestion.name}`"
+            @mousedown.stop.prevent="emit('deleteLabelDefinition', suggestion.id)"
+          >
+            ×
+          </button>
+        </span>
       </li>
     </ul>
   </div>
@@ -281,35 +312,85 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 3px 4px;
-  row-gap: 3px;
+  gap: 4px 5px;
+  row-gap: 4px;
 }
-.task-label-chip {
+.prop-label-chips-wrap .label-pill {
+  background: var(--color-bg-base);
+}
+/* 输入区与联想项共用胶囊结构；下拉内与面板对比一致用 muted */
+.label-pill {
+  display: inline-flex;
+  align-items: stretch;
+  max-width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-muted);
+  overflow: hidden;
+}
+.label-pill-text {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 0 5px;
-  min-height: 20px;
-  line-height: 1.25;
-  border-radius: 4px;
-  background: var(--color-bg-base);
-  border: 1px solid var(--color-border-subtle);
+  padding: 3px 2px 3px 8px;
   font-size: 11px;
   font-weight: var(--font-weight-medium, 500);
+  line-height: 1.25;
   color: var(--color-text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.task-label-chip-remove {
+.label-pill-main {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 11rem;
+  margin: 0;
+  padding: 3px 2px 3px 8px;
   border: none;
   background: transparent;
-  padding: 0 1px;
-  margin-left: 1px;
+  font-size: 11px;
+  font-weight: var(--font-weight-medium, 500);
+  line-height: 1.25;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition-fast);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.label-pill-main:hover {
+  background: var(--color-bg-hover);
+}
+.label-pill-sep {
+  width: 1px;
+  flex-shrink: 0;
+  align-self: stretch;
+  margin: 3px 0;
+  background: var(--color-border-subtle);
+}
+.label-pill-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
   cursor: pointer;
   color: var(--color-text-muted);
   font-size: 12px;
   line-height: 1;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
-.task-label-chip-remove:hover {
+.label-pill-delete:hover {
   color: var(--color-text-primary);
+  background: var(--color-bg-hover);
 }
 .prop-label-input {
   flex: 1;
@@ -347,21 +428,9 @@ onBeforeUnmount(() => {
   width: 100%;
   box-sizing: border-box;
 }
-.prop-label-suggestion {
-  display: inline-flex;
-  align-items: center;
+.prop-label-suggestion-item {
+  margin: 0;
+  padding: 0;
   max-width: 100%;
-  padding: 4px 10px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 999px;
-  background: var(--color-bg-muted);
-  font-size: 11px;
-  line-height: 1.35;
-  cursor: pointer;
-  color: var(--color-text-primary);
-  white-space: nowrap;
-}
-.prop-label-suggestion:hover {
-  background: var(--color-bg-hover);
 }
 </style>

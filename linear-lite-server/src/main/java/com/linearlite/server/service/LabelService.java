@@ -214,4 +214,21 @@ public class LabelService {
         }
         taskLabelMapper.delete(new LambdaQueryWrapper<TaskLabel>().in(TaskLabel::getTaskId, taskIds));
     }
+
+    /**
+     * 从项目标签库删除标签定义，并移除该项目下所有任务对该标签的关联（应用层维护，无数据库外键）。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteLabelDefinition(long projectId, long labelId, Long userId) {
+        requireProjectMember(projectId, userId);
+        Label label = labelMapper.selectById(labelId);
+        if (label == null) {
+            throw new ResourceNotFoundException("标签不存在: " + labelId);
+        }
+        if (!label.getProjectId().equals(projectId)) {
+            throw new IllegalArgumentException("标签不属于该项目");
+        }
+        taskLabelMapper.delete(new LambdaQueryWrapper<TaskLabel>().eq(TaskLabel::getLabelId, labelId));
+        labelMapper.deleteById(labelId);
+    }
 }

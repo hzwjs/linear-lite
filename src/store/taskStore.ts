@@ -268,6 +268,24 @@ export const useTaskStore = defineStore('taskStore', () => {
     return updateTask(id, { status: newStatus })
   }
 
+  /** 项目内删除标签定义后，从内存中所有该项目的任务上摘掉该标签 */
+  function stripProjectLabelFromTasks(projectId: number, labelId: number) {
+    for (let i = 0; i < tasks.value.length; i++) {
+      const t = tasks.value[i]
+      if (t == null || t.projectId !== projectId) continue
+      const labels = t.labels
+      if (labels == null || labels.length === 0) continue
+      const nextLabels = labels.filter((l) => l.id !== labelId)
+      if (nextLabels.length === labels.length) continue
+      const next = { ...t, labels: nextLabels, updatedAt: Date.now() }
+      tasks.value[i] = next
+      recomputeParentSubIssueProgress(t.parentId)
+      if (next.favorited) {
+        useFavoriteStore().syncTask(next)
+      }
+    }
+  }
+
   function clearIssueFilters() {
     filterStatus.value = null
     filterPriority.value = null
@@ -296,6 +314,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     applyLocalTaskPatch,
     updateTask,
     transitionTask,
+    stripProjectLabelFromTasks,
     clearIssueFilters
   }
 })

@@ -62,7 +62,8 @@ vi.mock('../services/api/project', () => ({
     update: vi.fn(),
     delete: vi.fn(),
     invite: vi.fn(),
-    listLabels: vi.fn()
+    listLabels: vi.fn(),
+    deleteLabel: vi.fn().mockResolvedValue(undefined)
   }
 }))
 
@@ -229,7 +230,8 @@ describe('TaskEditor label suggestions', () => {
       await nextTick()
       await flushPromises()
 
-      const suggestion = view.container.querySelectorAll('.prop-label-suggestion')[1] as HTMLElement
+      const options = view.container.querySelectorAll('[role="option"]')
+      const suggestion = options[1]?.querySelector('.label-pill-main') as HTMLButtonElement
       expect(suggestion).toBeTruthy()
       suggestion.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
       await nextTick()

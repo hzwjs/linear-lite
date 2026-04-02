@@ -61,5 +61,14 @@ export const projectApi = {
         params: query != null && query !== '' ? { query } : undefined
       })
       .then((res) => unwrap(res))
+  },
+
+  /** 从项目标签表删除定义，并移除所有任务上该标签的关联 */
+  deleteLabel(projectId: number, labelId: number): Promise<void> {
+    return api
+      .delete<ApiResponse<null>>(`/projects/${projectId}/labels/${labelId}`)
+      .then((res) => {
+        unwrap(res)
+      })
   }
 }
