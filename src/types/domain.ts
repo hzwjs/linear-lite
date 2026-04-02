@@ -8,6 +8,12 @@ export type Status =
   | 'duplicate'
 export type Priority = 'low' | 'medium' | 'high' | 'urgent'
 
+/** 任务上已解析的标签（GET / 列表返回） */
+export interface TaskLabel {
+  id: number
+  name: string
+}
+
 export interface Task {
   id: string // 与后端 taskKey 一致，如 ENG-1，用于展示与 PUT 路径
   /** 后端数据库主键，用于创建子任务时传 parentId、按父查子等 */
@@ -37,6 +43,8 @@ export interface Task {
   completedSubIssueCount?: number
   /** 当前用户是否已收藏 */
   favorited?: boolean
+  /** 项目级标签，按名称排序 */
+  labels?: TaskLabel[]
 }
 
 export interface TaskActivity {

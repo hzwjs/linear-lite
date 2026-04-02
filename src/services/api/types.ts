@@ -5,6 +5,9 @@ export interface ApiResponse<T> {
   data: T
 }
 
+/** PUT/POST 任务标签项：与后端二选一 */
+export type TaskLabelWriteItem = { id: number } | { name: string }
+
 /** 后端 Task 实体：taskKey、LocalDateTime 为 ISO 字符串 */
 export interface ApiTask {
   id: number
@@ -27,6 +30,7 @@ export interface ApiTask {
   subIssueCount?: number
   completedSubIssueCount?: number
   favorited?: boolean
+  labels?: { id: number; name: string }[]
 }
 
 export interface ApiTaskActivity {
@@ -74,6 +78,8 @@ export interface CreateTaskRequest {
   plannedStartDate?: string | null // ISO 8601
   /** 完成进度 0–100 */
   progressPercent?: number | null
+  /** 创建时整包设置标签 */
+  labels?: TaskLabelWriteItem[]
 }
 
 export interface UpdateTaskRequest {
@@ -93,6 +99,8 @@ export interface UpdateTaskRequest {
   clearPlannedStart?: boolean
   /** 完成进度 0–100 */
   progressPercent?: number | null
+  /** 整包替换任务标签 */
+  labels?: TaskLabelWriteItem[]
 }
 
 export interface TaskImportRowRequest {

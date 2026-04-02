@@ -395,6 +395,7 @@ const zhCN = {
     sendAria: '发送',
     setPriority: '设置优先级',
     addLabel: '添加标签',
+    removeLabel: '移除标签',
     addToProject: '添加到项目',
     completedAt: '完成时间',
     progress: '进度',
@@ -450,6 +451,7 @@ const zhCN = {
     description: '描述',
     status: '状态',
     priority: '优先级',
+    labels: '标签',
     default: '字段'
   },
   activity: {
@@ -459,7 +461,8 @@ const zhCN = {
     changedField: '{actor} 修改了 {field}',
     changedFromTo: '{actor} 将 {field} 从 {oldValue} 改为 {newValue}',
     updated: '{actor} 更新了任务',
-    emptyValue: '空'
+    emptyValue: '空',
+    labelListSeparator: '、'
   },
   analytics: {
     title: '项目统计',

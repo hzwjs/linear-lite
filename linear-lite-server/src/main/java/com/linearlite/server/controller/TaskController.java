@@ -104,7 +104,8 @@ public class TaskController {
                 body.getAssigneeId(),
                 body.getDueDate(),
                 body.getPlannedStartDate(),
-                body.getProgressPercent());
+                body.getProgressPercent(),
+                body.getLabels());
         return ResponseEntity.ok(ApiResponse.success(created));
     }
 

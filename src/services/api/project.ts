@@ -53,5 +53,13 @@ export const projectApi = {
       .then((res) => {
         unwrap(res)
       })
+  },
+
+  listLabels(projectId: number, query?: string): Promise<{ id: number; name: string }[]> {
+    return api
+      .get<ApiResponse<{ id: number; name: string }[]>>(`/projects/${projectId}/labels`, {
+        params: query != null && query !== '' ? { query } : undefined
+      })
+      .then((res) => unwrap(res))
   }
 }

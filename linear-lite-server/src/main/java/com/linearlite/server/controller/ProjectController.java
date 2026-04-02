@@ -3,9 +3,11 @@ package com.linearlite.server.controller;
 import com.linearlite.server.common.ApiResponse;
 import com.linearlite.server.dto.CreateProjectInvitationRequest;
 import com.linearlite.server.dto.CreateProjectRequest;
+import com.linearlite.server.dto.TaskLabelResponse;
 import com.linearlite.server.dto.UpdateProjectRequest;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.filter.JwtAuthFilter;
+import com.linearlite.server.service.LabelService;
 import com.linearlite.server.service.ProjectService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -28,9 +31,11 @@ import java.util.List;
 public class ProjectController {
 
     private final ProjectService projectService;
+    private final LabelService labelService;
 
-    public ProjectController(ProjectService projectService) {
+    public ProjectController(ProjectService projectService, LabelService labelService) {
         this.projectService = projectService;
+        this.labelService = labelService;
     }
 
     /**
@@ -40,6 +45,19 @@ public class ProjectController {
     public ResponseEntity<ApiResponse<List<Project>>> list(HttpServletRequest httpRequest) {
         Long userId = (Long) httpRequest.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
         List<Project> list = projectService.list(userId);
+        return ResponseEntity.ok(ApiResponse.success(list));
+    }
+
+    /**
+     * 项目内标签列表（任务侧栏联想）；query 可选，按名称前缀过滤。
+     */
+    @GetMapping("/{id}/labels")
+    public ResponseEntity<ApiResponse<List<TaskLabelResponse>>> listLabels(
+            HttpServletRequest httpRequest,
+            @PathVariable("id") Long projectId,
+            @RequestParam(required = false) String query) {
+        Long userId = (Long) httpRequest.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        List<TaskLabelResponse> list = labelService.listForProject(projectId, query, userId);
         return ResponseEntity.ok(ApiResponse.success(list));
     }
 

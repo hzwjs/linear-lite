@@ -4,8 +4,10 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.linearlite.server.dto.TaskLabelResponse;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @TableName("tasks")
 public class Task {
@@ -43,6 +45,9 @@ public class Task {
     /** 当前用户是否已收藏，仅响应时由后端填充，不持久化 */
     @TableField(exist = false)
     private Boolean favorited;
+    /** 任务标签，仅响应时填充，不持久化 */
+    @TableField(exist = false)
+    private List<TaskLabelResponse> labels;
 
     public Long getId() {
         return id;
@@ -202,5 +207,13 @@ public class Task {
 
     public void setFavorited(Boolean favorited) {
         this.favorited = favorited;
+    }
+
+    public List<TaskLabelResponse> getLabels() {
+        return labels;
+    }
+
+    public void setLabels(List<TaskLabelResponse> labels) {
+        this.labels = labels;
     }
 }

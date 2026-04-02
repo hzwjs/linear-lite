@@ -30,7 +30,8 @@ function toTask(t: ApiTask): Task {
     parentId: t.parentId != null ? String(t.parentId) : undefined,
     subIssueCount: t.subIssueCount,
     completedSubIssueCount: t.completedSubIssueCount,
-    favorited: t.favorited ?? false
+    favorited: t.favorited ?? false,
+    labels: t.labels?.map((l) => ({ id: l.id, name: l.name })) ?? undefined
   }
 }
 

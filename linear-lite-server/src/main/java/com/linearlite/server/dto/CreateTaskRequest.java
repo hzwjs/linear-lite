@@ -1,6 +1,7 @@
 package com.linearlite.server.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * POST /api/tasks 请求体。creator_id 由后端从 JWT 解析并绑定。
@@ -19,6 +20,8 @@ public class CreateTaskRequest {
     private LocalDateTime plannedStartDate;
     /** 完成进度 0–100，缺省为 0 */
     private Integer progressPercent;
+    /** 可选；有值时整包替换任务标签（创建后写入） */
+    private List<TaskLabelItemRequest> labels;
 
     public Long getProjectId() {
         return projectId;
@@ -98,5 +101,13 @@ public class CreateTaskRequest {
 
     public void setProgressPercent(Integer progressPercent) {
         this.progressPercent = progressPercent;
+    }
+
+    public List<TaskLabelItemRequest> getLabels() {
+        return labels;
+    }
+
+    public void setLabels(List<TaskLabelItemRequest> labels) {
+        this.labels = labels;
     }
 }

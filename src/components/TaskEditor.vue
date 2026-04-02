@@ -13,6 +13,8 @@ import { useRouter } from 'vue-router'
 import { userApi } from '../services/api/user'
 import { activityApi } from '../services/api/activity'
 import { attachmentsApi } from '../services/api/attachments'
+import { projectApi } from '../services/api/project'
+import type { TaskLabelWriteItem } from '../services/api/types'
 import type { TaskAttachment } from '../services/api/types'
 import { formatTaskActivity, getActivityAvatarLabel } from '../utils/taskActivity'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
@@ -99,6 +101,12 @@ const formPlannedStartDate = ref('') // YYYY-MM-DD
 const formDueDate = ref('') // YYYY-MM-DD for input[type=date]
 /** 0–100，与后端 progressPercent 一致 */
 const formProgressPercent = ref(0)
+/** 侧栏标签编辑：有 id 为已持久化标签，无 id 为待创建 */
+const formLabels = ref<{ id?: number; name: string }[]>([])
+const labelInput = ref('')
+const labelSuggestionsOpen = ref(false)
+const labelSuggestions = ref<{ id: number; name: string }[]>([])
+let labelSuggestTimer: ReturnType<typeof setTimeout> | null = null
 const userList = ref<User[]>([])
 const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
 const activities = ref<TaskActivity[]>([])
@@ -181,6 +189,11 @@ const taskProjectName = computed(() => {
   if (!props.task?.projectId) return null
   const p = projectStore.projects.find((x) => x.id === props.task!.projectId)
   return p?.name ?? null
+})
+
+const effectiveProjectId = computed((): number | null => {
+  if (props.mode === 'edit' && props.task?.projectId != null) return props.task.projectId
+  return projectStore.activeProjectId
 })
 
 /** Phase 7: 父任务（用于 Sub-issue of XXX 链接） */
@@ -410,6 +423,109 @@ function toDateInputValue(ms: number | undefined | null): string {
   return formatDateInputValue(ms)
 }
 
+function formLabelStableKey(rows: { id?: number; name: string }[]): string {
+  return [...rows]
+    .map((r) => {
+      const n = r.name.trim()
+      if (!n) return null
+      return r.id != null ? `i:${r.id}` : `n:${n.toLowerCase()}`
+    })
+    .filter((x): x is string => x != null)
+    .sort()
+    .join('|')
+}
+
+function taskLabelsStableKey(labels: Task['labels'] | undefined): string {
+  return [...(labels ?? [])]
+    .map((l) => `i:${l.id}`)
+    .sort()
+    .join('|')
+}
+
+function toLabelWriteItems(rows: { id?: number; name: string }[]): TaskLabelWriteItem[] {
+  const out: TaskLabelWriteItem[] = []
+  for (const r of rows) {
+    const n = r.name.trim()
+    if (!n) continue
+    if (r.id != null) out.push({ id: r.id })
+    else out.push({ name: n })
+  }
+  return out
+}
+
+function scheduleLabelSuggest() {
+  if (labelSuggestTimer) clearTimeout(labelSuggestTimer)
+  labelSuggestTimer = setTimeout(() => {
+    labelSuggestTimer = null
+    void fetchLabelSuggestions()
+  }, 200)
+}
+
+async function fetchLabelSuggestions() {
+  const pid = effectiveProjectId.value
+  if (pid == null) {
+    labelSuggestions.value = []
+    return
+  }
+  try {
+    const q = labelInput.value.trim()
+    labelSuggestions.value = await projectApi.listLabels(pid, q || undefined)
+  } catch {
+    labelSuggestions.value = []
+  }
+}
+
+function onLabelInputFocus() {
+  if (props.mode !== 'edit' || !props.task) return
+  labelSuggestionsOpen.value = true
+  void fetchLabelSuggestions()
+}
+
+function onLabelInputInput() {
+  if (props.mode !== 'edit' || !props.task) return
+  labelSuggestionsOpen.value = true
+  scheduleLabelSuggest()
+}
+
+function labelNameTaken(name: string): boolean {
+  const n = name.trim().toLowerCase()
+  if (!n) return true
+  return formLabels.value.some((c) => c.name.trim().toLowerCase() === n)
+}
+
+function addFormLabel(entry: { id?: number; name: string }) {
+  const n = entry.name.trim()
+  if (!n || labelNameTaken(n)) return
+  formLabels.value = [...formLabels.value, { id: entry.id, name: n }]
+}
+
+function pickSuggestion(s: { id: number; name: string }) {
+  if (labelNameTaken(s.name)) {
+    labelInput.value = ''
+    labelSuggestionsOpen.value = false
+    return
+  }
+  formLabels.value = [...formLabels.value, { id: s.id, name: s.name }]
+  labelInput.value = ''
+  labelSuggestionsOpen.value = false
+}
+
+function commitLabelInput() {
+  const raw = labelInput.value.trim()
+  if (raw) {
+    addFormLabel({ name: raw })
+    labelInput.value = ''
+    labelSuggestionsOpen.value = false
+    return
+  }
+  const first = labelSuggestions.value[0]
+  if (first) pickSuggestion(first)
+}
+
+function removeFormLabel(idx: number) {
+  formLabels.value = formLabels.value.filter((_, i) => i !== idx)
+}
+
 /** 全选删除列表后可能留下仅空列表项（如 "- \n- "）。仅在保存时视为空，不往编辑器回写，避免可见的覆盖过程 */
 function clampTaskProgress(value: unknown): number {
   const n = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 0
@@ -450,6 +566,9 @@ const loadForm = () => {
     formPlannedStartDate.value = toDateInputValue(props.task.plannedStartDate ?? undefined)
     formDueDate.value = toDateInputValue(props.task.dueDate ?? undefined)
     formProgressPercent.value = clampTaskProgress(props.task.progressPercent ?? 0)
+    formLabels.value = (props.task.labels ?? []).map((l) => ({ id: l.id, name: l.name }))
+    labelInput.value = ''
+    labelSuggestionsOpen.value = false
 
     const draft = readTaskEditDraft(props.task.id)
     if (draft && draft.savedAt > props.task.updatedAt) {
@@ -473,6 +592,9 @@ const loadForm = () => {
     formPlannedStartDate.value = todayDateInputValue()
     formDueDate.value = ''
     formProgressPercent.value = 0
+    formLabels.value = []
+    labelInput.value = ''
+    labelSuggestionsOpen.value = false
   }
 }
 
@@ -571,7 +693,12 @@ async function performAutoSave() {
     dueDate: props.task.dueDate ?? null,
     progressPercent: props.task.progressPercent ?? 0
   }
-  if (isPayloadEqual(payload, current)) return
+  if (
+    isPayloadEqual(payload, current) &&
+    formLabelStableKey(formLabels.value) === taskLabelsStableKey(props.task.labels)
+  ) {
+    return
+  }
   if (descriptionUploadState.value.hasPending || descriptionUploadState.value.hasFailed) return
 
   const clearPlannedStart =
@@ -597,11 +724,13 @@ async function performAutoSave() {
       clearPlannedStart,
       dueDate: payload.dueDate,
       clearDueDate,
-      progressPercent: payload.progressPercent
+      progressPercent: payload.progressPercent,
+      labels: toLabelWriteItems(formLabels.value)
     })
     // 保存后故意跳过 loadForm，避免覆盖正文；服务端进度↔状态联动需从合并结果写回
     formStatus.value = merged.status
     formProgressPercent.value = clampTaskProgress(merged.progressPercent ?? 0)
+    formLabels.value = (merged.labels ?? []).map((l) => ({ id: l.id, name: l.name }))
     clearTaskEditDraft(props.task.id)
     await loadActivities({ silent: true })
     saveStatus.value = 'saved'
@@ -650,6 +779,10 @@ async function flushPendingSave() {
 }
 
 onBeforeUnmount(() => {
+  if (labelSuggestTimer) {
+    clearTimeout(labelSuggestTimer)
+    labelSuggestTimer = null
+  }
   void flushPendingSave()
 })
 
@@ -678,6 +811,9 @@ function isOnlyDescriptionDirty(
     progressPercent?: number
   }
 ): boolean {
+  if (formLabelStableKey(formLabels.value) !== taskLabelsStableKey(props.task?.labels)) {
+    return false
+  }
   return (
     descriptionForSave(payload.description) !== descriptionForSave(current.description) &&
     payload.title === current.title &&
@@ -716,7 +852,8 @@ watch(
     formAssigneeId.value,
     formPlannedStartDate.value,
     formDueDate.value,
-    formProgressPercent.value
+    formProgressPercent.value,
+    formLabels.value
   ],
   () => {
     if (props.mode !== 'edit' || !props.task) return
@@ -731,7 +868,10 @@ watch(
       dueDate: props.task.dueDate ?? null,
       progressPercent: props.task.progressPercent ?? 0
     }
-    if (isPayloadEqual(payload, current)) {
+    if (
+      isPayloadEqual(payload, current) &&
+      formLabelStableKey(formLabels.value) === taskLabelsStableKey(props.task.labels)
+    ) {
       clearTaskEditDraft(props.task.id)
       return
     }
@@ -1137,12 +1277,56 @@ async function toggleFavorite() {
               <span class="prop-progress-value">{{ clampTaskProgress(formProgressPercent) }}%</span>
             </div>
           </div>
-          <div class="prop-row prop-row--linear-action">
+          <div v-if="effectiveProjectId != null" class="prop-row prop-row-labels">
             <span class="prop-label">{{ t('common.labels') }}</span>
-            <button type="button" class="prop-action-trigger" :aria-label="t('taskEditor.addLabel')">
-              <Tag class="icon-14" />
-              <span>{{ t('taskEditor.addLabel') }}</span>
-            </button>
+            <div class="prop-label-editor">
+              <Tag class="icon-14 prop-label-icon" aria-hidden="true" />
+              <div class="prop-label-chips-wrap">
+                <span
+                  v-for="(chip, idx) in formLabels"
+                  :key="chip.id ?? `tmp-${idx}-${chip.name}`"
+                  class="task-label-chip"
+                >
+                  {{ chip.name }}
+                  <button
+                    v-if="mode === 'edit' && task"
+                    type="button"
+                    class="task-label-chip-remove"
+                    :aria-label="t('taskEditor.removeLabel')"
+                    @click="removeFormLabel(idx)"
+                  >
+                    ×
+                  </button>
+                </span>
+                <input
+                  v-model="labelInput"
+                  type="text"
+                  class="prop-label-input"
+                  :placeholder="t('taskEditor.addLabel')"
+                  :disabled="mode !== 'edit' || !task"
+                  :aria-label="t('taskEditor.addLabel')"
+                  @focus="onLabelInputFocus"
+                  @input="onLabelInputInput"
+                  @keydown.enter.prevent="commitLabelInput"
+                  @keydown.escape="labelSuggestionsOpen = false"
+                />
+              </div>
+              <ul
+                v-if="labelSuggestionsOpen && labelSuggestions.length > 0 && mode === 'edit' && task"
+                class="prop-label-suggestions"
+                role="listbox"
+              >
+                <li
+                  v-for="s in labelSuggestions"
+                  :key="s.id"
+                  role="option"
+                  class="prop-label-suggestion"
+                  @mousedown.prevent="pickSuggestion(s)"
+                >
+                  {{ s.name }}
+                </li>
+              </ul>
+            </div>
           </div>
           <div class="prop-row prop-row--linear-action">
             <span class="prop-label">{{ t('common.project') }}</span>
@@ -1830,6 +2014,97 @@ async function toggleFavorite() {
 }
 .prop-row--linear-action .prop-label {
   margin-bottom: 2px;
+}
+.prop-row-labels .prop-label {
+  margin-bottom: 2px;
+}
+.prop-label-editor {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: var(--control-padding-y) var(--control-padding-x);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-muted);
+  min-height: var(--input-min-height);
+}
+.prop-label-icon {
+  flex-shrink: 0;
+  margin-top: 6px;
+  color: var(--color-text-muted);
+}
+.prop-label-chips-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.task-label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-subtle);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-primary);
+}
+.task-label-chip-remove {
+  border: none;
+  background: transparent;
+  padding: 0 2px;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+.task-label-chip-remove:hover {
+  color: var(--color-text-primary);
+}
+.prop-label-input {
+  flex: 1;
+  min-width: 5rem;
+  border: none;
+  background: transparent;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-primary);
+  padding: 4px 0;
+  outline: none;
+}
+.prop-label-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.prop-label-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  margin-top: 4px;
+  z-index: 20;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-popover);
+  max-height: 200px;
+  overflow-y: auto;
+}
+.prop-label-suggestion {
+  padding: 8px 12px;
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+  color: var(--color-text-primary);
+}
+.prop-label-suggestion:hover {
+  background: var(--color-bg-hover);
 }
 .prop-action-trigger {
   display: inline-flex;

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.linearlite.server.dto.TaskImportRequest;
 import com.linearlite.server.dto.TaskImportResponse;
 import com.linearlite.server.dto.TaskImportRowRequest;
+import com.linearlite.server.dto.TaskLabelItemRequest;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.ProjectMember;
@@ -51,18 +52,21 @@ public class TaskService {
     private final TaskFavoriteMapper taskFavoriteMapper;
     private final TaskActivityService taskActivityService;
     private final ProjectMemberMapper projectMemberMapper;
+    private final LabelService labelService;
 
     public TaskService(
             TaskMapper taskMapper,
             ProjectMapper projectMapper,
             TaskFavoriteMapper taskFavoriteMapper,
             TaskActivityService taskActivityService,
-            ProjectMemberMapper projectMemberMapper) {
+            ProjectMemberMapper projectMemberMapper,
+            LabelService labelService) {
         this.taskMapper = taskMapper;
         this.projectMapper = projectMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
         this.taskActivityService = taskActivityService;
         this.projectMemberMapper = projectMemberMapper;
+        this.labelService = labelService;
     }
 
     /**
@@ -88,6 +92,7 @@ public class TaskService {
         List<Task> list = taskMapper.selectList(wrapper);
         fillSubIssueCounts(list);
         fillFavoriteState(list, userId);
+        labelService.fillLabelsForTasks(list);
         return list;
     }
 
@@ -98,7 +103,8 @@ public class TaskService {
     public Task create(Long projectId, Long creatorId, Long parentId, String title, String description,
                        String status, String priority, Long assigneeId, LocalDateTime dueDate,
                        LocalDateTime plannedStartDate,
-                       Integer progressPercent) {
+                       Integer progressPercent,
+                       List<TaskLabelItemRequest> labels) {
         if (projectId == null) {
             throw new IllegalArgumentException("projectId 不能为空");
         }
@@ -150,8 +156,13 @@ public class TaskService {
         taskMapper.insert(task);
         Task inserted = taskMapper.selectById(task.getId());
         taskActivityService.recordAction(inserted.getId(), creatorId, "created");
+        if (labels != null) {
+            labelService.replaceTaskLabels(inserted.getId(), projectId, labels);
+            recordLabelsChange(inserted.getId(), creatorId, "", labelService.sortedNamesJoined(inserted.getId()));
+        }
         fillSubIssueCounts(Collections.singletonList(inserted));
         inserted.setFavorited(false);
+        labelService.fillLabelsForTasks(Collections.singletonList(inserted));
         return inserted;
     }
 
@@ -408,6 +419,11 @@ public class TaskService {
                 hasUpdate = true;
             }
         }
+        String oldLabelsJoined = null;
+        if (request.getLabels() != null) {
+            oldLabelsJoined = labelService.sortedNamesJoined(existing.getId());
+        }
+
         if (Boolean.TRUE.equals(request.getClearParent())) {
             wrapper.set("parent_id", null);
             hasUpdate = true;
@@ -434,10 +450,21 @@ public class TaskService {
         if (hasUpdate) {
             taskMapper.update(null, wrapper);
         }
+        if (request.getLabels() != null) {
+            labelService.replaceTaskLabels(existing.getId(), existing.getProjectId(), request.getLabels());
+        }
         Task updated = taskMapper.selectById(existing.getId());
         recordActivityForTaskChanges(existing, updated, userId);
+        if (request.getLabels() != null) {
+            recordLabelsChange(
+                    updated.getId(),
+                    userId,
+                    oldLabelsJoined,
+                    labelService.sortedNamesJoined(updated.getId()));
+        }
         fillSubIssueCounts(Collections.singletonList(updated));
         fillFavoriteState(Collections.singletonList(updated), userId);
+        labelService.fillLabelsForTasks(Collections.singletonList(updated));
         return updated;
     }
 
@@ -478,6 +505,7 @@ public class TaskService {
                 .collect(Collectors.toList());
         fillSubIssueCounts(ordered);
         fillFavoriteState(ordered, userId);
+        labelService.fillLabelsForTasks(ordered);
         return ordered;
     }
 
@@ -500,6 +528,7 @@ public class TaskService {
         Task refreshed = taskMapper.selectById(task.getId());
         fillSubIssueCounts(Collections.singletonList(refreshed));
         fillFavoriteState(Collections.singletonList(refreshed), userId);
+        labelService.fillLabelsForTasks(Collections.singletonList(refreshed));
         return refreshed;
     }
 
@@ -516,6 +545,7 @@ public class TaskService {
         Task refreshed = taskMapper.selectById(task.getId());
         fillSubIssueCounts(Collections.singletonList(refreshed));
         fillFavoriteState(Collections.singletonList(refreshed), userId);
+        labelService.fillLabelsForTasks(Collections.singletonList(refreshed));
         return refreshed;
     }
 
@@ -770,6 +800,15 @@ public class TaskService {
             return;
         }
         taskActivityService.recordFieldChange(taskId, userId, fieldName, oldValue, newValue);
+    }
+
+    private void recordLabelsChange(Long taskId, Long userId, String oldJoined, String newJoined) {
+        if (userId == null) {
+            return;
+        }
+        String o = oldJoined == null || oldJoined.isEmpty() ? null : oldJoined;
+        String n = newJoined == null || newJoined.isEmpty() ? null : newJoined;
+        recordFieldChange(taskId, userId, "labels", o, n);
     }
 
     private static String stringify(Object value) {

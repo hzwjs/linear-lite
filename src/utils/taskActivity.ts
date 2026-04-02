@@ -17,6 +17,10 @@ function formatFieldValue(fieldName: string | null | undefined, value: string | 
   if (fieldName === 'priority') return getPriorityLabel(value)
   if (fieldName === 'dueDate' || fieldName === 'plannedStartDate') return new Date(value).toLocaleDateString()
   if (fieldName === 'progressPercent') return `${value}%`
+  if (fieldName === 'labels') {
+    const sep = translate('activity.labelListSeparator', undefined, ', ')
+    return value.split(',').filter(Boolean).join(sep)
+  }
   return value
 }
 

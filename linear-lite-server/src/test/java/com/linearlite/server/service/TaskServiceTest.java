@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.linearlite.server.dto.TaskImportRequest;
 import com.linearlite.server.dto.TaskImportResponse;
 import com.linearlite.server.dto.TaskImportRowRequest;
+import com.linearlite.server.dto.TaskLabelItemRequest;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Task;
@@ -26,7 +27,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -45,6 +47,8 @@ class TaskServiceTest {
     private TaskActivityService taskActivityService;
     @Mock
     private ProjectMemberMapper projectMemberMapper;
+    @Mock
+    private LabelService labelService;
 
     private TaskService taskService;
 
@@ -55,7 +59,8 @@ class TaskServiceTest {
                 projectMapper,
                 taskFavoriteMapper,
                 taskActivityService,
-                projectMemberMapper
+                projectMemberMapper,
+                labelService
         );
     }
 
@@ -394,5 +399,73 @@ class TaskServiceTest {
                 TaskService.resolveStatusProgressLinkage(existing, true, false, "todo", 100);
         assertEquals("todo", r.status);
         assertEquals(99, r.progressPercent);
+    }
+
+    @Test
+    void updateWithLabelsCallsReplaceAndRecordsActivity() {
+        Task existing = new Task();
+        existing.setId(30L);
+        existing.setTaskKey("ENG-30");
+        existing.setTitle("T");
+        existing.setDescription("d");
+        existing.setStatus("todo");
+        existing.setPriority("medium");
+        existing.setProjectId(1L);
+
+        Task updated = new Task();
+        updated.setId(30L);
+        updated.setTaskKey("ENG-30");
+        updated.setTitle("T");
+        updated.setDescription("d");
+        updated.setStatus("todo");
+        updated.setPriority("medium");
+        updated.setProjectId(1L);
+
+        TaskLabelItemRequest item = new TaskLabelItemRequest();
+        item.setName("newlabel");
+
+        UpdateTaskRequest request = new UpdateTaskRequest();
+        request.setLabels(List.of(item));
+
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
+        when(taskMapper.selectById(30L)).thenReturn(updated);
+        when(taskFavoriteMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(labelService.sortedNamesJoined(30L)).thenReturn("", "newlabel");
+
+        taskService.update("ENG-30", request, 7L);
+
+        verify(labelService).replaceTaskLabels(30L, 1L, request.getLabels());
+        verify(taskActivityService).recordFieldChange(30L, 7L, "labels", null, "newlabel");
+        verify(labelService).fillLabelsForTasks(anyList());
+    }
+
+    @Test
+    void updatePropagatesLabelServiceError() {
+        Task existing = new Task();
+        existing.setId(31L);
+        existing.setTaskKey("ENG-31");
+        existing.setTitle("T");
+        existing.setStatus("todo");
+        existing.setPriority("medium");
+        existing.setProjectId(1L);
+
+        TaskLabelItemRequest item = new TaskLabelItemRequest();
+        item.setId(5L);
+
+        UpdateTaskRequest request = new UpdateTaskRequest();
+        request.setLabels(List.of(item));
+
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
+        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(labelService.sortedNamesJoined(31L)).thenReturn("");
+        org.mockito.Mockito.doThrow(new IllegalArgumentException("标签不属于当前任务所在项目"))
+                .when(labelService)
+                .replaceTaskLabels(anyLong(), anyLong(), any());
+
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> taskService.update("ENG-31", request, 7L));
     }
 }

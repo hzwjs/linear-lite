@@ -32,6 +32,7 @@ public class ProjectService {
     private final ProjectMemberMapper projectMemberMapper;
     private final ProjectInvitationMapper projectInvitationMapper;
     private final EmailService emailService;
+    private final LabelService labelService;
 
     public ProjectService(
             ProjectMapper projectMapper,
@@ -40,7 +41,8 @@ public class ProjectService {
             TaskActivityMapper taskActivityMapper,
             ProjectMemberMapper projectMemberMapper,
             ProjectInvitationMapper projectInvitationMapper,
-            EmailService emailService) {
+            EmailService emailService,
+            LabelService labelService) {
         this.projectMapper = projectMapper;
         this.taskMapper = taskMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
@@ -48,6 +50,7 @@ public class ProjectService {
         this.projectMemberMapper = projectMemberMapper;
         this.projectInvitationMapper = projectInvitationMapper;
         this.emailService = emailService;
+        this.labelService = labelService;
     }
 
     /**
@@ -176,6 +179,7 @@ public class ProjectService {
                 .collect(Collectors.toList());
 
         if (!taskIds.isEmpty()) {
+            labelService.deleteLinksForTaskIds(taskIds);
             taskActivityMapper.delete(
                     new LambdaQueryWrapper<com.linearlite.server.entity.TaskActivity>()
                             .in(com.linearlite.server.entity.TaskActivity::getTaskId, taskIds));

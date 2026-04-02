@@ -45,6 +45,8 @@ class ProjectServiceTest {
     private ProjectInvitationMapper projectInvitationMapper;
     @Mock
     private EmailService emailService;
+    @Mock
+    private LabelService labelService;
 
     private ProjectService projectService;
 
@@ -57,7 +59,8 @@ class ProjectServiceTest {
                 taskActivityMapper,
                 projectMemberMapper,
                 projectInvitationMapper,
-                emailService
+                emailService,
+                labelService
         );
     }
 
@@ -150,6 +153,7 @@ class ProjectServiceTest {
 
         projectService.delete(3L, 7L);
 
+        verify(labelService).deleteLinksForTaskIds(List.of(11L));
         verify(taskActivityMapper).delete(any(LambdaQueryWrapper.class));
         verify(taskFavoriteMapper).delete(any(LambdaQueryWrapper.class));
         verify(taskMapper).delete(any(LambdaQueryWrapper.class));

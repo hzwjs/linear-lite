@@ -395,6 +395,7 @@ const en = {
     sendAria: 'Send',
     setPriority: 'Set priority',
     addLabel: 'Add label',
+    removeLabel: 'Remove label',
     addToProject: 'Add to project',
     completedAt: 'Completed at',
     progress: 'Progress',
@@ -450,6 +451,7 @@ const en = {
     description: 'description',
     status: 'status',
     priority: 'priority',
+    labels: 'labels',
     default: 'field'
   },
   activity: {
@@ -459,7 +461,8 @@ const en = {
     changedField: '{actor} changed {field}',
     changedFromTo: '{actor} changed {field} from {oldValue} to {newValue}',
     updated: '{actor} updated the issue',
-    emptyValue: 'empty'
+    emptyValue: 'empty',
+    labelListSeparator: ', '
   },
   analytics: {
     title: 'Project Analytics',

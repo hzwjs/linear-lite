@@ -5,6 +5,7 @@ import type { Task, Status, Priority } from '../types/domain'
 /** 清单/看板处理人筛选：null 全部；unassigned 无负责人展示；number 为 assigneeId */
 export type AssigneeFilter = null | 'unassigned' | number
 import { taskApi } from '../services/api/task'
+import type { TaskLabelWriteItem } from '../services/api/types'
 import { useProjectStore } from './projectStore'
 import { useFavoriteStore } from './favoriteStore'
 import { toApiDateTime } from '../utils/taskDate'
@@ -218,9 +219,11 @@ export const useTaskStore = defineStore('taskStore', () => {
       clearAssignee?: boolean
       clearPlannedStart?: boolean
       clearDueDate?: boolean
+      labels?: TaskLabelWriteItem[]
     }
   ) {
-    applyLocalTaskPatch(id, updates)
+    const { labels: labelsPayload, ...patchForLocal } = updates
+    applyLocalTaskPatch(id, patchForLocal)
     error.value = null
     try {
       const existing = tasks.value.find((t) => t.id === id) ?? null
@@ -236,7 +239,8 @@ export const useTaskStore = defineStore('taskStore', () => {
         parentId: updates.parentId,
         plannedStartDate: toApiDateTime(updates.plannedStartDate),
         clearPlannedStart: updates.clearPlannedStart,
-        progressPercent: updates.progressPercent
+        progressPercent: updates.progressPercent,
+        ...(labelsPayload !== undefined ? { labels: labelsPayload } : {})
       })
       const index = tasks.value.findIndex((t) => t.id === id)
       const merged = {

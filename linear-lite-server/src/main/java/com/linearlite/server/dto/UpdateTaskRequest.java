@@ -1,6 +1,7 @@
 package com.linearlite.server.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * PUT /api/tasks/{id} 请求体。仅提交需更新的字段。completedAt 由后端根据状态自动维护，请求中忽略。
@@ -27,6 +28,8 @@ public class UpdateTaskRequest {
     private Boolean clearPlannedStart;
     /** 完成进度 0–100 */
     private Integer progressPercent;
+    /** 可选；有值时整包替换任务标签 */
+    private List<TaskLabelItemRequest> labels;
 
     public String getTitle() {
         return title;
@@ -130,5 +133,13 @@ public class UpdateTaskRequest {
 
     public void setProgressPercent(Integer progressPercent) {
         this.progressPercent = progressPercent;
+    }
+
+    public List<TaskLabelItemRequest> getLabels() {
+        return labels;
+    }
+
+    public void setLabels(List<TaskLabelItemRequest> labels) {
+        this.labels = labels;
     }
 }
