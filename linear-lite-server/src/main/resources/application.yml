@@ -31,7 +31,7 @@ spring:
             enable: ${MAIL_SMTP_STARTTLS_ENABLE:false}
 
 server:
-  port: ${SERVER_PORT:9080}
+  port: ${SERVER_PORT:8080}
 
 # CORS：Vite 默认开发地址，多源用逗号分隔
 cors:
