@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 
 const AUTO_SAVE_DEBOUNCE_MS = 600
 const SAVED_INDICATOR_MS = 2000
+
 import type { Task, Status, Priority, TaskActivity, User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
 import { useFavoriteStore } from '../store/favoriteStore'
@@ -107,6 +108,73 @@ const labelInput = ref('')
 const labelSuggestionsOpen = ref(false)
 const labelSuggestions = ref<{ id: number; name: string }[]>([])
 let labelSuggestTimer: ReturnType<typeof setTimeout> | null = null
+/** 失焦时递增，丢弃仍在飞行中的「输入防抖」listLabels 结果，避免无匹配/竞态把 len 打成 0 导致面板卸掉 */
+let labelSuggestTypingEpoch = 0
+/** 记录上次已 load 的任务 id；仅当从「另一 id」切过来时关标签联想，避免 last 曾被置 null 后同一任务误判为切换 */
+const lastLoadFormTaskIdForLabels = ref<string | null>(null)
+const labelSuggestionsAnchorRef = ref<HTMLElement | null>(null)
+const labelSuggestionPanelStyle = ref<Record<string, string>>({})
+let labelSuggestPanelScrollBound = false
+
+function updateLabelSuggestionPanelPosition() {
+  if (!labelSuggestionsOpen.value || labelSuggestions.value.length === 0) return
+  const anchor = labelSuggestionsAnchorRef.value
+  if (!anchor) return
+  const r = anchor.getBoundingClientRect()
+  const gap = 4
+  labelSuggestionPanelStyle.value = {
+    position: 'fixed',
+    top: `${Math.round(r.bottom + gap)}px`,
+    left: `${Math.round(Math.max(4, r.left))}px`,
+    width: `${Math.round(r.width)}px`,
+    zIndex: '1200'
+  }
+}
+
+function bindLabelSuggestionPanelPositionListeners() {
+  if (labelSuggestPanelScrollBound) return
+  labelSuggestPanelScrollBound = true
+  window.addEventListener('scroll', updateLabelSuggestionPanelPosition, true)
+  window.addEventListener('resize', updateLabelSuggestionPanelPosition)
+}
+
+function unbindLabelSuggestionPanelPositionListeners() {
+  if (!labelSuggestPanelScrollBound) return
+  labelSuggestPanelScrollBound = false
+  window.removeEventListener('scroll', updateLabelSuggestionPanelPosition, true)
+  window.removeEventListener('resize', updateLabelSuggestionPanelPosition)
+}
+
+/**
+ * canShow 不要求 props.task：currentTask 短暂为 null 时仍应保持面板挂载（与 Teleport v-if 一致），否则 open 仍为 true 也会因 v-if 卸掉 ul。
+ * flush:'post'；仅在 !open 时清空 fixed 样式。
+ */
+watch(
+  [
+    labelSuggestionsOpen,
+    () => labelSuggestions.value.length,
+    () => props.mode,
+    () => props.task?.id ?? null
+  ],
+  () => {
+    const open = labelSuggestionsOpen.value
+    const len = labelSuggestions.value.length
+    const canShow = props.mode === 'edit' && open && len > 0
+    if (!canShow) {
+      unbindLabelSuggestionPanelPositionListeners()
+      if (!open) {
+        labelSuggestionPanelStyle.value = {}
+      }
+      return
+    }
+    bindLabelSuggestionPanelPositionListeners()
+    nextTick(() => {
+      updateLabelSuggestionPanelPosition()
+      requestAnimationFrame(() => updateLabelSuggestionPanelPosition())
+    })
+  },
+  { flush: 'post', immediate: true }
+)
 const userList = ref<User[]>([])
 const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
 const activities = ref<TaskActivity[]>([])
@@ -195,6 +263,14 @@ const effectiveProjectId = computed((): number | null => {
   if (props.mode === 'edit' && props.task?.projectId != null) return props.task.projectId
   return projectStore.activeProjectId
 })
+
+/** 避免 effectiveProjectId 瞬时 null 时整行被 v-if 卸掉，锚点丢失导致 Teleport 面板无法定位 */
+const showPropRowLabels = computed(
+  () =>
+    effectiveProjectId.value != null ||
+    labelSuggestionsOpen.value ||
+    (props.mode === 'edit' && formLabels.value.length > 0)
+)
 
 /** Phase 7: 父任务（用于 Sub-issue of XXX 链接） */
 const parentTask = computed(() => {
@@ -457,34 +533,54 @@ function scheduleLabelSuggest() {
   if (labelSuggestTimer) clearTimeout(labelSuggestTimer)
   labelSuggestTimer = setTimeout(() => {
     labelSuggestTimer = null
-    void fetchLabelSuggestions()
+    void fetchLabelSuggestions(true)
   }, 200)
 }
 
-async function fetchLabelSuggestions() {
+async function fetchLabelSuggestions(fromTypingDebounce = false) {
   const pid = effectiveProjectId.value
   if (pid == null) {
-    labelSuggestions.value = []
+    if (!labelSuggestionsOpen.value) {
+      labelSuggestions.value = []
+    }
     return
   }
+  const typingGen = fromTypingDebounce ? ++labelSuggestTypingEpoch : -1
   try {
     const q = labelInput.value.trim()
-    labelSuggestions.value = await projectApi.listLabels(pid, q || undefined)
+    const data = await projectApi.listLabels(pid, q || undefined)
+    if (fromTypingDebounce && typingGen !== labelSuggestTypingEpoch) {
+      return
+    }
+    labelSuggestions.value = data
   } catch {
-    labelSuggestions.value = []
+    if (fromTypingDebounce && typingGen !== labelSuggestTypingEpoch) {
+      return
+    }
+    if (!labelSuggestionsOpen.value) {
+      labelSuggestions.value = []
+    }
   }
 }
 
 function onLabelInputFocus() {
   if (props.mode !== 'edit' || !props.task) return
   labelSuggestionsOpen.value = true
-  void fetchLabelSuggestions()
+  void fetchLabelSuggestions(false)
 }
 
 function onLabelInputInput() {
   if (props.mode !== 'edit' || !props.task) return
   labelSuggestionsOpen.value = true
   scheduleLabelSuggest()
+}
+
+function onLabelInputBlur() {
+  if (labelSuggestTimer) {
+    clearTimeout(labelSuggestTimer)
+    labelSuggestTimer = null
+  }
+  labelSuggestTypingEpoch++
 }
 
 function labelNameTaken(name: string): boolean {
@@ -557,6 +653,10 @@ function descriptionForSave(desc: string | undefined): string {
 }
 
 const loadForm = () => {
+  /** currentTask 短暂为 null（列表刷新、项目切换等）时不要走下方 else 整表重置，否则会清空 lastLoadFormTaskIdForLabels，任务回来后误判为「首次加载」而关掉标签联想 */
+  if (props.mode === 'edit' && !props.task) {
+    return
+  }
   if (props.mode === 'edit' && props.task) {
     formTitle.value = props.task.title
     formDescription.value = props.task.description || ''
@@ -568,7 +668,12 @@ const loadForm = () => {
     formProgressPercent.value = clampTaskProgress(props.task.progressPercent ?? 0)
     formLabels.value = (props.task.labels ?? []).map((l) => ({ id: l.id, name: l.name }))
     labelInput.value = ''
-    labelSuggestionsOpen.value = false
+    const tid = props.task.id
+    const prevTid = lastLoadFormTaskIdForLabels.value
+    if (prevTid != null && prevTid !== tid) {
+      labelSuggestionsOpen.value = false
+    }
+    lastLoadFormTaskIdForLabels.value = tid
 
     const draft = readTaskEditDraft(props.task.id)
     if (draft && draft.savedAt > props.task.updatedAt) {
@@ -594,6 +699,7 @@ const loadForm = () => {
     formProgressPercent.value = 0
     formLabels.value = []
     labelInput.value = ''
+    lastLoadFormTaskIdForLabels.value = null
     labelSuggestionsOpen.value = false
   }
 }
@@ -779,6 +885,7 @@ async function flushPendingSave() {
 }
 
 onBeforeUnmount(() => {
+  unbindLabelSuggestionPanelPositionListeners()
   if (labelSuggestTimer) {
     clearTimeout(labelSuggestTimer)
     labelSuggestTimer = null
@@ -1277,9 +1384,9 @@ async function toggleFavorite() {
               <span class="prop-progress-value">{{ clampTaskProgress(formProgressPercent) }}%</span>
             </div>
           </div>
-          <div v-if="effectiveProjectId != null" class="prop-row prop-row-labels">
+          <div v-if="showPropRowLabels" class="prop-row prop-row-labels">
             <span class="prop-label">{{ t('common.labels') }}</span>
-            <div class="prop-label-editor">
+            <div ref="labelSuggestionsAnchorRef" class="prop-label-editor">
               <Tag class="icon-14 prop-label-icon" aria-hidden="true" />
               <div class="prop-label-chips-wrap">
                 <span
@@ -1302,19 +1409,29 @@ async function toggleFavorite() {
                   v-model="labelInput"
                   type="text"
                   class="prop-label-input"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
                   :placeholder="t('taskEditor.addLabel')"
                   :disabled="mode !== 'edit' || !task"
                   :aria-label="t('taskEditor.addLabel')"
+                  :aria-expanded="labelSuggestionsOpen && labelSuggestions.length > 0"
+                  aria-haspopup="listbox"
                   @focus="onLabelInputFocus"
+                  @blur="onLabelInputBlur"
                   @input="onLabelInputInput"
                   @keydown.enter.prevent="commitLabelInput"
                   @keydown.escape="labelSuggestionsOpen = false"
                 />
               </div>
+            </div>
+            <Teleport to="body">
               <ul
-                v-if="labelSuggestionsOpen && labelSuggestions.length > 0 && mode === 'edit' && task"
-                class="prop-label-suggestions"
+                v-if="labelSuggestionsOpen && labelSuggestions.length > 0 && mode === 'edit'"
+                class="prop-label-suggestions prop-label-suggestions--teleported"
                 role="listbox"
+                :style="labelSuggestionPanelStyle"
+                @mousedown.prevent
               >
                 <li
                   v-for="s in labelSuggestions"
@@ -1326,7 +1443,7 @@ async function toggleFavorite() {
                   {{ s.name }}
                 </li>
               </ul>
-            </div>
+            </Teleport>
           </div>
           <div class="prop-row prop-row--linear-action">
             <span class="prop-label">{{ t('common.project') }}</span>
@@ -2021,18 +2138,17 @@ async function toggleFavorite() {
 .prop-label-editor {
   position: relative;
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  align-items: center;
+  gap: 5px;
   width: 100%;
-  padding: var(--control-padding-y) var(--control-padding-x);
+  padding: 3px 7px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
   background: var(--color-bg-muted);
-  min-height: var(--input-min-height);
+  min-height: 30px;
 }
 .prop-label-icon {
   flex-shrink: 0;
-  margin-top: 6px;
   color: var(--color-text-muted);
 }
 .prop-label-chips-wrap {
@@ -2041,26 +2157,31 @@ async function toggleFavorite() {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 3px 4px;
+  row-gap: 3px;
 }
 .task-label-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
+  gap: 2px;
+  padding: 0 5px;
+  min-height: 20px;
+  line-height: 1.25;
+  border-radius: 4px;
   background: var(--color-bg-base);
   border: 1px solid var(--color-border-subtle);
-  font-size: var(--font-size-caption);
+  font-size: 11px;
+  font-weight: var(--font-weight-medium, 500);
   color: var(--color-text-primary);
 }
 .task-label-chip-remove {
   border: none;
   background: transparent;
-  padding: 0 2px;
+  padding: 0 1px;
+  margin-left: 1px;
   cursor: pointer;
   color: var(--color-text-muted);
-  font-size: 1rem;
+  font-size: 12px;
   line-height: 1;
 }
 .task-label-chip-remove:hover {
@@ -2068,28 +2189,27 @@ async function toggleFavorite() {
 }
 .prop-label-input {
   flex: 1;
-  min-width: 5rem;
+  min-width: 3.5rem;
+  min-height: 20px;
   border: none;
   background: transparent;
-  font-size: var(--font-size-caption);
+  font-size: 11px;
+  line-height: 1.35;
   color: var(--color-text-primary);
-  padding: 4px 0;
+  padding: 1px 0;
   outline: none;
+}
+.prop-label-input::placeholder {
+  color: var(--color-text-muted);
 }
 .prop-label-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 .prop-label-suggestions {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  margin-top: 4px;
-  z-index: 20;
   list-style: none;
   margin: 0;
-  padding: 4px 0;
+  padding: 2px 0;
   background: var(--color-bg-base);
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
@@ -2097,9 +2217,14 @@ async function toggleFavorite() {
   max-height: 200px;
   overflow-y: auto;
 }
+.prop-label-suggestions--teleported {
+  margin-top: 0;
+  box-sizing: border-box;
+}
 .prop-label-suggestion {
-  padding: 8px 12px;
-  font-size: var(--font-size-caption);
+  padding: 5px 8px;
+  font-size: 11px;
+  line-height: 1.35;
   cursor: pointer;
   color: var(--color-text-primary);
 }
