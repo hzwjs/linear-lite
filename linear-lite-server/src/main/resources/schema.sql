@@ -131,6 +131,25 @@ CREATE TABLE IF NOT EXISTS task_attachments (
 
 CREATE INDEX idx_task_attachments_task_id ON task_attachments (task_id);
 
+-- 任务标签（项目级词典 + 关联，无外键）
+CREATE TABLE IF NOT EXISTS labels (
+    id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    project_id  BIGINT       NOT NULL COMMENT '逻辑关联 projects.id',
+    name        VARCHAR(64)  NOT NULL COMMENT '项目内唯一展示名',
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_labels_project_name (project_id, name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE INDEX idx_labels_project_id ON labels (project_id);
+
+CREATE TABLE IF NOT EXISTS task_labels (
+    task_id  BIGINT NOT NULL COMMENT '逻辑关联 tasks.id',
+    label_id BIGINT NOT NULL COMMENT '逻辑关联 labels.id',
+    PRIMARY KEY (task_id, label_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE INDEX idx_task_labels_label_id ON task_labels (label_id);
+
 -- ========== 种子数据（可选；密码为明文占位，正式环境需改为 BCrypt 等）==========
 
 INSERT INTO users (username, email, password, avatar_url) VALUES
