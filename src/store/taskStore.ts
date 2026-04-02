@@ -215,7 +215,7 @@ export const useTaskStore = defineStore('taskStore', () => {
 
   async function updateTask(
     id: string,
-    updates: Partial<Omit<Task, 'id' | 'createdAt'>> & {
+    updates: Partial<Omit<Task, 'id' | 'createdAt' | 'labels'>> & {
       clearAssignee?: boolean
       clearPlannedStart?: boolean
       clearDueDate?: boolean

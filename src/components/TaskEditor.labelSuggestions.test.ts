@@ -152,7 +152,7 @@ describe('TaskEditor label suggestions', () => {
       id,
       ...payload,
       favorited: false
-    }))
+    } as Task))
     vi.mocked(projectApi.listLabels).mockResolvedValue([
       { id: 1, name: '运维任务' },
       { id: 2, name: '运维问题' }
