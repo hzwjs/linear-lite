@@ -113,7 +113,8 @@ function buildBoardSnapshot(): ProjectBoardSnapshot {
       filterStatus: store.filterStatus,
       filterPriority: store.filterPriority,
       filterAssignee: store.filterAssignee,
-      filterAssigneeUsernameNorm: store.filterAssigneeUsernameNorm
+      filterAssigneeUsernameNorm: store.filterAssigneeUsernameNorm,
+      filterLabelIds: [...store.filterLabelIds]
     },
     view: {
       ...vc,
@@ -130,6 +131,7 @@ function applyBoardSnapshot(snap: ProjectBoardSnapshot) {
     store.filterPriority = snap.filters.filterPriority
     store.filterAssignee = snap.filters.filterAssignee
     store.filterAssigneeUsernameNorm = snap.filters.filterAssigneeUsernameNorm
+    store.filterLabelIds = [...snap.filters.filterLabelIds]
     viewModeStore.hydrateViewConfig(snap.view)
   } finally {
     applyingBoardPrefs.value = false
@@ -344,6 +346,7 @@ watch(
     fp: store.filterPriority,
     fa: store.filterAssignee,
     fan: store.filterAssigneeUsernameNorm,
+    fl: store.filterLabelIds,
     vc: viewModeStore.viewConfig
   }),
   () => {

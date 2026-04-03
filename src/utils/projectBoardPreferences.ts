@@ -10,6 +10,8 @@ export interface TaskFilterSnapshot {
   filterPriority: Priority | null
   filterAssignee: null | 'unassigned' | number
   filterAssigneeUsernameNorm: string | null
+  /** 按标签 id 多选筛选（OR），持久化 */
+  filterLabelIds: number[]
 }
 
 export interface ProjectBoardSnapshot {
@@ -49,6 +51,22 @@ function parseAssigneeFilter(v: unknown): TaskFilterSnapshot['filterAssignee'] {
   return null
 }
 
+function parseFilterLabelIds(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return []
+  const out: number[] = []
+  for (const x of raw) {
+    if (typeof x === 'number' && Number.isFinite(x)) {
+      out.push(x)
+      continue
+    }
+    if (typeof x === 'string') {
+      const n = Number(x)
+      if (Number.isFinite(n)) out.push(n)
+    }
+  }
+  return out
+}
+
 function parseFilters(raw: unknown): TaskFilterSnapshot {
   if (!raw || typeof raw !== 'object') {
     return {
@@ -56,7 +74,8 @@ function parseFilters(raw: unknown): TaskFilterSnapshot {
       filterStatus: null,
       filterPriority: null,
       filterAssignee: null,
-      filterAssigneeUsernameNorm: null
+      filterAssigneeUsernameNorm: null,
+      filterLabelIds: []
     }
   }
   const f = raw as Partial<TaskFilterSnapshot>
@@ -66,7 +85,8 @@ function parseFilters(raw: unknown): TaskFilterSnapshot {
     filterPriority: isPriority(f.filterPriority) ? f.filterPriority : null,
     filterAssignee: parseAssigneeFilter(f.filterAssignee),
     filterAssigneeUsernameNorm:
-      typeof f.filterAssigneeUsernameNorm === 'string' ? f.filterAssigneeUsernameNorm : null
+      typeof f.filterAssigneeUsernameNorm === 'string' ? f.filterAssigneeUsernameNorm : null,
+    filterLabelIds: parseFilterLabelIds(f.filterLabelIds)
   }
 }
 
