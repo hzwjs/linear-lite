@@ -375,7 +375,14 @@ onUnmounted(() => {
         </section>
 
         <section class="sidebar-group sidebar-group--projects">
-          <button type="button" class="sidebar-group-header" @click="toggleProjectsCollapsed">
+          <div
+            role="button"
+            tabindex="0"
+            class="sidebar-group-header"
+            @click="toggleProjectsCollapsed"
+            @keydown.enter="toggleProjectsCollapsed"
+            @keydown.space.prevent="toggleProjectsCollapsed"
+          >
             <ChevronDown v-if="!sidebarCollapsed.projects" class="sidebar-group-chevron" />
             <ChevronRight v-else class="sidebar-group-chevron" />
             <span class="sidebar-group-title">{{ t('sidebar.projects') }}</span>
@@ -388,7 +395,7 @@ onUnmounted(() => {
             >
               <Plus class="sidebar-group-action-icon" />
             </button>
-          </button>
+          </div>
           <nav v-show="!sidebarCollapsed.projects" class="sidebar-group-nav sidebar-group-nav--nested">
             <div
               v-for="p in projectStore.projects"
