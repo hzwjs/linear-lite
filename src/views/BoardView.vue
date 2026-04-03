@@ -1070,13 +1070,26 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
   z-index: 50;
 }
 .popover-filter {
-  width: min(220px, calc(100vw - 24px));
+  width: min(210px, calc(100vw - 24px));
   box-sizing: border-box;
   padding: 0;
 }
 .popover-filter .popover-section-clear {
-  padding: 6px 10px;
-  border-top: 1px solid var(--color-border-subtle);
+  padding: 8px 12px;
+}
+.popover-filter .popover-divider {
+  margin: 0;
+}
+.popover-filter .popover-section-title {
+  padding: 8px 12px 4px;
+  margin: 0;
+}
+.popover-filter .popover-section {
+  padding: 0 12px 8px;
+  margin: 0;
+}
+.popover-filter .popover-section-row {
+  padding: 4px 12px 8px;
 }
 .popover-filter .popover-section {
   min-width: 0;

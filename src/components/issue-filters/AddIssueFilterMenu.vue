@@ -230,6 +230,17 @@ function isLabelChecked(id: number) {
   return store.filterLabelIds.includes(id)
 }
 
+const LABEL_COLORS = [
+  '#e53935', '#d81b60', '#8e24aa', '#5e35b1',
+  '#3949ab', '#1e88e5', '#039be5', '#00acc1',
+  '#00897b', '#43a047', '#7cb342', '#c0ca33',
+  '#fdd835', '#ffb300', '#fb8c00', '#f4511e'
+]
+
+function labelColor(id: number): string {
+  return LABEL_COLORS[id % LABEL_COLORS.length] ?? '#6366f1'
+}
+
 defineExpose({
   focusMenuSearch: () => searchInputRef.value?.focus()
 })
@@ -352,7 +363,7 @@ defineExpose({
                 :class="{ selected: isLabelChecked(row.id) }"
                 @click="store.toggleFilterLabelId(row.id)"
               >
-                <span class="filter-submenu-dot" />
+                <span class="filter-submenu-dot" :style="{ background: labelColor(row.id) }" />
                 <span class="filter-submenu-label">{{ row.name }}</span>
                 <Check v-if="isLabelChecked(row.id)" class="filter-submenu-check" />
               </li>
@@ -367,18 +378,20 @@ defineExpose({
 
 <style scoped>
 .filter-menu {
-  width: 200px;
+  width: 190px;
 }
 
 .filter-menu-search-wrap {
   display: flex;
   align-items: center;
-  padding: 6px 10px;
+  gap: 8px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .filter-menu-search {
   flex: 1;
+  min-width: 0;
   border: none;
   background: transparent;
   font-size: 13px;
@@ -391,13 +404,15 @@ defineExpose({
 }
 
 .filter-menu-kbd {
-  padding: 2px 5px;
+  flex-shrink: 0;
+  padding: 1px 5px;
   font-size: 11px;
   font-family: inherit;
   color: var(--color-text-muted);
   background: var(--color-bg-subtle);
   border: 1px solid var(--color-border-subtle);
-  border-radius: 3px;
+  border-radius: 4px;
+  line-height: 1.4;
 }
 
 .filter-menu-list {
@@ -409,10 +424,10 @@ defineExpose({
 .filter-menu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 10px;
+  padding: 5px 12px;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background 0.08s;
 }
 
 .filter-menu-item:hover,
@@ -421,8 +436,8 @@ defineExpose({
 }
 
 .filter-menu-icon {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   color: var(--color-text-muted);
   flex-shrink: 0;
 }
@@ -434,22 +449,22 @@ defineExpose({
 }
 
 .filter-menu-arrow {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   color: var(--color-text-muted);
-  opacity: 0.6;
+  opacity: 0.5;
 }
 
 .filter-submenu {
   position: fixed;
-  min-width: 180px;
-  max-width: 240px;
-  max-height: 300px;
+  min-width: 160px;
+  max-width: 200px;
+  max-height: 280px;
   overflow-y: auto;
   background: var(--color-bg-base);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
   z-index: 9999;
 }
 
@@ -462,10 +477,10 @@ defineExpose({
 .filter-submenu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 10px;
+  padding: 6px 12px;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background 0.08s;
 }
 
 .filter-submenu-item:hover {
@@ -473,22 +488,22 @@ defineExpose({
 }
 
 .filter-submenu-item.selected {
-  background: var(--color-accent-muted);
+  background: rgba(99, 102, 241, 0.08);
 }
 
 .filter-submenu-icon {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   color: var(--color-text-muted);
   flex-shrink: 0;
 }
 
 .filter-submenu-avatar {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: var(--color-accent-muted);
-  color: var(--color-accent);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
   font-size: 10px;
   font-weight: 600;
   display: flex;
@@ -501,7 +516,6 @@ defineExpose({
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--color-accent);
   flex-shrink: 0;
 }
 
@@ -523,13 +537,13 @@ defineExpose({
 
 .filter-submenu-empty,
 .filter-submenu-error {
-  padding: 12px;
+  padding: 16px 12px;
   font-size: 12px;
   color: var(--color-text-muted);
   text-align: center;
 }
 
 .filter-submenu-error {
-  color: var(--color-danger, #c00);
+  color: var(--color-danger, #dc2626);
 }
 </style>
