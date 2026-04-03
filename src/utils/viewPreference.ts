@@ -14,10 +14,11 @@ export type VisibleProperty =
   | 'status'
   | 'id'
   | 'progress'
+  | 'labels'
 export type CompletedVisibility = 'all' | 'open_only'
 
-/** 递增：用于在本地配置中一次性补全新增的可见列，避免老数据缺少 progress 等字段 */
-export const VIEW_PREF_VERSION = 2
+/** 递增：用于在本地配置中一次性补全新增的可见列，避免老数据缺少 progress / labels 等字段 */
+export const VIEW_PREF_VERSION = 3
 
 export interface ViewConfig {
   layout: ViewType
@@ -44,18 +45,22 @@ const KNOWN_VISIBLE: readonly VisibleProperty[] = [
   'updatedAt',
   'status',
   'id',
-  'progress'
+  'progress',
+  'labels'
 ] as const
 
-/** v2：在引入计划开始/进度列之前保存的配置不会包含这两项；迁移一次后写入 viewPrefVersion */
+/** v2：在引入计划开始/进度列之前保存的配置不会包含这两项 */
 const V2_APPEND_VISIBLE: readonly VisibleProperty[] = ['plannedStart', 'progress']
+
+/** v3：列表标签列 */
+const V3_APPEND_VISIBLE: readonly VisibleProperty[] = ['labels']
 
 export const DEFAULT_VIEW_CONFIG: ViewConfig = {
   layout: 'list',
   groupBy: 'status',
   orderBy: 'updatedAt',
   orderDirection: 'desc',
-  visibleProperties: ['assignee', 'dueDate', 'plannedStart', 'priority', 'progress'],
+  visibleProperties: ['assignee', 'dueDate', 'labels', 'plannedStart', 'priority', 'progress'],
   showEmptyGroups: false,
   completedVisibility: 'all',
   showSubIssues: true,
@@ -77,11 +82,17 @@ function migrateVisibleProperties(
 ): { visibleProperties: VisibleProperty[]; viewPrefVersion: number } {
   let next = [...visible]
   let version = storedVersion
-  if (version < VIEW_PREF_VERSION) {
+  if (version < 2) {
     for (const p of V2_APPEND_VISIBLE) {
       if (!next.includes(p)) next.push(p)
     }
-    version = VIEW_PREF_VERSION
+    version = 2
+  }
+  if (version < 3) {
+    for (const p of V3_APPEND_VISIBLE) {
+      if (!next.includes(p)) next.push(p)
+    }
+    version = 3
   }
   return { visibleProperties: next, viewPrefVersion: version }
 }

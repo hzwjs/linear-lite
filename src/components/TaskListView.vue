@@ -19,6 +19,8 @@ import {
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
+import { useProjectStore } from '../store/projectStore'
+import { labelListDotColor, sortedTaskLabelsForList } from '../utils/taskLabelListDisplay'
 import { filterVisibleTaskRows, type TaskGroup, type TaskRow } from '../utils/taskView'
 import type { VisibleProperty } from '../utils/viewPreference'
 import { getSubtaskProgressDisplay } from '../utils/subtaskProgress'
@@ -50,6 +52,7 @@ const emit = defineEmits<{
 const subtaskExpanded = defineModel<Record<string, boolean>>('subtaskExpanded', { default: () => ({}) })
 
 const store = useTaskStore()
+const projectStore = useProjectStore()
 const { t } = useI18n()
 const collapsed = ref<Record<string, boolean>>({})
 const rowHoveredId = ref<string | null>(null)
@@ -105,9 +108,10 @@ function updatedText(task: Task): string {
   return new Date(task.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-function projectText(task: Task): string | null {
+function projectDisplayLabel(task: Task): string | null {
   if (task.projectId == null) return null
-  return `P-${task.projectId}`
+  const p = projectStore.projects.find((x) => x.id === task.projectId)
+  return p?.identifier ?? p?.name ?? `P-${task.projectId}`
 }
 
 const TERMINAL_STATUSES: Status[] = ['done', 'canceled', 'duplicate']
@@ -174,6 +178,12 @@ function onCreateInStatus(status?: Status) {
 
 function show(property: VisibleProperty) {
   return props.visibleProperties?.includes(property) ?? false
+}
+
+function showLabelCluster(task: Task): boolean {
+  const listOn = show('labels') && sortedTaskLabelsForList(task.labels).length > 0
+  const projOn = show('project') && projectDisplayLabel(task) != null
+  return listOn || projOn
 }
 
 function setHoveredId(id: string | null) {
@@ -468,13 +478,39 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
                   <span class="task-row-sub-count-text">{{ subtaskProgress(row.task).countText }}</span>
                 </span>
               </span>
+              <div
+                v-if="showLabelCluster(row.task)"
+                class="task-row-label-cluster"
+                @click.stop
+              >
+                <template v-if="show('labels')">
+                  <span
+                    v-for="lab in sortedTaskLabelsForList(row.task.labels)"
+                    :key="lab.id"
+                    class="task-row-label-pill"
+                  >
+                    <span
+                      class="task-row-label-dot"
+                      :style="{ background: labelListDotColor(lab.name) }"
+                      aria-hidden="true"
+                    />
+                    <span class="task-row-label-text">{{ lab.name }}</span>
+                  </span>
+                </template>
+                <span
+                  v-if="show('project') && projectDisplayLabel(row.task)"
+                  class="task-row-label-pill task-row-label-pill--project"
+                >
+                  <Circle
+                    class="task-row-label-project-icon"
+                    stroke-width="1.75"
+                    aria-hidden="true"
+                  />
+                  <span class="task-row-label-text">{{ projectDisplayLabel(row.task) }}</span>
+                </span>
+              </div>
             </div>
             <div class="task-row-trailing">
-              <template v-if="show('project') && projectText(row.task)">
-                <span class="task-meta-slot task-meta-slot-project">
-                  <span class="task-meta">{{ projectText(row.task) }}</span>
-                </span>
-              </template>
               <template v-if="show('status')">
                 <span class="task-meta-slot task-meta-slot-status">
                   <span class="task-meta task-meta-status" :class="row.task.status">{{ statusLabel(row.task.status) }}</span>
@@ -798,9 +834,10 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   min-width: 0;
   display: flex;
   align-items: center;
+  gap: 10px;
 }
 .task-row-title-cluster {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
   max-width: 100%;
   display: inline-flex;
@@ -902,6 +939,63 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   letter-spacing: -0.01em;
 }
 
+.task-row-label-cluster {
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: min(420px, 46%);
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.task-row-label-cluster::-webkit-scrollbar {
+  height: 4px;
+}
+.task-row-label-cluster::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+.task-row-label-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 2px 9px 2px 7px;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-base);
+  border: 1px solid #e6e8eb;
+  border-radius: 999px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.task-row-label-pill--project {
+  color: var(--color-text-muted);
+}
+.task-row-label-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.task-row-label-text {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.task-row-label-project-icon {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  stroke: currentColor;
+  fill: none;
+}
+
 .task-row-trailing {
   display: grid;
   grid-auto-flow: column;
@@ -917,9 +1011,6 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   align-items: center;
   justify-content: flex-end;
   min-width: 0;
-}
-.task-meta-slot-project {
-  min-width: 72px;
 }
 .task-meta-slot-status {
   min-width: 88px;

@@ -22,6 +22,7 @@ describe('viewModeStore', () => {
     expect(store.visibleProperties).toEqual([
       'assignee',
       'dueDate',
+      'labels',
       'plannedStart',
       'priority',
       'progress'
@@ -62,7 +63,7 @@ describe('viewModeStore', () => {
 
     store.toggleVisibleProperty('priority')
 
-    expect(store.visibleProperties).toEqual(['assignee', 'dueDate', 'plannedStart', 'progress'])
+    expect(store.visibleProperties).toEqual(['assignee', 'dueDate', 'labels', 'plannedStart', 'progress'])
   })
 
   it('migrates legacy stored visibleProperties to include progress and plannedStart once', () => {
@@ -85,7 +86,8 @@ describe('viewModeStore', () => {
 
     expect(store.visibleProperties).toContain('progress')
     expect(store.visibleProperties).toContain('plannedStart')
-    expect(store.viewConfig.viewPrefVersion).toBe(2)
+    expect(store.visibleProperties).toContain('labels')
+    expect(store.viewConfig.viewPrefVersion).toBe(3)
   })
 
   it('does not re-add progress after user turned it off on v2 config', async () => {
@@ -107,6 +109,8 @@ describe('viewModeStore', () => {
     setActivePinia(createPinia())
     const store = useViewModeStore()
     expect(store.visibleProperties).not.toContain('progress')
+    expect(store.visibleProperties).toContain('labels')
+    expect(store.viewConfig.viewPrefVersion).toBe(3)
   })
 
   it('persists and restores full view config', async () => {

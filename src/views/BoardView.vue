@@ -281,6 +281,7 @@ const visiblePropertyOptions = computed<Array<{ value: VisibleProperty; label: s
   { value: 'priority', label: t('common.priority') },
   { value: 'assignee', label: t('common.assignee') },
   { value: 'project', label: t('common.project') },
+  { value: 'labels', label: t('common.labels') },
   { value: 'dueDate', label: t('common.dueDate') },
   { value: 'plannedStart', label: t('boardView.plannedStart') },
   { value: 'progress', label: t('boardView.progress') },
