@@ -280,6 +280,7 @@ defineExpose({
       <div
         v-if="activeSub != null"
         class="filter-submenu"
+        data-filter-submenu
         :style="subMenuStyle"
         @mouseenter="onSubEnter"
         @mouseleave="onSubLeave"

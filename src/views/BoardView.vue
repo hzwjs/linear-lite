@@ -482,7 +482,9 @@ function toggleAssigneeQuick() {
 function onClickOutsideFilter(event: MouseEvent) {
   const el = filterPopoverRef.value
   const trigger = filterTriggerRef.value
-  if (el?.contains(event.target as Node) || trigger?.contains(event.target as Node)) return
+  const target = event.target as HTMLElement | null
+  if (el?.contains(target) || trigger?.contains(target)) return
+  if (target?.closest('[data-filter-submenu]')) return
   closeFilterPopover()
 }
 function onClickOutsideDisplay(event: MouseEvent) {
