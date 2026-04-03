@@ -173,4 +173,14 @@ describe('taskStore', () => {
     store.clearIssueFilters()
     expect(store.filterLabelIds).toEqual([])
   })
+
+  it('stripProjectLabelFromTasks removes label id from filter selection', () => {
+    const store = useTaskStore()
+    store.tasks = [
+      baseTask({ id: 'A', projectId: 10, labels: [{ id: 1, name: 'Bug' }] })
+    ]
+    store.filterLabelIds = [1]
+    store.stripProjectLabelFromTasks(10, 1)
+    expect(store.filterLabelIds).toEqual([])
+  })
 })

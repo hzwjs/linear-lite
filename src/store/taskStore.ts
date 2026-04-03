@@ -291,6 +291,7 @@ export const useTaskStore = defineStore('taskStore', () => {
         useFavoriteStore().syncTask(next)
       }
     }
+    filterLabelIds.value = filterLabelIds.value.filter((id) => id !== labelId)
   }
 
   function toggleFilterLabelId(labelId: number) {
