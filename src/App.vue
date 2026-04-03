@@ -336,7 +336,16 @@ onUnmounted(() => {
       <PanelLeftOpen class="sidebar-reopen-icon" />
     </button>
     <aside v-show="!sidebarHidden" class="sidebar">
-      <div class="sidebar-brand">
+      <div ref="userMenuRef" class="sidebar-brand">
+        <button
+          type="button"
+          class="user-avatar-btn"
+          :class="{ active: userMenuOpen }"
+          :title="authStore.currentUser?.username"
+          @click="toggleUserMenu"
+        >
+          {{ userInitial }}
+        </button>
         <span class="sidebar-brand-name">{{ t('app.name') }}</span>
         <div class="sidebar-brand-actions">
           <button
@@ -356,6 +365,38 @@ onUnmounted(() => {
             @click="sidebarHidden = true"
           >
             <PanelLeftClose class="sidebar-icon-btn-icon" />
+          </button>
+        </div>
+        <div v-show="userMenuOpen" class="user-menu">
+          <div class="user-menu-header">
+            <span class="user-menu-name">{{ authStore.currentUser?.username ?? '—' }}</span>
+          </div>
+          <div class="user-menu-divider" />
+          <div class="user-menu-section">
+            <span class="user-menu-label">{{ t('common.language') }}</span>
+            <div class="locale-switcher">
+              <button
+                type="button"
+                class="locale-pill"
+                :class="{ 'locale-pill--active': localeStore.locale === 'zh-CN' }"
+                @click="localeStore.setLocale('zh-CN')"
+              >
+                ZH
+              </button>
+              <button
+                type="button"
+                class="locale-pill"
+                :class="{ 'locale-pill--active': localeStore.locale === 'en' }"
+                @click="localeStore.setLocale('en')"
+              >
+                EN
+              </button>
+            </div>
+          </div>
+          <div class="user-menu-divider" />
+          <button type="button" class="user-menu-item user-menu-item--danger" @click="onLogout">
+            <LogOut class="user-menu-item-icon" />
+            <span>{{ t('sidebar.signOut') }}</span>
           </button>
         </div>
       </div>
@@ -449,50 +490,6 @@ onUnmounted(() => {
           </nav>
         </section>
       </div>
-
-      <div ref="userMenuRef" class="sidebar-footer">
-        <button
-          type="button"
-          class="user-avatar-btn"
-          :class="{ active: userMenuOpen }"
-          :title="authStore.currentUser?.username"
-          @click="toggleUserMenu"
-        >
-          {{ userInitial }}
-        </button>
-        <div v-show="userMenuOpen" class="user-menu">
-          <div class="user-menu-header">
-            <span class="user-menu-name">{{ authStore.currentUser?.username ?? '—' }}</span>
-          </div>
-          <div class="user-menu-divider" />
-          <div class="user-menu-section">
-            <span class="user-menu-label">{{ t('common.language') }}</span>
-            <div class="locale-switcher">
-              <button
-                type="button"
-                class="locale-pill"
-                :class="{ 'locale-pill--active': localeStore.locale === 'zh-CN' }"
-                @click="localeStore.setLocale('zh-CN')"
-              >
-                ZH
-              </button>
-              <button
-                type="button"
-                class="locale-pill"
-                :class="{ 'locale-pill--active': localeStore.locale === 'en' }"
-                @click="localeStore.setLocale('en')"
-              >
-                EN
-              </button>
-            </div>
-          </div>
-          <div class="user-menu-divider" />
-          <button type="button" class="user-menu-item user-menu-item--danger" @click="onLogout">
-            <LogOut class="user-menu-item-icon" />
-            <span>{{ t('sidebar.signOut') }}</span>
-          </button>
-        </div>
-      </div>
     </aside>
     <CreateProjectModal
       :open="createProjectOpen"
@@ -537,13 +534,14 @@ onUnmounted(() => {
   flex-direction: column;
 }
 .sidebar-brand {
+  position: relative;
   padding: 12px 12px 8px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
 }
 .sidebar-brand-name {
+  flex: 1;
   font-size: 14px;
   font-weight: 600;
   color: var(--color-text-primary);
@@ -749,36 +747,31 @@ onUnmounted(() => {
   width: 14px;
   height: 14px;
 }
-.sidebar-footer {
-  position: relative;
-  margin: 0 8px 12px;
-  padding: 0;
-}
 .user-avatar-btn {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   padding: 0;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--color-text-secondary);
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
+  color: #fff;
+  background: #7c3aed;
+  border: none;
   border-radius: 6px;
   cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  transition: opacity var(--transition-fast);
 }
 .user-avatar-btn:hover,
 .user-avatar-btn.active {
-  background: var(--color-bg-hover);
-  border-color: var(--color-border-medium);
+  opacity: 0.85;
 }
 .user-menu {
   position: absolute;
-  left: 0;
-  bottom: 36px;
+  left: 8px;
+  top: 44px;
   width: 200px;
   padding: 6px;
   background: var(--color-bg-base);
