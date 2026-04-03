@@ -88,7 +88,8 @@ describe('viewModeStore', () => {
     expect(store.visibleProperties).toContain('progress')
     expect(store.visibleProperties).toContain('plannedStart')
     expect(store.visibleProperties).toContain('labels')
-    expect(store.viewConfig.viewPrefVersion).toBe(3)
+    expect(store.viewConfig.viewPrefVersion).toBe(4)
+    expect(store.viewConfig.completedVisibility).toBe('open_only')
   })
 
   it('does not re-add progress after user turned it off on v2 config', async () => {
@@ -111,7 +112,37 @@ describe('viewModeStore', () => {
     const store = useViewModeStore()
     expect(store.visibleProperties).not.toContain('progress')
     expect(store.visibleProperties).toContain('labels')
-    expect(store.viewConfig.viewPrefVersion).toBe(3)
+    expect(store.viewConfig.viewPrefVersion).toBe(4)
+    expect(store.viewConfig.completedVisibility).toBe('open_only')
+  })
+
+  it('preserves 全部任务 when stored at viewPrefVersion 4 with completedVisibility all', () => {
+    localStorage.setItem(
+      VIEW_PREF_KEY,
+      JSON.stringify({
+        layout: 'list',
+        groupBy: 'status',
+        orderBy: 'updatedAt',
+        orderDirection: 'desc',
+        visibleProperties: [
+          'assignee',
+          'dueDate',
+          'labels',
+          'plannedStart',
+          'priority',
+          'progress'
+        ],
+        showEmptyGroups: false,
+        completedVisibility: 'all',
+        showSubIssues: true,
+        nestedSubIssues: true,
+        viewPrefVersion: 4
+      })
+    )
+    setActivePinia(createPinia())
+    const store = useViewModeStore()
+    expect(store.viewConfig.completedVisibility).toBe('all')
+    expect(store.viewConfig.viewPrefVersion).toBe(4)
   })
 
   it('persists and restores full view config', async () => {

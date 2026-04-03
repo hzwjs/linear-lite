@@ -18,7 +18,7 @@ export type VisibleProperty =
 export type CompletedVisibility = 'all' | 'open_only'
 
 /** 递增：用于在本地配置中一次性补全新增的可见列，避免老数据缺少 progress / labels 等字段 */
-export const VIEW_PREF_VERSION = 3
+export const VIEW_PREF_VERSION = 4
 
 export interface ViewConfig {
   layout: ViewType
@@ -98,6 +98,17 @@ function migrateVisibleProperties(
   return { visibleProperties: next, viewPrefVersion: version }
 }
 
+/** v4：命令栏默认选中「进行中」（仅未完成），历史存盘里的 all 视为旧默认并升级 */
+function migrateCompletedVisibilityForScopeTab(
+  completedVisibility: CompletedVisibility,
+  visibleVersion: number
+): { completedVisibility: CompletedVisibility; viewPrefVersion: number } {
+  if (visibleVersion >= 4) {
+    return { completedVisibility, viewPrefVersion: visibleVersion }
+  }
+  return { completedVisibility: 'open_only', viewPrefVersion: 4 }
+}
+
 function isViewType(value: unknown): value is ViewType {
   return value === 'board' || value === 'list'
 }
@@ -112,6 +123,15 @@ export function normalizeViewConfig(value: unknown): ViewConfig {
   const migrated = migrateVisibleProperties(visibleProperties, storedVersion)
   visibleProperties = migrated.visibleProperties
 
+  const rawCompleted =
+    candidate.completedVisibility === 'all' || candidate.completedVisibility === 'open_only'
+      ? candidate.completedVisibility
+      : DEFAULT_VIEW_CONFIG.completedVisibility
+  const scopeMigrated = migrateCompletedVisibilityForScopeTab(
+    rawCompleted,
+    migrated.viewPrefVersion
+  )
+
   return {
     layout: isViewType(candidate.layout) ? candidate.layout : DEFAULT_VIEW_CONFIG.layout,
     groupBy: candidate.groupBy ?? DEFAULT_VIEW_CONFIG.groupBy,
@@ -119,10 +139,10 @@ export function normalizeViewConfig(value: unknown): ViewConfig {
     orderDirection: candidate.orderDirection ?? DEFAULT_VIEW_CONFIG.orderDirection,
     visibleProperties,
     showEmptyGroups: candidate.showEmptyGroups ?? DEFAULT_VIEW_CONFIG.showEmptyGroups,
-    completedVisibility: candidate.completedVisibility ?? DEFAULT_VIEW_CONFIG.completedVisibility,
+    completedVisibility: scopeMigrated.completedVisibility,
     showSubIssues: candidate.showSubIssues ?? DEFAULT_VIEW_CONFIG.showSubIssues,
     nestedSubIssues: candidate.nestedSubIssues ?? DEFAULT_VIEW_CONFIG.nestedSubIssues,
-    viewPrefVersion: migrated.viewPrefVersion
+    viewPrefVersion: scopeMigrated.viewPrefVersion
   }
 }
 
