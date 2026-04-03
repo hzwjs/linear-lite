@@ -155,6 +155,12 @@ const en = {
     noLabelsMatch: 'No labels match',
     searchLabels: 'Search labels…',
     labelsLoading: 'Loading labels…',
+    labels: 'Labels',
+    labelsCount: 'labels',
+    filterOp: {
+      is: 'is',
+      includeAnyOf: 'include any of'
+    },
     activeFilterChipsAria: 'Active filters',
     viewSectionTitle: 'View',
     clearIssueFilters: 'Clear filters',

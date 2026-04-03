@@ -155,6 +155,12 @@ const zhCN = {
     noLabelsMatch: '没有匹配的标签',
     searchLabels: '搜索标签…',
     labelsLoading: '加载标签…',
+    labels: '标签',
+    labelsCount: '个标签',
+    filterOp: {
+      is: 'is',
+      includeAnyOf: 'include any of'
+    },
     activeFilterChipsAria: '已生效的筛选条件',
     viewSectionTitle: '视图',
     clearIssueFilters: '清除筛选条件',

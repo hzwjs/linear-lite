@@ -14,11 +14,14 @@ import type { User } from '../types/domain'
 import {
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
+  BarChart3,
+  Circle,
   Filter,
   X,
   LayoutList,
   Plus,
   Download,
+  Tag,
   User as UserIcon
 } from 'lucide-vue-next'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
@@ -164,12 +167,30 @@ const activeFilterCount = computed(() => {
   return n
 })
 
-function labelNameForFilterChip(labelId: number): string {
-  for (const task of store.tasks) {
-    const hit = task.labels?.find((l) => l.id === labelId)
-    if (hit) return hit.name
-  }
-  return `#${labelId}`
+const hasActiveFilters = computed(
+  () =>
+    store.filterStatus != null ||
+    store.filterPriority != null ||
+    store.filterAssignee != null ||
+    store.filterLabelIds.length > 0
+)
+
+const LABEL_COLORS = [
+  '#ef4444',
+  '#f97316',
+  '#eab308',
+  '#22c55e',
+  '#14b8a6',
+  '#3b82f6',
+  '#8b5cf6',
+  '#ec4899'
+]
+function labelColor(id: number): string {
+  return LABEL_COLORS[id % LABEL_COLORS.length] ?? '#6366f1'
+}
+
+function clearAllFilters() {
+  store.clearIssueFilters()
 }
 
 function assigneeFilterChipLabel(): string {
@@ -577,54 +598,6 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
         </button>
       </div>
       <div class="command-bar-right">
-        <div
-          v-if="
-            store.filterStatus != null ||
-            store.filterPriority != null ||
-            store.filterAssignee != null ||
-            store.filterLabelIds.length > 0
-          "
-          class="filter-active-chips"
-          :aria-label="t('boardView.activeFilterChipsAria')"
-        >
-          <button
-            v-if="store.filterStatus != null"
-            type="button"
-            class="filter-chip"
-            @click="store.filterStatus = null"
-          >
-            <span>{{ getStatusLabel(store.filterStatus) }}</span>
-            <X class="icon-12" aria-hidden="true" />
-          </button>
-          <button
-            v-if="store.filterPriority != null"
-            type="button"
-            class="filter-chip"
-            @click="store.filterPriority = null"
-          >
-            <span>{{ getPriorityLabel(store.filterPriority) }}</span>
-            <X class="icon-12" aria-hidden="true" />
-          </button>
-          <button
-            v-if="store.filterAssignee != null"
-            type="button"
-            class="filter-chip"
-            @click="clearAssigneeFilter"
-          >
-            <span>{{ assigneeFilterChipLabel() }}</span>
-            <X class="icon-12" aria-hidden="true" />
-          </button>
-          <button
-            v-for="lid in store.filterLabelIds"
-            :key="'filter-label-' + lid"
-            type="button"
-            class="filter-chip"
-            @click="store.removeFilterLabelId(lid)"
-          >
-            <span>{{ labelNameForFilterChip(lid) }}</span>
-            <X class="icon-12" aria-hidden="true" />
-          </button>
-        </div>
         <div ref="assigneeQuickTriggerRef" class="popover-anchor popover-anchor-right">
           <button
             type="button"
@@ -822,6 +795,63 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
       </div>
     </div>
 
+    <div v-if="hasActiveFilters" class="filter-bar">
+      <div class="filter-bar-conditions">
+        <div v-if="store.filterStatus != null" class="filter-condition">
+          <Circle class="filter-condition-icon" />
+          <span class="filter-condition-dim">{{ t('common.status') }}</span>
+          <span class="filter-condition-op">{{ t('boardView.filterOp.is') }}</span>
+          <span class="filter-condition-value">{{ getStatusLabel(store.filterStatus) }}</span>
+          <button type="button" class="filter-condition-remove" @click="store.filterStatus = null">
+            <X class="icon-12" />
+          </button>
+        </div>
+        <div v-if="store.filterPriority != null" class="filter-condition">
+          <BarChart3 class="filter-condition-icon" />
+          <span class="filter-condition-dim">{{ t('common.priority') }}</span>
+          <span class="filter-condition-op">{{ t('boardView.filterOp.is') }}</span>
+          <span class="filter-condition-value">{{ getPriorityLabel(store.filterPriority) }}</span>
+          <button type="button" class="filter-condition-remove" @click="store.filterPriority = null">
+            <X class="icon-12" />
+          </button>
+        </div>
+        <div v-if="store.filterAssignee != null" class="filter-condition">
+          <UserIcon class="filter-condition-icon" />
+          <span class="filter-condition-dim">{{ t('common.assignee') }}</span>
+          <span class="filter-condition-op">{{ t('boardView.filterOp.is') }}</span>
+          <span class="filter-condition-value">{{ assigneeFilterChipLabel() }}</span>
+          <button type="button" class="filter-condition-remove" @click="clearAssigneeFilter">
+            <X class="icon-12" />
+          </button>
+        </div>
+        <div v-if="store.filterLabelIds.length > 0" class="filter-condition">
+          <Tag class="filter-condition-icon" />
+          <span class="filter-condition-dim">{{ t('boardView.labels') }}</span>
+          <span class="filter-condition-op">{{ t('boardView.filterOp.includeAnyOf') }}</span>
+          <span class="filter-condition-value filter-condition-labels">
+            <span
+              v-for="lid in store.filterLabelIds.slice(0, 3)"
+              :key="lid"
+              class="filter-label-dot"
+              :style="{ background: labelColor(lid) }"
+            />
+            <span>{{ store.filterLabelIds.length }} {{ t('boardView.labelsCount') }}</span>
+          </span>
+          <button type="button" class="filter-condition-remove" @click="store.filterLabelIds = []">
+            <X class="icon-12" />
+          </button>
+        </div>
+        <button type="button" class="filter-add-more" @click="filterPopoverOpen = true">
+          <Plus class="icon-12" />
+        </button>
+      </div>
+      <div class="filter-bar-actions">
+        <button type="button" class="filter-bar-clear" @click="clearAllFilters">
+          {{ t('boardView.clearFilters') }}
+        </button>
+      </div>
+    </div>
+
     <Suspense>
       <BoardViewContent
         :users="users"
@@ -988,6 +1018,116 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
   align-items: center;
   gap: 4px;
   min-width: 0;
+}
+
+.filter-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--color-bg-subtle);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.filter-bar-conditions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.filter-condition {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 10px;
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+}
+.filter-condition-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+.filter-condition-dim {
+  color: var(--color-text-muted);
+}
+.filter-condition-op {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+.filter-condition-value {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+}
+.filter-condition-labels {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.filter-label-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.filter-condition-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.filter-condition-remove:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+.filter-add-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px dashed var(--color-border-subtle);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+.filter-add-more:hover {
+  border-color: var(--color-border-medium);
+  color: var(--color-text-secondary);
+}
+.filter-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.filter-bar-clear {
+  padding: 4px 8px;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.filter-bar-clear:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
 }
 .filter-active-chips {
   display: flex;
