@@ -28,10 +28,31 @@ import {
   PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
-  BarChart3
+  BarChart3,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-vue-next'
 
 const SIDEBAR_HIDDEN_KEY = 'linear-lite.sidebarHidden'
+const SIDEBAR_COLLAPSED_KEY = 'linear-lite.sidebarCollapsed'
+
+function readSidebarCollapsed(): { favorites: boolean; projects: boolean } {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
+    return { favorites: false, projects: false }
+  }
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
+    if (!raw) return { favorites: false, projects: false }
+    return JSON.parse(raw)
+  } catch {
+    return { favorites: false, projects: false }
+  }
+}
+
+function persistSidebarCollapsed(collapsed: { favorites: boolean; projects: boolean }) {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return
+  window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, JSON.stringify(collapsed))
+}
 
 function readSidebarHidden(): boolean {
   if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return false
@@ -58,9 +79,20 @@ const createProjectOpen = ref(false)
 const settingsProject = ref<Project | null>(null)
 const commandPaletteOpen = ref(false)
 const sidebarHidden = ref(false)
+const sidebarCollapsed = ref(readSidebarCollapsed())
 
 function toggleSidebarHidden() {
   sidebarHidden.value = !sidebarHidden.value
+}
+
+function toggleFavoritesCollapsed() {
+  sidebarCollapsed.value = { ...sidebarCollapsed.value, favorites: !sidebarCollapsed.value.favorites }
+  persistSidebarCollapsed(sidebarCollapsed.value)
+}
+
+function toggleProjectsCollapsed() {
+  sidebarCollapsed.value = { ...sidebarCollapsed.value, projects: !sidebarCollapsed.value.projects }
+  persistSidebarCollapsed(sidebarCollapsed.value)
 }
 
 function openProjectSettings(e: Event, p: Project) {
@@ -280,83 +312,111 @@ onUnmounted(() => {
     <aside v-show="!sidebarHidden" class="sidebar">
       <div class="sidebar-brand">
         <span class="sidebar-brand-name">{{ t('app.name') }}</span>
-        <button
-          type="button"
-          class="sidebar-collapse"
-          :title="t('sidebar.hideSidebar')"
-          :aria-label="t('sidebar.hideSidebar')"
-          @click="sidebarHidden = true"
-        >
-          <PanelLeftClose class="sidebar-collapse-icon" />
-        </button>
-      </div>
-      <section v-if="favoriteStore.favorites.length" class="sidebar-section">
-        <div class="sidebar-header sidebar-header--static">
-          <span class="sidebar-title">{{ t('sidebar.favorites') }}</span>
-        </div>
-        <nav class="sidebar-nav sidebar-nav--section">
-          <button
-            v-for="task in favoriteStore.favorites"
-            :key="task.id"
-            type="button"
-            class="sidebar-item"
-            :class="{ active: route.params.taskId === task.id }"
-            @click="openFavoriteTask(task.id, task.projectId)"
-          >
-            <Star class="sidebar-item-icon sidebar-item-icon--favorite" />
-            <span class="sidebar-item-name">{{ task.title }}</span>
-          </button>
-        </nav>
-      </section>
-      <div class="sidebar-header">
-        <span class="sidebar-title">{{ t('sidebar.projects') }}</span>
-        <button
-          type="button"
-          class="sidebar-btn-new"
-          :title="t('sidebar.newProjectTitle')"
-          :aria-label="t('sidebar.newProjectTitle')"
-          @click="createProjectOpen = true"
-        >
-          <Plus class="sidebar-btn-new-icon" />
-        </button>
-      </div>
-      <nav class="sidebar-nav sidebar-nav--projects">
-        <div
-          v-for="p in projectStore.projects"
-          :key="p.id"
-          role="button"
-          tabindex="0"
-          class="sidebar-item"
-          :class="{ active: projectStore.activeProjectId === p.id }"
-          :title="p.identifier"
-          @click="selectProject(p.id)"
-          @keydown.enter="selectProject(p.id)"
-          @keydown.space.prevent="selectProject(p.id)"
-        >
-          <Folder class="sidebar-item-icon" />
-          <span class="sidebar-item-name">{{ p.name }}</span>
+        <div class="sidebar-brand-actions">
           <button
             type="button"
-            class="sidebar-item-menu"
-            :title="t('sidebar.projectSettings')"
-            @click="openProjectSettings($event, p)"
+            class="sidebar-icon-btn"
+            :title="t('sidebar.search')"
+            :aria-label="t('sidebar.search')"
+            @click="triggerFocusSearch"
           >
-            <MoreVertical class="icon-14" />
+            <Search class="sidebar-icon-btn-icon" />
+          </button>
+          <button
+            type="button"
+            class="sidebar-icon-btn"
+            :title="t('sidebar.hideSidebar')"
+            :aria-label="t('sidebar.hideSidebar')"
+            @click="sidebarHidden = true"
+          >
+            <PanelLeftClose class="sidebar-icon-btn-icon" />
           </button>
         </div>
-      </nav>
-      <nav class="sidebar-nav sidebar-nav--analytics">
-        <button
-          type="button"
-          class="sidebar-item"
-          :class="{ active: route.path === '/analytics' }"
-          data-testid="sidebar-analytics"
-          @click="router.push('/analytics')"
-        >
-          <BarChart3 class="sidebar-item-icon" />
-          <span class="sidebar-item-name">{{ t('sidebar.analytics') }}</span>
-        </button>
-      </nav>
+      </div>
+
+      <div class="sidebar-content">
+        <section v-if="favoriteStore.favorites.length" class="sidebar-group">
+          <button type="button" class="sidebar-group-header" @click="toggleFavoritesCollapsed">
+            <ChevronDown v-if="!sidebarCollapsed.favorites" class="sidebar-group-chevron" />
+            <ChevronRight v-else class="sidebar-group-chevron" />
+            <span class="sidebar-group-title">{{ t('sidebar.favorites') }}</span>
+          </button>
+          <nav v-show="!sidebarCollapsed.favorites" class="sidebar-group-nav">
+            <button
+              v-for="task in favoriteStore.favorites"
+              :key="task.id"
+              type="button"
+              class="sidebar-item"
+              :class="{ active: route.params.taskId === task.id }"
+              @click="openFavoriteTask(task.id, task.projectId)"
+            >
+              <Star class="sidebar-item-icon sidebar-item-icon--favorite" />
+              <span class="sidebar-item-name">{{ task.title }}</span>
+            </button>
+          </nav>
+        </section>
+
+        <section class="sidebar-group">
+          <div class="sidebar-group-header sidebar-group-header--static">
+            <span class="sidebar-group-title">{{ t('sidebar.workspace') }}</span>
+          </div>
+          <nav class="sidebar-group-nav">
+            <button
+              type="button"
+              class="sidebar-item"
+              :class="{ active: route.path === '/analytics' }"
+              data-testid="sidebar-analytics"
+              @click="router.push('/analytics')"
+            >
+              <BarChart3 class="sidebar-item-icon" />
+              <span class="sidebar-item-name">{{ t('sidebar.analytics') }}</span>
+            </button>
+          </nav>
+        </section>
+
+        <section class="sidebar-group sidebar-group--projects">
+          <button type="button" class="sidebar-group-header" @click="toggleProjectsCollapsed">
+            <ChevronDown v-if="!sidebarCollapsed.projects" class="sidebar-group-chevron" />
+            <ChevronRight v-else class="sidebar-group-chevron" />
+            <span class="sidebar-group-title">{{ t('sidebar.projects') }}</span>
+            <button
+              type="button"
+              class="sidebar-group-action"
+              :title="t('sidebar.newProjectTitle')"
+              :aria-label="t('sidebar.newProjectTitle')"
+              @click.stop="createProjectOpen = true"
+            >
+              <Plus class="sidebar-group-action-icon" />
+            </button>
+          </button>
+          <nav v-show="!sidebarCollapsed.projects" class="sidebar-group-nav sidebar-group-nav--nested">
+            <div
+              v-for="p in projectStore.projects"
+              :key="p.id"
+              role="button"
+              tabindex="0"
+              class="sidebar-item"
+              :class="{ active: projectStore.activeProjectId === p.id }"
+              :title="p.identifier"
+              @click="selectProject(p.id)"
+              @keydown.enter="selectProject(p.id)"
+              @keydown.space.prevent="selectProject(p.id)"
+            >
+              <Folder class="sidebar-item-icon" />
+              <span class="sidebar-item-name">{{ p.name }}</span>
+              <button
+                type="button"
+                class="sidebar-item-menu"
+                :title="t('sidebar.projectSettings')"
+                @click="openProjectSettings($event, p)"
+              >
+                <MoreVertical class="icon-14" />
+              </button>
+            </div>
+          </nav>
+        </section>
+      </div>
+
       <div class="sidebar-footer">
         <div class="locale-switcher">
           <button
@@ -432,19 +492,30 @@ onUnmounted(() => {
   flex-direction: column;
 }
 .sidebar-brand {
-  padding: 16px 16px 20px;
+  padding: 12px 12px 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
-.sidebar-collapse {
+.sidebar-brand-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
+.sidebar-brand-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.sidebar-icon-btn {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   color: var(--color-text-muted);
   background: transparent;
@@ -453,13 +524,13 @@ onUnmounted(() => {
   cursor: pointer;
   transition: color var(--transition-fast), background var(--transition-fast);
 }
-.sidebar-collapse:hover {
+.sidebar-icon-btn:hover {
   color: var(--color-text-primary);
   background: var(--color-bg-hover);
 }
-.sidebar-collapse-icon {
-  width: 18px;
-  height: 18px;
+.sidebar-icon-btn-icon {
+  width: 16px;
+  height: 16px;
 }
 .sidebar-reopen {
   flex-shrink: 0;
@@ -486,89 +557,110 @@ onUnmounted(() => {
   width: 20px;
   height: 20px;
 }
-.sidebar-brand-name {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-  letter-spacing: -0.01em;
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px;
 }
-.sidebar-header {
-  padding: 0 16px 6px;
+.sidebar-group {
+  margin-bottom: 4px;
+}
+.sidebar-group--projects {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-group-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
 }
-.sidebar-header--static {
-  padding-top: 0;
+.sidebar-group-header:hover {
+  background: var(--color-bg-hover);
 }
-.sidebar-title {
-  font-size: 11px;
-  font-weight: 600;
+.sidebar-group-header--static {
+  cursor: default;
+  padding: 10px 8px 6px;
+}
+.sidebar-group-header--static:hover {
+  background: transparent;
+}
+.sidebar-group-chevron {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
   color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
-.sidebar-section {
-  padding-bottom: 8px;
+.sidebar-group-title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  text-align: left;
 }
-.sidebar-btn-new {
+.sidebar-group-action {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   color: var(--color-text-muted);
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: color var(--transition-fast), background var(--transition-fast);
+  opacity: 0;
+  transition: opacity var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
 }
-.sidebar-btn-new:hover {
+.sidebar-group-header:hover .sidebar-group-action {
+  opacity: 1;
+}
+.sidebar-group-action:hover {
   color: var(--color-text-primary);
-  background: var(--color-bg-hover);
+  background: var(--color-bg-active);
 }
-.sidebar-btn-new-icon {
-  width: 16px;
-  height: 16px;
+.sidebar-group-action-icon {
+  width: 14px;
+  height: 14px;
 }
-.sidebar-nav {
-  overflow-y: auto;
-  padding: 0 16px 12px 28px;
+.sidebar-group-nav {
+  padding: 2px 0 4px 18px;
 }
-.sidebar-nav--section {
-  padding-bottom: 8px;
-}
-.sidebar-nav--projects {
-  flex: 1;
-}
-.sidebar-nav--analytics {
-  padding: 4px 16px 8px 28px;
-  border-top: 1px solid var(--color-border-subtle, var(--color-border));
+.sidebar-group-nav--nested {
+  padding-left: 26px;
 }
 .sidebar-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   width: 100%;
-  padding: 6px 0;
-  text-align: left;
-  color: var(--color-text-primary);
-  font-size: 13px;
-  transition: background 150ms ease, color 150ms ease;
+  padding: 5px 8px;
   gap: 8px;
+  text-align: left;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  background: transparent;
+  border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 .sidebar-item:hover {
   background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 .sidebar-item.active {
   background: var(--color-bg-elevated);
   color: var(--color-text-primary);
-  font-weight: var(--font-weight-medium);
+  font-weight: 500;
 }
 .sidebar-item-icon {
   flex-shrink: 0;
@@ -591,8 +683,8 @@ onUnmounted(() => {
 }
 .sidebar-item-menu {
   flex-shrink: 0;
-  margin-left: 4px;
-  padding: 4px;
+  margin-left: auto;
+  padding: 3px;
   color: var(--color-text-muted);
   background: transparent;
   border: none;

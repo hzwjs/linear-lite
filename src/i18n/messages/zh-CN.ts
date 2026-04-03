@@ -72,13 +72,15 @@ const zhCN = {
   },
   sidebar: {
     favorites: '收藏',
+    workspace: '工作区',
     projects: '项目',
     newProjectTitle: '新建项目',
     projectSettings: '项目设置',
     analytics: '统计',
     signOut: '登出',
     hideSidebar: '隐藏侧边栏',
-    showSidebar: '显示侧边栏'
+    showSidebar: '显示侧边栏',
+    search: '搜索'
   },
   projectModal: {
     title: '新建项目',

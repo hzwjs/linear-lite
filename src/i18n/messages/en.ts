@@ -72,13 +72,15 @@ const en = {
   },
   sidebar: {
     favorites: 'Favorites',
+    workspace: 'Workspace',
     projects: 'Projects',
     newProjectTitle: 'New project',
     projectSettings: 'Project settings',
     analytics: 'Analytics',
     signOut: 'Sign out',
     hideSidebar: 'Hide sidebar',
-    showSidebar: 'Show sidebar'
+    showSidebar: 'Show sidebar',
+    search: 'Search'
   },
   projectModal: {
     title: 'New project',
