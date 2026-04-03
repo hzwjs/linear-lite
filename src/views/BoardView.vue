@@ -6,6 +6,7 @@ import { useTaskStore } from '../store/taskStore'
 import { useProjectStore } from '../store/projectStore'
 import { useViewModeStore } from '../store/viewModeStore'
 import { useIssuePanelStore } from '../store/issuePanelStore'
+import AddIssueFilterMenu from '../components/issue-filters/AddIssueFilterMenu.vue'
 import CustomSelect from '../components/ui/CustomSelect.vue'
 import type { CustomSelectOption } from '../components/ui/CustomSelect.vue'
 import { userApi } from '../services/api/user'
@@ -26,6 +27,7 @@ import {
   Copy,
   Eye,
   Filter,
+  X,
   LayoutList,
   Loader2,
   Plus,
@@ -57,6 +59,7 @@ const filterTriggerRef = ref<HTMLElement | null>(null)
 const displayTriggerRef = ref<HTMLElement | null>(null)
 const assigneeQuickTriggerRef = ref<HTMLElement | null>(null)
 const filterPopoverRef = ref<HTMLElement | null>(null)
+const addIssueFilterMenuRef = ref<InstanceType<typeof AddIssueFilterMenu> | null>(null)
 const displayPopoverRef = ref<HTMLElement | null>(null)
 const assigneeQuickPopoverRef = ref<HTMLElement | null>(null)
 const isImportOpen = ref(false)
@@ -68,14 +71,6 @@ const isEditorOpen = computed(() => !!route.params.taskId)
 const searchQuery = computed({
   get: () => store.searchQuery,
   set: (val) => { store.searchQuery = val }
-})
-const filterStatus = computed({
-  get: () => store.filterStatus,
-  set: (val) => { store.filterStatus = val }
-})
-const filterPriority = computed({
-  get: () => store.filterPriority,
-  set: (val) => { store.filterPriority = val }
 })
 const filterAssigneeModel = computed({
   get(): string | number | null {
@@ -178,8 +173,31 @@ const activeFilterCount = computed(() => {
   if (store.filterStatus != null) n++
   if (store.filterPriority != null) n++
   if (store.filterAssignee != null) n++
+  if (store.filterLabelIds.length > 0) n++
   return n
 })
+
+function labelNameForFilterChip(labelId: number): string {
+  for (const task of store.tasks) {
+    const hit = task.labels?.find((l) => l.id === labelId)
+    if (hit) return hit.name
+  }
+  return `#${labelId}`
+}
+
+function assigneeFilterChipLabel(): string {
+  const fa = store.filterAssignee
+  if (fa === 'unassigned') return t('common.unassigned')
+  if (typeof fa === 'number') {
+    return users.value.find((u) => u.id === fa)?.username ?? String(fa)
+  }
+  return ''
+}
+
+function clearAssigneeFilter() {
+  store.filterAssignee = null
+  store.filterAssigneeUsernameNorm = null
+}
 
 const filterButtonAria = computed(() =>
   activeFilterCount.value > 0
@@ -362,7 +380,7 @@ watch(filterPopoverOpen, (open) => {
   if (open) assigneeQuickOpen.value = false
   if (!open) return
   nextTick(() => {
-    filterPopoverRef.value?.querySelector<HTMLButtonElement>('.custom-select-trigger')?.focus()
+    addIssueFilterMenuRef.value?.focusMenuSearch()
   })
 })
 
@@ -587,6 +605,54 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
         </button>
       </div>
       <div class="command-bar-right">
+        <div
+          v-if="
+            store.filterStatus != null ||
+            store.filterPriority != null ||
+            store.filterAssignee != null ||
+            store.filterLabelIds.length > 0
+          "
+          class="filter-active-chips"
+          :aria-label="t('boardView.activeFilterChipsAria')"
+        >
+          <button
+            v-if="store.filterStatus != null"
+            type="button"
+            class="filter-chip"
+            @click="store.filterStatus = null"
+          >
+            <span>{{ getStatusLabel(store.filterStatus) }}</span>
+            <X class="icon-12" aria-hidden="true" />
+          </button>
+          <button
+            v-if="store.filterPriority != null"
+            type="button"
+            class="filter-chip"
+            @click="store.filterPriority = null"
+          >
+            <span>{{ getPriorityLabel(store.filterPriority) }}</span>
+            <X class="icon-12" aria-hidden="true" />
+          </button>
+          <button
+            v-if="store.filterAssignee != null"
+            type="button"
+            class="filter-chip"
+            @click="clearAssigneeFilter"
+          >
+            <span>{{ assigneeFilterChipLabel() }}</span>
+            <X class="icon-12" aria-hidden="true" />
+          </button>
+          <button
+            v-for="lid in store.filterLabelIds"
+            :key="'filter-label-' + lid"
+            type="button"
+            class="filter-chip"
+            @click="store.removeFilterLabelId(lid)"
+          >
+            <span>{{ labelNameForFilterChip(lid) }}</span>
+            <X class="icon-12" aria-hidden="true" />
+          </button>
+        </div>
         <div ref="assigneeQuickTriggerRef" class="popover-anchor popover-anchor-right">
           <button
             type="button"
@@ -642,49 +708,20 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
           <div
             v-show="filterPopoverOpen"
             ref="filterPopoverRef"
-            class="popover popover-filter"
+            class="popover popover-filter popover-filter-wide"
             role="dialog"
             :aria-label="t('boardView.filterOptions')"
             @keydown.capture="onFilterPanelKeydownCapture"
           >
-            <h3 class="popover-section-title">{{ t('boardView.filterSectionTitle') }}</h3>
-            <div class="popover-section">
-              <label class="popover-label">{{ t('common.status') }}</label>
-              <CustomSelect
-                v-model="filterStatus"
-                :options="filterStatusOptions"
-                :placeholder="t('boardView.allStatus')"
-                :aria-label="t('boardView.filterByStatus')"
-                trigger-class="popover-select"
-              />
-            </div>
-            <div class="popover-section">
-              <label class="popover-label">{{ t('common.priority') }}</label>
-              <CustomSelect
-                v-model="filterPriority"
-                :options="filterPriorityOptions"
-                :placeholder="t('boardView.allPriorities')"
-                :aria-label="t('boardView.filterByPriority')"
-                trigger-class="popover-select"
-              />
-            </div>
-            <div class="popover-section">
-              <label class="popover-label">{{ t('common.assignee') }}</label>
-              <CustomSelect
-                v-model="filterAssigneeModel"
-                :options="filterAssigneeOptions"
-                :placeholder="t('boardView.allAssignees')"
-                :aria-label="t('boardView.filterByAssignee')"
-                filterable
-                trigger-class="popover-select"
-              />
-              <p class="popover-hint">{{ t('boardView.assigneeFilterHint') }}</p>
-            </div>
-            <div class="popover-section">
-              <button type="button" class="btn-clear-issue-filters" @click="clearIssueFiltersPanel">
-                {{ t('boardView.clearIssueFilters') }}
-              </button>
-            </div>
+            <AddIssueFilterMenu
+              ref="addIssueFilterMenuRef"
+              :project-id="projectStore.activeProjectId"
+              :users="users"
+              :filter-status-options="filterStatusOptions"
+              :filter-priority-options="filterPriorityOptions"
+              :filter-assignee-options="filterAssigneeOptions"
+              @clear="clearIssueFiltersPanel"
+            />
             <div class="popover-divider" role="separator" />
             <h3 class="popover-section-title">{{ t('boardView.viewSectionTitle') }}</h3>
             <div class="popover-section">
@@ -977,6 +1014,42 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+}
+.filter-active-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: min(420px, 55vw);
+}
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 140px;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-base);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.filter-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.filter-chip:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.icon-12 {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
 }
 .popover-anchor {
   position: relative;
@@ -1028,6 +1101,9 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
 .popover-filter {
   width: min(248px, calc(100vw - 24px));
   box-sizing: border-box;
+}
+.popover-filter-wide {
+  width: min(520px, calc(100vw - 24px));
 }
 .popover-filter .popover-section {
   min-width: 0;
