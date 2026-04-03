@@ -757,16 +757,17 @@ onUnmounted(() => {
   padding: 0;
   font-size: 11px;
   font-weight: 600;
-  color: #fff;
-  background: #7c3aed;
-  border: none;
+  color: var(--color-text-primary);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   cursor: pointer;
-  transition: opacity var(--transition-fast);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 .user-avatar-btn:hover,
 .user-avatar-btn.active {
-  opacity: 0.85;
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-medium);
 }
 .user-menu {
   position: absolute;
