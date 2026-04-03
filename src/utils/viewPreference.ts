@@ -62,7 +62,8 @@ export const DEFAULT_VIEW_CONFIG: ViewConfig = {
   orderDirection: 'desc',
   visibleProperties: ['assignee', 'dueDate', 'labels', 'plannedStart', 'priority', 'progress'],
   showEmptyGroups: false,
-  completedVisibility: 'all',
+  /** 默认与命令栏「进行中」一致：隐藏已完成/已取消/重复 */
+  completedVisibility: 'open_only',
   showSubIssues: true,
   nestedSubIssues: true,
   viewPrefVersion: VIEW_PREF_VERSION

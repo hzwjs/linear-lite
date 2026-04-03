@@ -27,6 +27,7 @@ describe('viewModeStore', () => {
       'priority',
       'progress'
     ])
+    expect(store.viewConfig.completedVisibility).toBe('open_only')
   })
 
   it('updates the layout through setView', () => {
