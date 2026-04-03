@@ -59,9 +59,12 @@ const subMenuStyle = computed(() => {
   if (!itemEl || !menuEl) return { display: 'none' }
   const menuRect = menuEl.getBoundingClientRect()
   const itemRect = itemEl.getBoundingClientRect()
+  const subWidth = 180
+  let left = menuRect.left - subWidth - 4
+  if (left < 8) left = menuRect.right + 4
   return {
-    top: `${itemRect.top}px`,
-    left: `${menuRect.left - 190}px`
+    top: `${Math.max(8, itemRect.top - 4)}px`,
+    left: `${left}px`
   }
 })
 
@@ -458,8 +461,7 @@ defineExpose({
 
 .filter-submenu {
   position: fixed;
-  min-width: 160px;
-  max-width: 200px;
+  width: 180px;
   max-height: 280px;
   overflow-y: auto;
   background: var(--color-bg-base);
