@@ -44,14 +44,11 @@ const users = ref<User[]>([])
 const searchInputRef = ref<HTMLInputElement | null>(null)
 const filterPopoverOpen = ref(false)
 const displayPopoverOpen = ref(false)
-const assigneeQuickOpen = ref(false)
 const filterTriggerRef = ref<HTMLElement | null>(null)
 const displayTriggerRef = ref<HTMLElement | null>(null)
-const assigneeQuickTriggerRef = ref<HTMLElement | null>(null)
 const filterPopoverRef = ref<HTMLElement | null>(null)
 const addIssueFilterMenuRef = ref<InstanceType<typeof AddIssueFilterMenu> | null>(null)
 const displayPopoverRef = ref<HTMLElement | null>(null)
-const assigneeQuickPopoverRef = ref<HTMLElement | null>(null)
 const isImportOpen = ref(false)
 
 // 命令栏在任务详情（右侧抽屉）打开时隐藏
@@ -61,37 +58,6 @@ const isEditorOpen = computed(() => !!route.params.taskId)
 const searchQuery = computed({
   get: () => store.searchQuery,
   set: (val) => { store.searchQuery = val }
-})
-const filterAssigneeModel = computed({
-  get(): string | number | null {
-    const list = store.filterAssigneeList
-    if (list.length === 0) return null
-    return list[0] as string | number
-  },
-  set(val: string | number | null) {
-    if (val === 'unassigned') {
-      store.filterAssigneeList = ['unassigned']
-      store.filterAssigneeUsernameNormMap = new Map()
-    } else if (val === null) {
-      store.filterAssigneeList = []
-      store.filterAssigneeUsernameNormMap = new Map()
-    } else if (typeof val === 'number' && Number.isFinite(val)) {
-      store.filterAssigneeList = [val]
-      syncAssigneeFilterMeta()
-    } else if (typeof val === 'string') {
-      const n = Number(val)
-      if (Number.isFinite(n)) {
-        store.filterAssigneeList = [n]
-        syncAssigneeFilterMeta()
-      } else {
-        store.filterAssigneeList = []
-        store.filterAssigneeUsernameNormMap = new Map()
-      }
-    } else {
-      store.filterAssigneeList = []
-      store.filterAssigneeUsernameNormMap = new Map()
-    }
-  }
 })
 
 const applyingBoardPrefs = ref(false)
@@ -261,14 +227,6 @@ function onDisplayPanelKeydownCapture(e: KeyboardEvent) {
   nextTick(() => displayTriggerRef.value?.querySelector<HTMLButtonElement>('button')?.focus())
 }
 
-function onAssigneeQuickKeydownCapture(e: KeyboardEvent) {
-  if (e.key !== 'Escape') return
-  const t = e.target as HTMLElement | null
-  if (t?.closest('.custom-select-list')) return
-  e.preventDefault()
-  closeAssigneeQuick()
-  nextTick(() => assigneeQuickTriggerRef.value?.querySelector<HTMLButtonElement>('button')?.focus())
-}
 const groupBy = computed({
   get: () => viewModeStore.viewConfig.groupBy,
   set: (value) => viewModeStore.setGroupBy(value as GroupBy)
@@ -286,16 +244,6 @@ const showEmptyGroups = computed({
   set: (value) => viewModeStore.setShowEmptyGroups(value)
 })
 
-const filterAssigneeOptions = computed<CustomSelectOption[]>(() => {
-  const sorted = [...users.value].sort((a, b) =>
-    a.username.localeCompare(b.username, undefined, { sensitivity: 'base' })
-  )
-  return [
-    { value: null, label: t('boardView.allAssignees') },
-    { value: 'unassigned', label: t('common.unassigned'), icon: UserIcon },
-    ...sorted.map((u) => ({ value: u.id, label: u.username }))
-  ]
-})
 const groupingOptions = computed<CustomSelectOption[]>(() => [
   { value: 'status', label: t('common.status') },
   { value: 'priority', label: t('common.priority') },
@@ -396,26 +344,13 @@ watch(
 watch(users, () => syncAssigneeFilterMeta(), { deep: true })
 
 watch(filterPopoverOpen, (open) => {
-  if (open) assigneeQuickOpen.value = false
   if (!open) return
   nextTick(() => {
     addIssueFilterMenuRef.value?.focusMenuSearch()
   })
 })
 
-watch(assigneeQuickOpen, (open) => {
-  if (open) {
-    filterPopoverOpen.value = false
-    displayPopoverOpen.value = false
-  }
-  if (!open) return
-  nextTick(() => {
-    assigneeQuickPopoverRef.value?.querySelector<HTMLButtonElement>('.custom-select-trigger')?.focus()
-  })
-})
-
 watch(displayPopoverOpen, (open) => {
-  if (open) assigneeQuickOpen.value = false
   if (!open) return
   nextTick(() => {
     const pop = displayPopoverRef.value
@@ -460,7 +395,6 @@ onMounted(() => {
   window.addEventListener('command-palette:focus-search', onFocusSearchCommand)
   window.addEventListener('click', onClickOutsideFilter, true)
   window.addEventListener('click', onClickOutsideDisplay, true)
-  window.addEventListener('click', onClickOutsideAssigneeQuick, true)
 })
 onUnmounted(() => {
   if (boardPrefsSaveTimer != null) {
@@ -472,7 +406,6 @@ onUnmounted(() => {
   window.removeEventListener('command-palette:focus-search', onFocusSearchCommand)
   window.removeEventListener('click', onClickOutsideFilter, true)
   window.removeEventListener('click', onClickOutsideDisplay, true)
-  window.removeEventListener('click', onClickOutsideAssigneeQuick, true)
 })
 
 function toggleVisibleProperty(property: VisibleProperty) {
@@ -521,12 +454,6 @@ function closeFilterPopover() {
 function closeDisplayPopover() {
   displayPopoverOpen.value = false
 }
-function closeAssigneeQuick() {
-  assigneeQuickOpen.value = false
-}
-function toggleAssigneeQuick() {
-  assigneeQuickOpen.value = !assigneeQuickOpen.value
-}
 
 function onClickOutsideFilter(event: MouseEvent) {
   const el = filterPopoverRef.value
@@ -541,12 +468,6 @@ function onClickOutsideDisplay(event: MouseEvent) {
   const trigger = displayTriggerRef.value
   if (el?.contains(event.target as Node) || trigger?.contains(event.target as Node)) return
   closeDisplayPopover()
-}
-function onClickOutsideAssigneeQuick(event: MouseEvent) {
-  const el = assigneeQuickPopoverRef.value
-  const trigger = assigneeQuickTriggerRef.value
-  if (el?.contains(event.target as Node) || trigger?.contains(event.target as Node)) return
-  closeAssigneeQuick()
 }
 
 </script>
@@ -626,42 +547,6 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
         </button>
       </div>
       <div class="command-bar-right">
-        <div ref="assigneeQuickTriggerRef" class="popover-anchor popover-anchor-right">
-          <button
-            type="button"
-            class="command-btn command-btn-assignee-quick"
-            :class="{
-              active: assigneeQuickOpen,
-              'has-active-assignee': store.filterAssigneeList.length > 0
-            }"
-            :aria-label="t('boardView.assigneeQuickFilter')"
-            aria-haspopup="true"
-            :aria-expanded="assigneeQuickOpen"
-            @click="toggleAssigneeQuick"
-          >
-            <UserIcon class="icon-14" />
-            <span>{{ t('common.assignee') }}</span>
-          </button>
-          <div
-            v-show="assigneeQuickOpen"
-            ref="assigneeQuickPopoverRef"
-            class="popover popover-assignee-quick"
-            role="dialog"
-            :aria-label="t('boardView.filterByAssignee')"
-            @keydown.capture="onAssigneeQuickKeydownCapture"
-          >
-            <div class="popover-section">
-              <CustomSelect
-                v-model="filterAssigneeModel"
-                :options="filterAssigneeOptions"
-                :placeholder="t('boardView.allAssignees')"
-                :aria-label="t('boardView.filterByAssignee')"
-                filterable
-                trigger-class="popover-select"
-              />
-            </div>
-          </div>
-        </div>
         <div ref="filterTriggerRef" class="popover-anchor popover-anchor-right">
           <button
             type="button"
@@ -1278,32 +1163,6 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.popover-assignee-quick {
-  width: min(248px, calc(100vw - 24px));
-  box-sizing: border-box;
-}
-.popover-assignee-quick .popover-section {
-  min-width: 0;
-  margin-bottom: 0;
-}
-.popover-assignee-quick :deep(.custom-select) {
-  display: block;
-  width: 100%;
-}
-.popover-assignee-quick :deep(.custom-select-trigger) {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
-.popover-assignee-quick :deep(.trigger-label) {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.command-btn-assignee-quick.has-active-assignee {
-  color: var(--color-accent);
 }
 .popover-section-title {
   margin: 0 0 6px;
