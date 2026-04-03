@@ -53,7 +53,8 @@ const taskGroups = computed(() =>
     taskFiltersActive:
       store.filterStatus != null ||
       store.filterPriority != null ||
-      store.filterAssignee != null
+      store.filterAssignee != null ||
+      store.filterLabelIds.length > 0
   })
 )
 const localizedTaskGroups = computed(() =>
@@ -97,7 +98,8 @@ const emptyFilterHint = computed(() => {
   const hasIssueFilters =
     store.filterStatus != null ||
     store.filterPriority != null ||
-    store.filterAssignee != null
+    store.filterAssignee != null ||
+    store.filterLabelIds.length > 0
   if (hasSearch && hasIssueFilters) return t('boardView.noTasksMatchSearchAndFilters')
   if (hasSearch) return t('boardView.noTasksMatchSearchOnly')
   return t('boardView.noTasksMatchIssueFiltersOnly')
