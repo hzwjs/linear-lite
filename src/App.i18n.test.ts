@@ -14,7 +14,7 @@ describe('shell translations', () => {
     expect(appSource).toContain("const { t } = useI18n()")
     expect(appSource).toContain("{{ t('sidebar.favorites') }}")
     expect(appSource).toContain("{{ t('sidebar.projects') }}")
-    expect(appSource).toContain(":title=\"t('sidebar.signOut')\"")
+    expect(appSource).toContain("{{ t('sidebar.signOut') }}")
     expect(appSource).toContain("@click=\"localeStore.setLocale('zh-CN')\"")
     expect(appSource).toContain("@click=\"localeStore.setLocale('en')\"")
   })

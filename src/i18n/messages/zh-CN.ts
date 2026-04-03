@@ -68,7 +68,8 @@ const zhCN = {
     filter: '筛选',
     display: '显示',
     labels: '标签',
-    import: '导入'
+    import: '导入',
+    language: '语言'
   },
   sidebar: {
     favorites: '收藏',

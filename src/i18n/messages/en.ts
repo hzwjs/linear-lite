@@ -68,7 +68,8 @@ const en = {
     filter: 'Filter',
     display: 'Display',
     labels: 'Labels',
-    import: 'Import'
+    import: 'Import',
+    language: 'Language'
   },
   sidebar: {
     favorites: 'Favorites',

@@ -80,6 +80,30 @@ const settingsProject = ref<Project | null>(null)
 const commandPaletteOpen = ref(false)
 const sidebarHidden = ref(false)
 const sidebarCollapsed = ref(readSidebarCollapsed())
+const userMenuOpen = ref(false)
+const userMenuRef = ref<HTMLElement | null>(null)
+
+function toggleUserMenu() {
+  userMenuOpen.value = !userMenuOpen.value
+}
+
+function closeUserMenu() {
+  userMenuOpen.value = false
+}
+
+function onClickOutsideUserMenu(event: MouseEvent) {
+  const el = userMenuRef.value
+  if (!el) return
+  if (!el.contains(event.target as Node)) {
+    closeUserMenu()
+  }
+}
+
+const userInitial = computed(() => {
+  const name = authStore.currentUser?.username
+  if (!name) return '?'
+  return name.charAt(0).toUpperCase()
+})
 
 function toggleSidebarHidden() {
   sidebarHidden.value = !sidebarHidden.value
@@ -287,10 +311,12 @@ function onGlobalKeydown(e: KeyboardEvent) {
 onMounted(() => {
   sidebarHidden.value = readSidebarHidden()
   document.addEventListener('keydown', onGlobalKeydown)
+  document.addEventListener('click', onClickOutsideUserMenu, true)
 })
 watch(sidebarHidden, persistSidebarHidden)
 onUnmounted(() => {
   document.removeEventListener('keydown', onGlobalKeydown)
+  document.removeEventListener('click', onClickOutsideUserMenu, true)
 })
 </script>
 
@@ -424,36 +450,48 @@ onUnmounted(() => {
         </section>
       </div>
 
-      <div class="sidebar-footer">
-        <div class="locale-switcher">
-          <button
-            type="button"
-            class="locale-pill"
-            :class="{ 'locale-pill--active': localeStore.locale === 'zh-CN' }"
-            @click="localeStore.setLocale('zh-CN')"
-          >
-            ZH
-          </button>
-          <button
-            type="button"
-            class="locale-pill"
-            :class="{ 'locale-pill--active': localeStore.locale === 'en' }"
-            @click="localeStore.setLocale('en')"
-          >
-            EN
-          </button>
-        </div>
-        <span class="sidebar-user" :title="authStore.currentUser?.username">
-          {{ authStore.currentUser?.username ?? '—' }}
-        </span>
+      <div ref="userMenuRef" class="sidebar-footer">
         <button
           type="button"
-          class="sidebar-logout"
-          :title="t('sidebar.signOut')"
-          @click="onLogout"
+          class="user-avatar-btn"
+          :class="{ active: userMenuOpen }"
+          :title="authStore.currentUser?.username"
+          @click="toggleUserMenu"
         >
-          <LogOut class="icon-14" />
+          {{ userInitial }}
         </button>
+        <div v-show="userMenuOpen" class="user-menu">
+          <div class="user-menu-header">
+            <span class="user-menu-name">{{ authStore.currentUser?.username ?? '—' }}</span>
+          </div>
+          <div class="user-menu-divider" />
+          <div class="user-menu-section">
+            <span class="user-menu-label">{{ t('common.language') }}</span>
+            <div class="locale-switcher">
+              <button
+                type="button"
+                class="locale-pill"
+                :class="{ 'locale-pill--active': localeStore.locale === 'zh-CN' }"
+                @click="localeStore.setLocale('zh-CN')"
+              >
+                ZH
+              </button>
+              <button
+                type="button"
+                class="locale-pill"
+                :class="{ 'locale-pill--active': localeStore.locale === 'en' }"
+                @click="localeStore.setLocale('en')"
+              >
+                EN
+              </button>
+            </div>
+          </div>
+          <div class="user-menu-divider" />
+          <button type="button" class="user-menu-item user-menu-item--danger" @click="onLogout">
+            <LogOut class="user-menu-item-icon" />
+            <span>{{ t('sidebar.signOut') }}</span>
+          </button>
+        </div>
       </div>
     </aside>
     <CreateProjectModal
@@ -712,32 +750,80 @@ onUnmounted(() => {
   height: 14px;
 }
 .sidebar-footer {
-  margin-top: auto;
-  margin-left: 12px;
-  margin-right: 12px;
-  margin-bottom: 12px;
-  padding: 12px 14px;
+  position: relative;
+  margin: 0 8px 12px;
+  padding: 0;
+}
+.user-avatar-btn {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.user-avatar-btn:hover,
+.user-avatar-btn.active {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-medium);
+}
+.user-menu {
+  position: absolute;
+  left: 0;
+  bottom: 36px;
+  width: 200px;
+  padding: 6px;
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
+  z-index: 100;
+}
+.user-menu-header {
+  padding: 8px 10px;
+}
+.user-menu-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+.user-menu-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--color-border-subtle);
+}
+.user-menu-section {
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.user-menu-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
 }
 .locale-switcher {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
 }
 .locale-pill {
   border: 1px solid var(--color-border);
   background: var(--color-bg-base);
   color: var(--color-text-secondary);
-  border-radius: var(--radius-sm);
-  padding: 5px 10px;
-  font-size: var(--font-size-xs);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
@@ -751,37 +837,29 @@ onUnmounted(() => {
   border-color: var(--color-accent);
   color: var(--color-text-primary);
 }
-.sidebar-user {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.25;
-}
-.sidebar-logout {
-  flex-shrink: 0;
+.user-menu-item {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  color: var(--color-text-muted);
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
   background: transparent;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   cursor: pointer;
-  transition: color var(--transition-fast), background var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
-.sidebar-logout:hover {
-  color: var(--color-text-primary);
+.user-menu-item:hover {
   background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
-.sidebar-logout .icon-14 {
+.user-menu-item--danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+.user-menu-item-icon {
   width: 14px;
   height: 14px;
 }
