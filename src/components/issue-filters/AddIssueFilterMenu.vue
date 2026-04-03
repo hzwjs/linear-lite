@@ -1,42 +1,69 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   BarChart3,
+  Check,
   ChevronRight,
   CircleDashed,
   Tag,
   User as UserIcon
 } from 'lucide-vue-next'
-import CustomSelect from '../ui/CustomSelect.vue'
-import type { CustomSelectOption } from '../ui/CustomSelect.vue'
-import type { User } from '../../types/domain'
+import type { User, Status, Priority } from '../../types/domain'
 import { useTaskStore } from '../../store/taskStore'
 import { projectApi } from '../../services/api/project'
-import type { Priority, Status } from '../../types/domain'
+import { getStatusLabel, getPriorityLabel } from '../../utils/enumLabels'
+import {
+  PriorityUrgentIcon,
+  PriorityHighIcon,
+  PriorityMediumIcon,
+  PriorityLowIcon
+} from '../icons/PriorityIcons'
+import {
+  Circle,
+  CircleX,
+  CheckCircle,
+  Copy,
+  Eye,
+  Loader2
+} from 'lucide-vue-next'
 
 type SubKey = 'status' | 'priority' | 'assignee' | 'labels'
 
 const props = defineProps<{
   projectId: number | null
   users: User[]
-  filterStatusOptions: CustomSelectOption[]
-  filterPriorityOptions: CustomSelectOption[]
-  filterAssigneeOptions: CustomSelectOption[]
 }>()
 
-const emit = defineEmits<{
-  clear: []
-}>()
+defineEmits<{ clear: [] }>()
 
 const store = useTaskStore()
 const { t } = useI18n()
 
 const menuSearch = ref('')
 const searchInputRef = ref<HTMLInputElement | null>(null)
-
 const activeSub = ref<SubKey | null>(null)
+const menuRef = ref<HTMLElement | null>(null)
+const itemRefs = ref<Map<SubKey, HTMLElement>>(new Map())
 let leaveTimer: ReturnType<typeof setTimeout> | null = null
+
+function setItemRef(el: HTMLElement | null, key: SubKey) {
+  if (el) itemRefs.value.set(key, el)
+  else itemRefs.value.delete(key)
+}
+
+const subMenuStyle = computed(() => {
+  if (!activeSub.value) return { display: 'none' }
+  const itemEl = itemRefs.value.get(activeSub.value)
+  const menuEl = menuRef.value
+  if (!itemEl || !menuEl) return { display: 'none' }
+  const menuRect = menuEl.getBoundingClientRect()
+  const itemRect = itemEl.getBoundingClientRect()
+  return {
+    top: `${itemRect.top}px`,
+    left: `${menuRect.left - 190}px`
+  }
+})
 
 function cancelLeaveTimer() {
   if (leaveTimer != null) {
@@ -49,15 +76,7 @@ function scheduleCloseSub() {
   cancelLeaveTimer()
   leaveTimer = setTimeout(() => {
     activeSub.value = null
-  }, 200)
-}
-
-function onClusterEnter() {
-  cancelLeaveTimer()
-}
-
-function onClusterLeave() {
-  scheduleCloseSub()
+  }, 150)
 }
 
 function onRowEnter(key: SubKey) {
@@ -65,62 +84,19 @@ function onRowEnter(key: SubKey) {
   activeSub.value = key
 }
 
-function onRowClick(key: SubKey) {
+function onRowLeave() {
+  scheduleCloseSub()
+}
+
+function onSubEnter() {
   cancelLeaveTimer()
-  activeSub.value = activeSub.value === key ? null : key
 }
 
-const filterStatus = computed({
-  get: () => store.filterStatus,
-  set: (val: Status | null) => {
-    store.filterStatus = val
-  }
-})
-
-const filterPriority = computed({
-  get: () => store.filterPriority,
-  set: (val: Priority | null) => {
-    store.filterPriority = val
-  }
-})
-
-function syncAssigneeFilterMeta() {
-  const fa = store.filterAssignee
-  if (typeof fa === 'number') {
-    const u = props.users.find((x) => x.id === fa)
-    store.filterAssigneeUsernameNorm = u?.username?.trim().toLowerCase() ?? null
-  } else {
-    store.filterAssigneeUsernameNorm = null
-  }
+function onSubLeave() {
+  scheduleCloseSub()
 }
 
-const filterAssigneeModel = computed({
-  get: () => store.filterAssignee as string | number | null,
-  set: (val: string | number | null) => {
-    if (val === 'unassigned') {
-      store.filterAssignee = 'unassigned'
-      store.filterAssigneeUsernameNorm = null
-    } else if (val === null || val === '') {
-      store.filterAssignee = null
-      store.filterAssigneeUsernameNorm = null
-    } else if (typeof val === 'number') {
-      store.filterAssignee = Number.isFinite(val) ? val : null
-      syncAssigneeFilterMeta()
-    } else {
-      const n = Number(val)
-      store.filterAssignee = Number.isFinite(n) ? n : null
-      syncAssigneeFilterMeta()
-    }
-  }
-})
-
-watch(
-  () => props.users,
-  () => syncAssigneeFilterMeta(),
-  { deep: true }
-)
-
-type DimRow = { key: SubKey; label: string; icon: typeof CircleDashed }
+type DimRow = { key: SubKey; label: string; icon: Component }
 
 const allDimensions = computed<DimRow[]>(() => [
   { key: 'status', label: t('common.status'), icon: CircleDashed },
@@ -134,6 +110,51 @@ const visibleDimensions = computed(() => {
   if (!q) return allDimensions.value
   return allDimensions.value.filter((d) => d.label.toLowerCase().includes(q))
 })
+
+const statusOptions: { value: Status; icon: Component }[] = [
+  { value: 'backlog', icon: CircleDashed },
+  { value: 'todo', icon: Circle },
+  { value: 'in_progress', icon: Loader2 },
+  { value: 'in_review', icon: Eye },
+  { value: 'done', icon: CheckCircle },
+  { value: 'canceled', icon: CircleX },
+  { value: 'duplicate', icon: Copy }
+]
+
+const priorityOptions: { value: Priority; icon: Component }[] = [
+  { value: 'urgent', icon: PriorityUrgentIcon as Component },
+  { value: 'high', icon: PriorityHighIcon as Component },
+  { value: 'medium', icon: PriorityMediumIcon as Component },
+  { value: 'low', icon: PriorityLowIcon as Component }
+]
+
+function selectStatus(val: Status) {
+  store.filterStatus = store.filterStatus === val ? null : val
+}
+
+function selectPriority(val: Priority) {
+  store.filterPriority = store.filterPriority === val ? null : val
+}
+
+function selectAssignee(val: number | 'unassigned') {
+  if (val === 'unassigned') {
+    if (store.filterAssignee === 'unassigned') {
+      store.filterAssignee = null
+    } else {
+      store.filterAssignee = 'unassigned'
+    }
+    store.filterAssigneeUsernameNorm = null
+  } else {
+    if (store.filterAssignee === val) {
+      store.filterAssignee = null
+      store.filterAssigneeUsernameNorm = null
+    } else {
+      store.filterAssignee = val
+      const u = props.users.find((x) => x.id === val)
+      store.filterAssigneeUsernameNorm = u?.username?.trim().toLowerCase() ?? null
+    }
+  }
+}
 
 const labelsSearch = ref('')
 const labelsLoading = ref(false)
@@ -215,279 +236,300 @@ defineExpose({
 </script>
 
 <template>
-  <div class="add-issue-filter">
-    <h3 class="add-issue-filter-title">{{ t('boardView.filterSectionTitle') }}</h3>
-    <input
-      ref="searchInputRef"
-      v-model="menuSearch"
-      type="search"
-      class="add-issue-filter-search"
-      :placeholder="t('boardView.addFilterPlaceholder')"
-      :aria-label="t('boardView.addFilterPlaceholder')"
-      autocomplete="off"
-    />
-    <div
-      class="add-issue-filter-cluster"
-      @mouseenter="onClusterEnter"
-      @mouseleave="onClusterLeave"
-    >
+  <div ref="menuRef" class="filter-menu">
+    <div class="filter-menu-search-wrap">
+      <input
+        ref="searchInputRef"
+        v-model="menuSearch"
+        type="text"
+        class="filter-menu-search"
+        :placeholder="t('boardView.addFilterPlaceholder')"
+        autocomplete="off"
+      />
+      <kbd class="filter-menu-kbd">F</kbd>
+    </div>
+
+    <ul class="filter-menu-list">
+      <li
+        v-for="dim in visibleDimensions"
+        :key="dim.key"
+        :ref="(el) => setItemRef(el as HTMLElement, dim.key)"
+        class="filter-menu-item"
+        :class="{ active: activeSub === dim.key }"
+        @mouseenter="onRowEnter(dim.key)"
+        @mouseleave="onRowLeave"
+      >
+        <component :is="dim.icon" class="filter-menu-icon" />
+        <span class="filter-menu-label">{{ dim.label }}</span>
+        <ChevronRight class="filter-menu-arrow" />
+      </li>
+    </ul>
+
+    <Teleport to="body">
       <div
-        v-show="activeSub != null"
-        class="add-issue-filter-sub"
-        role="region"
-        :aria-label="t('boardView.filterSubmenuAria')"
+        v-if="activeSub != null"
+        class="filter-submenu"
+        :style="subMenuStyle"
+        @mouseenter="onSubEnter"
+        @mouseleave="onSubLeave"
       >
         <template v-if="activeSub === 'status'">
-          <label class="add-issue-filter-sub-label">{{ t('common.status') }}</label>
-          <CustomSelect
-            v-model="filterStatus"
-            :options="filterStatusOptions"
-            :placeholder="t('boardView.allStatus')"
-            :aria-label="t('boardView.filterByStatus')"
-            trigger-class="popover-select"
-          />
-        </template>
-        <template v-else-if="activeSub === 'priority'">
-          <label class="add-issue-filter-sub-label">{{ t('common.priority') }}</label>
-          <CustomSelect
-            v-model="filterPriority"
-            :options="filterPriorityOptions"
-            :placeholder="t('boardView.allPriorities')"
-            :aria-label="t('boardView.filterByPriority')"
-            trigger-class="popover-select"
-          />
-        </template>
-        <template v-else-if="activeSub === 'assignee'">
-          <label class="add-issue-filter-sub-label">{{ t('common.assignee') }}</label>
-          <CustomSelect
-            v-model="filterAssigneeModel"
-            :options="filterAssigneeOptions"
-            :placeholder="t('boardView.allAssignees')"
-            :aria-label="t('boardView.filterByAssignee')"
-            filterable
-            trigger-class="popover-select"
-          />
-          <p class="add-issue-filter-hint">{{ t('boardView.assigneeFilterHint') }}</p>
-        </template>
-        <template v-else-if="activeSub === 'labels'">
-          <label class="add-issue-filter-sub-label">{{ t('common.labels') }}</label>
-          <input
-            v-model="labelsSearch"
-            type="search"
-            class="add-issue-filter-search add-issue-filter-search--nested"
-            :placeholder="t('boardView.searchLabels')"
-            :aria-label="t('boardView.searchLabels')"
-            autocomplete="off"
-            :disabled="projectId == null"
-          />
-          <p v-if="projectId == null" class="add-issue-filter-hint">{{ t('boardView.labelsNeedProject') }}</p>
-          <p v-else-if="labelsError" class="add-issue-filter-error">{{ labelsError }}</p>
-          <p v-else-if="labelsLoading" class="add-issue-filter-hint">{{ t('boardView.labelsLoading') }}</p>
-          <ul v-else class="add-issue-filter-label-list" role="listbox" :aria-multiselectable="true">
-            <li v-for="row in labelRows" :key="row.id" class="add-issue-filter-label-row">
-              <label class="add-issue-filter-label-check">
-                <input
-                  type="checkbox"
-                  :checked="isLabelChecked(row.id)"
-                  @change="store.toggleFilterLabelId(row.id)"
-                />
-                <span>{{ row.name }}</span>
-              </label>
+          <ul class="filter-submenu-list">
+            <li
+              v-for="opt in statusOptions"
+              :key="opt.value"
+              class="filter-submenu-item"
+              :class="{ selected: store.filterStatus === opt.value }"
+              @click="selectStatus(opt.value)"
+            >
+              <component :is="opt.icon" class="filter-submenu-icon" />
+              <span class="filter-submenu-label">{{ getStatusLabel(opt.value) }}</span>
+              <Check v-if="store.filterStatus === opt.value" class="filter-submenu-check" />
             </li>
           </ul>
-          <p
-            v-if="projectId != null && !labelsLoading && !labelsError && labelRows.length === 0"
-            class="add-issue-filter-hint"
-          >
-            {{ t('boardView.noLabelsMatch') }}
-          </p>
+        </template>
+
+        <template v-else-if="activeSub === 'priority'">
+          <ul class="filter-submenu-list">
+            <li
+              v-for="opt in priorityOptions"
+              :key="opt.value"
+              class="filter-submenu-item"
+              :class="{ selected: store.filterPriority === opt.value }"
+              @click="selectPriority(opt.value)"
+            >
+              <component :is="opt.icon" class="filter-submenu-icon" />
+              <span class="filter-submenu-label">{{ getPriorityLabel(opt.value) }}</span>
+              <Check v-if="store.filterPriority === opt.value" class="filter-submenu-check" />
+            </li>
+          </ul>
+        </template>
+
+        <template v-else-if="activeSub === 'assignee'">
+          <ul class="filter-submenu-list">
+            <li
+              class="filter-submenu-item"
+              :class="{ selected: store.filterAssignee === 'unassigned' }"
+              @click="selectAssignee('unassigned')"
+            >
+              <UserIcon class="filter-submenu-icon" />
+              <span class="filter-submenu-label">{{ t('common.unassigned') }}</span>
+              <Check v-if="store.filterAssignee === 'unassigned'" class="filter-submenu-check" />
+            </li>
+            <li
+              v-for="user in users"
+              :key="user.id"
+              class="filter-submenu-item"
+              :class="{ selected: store.filterAssignee === user.id }"
+              @click="selectAssignee(user.id)"
+            >
+              <span class="filter-submenu-avatar">{{ user.username.charAt(0).toUpperCase() }}</span>
+              <span class="filter-submenu-label">{{ user.username }}</span>
+              <Check v-if="store.filterAssignee === user.id" class="filter-submenu-check" />
+            </li>
+          </ul>
+        </template>
+
+        <template v-else-if="activeSub === 'labels'">
+          <div v-if="projectId == null" class="filter-submenu-empty">
+            {{ t('boardView.labelsNeedProject') }}
+          </div>
+          <div v-else-if="labelsLoading" class="filter-submenu-empty">
+            {{ t('boardView.labelsLoading') }}
+          </div>
+          <div v-else-if="labelsError" class="filter-submenu-error">
+            {{ labelsError }}
+          </div>
+          <template v-else>
+            <div v-if="labelRows.length === 0" class="filter-submenu-empty">
+              {{ t('boardView.noLabelsMatch') }}
+            </div>
+            <ul v-else class="filter-submenu-list">
+              <li
+                v-for="row in labelRows"
+                :key="row.id"
+                class="filter-submenu-item"
+                :class="{ selected: isLabelChecked(row.id) }"
+                @click="store.toggleFilterLabelId(row.id)"
+              >
+                <span class="filter-submenu-dot" />
+                <span class="filter-submenu-label">{{ row.name }}</span>
+                <Check v-if="isLabelChecked(row.id)" class="filter-submenu-check" />
+              </li>
+            </ul>
+          </template>
         </template>
       </div>
-      <div class="add-issue-filter-main">
-        <ul class="add-issue-filter-dim-list" role="menu">
-          <li
-            v-for="dim in visibleDimensions"
-            :key="dim.key"
-            role="none"
-            class="add-issue-filter-dim"
-            :class="{ active: activeSub === dim.key }"
-            @mouseenter="onRowEnter(dim.key)"
-            @click="onRowClick(dim.key)"
-          >
-            <button type="button" class="add-issue-filter-dim-btn" role="menuitem">
-              <component :is="dim.icon" class="icon-14 dim-icon" aria-hidden="true" />
-              <span class="dim-label">{{ dim.label }}</span>
-              <ChevronRight class="icon-14 chevron" aria-hidden="true" />
-            </button>
-          </li>
-        </ul>
-        <button type="button" class="btn-clear-issue-filters" @click="emit('clear')">
-          {{ t('boardView.clearIssueFilters') }}
-        </button>
-      </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
+
 <style scoped>
-.add-issue-filter {
-  min-width: 0;
+.filter-menu {
+  width: 200px;
 }
-.add-issue-filter-title {
-  margin: 0 0 6px;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  letter-spacing: 0.02em;
-}
-.add-issue-filter-search {
-  width: 100%;
-  box-sizing: border-box;
-  margin-bottom: 8px;
-  padding: 6px 8px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-caption);
-  background: var(--color-bg-subtle);
-  color: var(--color-text-primary);
-}
-.add-issue-filter-search:focus {
-  outline: none;
-  border-color: var(--color-border-strong);
-  background: var(--color-bg-base);
-}
-.add-issue-filter-search--nested {
-  margin-top: 6px;
-  margin-bottom: 6px;
-}
-.add-issue-filter-cluster {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 8px;
-  min-width: 0;
-}
-.add-issue-filter-sub {
-  order: -1;
-  flex: 0 0 min(220px, 42vw);
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-subtle);
-  box-sizing: border-box;
-}
-.add-issue-filter-sub-label {
-  display: block;
-  margin-bottom: 4px;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--color-text-secondary);
-}
-.add-issue-filter-main {
-  flex: 1;
-  min-width: 0;
-}
-.add-issue-filter-dim-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.add-issue-filter-dim {
-  margin-bottom: 2px;
-  border-radius: var(--radius-sm);
-}
-.add-issue-filter-dim.active {
-  background: var(--color-bg-hover);
-}
-.add-issue-filter-dim-btn {
+
+.filter-menu-search-wrap {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 8px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-caption);
-  cursor: pointer;
-  text-align: left;
-}
-.add-issue-filter-dim-btn:hover {
-  background: var(--color-bg-hover);
-}
-.dim-icon {
-  flex-shrink: 0;
-  color: var(--color-text-muted);
-}
-.dim-label {
-  flex: 1;
-  min-width: 0;
-}
-.chevron {
-  flex-shrink: 0;
-  color: var(--color-text-muted);
-  opacity: 0.7;
-}
-.add-issue-filter-hint {
-  margin: 6px 0 0;
-  font-size: 10px;
-  line-height: 1.45;
-  color: var(--color-text-muted);
-}
-.add-issue-filter-error {
-  margin: 6px 0 0;
-  font-size: var(--font-size-caption);
-  color: var(--color-danger, #c00);
-}
-.add-issue-filter-label-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 200px;
-  overflow: auto;
-}
-.add-issue-filter-label-row {
-  margin: 0;
-}
-.add-issue-filter-label-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  font-size: var(--font-size-caption);
-  cursor: pointer;
-  color: var(--color-text-primary);
-}
-.btn-clear-issue-filters {
-  width: 100%;
-  margin-top: 8px;
   padding: 6px 10px;
-  font-size: var(--font-size-caption);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-base);
-  color: var(--color-text-secondary);
-  cursor: pointer;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
-.btn-clear-issue-filters:hover {
+
+.filter-menu-search {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.filter-menu-search::placeholder {
+  color: var(--color-text-muted);
+}
+
+.filter-menu-kbd {
+  padding: 2px 5px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--color-text-muted);
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 3px;
+}
+
+.filter-menu-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.filter-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.filter-menu-item:hover,
+.filter-menu-item.active {
   background: var(--color-bg-hover);
+}
+
+.filter-menu-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.filter-menu-label {
+  flex: 1;
+  font-size: 13px;
   color: var(--color-text-primary);
 }
-:deep(.custom-select) {
-  display: block;
-  width: 100%;
+
+.filter-menu-arrow {
+  width: 12px;
+  height: 12px;
+  color: var(--color-text-muted);
+  opacity: 0.6;
 }
-:deep(.custom-select-trigger) {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
+
+.filter-submenu {
+  position: fixed;
+  min-width: 180px;
+  max-width: 240px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 9999;
 }
-:deep(.trigger-label) {
-  min-width: 0;
+
+.filter-submenu-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.filter-submenu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.filter-submenu-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.filter-submenu-item.selected {
+  background: var(--color-accent-muted);
+}
+
+.filter-submenu-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.filter-submenu-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
+  font-size: 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.filter-submenu-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.filter-submenu-label {
+  flex: 1;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.filter-submenu-check {
+  width: 14px;
+  height: 14px;
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.filter-submenu-empty,
+.filter-submenu-error {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.filter-submenu-error {
+  color: var(--color-danger, #c00);
 }
 </style>

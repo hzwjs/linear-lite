@@ -12,24 +12,11 @@ import type { CustomSelectOption } from '../components/ui/CustomSelect.vue'
 import { userApi } from '../services/api/user'
 import type { User } from '../types/domain'
 import {
-  PriorityUrgentIcon,
-  PriorityHighIcon,
-  PriorityMediumIcon,
-  PriorityLowIcon
-} from '../components/icons/PriorityIcons'
-import {
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
-  Circle,
-  CircleDashed,
-  CircleX,
-  CheckCircle,
-  Copy,
-  Eye,
   Filter,
   X,
   LayoutList,
-  Loader2,
   Plus,
   Download,
   User as UserIcon
@@ -250,23 +237,6 @@ const showEmptyGroups = computed({
   set: (value) => viewModeStore.setShowEmptyGroups(value)
 })
 
-const filterStatusOptions = computed<CustomSelectOption[]>(() => [
-  { value: null, label: t('boardView.allStatus') },
-  { value: 'backlog', label: getStatusLabel('backlog'), icon: CircleDashed },
-  { value: 'todo', label: getStatusLabel('todo'), icon: Circle },
-  { value: 'in_progress', label: getStatusLabel('in_progress'), icon: Loader2 },
-  { value: 'in_review', label: getStatusLabel('in_review'), icon: Eye },
-  { value: 'done', label: getStatusLabel('done'), icon: CheckCircle },
-  { value: 'canceled', label: getStatusLabel('canceled'), icon: CircleX },
-  { value: 'duplicate', label: getStatusLabel('duplicate'), icon: Copy }
-])
-const filterPriorityOptions = computed<CustomSelectOption[]>(() => [
-  { value: null, label: t('boardView.allPriorities') },
-  { value: 'urgent', label: getPriorityLabel('urgent'), icon: PriorityUrgentIcon },
-  { value: 'high', label: getPriorityLabel('high'), icon: PriorityHighIcon },
-  { value: 'medium', label: getPriorityLabel('medium'), icon: PriorityMediumIcon },
-  { value: 'low', label: getPriorityLabel('low'), icon: PriorityLowIcon }
-])
 const filterAssigneeOptions = computed<CustomSelectOption[]>(() => {
   const sorted = [...users.value].sort((a, b) =>
     a.username.localeCompare(b.username, undefined, { sensitivity: 'base' })
@@ -708,7 +678,7 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
           <div
             v-show="filterPopoverOpen"
             ref="filterPopoverRef"
-            class="popover popover-filter popover-filter-wide"
+            class="popover popover-filter"
             role="dialog"
             :aria-label="t('boardView.filterOptions')"
             @keydown.capture="onFilterPanelKeydownCapture"
@@ -717,11 +687,12 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
               ref="addIssueFilterMenuRef"
               :project-id="projectStore.activeProjectId"
               :users="users"
-              :filter-status-options="filterStatusOptions"
-              :filter-priority-options="filterPriorityOptions"
-              :filter-assignee-options="filterAssigneeOptions"
-              @clear="clearIssueFiltersPanel"
             />
+            <div v-if="activeFilterCount > 0" class="popover-section popover-section-clear">
+              <button type="button" class="btn-clear-issue-filters" @click="clearIssueFiltersPanel">
+                {{ t('boardView.clearIssueFilters') }}
+              </button>
+            </div>
             <div class="popover-divider" role="separator" />
             <h3 class="popover-section-title">{{ t('boardView.viewSectionTitle') }}</h3>
             <div class="popover-section">
@@ -1099,11 +1070,13 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
   z-index: 50;
 }
 .popover-filter {
-  width: min(248px, calc(100vw - 24px));
+  width: min(220px, calc(100vw - 24px));
   box-sizing: border-box;
+  padding: 0;
 }
-.popover-filter-wide {
-  width: min(520px, calc(100vw - 24px));
+.popover-filter .popover-section-clear {
+  padding: 6px 10px;
+  border-top: 1px solid var(--color-border-subtle);
 }
 .popover-filter .popover-section {
   min-width: 0;
