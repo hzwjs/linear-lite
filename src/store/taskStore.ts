@@ -26,6 +26,8 @@ export const useTaskStore = defineStore('taskStore', () => {
   const filterAssignee = ref<AssigneeFilter>(null)
   /** 选中系统用户负责人时其 username 的小写形式，用于匹配仅 assigneeDisplayName 的导入任务 */
   const filterAssigneeUsernameNorm = ref<string | null>(null)
+  /** 按标签 id 多选筛选，语义为 OR（至少命中其一） */
+  const filterLabelIds = ref<number[]>([])
 
   const currentTask = computed(() => {
     if (!currentTaskId.value) return null
@@ -57,6 +59,11 @@ export const useTaskStore = defineStore('taskStore', () => {
         const ext = t.assigneeDisplayName?.trim().toLowerCase()
         return nameNorm != null && ext != null && ext === nameNorm
       })
+    }
+    const labelIds = filterLabelIds.value
+    if (labelIds.length > 0) {
+      const wanted = new Set(labelIds)
+      result = result.filter((t) => t.labels?.some((l) => wanted.has(l.id)))
     }
     return result
   })
@@ -286,11 +293,23 @@ export const useTaskStore = defineStore('taskStore', () => {
     }
   }
 
+  function toggleFilterLabelId(labelId: number) {
+    const cur = filterLabelIds.value
+    const i = cur.indexOf(labelId)
+    if (i === -1) filterLabelIds.value = [...cur, labelId]
+    else filterLabelIds.value = cur.filter((id) => id !== labelId)
+  }
+
+  function removeFilterLabelId(labelId: number) {
+    filterLabelIds.value = filterLabelIds.value.filter((id) => id !== labelId)
+  }
+
   function clearIssueFilters() {
     filterStatus.value = null
     filterPriority.value = null
     filterAssignee.value = null
     filterAssigneeUsernameNorm.value = null
+    filterLabelIds.value = []
   }
 
   return {
@@ -303,6 +322,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     filterPriority,
     filterAssignee,
     filterAssigneeUsernameNorm,
+    filterLabelIds,
     currentTask,
     filteredTasks,
     groupedTasks,
@@ -315,6 +335,8 @@ export const useTaskStore = defineStore('taskStore', () => {
     updateTask,
     transitionTask,
     stripProjectLabelFromTasks,
+    toggleFilterLabelId,
+    removeFilterLabelId,
     clearIssueFilters
   }
 })

@@ -124,4 +124,53 @@ describe('taskStore', () => {
     expect(row0()!.title).toBe('New')
     expect(row0()!.updatedAt).toBe(200)
   })
+
+  const baseTask = (overrides: Partial<Task> & Pick<Task, 'id'>): Task => ({
+    title: 'T',
+    status: 'todo',
+    priority: 'medium',
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides
+  })
+
+  it('filters by single label id (OR)', () => {
+    const store = useTaskStore()
+    store.tasks = [
+      baseTask({ id: 'A', labels: [{ id: 1, name: 'Bug' }] }),
+      baseTask({ id: 'B', labels: [{ id: 2, name: 'Feat' }] }),
+      baseTask({ id: 'C', labels: [] })
+    ]
+    store.filterLabelIds = [1]
+    expect(store.filteredTasks.map((t) => t.id)).toEqual(['A'])
+  })
+
+  it('filters by multiple label ids as OR', () => {
+    const store = useTaskStore()
+    store.tasks = [
+      baseTask({ id: 'A', labels: [{ id: 1, name: 'Bug' }] }),
+      baseTask({ id: 'B', labels: [{ id: 2, name: 'Feat' }] }),
+      baseTask({ id: 'C', labels: [] })
+    ]
+    store.filterLabelIds = [1, 2]
+    expect(new Set(store.filteredTasks.map((t) => t.id))).toEqual(new Set(['A', 'B']))
+  })
+
+  it('combines label filter with status', () => {
+    const store = useTaskStore()
+    store.tasks = [
+      baseTask({ id: 'A', status: 'todo', labels: [{ id: 1, name: 'Bug' }] }),
+      baseTask({ id: 'B', status: 'done', labels: [{ id: 1, name: 'Bug' }] })
+    ]
+    store.filterLabelIds = [1]
+    store.filterStatus = 'todo'
+    expect(store.filteredTasks.map((t) => t.id)).toEqual(['A'])
+  })
+
+  it('clearIssueFilters clears label ids', () => {
+    const store = useTaskStore()
+    store.filterLabelIds = [1]
+    store.clearIssueFilters()
+    expect(store.filterLabelIds).toEqual([])
+  })
 })
