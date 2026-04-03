@@ -157,6 +157,9 @@ const zhCN = {
     labelsLoading: '加载标签…',
     labels: '标签',
     labelsCount: '个标签',
+    statusCount: '个状态',
+    priorityCount: '个优先级',
+    assigneeCount: '位负责人',
     filterOp: {
       is: 'is',
       includeAnyOf: 'include any of'

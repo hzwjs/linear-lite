@@ -2,8 +2,8 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Task, Status, Priority } from '../types/domain'
 
-/** 清单/看板处理人筛选：null 全部；unassigned 无负责人展示；number 为 assigneeId */
-export type AssigneeFilter = null | 'unassigned' | number
+/** 处理人筛选项：'unassigned' 无负责人；number 为 assigneeId */
+export type AssigneeFilterItem = 'unassigned' | number
 import { taskApi } from '../services/api/task'
 import type { TaskLabelWriteItem } from '../services/api/types'
 import { useProjectStore } from './projectStore'
@@ -21,11 +21,14 @@ export const useTaskStore = defineStore('taskStore', () => {
 
   const currentTaskId = ref<string | null>(null)
   const searchQuery = ref('')
-  const filterStatus = ref<Status | null>(null)
-  const filterPriority = ref<Priority | null>(null)
-  const filterAssignee = ref<AssigneeFilter>(null)
-  /** 选中系统用户负责人时其 username 的小写形式，用于匹配仅 assigneeDisplayName 的导入任务 */
-  const filterAssigneeUsernameNorm = ref<string | null>(null)
+  /** 按状态多选筛选，语义为 OR */
+  const filterStatusList = ref<Status[]>([])
+  /** 按优先级多选筛选，语义为 OR */
+  const filterPriorityList = ref<Priority[]>([])
+  /** 按负责人多选筛选，语义为 OR */
+  const filterAssigneeList = ref<AssigneeFilterItem[]>([])
+  /** 选中系统用户负责人时其 username 的小写形式映射，用于匹配仅 assigneeDisplayName 的导入任务 */
+  const filterAssigneeUsernameNormMap = ref<Map<number, string>>(new Map())
   /** 按标签 id 多选筛选，语义为 OR（至少命中其一） */
   const filterLabelIds = ref<number[]>([])
 
@@ -40,24 +43,36 @@ export const useTaskStore = defineStore('taskStore', () => {
       const q = searchQuery.value.toLowerCase()
       result = result.filter((t) => t.title.toLowerCase().includes(q))
     }
-    if (filterStatus.value) {
-      result = result.filter((t) => t.status === filterStatus.value)
+    const statusList = filterStatusList.value
+    if (statusList.length > 0) {
+      const wanted = new Set(statusList)
+      result = result.filter((t) => wanted.has(t.status))
     }
-    if (filterPriority.value) {
-      result = result.filter((t) => t.priority === filterPriority.value)
+    const priorityList = filterPriorityList.value
+    if (priorityList.length > 0) {
+      const wanted = new Set(priorityList)
+      result = result.filter((t) => wanted.has(t.priority))
     }
-    const fa = filterAssignee.value
-    if (fa === 'unassigned') {
-      result = result.filter(
-        (t) => t.assigneeId == null && !(t.assigneeDisplayName?.trim())
-      )
-    } else if (fa !== null && typeof fa === 'number') {
-      const nameNorm = filterAssigneeUsernameNorm.value
+    const assigneeList = filterAssigneeList.value
+    if (assigneeList.length > 0) {
+      const hasUnassigned = assigneeList.includes('unassigned')
+      const userIds = new Set(assigneeList.filter((x): x is number => typeof x === 'number'))
+      const nameNormMap = filterAssigneeUsernameNormMap.value
       result = result.filter((t) => {
-        if (Number(t.assigneeId) === fa) return true
-        if (t.assigneeId != null) return false
-        const ext = t.assigneeDisplayName?.trim().toLowerCase()
-        return nameNorm != null && ext != null && ext === nameNorm
+        if (hasUnassigned && t.assigneeId == null && !(t.assigneeDisplayName?.trim())) {
+          return true
+        }
+        if (t.assigneeId != null && userIds.has(Number(t.assigneeId))) {
+          return true
+        }
+        if (t.assigneeId == null && t.assigneeDisplayName?.trim()) {
+          const ext = t.assigneeDisplayName.trim().toLowerCase()
+          for (const uid of userIds) {
+            const norm = nameNormMap.get(uid)
+            if (norm && ext === norm) return true
+          }
+        }
+        return false
       })
     }
     const labelIds = filterLabelIds.value
@@ -294,6 +309,36 @@ export const useTaskStore = defineStore('taskStore', () => {
     filterLabelIds.value = filterLabelIds.value.filter((id) => id !== labelId)
   }
 
+  function toggleFilterStatus(status: Status) {
+    const cur = filterStatusList.value
+    const i = cur.indexOf(status)
+    if (i === -1) filterStatusList.value = [...cur, status]
+    else filterStatusList.value = cur.filter((s) => s !== status)
+  }
+
+  function toggleFilterPriority(priority: Priority) {
+    const cur = filterPriorityList.value
+    const i = cur.indexOf(priority)
+    if (i === -1) filterPriorityList.value = [...cur, priority]
+    else filterPriorityList.value = cur.filter((p) => p !== priority)
+  }
+
+  function toggleFilterAssignee(item: AssigneeFilterItem, usernameNorm?: string) {
+    const cur = filterAssigneeList.value
+    const i = cur.indexOf(item)
+    if (i === -1) {
+      filterAssigneeList.value = [...cur, item]
+      if (typeof item === 'number' && usernameNorm) {
+        filterAssigneeUsernameNormMap.value.set(item, usernameNorm)
+      }
+    } else {
+      filterAssigneeList.value = cur.filter((x) => x !== item)
+      if (typeof item === 'number') {
+        filterAssigneeUsernameNormMap.value.delete(item)
+      }
+    }
+  }
+
   function toggleFilterLabelId(labelId: number) {
     const cur = filterLabelIds.value
     const i = cur.indexOf(labelId)
@@ -306,10 +351,10 @@ export const useTaskStore = defineStore('taskStore', () => {
   }
 
   function clearIssueFilters() {
-    filterStatus.value = null
-    filterPriority.value = null
-    filterAssignee.value = null
-    filterAssigneeUsernameNorm.value = null
+    filterStatusList.value = []
+    filterPriorityList.value = []
+    filterAssigneeList.value = []
+    filterAssigneeUsernameNormMap.value = new Map()
     filterLabelIds.value = []
   }
 
@@ -319,10 +364,10 @@ export const useTaskStore = defineStore('taskStore', () => {
     error,
     currentTaskId,
     searchQuery,
-    filterStatus,
-    filterPriority,
-    filterAssignee,
-    filterAssigneeUsernameNorm,
+    filterStatusList,
+    filterPriorityList,
+    filterAssigneeList,
+    filterAssigneeUsernameNormMap,
     filterLabelIds,
     currentTask,
     filteredTasks,
@@ -336,6 +381,9 @@ export const useTaskStore = defineStore('taskStore', () => {
     updateTask,
     transitionTask,
     stripProjectLabelFromTasks,
+    toggleFilterStatus,
+    toggleFilterPriority,
+    toggleFilterAssignee,
     toggleFilterLabelId,
     removeFilterLabelId,
     clearIssueFilters

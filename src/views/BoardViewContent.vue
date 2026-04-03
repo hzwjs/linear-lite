@@ -51,9 +51,9 @@ const taskGroups = computed(() =>
   buildTaskGroups(store.filteredTasks, viewModeStore.viewConfig, props.users, {
     searchActive: store.searchQuery.trim().length > 0,
     taskFiltersActive:
-      store.filterStatus != null ||
-      store.filterPriority != null ||
-      store.filterAssignee != null ||
+      store.filterStatusList.length > 0 ||
+      store.filterPriorityList.length > 0 ||
+      store.filterAssigneeList.length > 0 ||
       store.filterLabelIds.length > 0
   })
 )
@@ -96,9 +96,9 @@ const adjacentTaskIds = computed(() =>
 const emptyFilterHint = computed(() => {
   const hasSearch = store.searchQuery.trim().length > 0
   const hasIssueFilters =
-    store.filterStatus != null ||
-    store.filterPriority != null ||
-    store.filterAssignee != null ||
+    store.filterStatusList.length > 0 ||
+    store.filterPriorityList.length > 0 ||
+    store.filterAssigneeList.length > 0 ||
     store.filterLabelIds.length > 0
   if (hasSearch && hasIssueFilters) return t('boardView.noTasksMatchSearchAndFilters')
   if (hasSearch) return t('boardView.noTasksMatchSearchOnly')

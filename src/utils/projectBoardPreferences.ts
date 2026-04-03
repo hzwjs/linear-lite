@@ -4,13 +4,20 @@ import { DEFAULT_VIEW_CONFIG, normalizeViewConfig } from './viewPreference'
 
 const STORAGE_KEY = 'linear-lite-project-board-v1'
 
+/** 处理人筛选项 */
+export type AssigneeFilterItem = 'unassigned' | number
+
 export interface TaskFilterSnapshot {
   searchQuery: string
-  filterStatus: Status | null
-  filterPriority: Priority | null
-  filterAssignee: null | 'unassigned' | number
-  filterAssigneeUsernameNorm: string | null
-  /** 按标签 id 多选筛选（OR），持久化 */
+  /** 按状态多选筛选（OR） */
+  filterStatusList: Status[]
+  /** 按优先级多选筛选（OR） */
+  filterPriorityList: Priority[]
+  /** 按负责人多选筛选（OR） */
+  filterAssigneeList: AssigneeFilterItem[]
+  /** 选中系统用户负责人时其 username 的小写形式映射 */
+  filterAssigneeUsernameNormMap: Record<number, string>
+  /** 按标签 id 多选筛选（OR） */
   filterLabelIds: number[]
 }
 
@@ -40,15 +47,46 @@ function isPriority(v: unknown): v is Priority {
   return v === 'low' || v === 'medium' || v === 'high' || v === 'urgent'
 }
 
-function parseAssigneeFilter(v: unknown): TaskFilterSnapshot['filterAssignee'] {
-  if (v === 'unassigned') return 'unassigned'
-  if (v === null || v === undefined) return null
-  if (typeof v === 'number' && Number.isFinite(v)) return v
-  if (typeof v === 'string') {
-    const n = Number(v)
-    return Number.isFinite(n) ? n : null
+function parseStatusList(raw: unknown): Status[] {
+  if (!Array.isArray(raw)) return []
+  return raw.filter(isStatus)
+}
+
+function parsePriorityList(raw: unknown): Priority[] {
+  if (!Array.isArray(raw)) return []
+  return raw.filter(isPriority)
+}
+
+function parseAssigneeList(raw: unknown): AssigneeFilterItem[] {
+  if (!Array.isArray(raw)) return []
+  const out: AssigneeFilterItem[] = []
+  for (const x of raw) {
+    if (x === 'unassigned') {
+      out.push('unassigned')
+      continue
+    }
+    if (typeof x === 'number' && Number.isFinite(x)) {
+      out.push(x)
+      continue
+    }
+    if (typeof x === 'string') {
+      const n = Number(x)
+      if (Number.isFinite(n)) out.push(n)
+    }
   }
-  return null
+  return out
+}
+
+function parseAssigneeUsernameNormMap(raw: unknown): Record<number, string> {
+  if (!raw || typeof raw !== 'object') return {}
+  const out: Record<number, string> = {}
+  for (const [k, v] of Object.entries(raw)) {
+    const n = Number(k)
+    if (Number.isFinite(n) && typeof v === 'string') {
+      out[n] = v
+    }
+  }
+  return out
 }
 
 function parseFilterLabelIds(raw: unknown): number[] {
@@ -71,21 +109,20 @@ function parseFilters(raw: unknown): TaskFilterSnapshot {
   if (!raw || typeof raw !== 'object') {
     return {
       searchQuery: '',
-      filterStatus: null,
-      filterPriority: null,
-      filterAssignee: null,
-      filterAssigneeUsernameNorm: null,
+      filterStatusList: [],
+      filterPriorityList: [],
+      filterAssigneeList: [],
+      filterAssigneeUsernameNormMap: {},
       filterLabelIds: []
     }
   }
-  const f = raw as Partial<TaskFilterSnapshot>
+  const f = raw as Record<string, unknown>
   return {
     searchQuery: typeof f.searchQuery === 'string' ? f.searchQuery : '',
-    filterStatus: isStatus(f.filterStatus) ? f.filterStatus : null,
-    filterPriority: isPriority(f.filterPriority) ? f.filterPriority : null,
-    filterAssignee: parseAssigneeFilter(f.filterAssignee),
-    filterAssigneeUsernameNorm:
-      typeof f.filterAssigneeUsernameNorm === 'string' ? f.filterAssigneeUsernameNorm : null,
+    filterStatusList: parseStatusList(f.filterStatusList),
+    filterPriorityList: parsePriorityList(f.filterPriorityList),
+    filterAssigneeList: parseAssigneeList(f.filterAssigneeList),
+    filterAssigneeUsernameNormMap: parseAssigneeUsernameNormMap(f.filterAssigneeUsernameNormMap),
     filterLabelIds: parseFilterLabelIds(f.filterLabelIds)
   }
 }

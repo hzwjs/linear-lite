@@ -132,31 +132,33 @@ const priorityOptions: { value: Priority; icon: Component }[] = [
 ]
 
 function selectStatus(val: Status) {
-  store.filterStatus = store.filterStatus === val ? null : val
+  store.toggleFilterStatus(val)
 }
 
 function selectPriority(val: Priority) {
-  store.filterPriority = store.filterPriority === val ? null : val
+  store.toggleFilterPriority(val)
 }
 
 function selectAssignee(val: number | 'unassigned') {
   if (val === 'unassigned') {
-    if (store.filterAssignee === 'unassigned') {
-      store.filterAssignee = null
-    } else {
-      store.filterAssignee = 'unassigned'
-    }
-    store.filterAssigneeUsernameNorm = null
+    store.toggleFilterAssignee('unassigned')
   } else {
-    if (store.filterAssignee === val) {
-      store.filterAssignee = null
-      store.filterAssigneeUsernameNorm = null
-    } else {
-      store.filterAssignee = val
-      const u = props.users.find((x) => x.id === val)
-      store.filterAssigneeUsernameNorm = u?.username?.trim().toLowerCase() ?? null
-    }
+    const u = props.users.find((x) => x.id === val)
+    const norm = u?.username?.trim().toLowerCase() ?? undefined
+    store.toggleFilterAssignee(val, norm)
   }
+}
+
+function isStatusChecked(val: Status): boolean {
+  return store.filterStatusList.includes(val)
+}
+
+function isPriorityChecked(val: Priority): boolean {
+  return store.filterPriorityList.includes(val)
+}
+
+function isAssigneeChecked(val: number | 'unassigned'): boolean {
+  return store.filterAssigneeList.includes(val)
 }
 
 const labelsSearch = ref('')
@@ -294,12 +296,12 @@ defineExpose({
               v-for="opt in statusOptions"
               :key="opt.value"
               class="filter-submenu-item"
-              :class="{ selected: store.filterStatus === opt.value }"
+              :class="{ selected: isStatusChecked(opt.value) }"
               @click="selectStatus(opt.value)"
             >
               <component :is="opt.icon" class="filter-submenu-icon" />
               <span class="filter-submenu-label">{{ getStatusLabel(opt.value) }}</span>
-              <Check v-if="store.filterStatus === opt.value" class="filter-submenu-check" />
+              <Check v-if="isStatusChecked(opt.value)" class="filter-submenu-check" />
             </li>
           </ul>
         </template>
@@ -310,12 +312,12 @@ defineExpose({
               v-for="opt in priorityOptions"
               :key="opt.value"
               class="filter-submenu-item"
-              :class="{ selected: store.filterPriority === opt.value }"
+              :class="{ selected: isPriorityChecked(opt.value) }"
               @click="selectPriority(opt.value)"
             >
               <component :is="opt.icon" class="filter-submenu-icon" />
               <span class="filter-submenu-label">{{ getPriorityLabel(opt.value) }}</span>
-              <Check v-if="store.filterPriority === opt.value" class="filter-submenu-check" />
+              <Check v-if="isPriorityChecked(opt.value)" class="filter-submenu-check" />
             </li>
           </ul>
         </template>
@@ -324,23 +326,23 @@ defineExpose({
           <ul class="filter-submenu-list">
             <li
               class="filter-submenu-item"
-              :class="{ selected: store.filterAssignee === 'unassigned' }"
+              :class="{ selected: isAssigneeChecked('unassigned') }"
               @click="selectAssignee('unassigned')"
             >
               <UserIcon class="filter-submenu-icon" />
               <span class="filter-submenu-label">{{ t('common.unassigned') }}</span>
-              <Check v-if="store.filterAssignee === 'unassigned'" class="filter-submenu-check" />
+              <Check v-if="isAssigneeChecked('unassigned')" class="filter-submenu-check" />
             </li>
             <li
               v-for="user in users"
               :key="user.id"
               class="filter-submenu-item"
-              :class="{ selected: store.filterAssignee === user.id }"
+              :class="{ selected: isAssigneeChecked(user.id) }"
               @click="selectAssignee(user.id)"
             >
               <span class="filter-submenu-avatar">{{ user.username.charAt(0).toUpperCase() }}</span>
               <span class="filter-submenu-label">{{ user.username }}</span>
-              <Check v-if="store.filterAssignee === user.id" class="filter-submenu-check" />
+              <Check v-if="isAssigneeChecked(user.id)" class="filter-submenu-check" />
             </li>
           </ul>
         </template>

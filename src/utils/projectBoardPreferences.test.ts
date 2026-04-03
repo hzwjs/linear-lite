@@ -20,10 +20,10 @@ describe('projectBoardPreferences', () => {
     writeProjectBoard(1, {
       filters: {
         searchQuery: '',
-        filterStatus: null,
-        filterPriority: null,
-        filterAssignee: null,
-        filterAssigneeUsernameNorm: null,
+        filterStatusList: [],
+        filterPriorityList: [],
+        filterAssigneeList: [],
+        filterAssigneeUsernameNormMap: {},
         filterLabelIds: [1, 2]
       },
       view: viewCopy()
@@ -40,10 +40,10 @@ describe('projectBoardPreferences', () => {
           '1': {
             filters: {
               searchQuery: '',
-              filterStatus: null,
-              filterPriority: null,
-              filterAssignee: null,
-              filterAssigneeUsernameNorm: null
+              filterStatusList: [],
+              filterPriorityList: [],
+              filterAssigneeList: [],
+              filterAssigneeUsernameNormMap: {}
             },
             view: DEFAULT_VIEW_CONFIG
           }
@@ -62,10 +62,10 @@ describe('projectBoardPreferences', () => {
           '1': {
             filters: {
               searchQuery: '',
-              filterStatus: null,
-              filterPriority: null,
-              filterAssignee: null,
-              filterAssigneeUsernameNorm: null,
+              filterStatusList: [],
+              filterPriorityList: [],
+              filterAssigneeList: [],
+              filterAssigneeUsernameNormMap: {},
               filterLabelIds: [1, '2', 'bad', null, 3]
             },
             view: DEFAULT_VIEW_CONFIG

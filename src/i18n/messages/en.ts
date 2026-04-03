@@ -157,6 +157,9 @@ const en = {
     labelsLoading: 'Loading labels…',
     labels: 'Labels',
     labelsCount: 'labels',
+    statusCount: 'statuses',
+    priorityCount: 'priorities',
+    assigneeCount: 'assignees',
     filterOp: {
       is: 'is',
       includeAnyOf: 'include any of'

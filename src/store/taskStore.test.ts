@@ -163,7 +163,7 @@ describe('taskStore', () => {
       baseTask({ id: 'B', status: 'done', labels: [{ id: 1, name: 'Bug' }] })
     ]
     store.filterLabelIds = [1]
-    store.filterStatus = 'todo'
+    store.filterStatusList = ['todo']
     expect(store.filteredTasks.map((t) => t.id)).toEqual(['A'])
   })
 

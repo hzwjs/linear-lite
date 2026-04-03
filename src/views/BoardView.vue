@@ -64,25 +64,32 @@ const searchQuery = computed({
 })
 const filterAssigneeModel = computed({
   get(): string | number | null {
-    return store.filterAssignee as string | number | null
+    const list = store.filterAssigneeList
+    if (list.length === 0) return null
+    return list[0] as string | number
   },
   set(val: string | number | null) {
     if (val === 'unassigned') {
-      store.filterAssignee = 'unassigned'
-      store.filterAssigneeUsernameNorm = null
+      store.filterAssigneeList = ['unassigned']
+      store.filterAssigneeUsernameNormMap = new Map()
     } else if (val === null) {
-      store.filterAssignee = null
-      store.filterAssigneeUsernameNorm = null
+      store.filterAssigneeList = []
+      store.filterAssigneeUsernameNormMap = new Map()
     } else if (typeof val === 'number' && Number.isFinite(val)) {
-      store.filterAssignee = val
+      store.filterAssigneeList = [val]
       syncAssigneeFilterMeta()
     } else if (typeof val === 'string') {
       const n = Number(val)
-      store.filterAssignee = Number.isFinite(n) ? n : null
-      syncAssigneeFilterMeta()
+      if (Number.isFinite(n)) {
+        store.filterAssigneeList = [n]
+        syncAssigneeFilterMeta()
+      } else {
+        store.filterAssigneeList = []
+        store.filterAssigneeUsernameNormMap = new Map()
+      }
     } else {
-      store.filterAssignee = null
-      store.filterAssigneeUsernameNorm = null
+      store.filterAssigneeList = []
+      store.filterAssigneeUsernameNormMap = new Map()
     }
   }
 })
@@ -92,13 +99,17 @@ let boardPrefsSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 function buildBoardSnapshot(): ProjectBoardSnapshot {
   const vc = viewModeStore.viewConfig
+  const normMapObj: Record<number, string> = {}
+  store.filterAssigneeUsernameNormMap.forEach((v, k) => {
+    normMapObj[k] = v
+  })
   return {
     filters: {
       searchQuery: store.searchQuery,
-      filterStatus: store.filterStatus,
-      filterPriority: store.filterPriority,
-      filterAssignee: store.filterAssignee,
-      filterAssigneeUsernameNorm: store.filterAssigneeUsernameNorm,
+      filterStatusList: [...store.filterStatusList],
+      filterPriorityList: [...store.filterPriorityList],
+      filterAssigneeList: [...store.filterAssigneeList],
+      filterAssigneeUsernameNormMap: normMapObj,
       filterLabelIds: [...store.filterLabelIds]
     },
     view: {
@@ -112,10 +123,12 @@ function applyBoardSnapshot(snap: ProjectBoardSnapshot) {
   applyingBoardPrefs.value = true
   try {
     store.searchQuery = snap.filters.searchQuery
-    store.filterStatus = snap.filters.filterStatus
-    store.filterPriority = snap.filters.filterPriority
-    store.filterAssignee = snap.filters.filterAssignee
-    store.filterAssigneeUsernameNorm = snap.filters.filterAssigneeUsernameNorm
+    store.filterStatusList = [...snap.filters.filterStatusList]
+    store.filterPriorityList = [...snap.filters.filterPriorityList]
+    store.filterAssigneeList = [...snap.filters.filterAssigneeList]
+    store.filterAssigneeUsernameNormMap = new Map(
+      Object.entries(snap.filters.filterAssigneeUsernameNormMap).map(([k, v]) => [Number(k), v])
+    )
     store.filterLabelIds = [...snap.filters.filterLabelIds]
     viewModeStore.hydrateViewConfig(snap.view)
   } finally {
@@ -149,29 +162,31 @@ function scheduleSaveBoardPrefs() {
 }
 
 function syncAssigneeFilterMeta() {
-  const fa = store.filterAssignee
-  if (typeof fa === 'number') {
-    const u = users.value.find((x) => x.id === fa)
-    store.filterAssigneeUsernameNorm = u?.username?.trim().toLowerCase() ?? null
-  } else {
-    store.filterAssigneeUsernameNorm = null
+  const list = store.filterAssigneeList
+  const newMap = new Map<number, string>()
+  for (const item of list) {
+    if (typeof item === 'number') {
+      const u = users.value.find((x) => x.id === item)
+      if (u) newMap.set(item, u.username.trim().toLowerCase())
+    }
   }
+  store.filterAssigneeUsernameNormMap = newMap
 }
 
 const activeFilterCount = computed(() => {
   let n = 0
-  if (store.filterStatus != null) n++
-  if (store.filterPriority != null) n++
-  if (store.filterAssignee != null) n++
+  if (store.filterStatusList.length > 0) n++
+  if (store.filterPriorityList.length > 0) n++
+  if (store.filterAssigneeList.length > 0) n++
   if (store.filterLabelIds.length > 0) n++
   return n
 })
 
 const hasActiveFilters = computed(
   () =>
-    store.filterStatus != null ||
-    store.filterPriority != null ||
-    store.filterAssignee != null ||
+    store.filterStatusList.length > 0 ||
+    store.filterPriorityList.length > 0 ||
+    store.filterAssigneeList.length > 0 ||
     store.filterLabelIds.length > 0
 )
 
@@ -193,18 +208,31 @@ function clearAllFilters() {
   store.clearIssueFilters()
 }
 
-function assigneeFilterChipLabel(): string {
-  const fa = store.filterAssignee
-  if (fa === 'unassigned') return t('common.unassigned')
-  if (typeof fa === 'number') {
-    return users.value.find((u) => u.id === fa)?.username ?? String(fa)
+const statusFilterLabel = computed(() => {
+  const list = store.filterStatusList
+  if (list.length === 1 && list[0]) return getStatusLabel(list[0])
+  return `${list.length} ${t('boardView.statusCount')}`
+})
+
+const priorityFilterLabel = computed(() => {
+  const list = store.filterPriorityList
+  if (list.length === 1 && list[0]) return getPriorityLabel(list[0])
+  return `${list.length} ${t('boardView.priorityCount')}`
+})
+
+const assigneeFilterLabel = computed(() => {
+  const list = store.filterAssigneeList
+  if (list.length === 1) {
+    const item = list[0]
+    if (item === 'unassigned') return t('common.unassigned')
+    return users.value.find((u) => u.id === item)?.username ?? String(item)
   }
-  return ''
-}
+  return `${list.length} ${t('boardView.assigneeCount')}`
+})
 
 function clearAssigneeFilter() {
-  store.filterAssignee = null
-  store.filterAssigneeUsernameNorm = null
+  store.filterAssigneeList = []
+  store.filterAssigneeUsernameNormMap = new Map()
 }
 
 const filterButtonAria = computed(() =>
@@ -351,10 +379,10 @@ watch(
 watch(
   () => ({
     q: store.searchQuery,
-    fs: store.filterStatus,
-    fp: store.filterPriority,
-    fa: store.filterAssignee,
-    fan: store.filterAssigneeUsernameNorm,
+    fsl: store.filterStatusList,
+    fpl: store.filterPriorityList,
+    fal: store.filterAssigneeList,
+    fanm: store.filterAssigneeUsernameNormMap,
     fl: store.filterLabelIds,
     vc: viewModeStore.viewConfig
   }),
@@ -466,18 +494,18 @@ type ScopeTab = 'all' | 'active' | 'backlog'
 const scopeTab = computed({
   get(): ScopeTab {
     if (viewModeStore.viewConfig.completedVisibility === 'open_only') return 'active'
-    if (store.filterStatus === 'todo') return 'backlog'
+    if (store.filterStatusList.length === 1 && store.filterStatusList[0] === 'todo') return 'backlog'
     return 'all'
   },
   set(tab: ScopeTab) {
     if (tab === 'active') {
-      store.filterStatus = null
+      store.filterStatusList = []
       viewModeStore.setCompletedVisibility('open_only')
     } else if (tab === 'backlog') {
-      store.filterStatus = 'todo'
+      store.filterStatusList = ['todo']
       viewModeStore.setCompletedVisibility('all')
     } else {
-      store.filterStatus = null
+      store.filterStatusList = []
       viewModeStore.setCompletedVisibility('all')
     }
   }
@@ -604,7 +632,7 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
             class="command-btn command-btn-assignee-quick"
             :class="{
               active: assigneeQuickOpen,
-              'has-active-assignee': store.filterAssignee != null
+              'has-active-assignee': store.filterAssigneeList.length > 0
             }"
             :aria-label="t('boardView.assigneeQuickFilter')"
             aria-haspopup="true"
@@ -797,29 +825,29 @@ function onClickOutsideAssigneeQuick(event: MouseEvent) {
 
     <div v-if="hasActiveFilters" class="filter-bar">
       <div class="filter-bar-conditions">
-        <div v-if="store.filterStatus != null" class="filter-condition">
+        <div v-if="store.filterStatusList.length > 0" class="filter-condition">
           <Circle class="filter-condition-icon" />
           <span class="filter-condition-dim">{{ t('common.status') }}</span>
-          <span class="filter-condition-op">{{ t('boardView.filterOp.is') }}</span>
-          <span class="filter-condition-value">{{ getStatusLabel(store.filterStatus) }}</span>
-          <button type="button" class="filter-condition-remove" @click="store.filterStatus = null">
+          <span class="filter-condition-op">{{ t('boardView.filterOp.includeAnyOf') }}</span>
+          <span class="filter-condition-value">{{ statusFilterLabel }}</span>
+          <button type="button" class="filter-condition-remove" @click="store.filterStatusList = []">
             <X class="icon-12" />
           </button>
         </div>
-        <div v-if="store.filterPriority != null" class="filter-condition">
+        <div v-if="store.filterPriorityList.length > 0" class="filter-condition">
           <BarChart3 class="filter-condition-icon" />
           <span class="filter-condition-dim">{{ t('common.priority') }}</span>
-          <span class="filter-condition-op">{{ t('boardView.filterOp.is') }}</span>
-          <span class="filter-condition-value">{{ getPriorityLabel(store.filterPriority) }}</span>
-          <button type="button" class="filter-condition-remove" @click="store.filterPriority = null">
+          <span class="filter-condition-op">{{ t('boardView.filterOp.includeAnyOf') }}</span>
+          <span class="filter-condition-value">{{ priorityFilterLabel }}</span>
+          <button type="button" class="filter-condition-remove" @click="store.filterPriorityList = []">
             <X class="icon-12" />
           </button>
         </div>
-        <div v-if="store.filterAssignee != null" class="filter-condition">
+        <div v-if="store.filterAssigneeList.length > 0" class="filter-condition">
           <UserIcon class="filter-condition-icon" />
           <span class="filter-condition-dim">{{ t('common.assignee') }}</span>
-          <span class="filter-condition-op">{{ t('boardView.filterOp.is') }}</span>
-          <span class="filter-condition-value">{{ assigneeFilterChipLabel() }}</span>
+          <span class="filter-condition-op">{{ t('boardView.filterOp.includeAnyOf') }}</span>
+          <span class="filter-condition-value">{{ assigneeFilterLabel }}</span>
           <button type="button" class="filter-condition-remove" @click="clearAssigneeFilter">
             <X class="icon-12" />
           </button>
