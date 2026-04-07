@@ -1,6 +1,6 @@
 import { api, unwrap } from './index'
 import type { ApiResponse } from './types'
-import type { Project } from '../../types/domain'
+import type { Project, User } from '../../types/domain'
 
 interface ApiProject {
   id: number
@@ -70,5 +70,20 @@ export const projectApi = {
       .then((res) => {
         unwrap(res)
       })
+  },
+
+  /** 获取项目成员列表（负责人选择用） */
+  listMembers(projectId: number): Promise<User[]> {
+    return api
+      .get<ApiResponse<{ id: number; username: string; avatar_url?: string }[]>>(
+        `/projects/${projectId}/members`
+      )
+      .then((res) =>
+        unwrap(res).map((u) => ({
+          id: u.id,
+          username: u.username,
+          ...(u.avatar_url != null && { avatar_url: u.avatar_url })
+        }))
+      )
   }
 }

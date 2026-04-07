@@ -13,6 +13,9 @@ import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskActivityMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
+import com.linearlite.server.mapper.UserMapper;
+import com.linearlite.server.entity.User;
+import com.linearlite.server.dto.UserSummaryDto;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -31,6 +34,7 @@ public class ProjectService {
     private final TaskActivityMapper taskActivityMapper;
     private final ProjectMemberMapper projectMemberMapper;
     private final ProjectInvitationMapper projectInvitationMapper;
+    private final UserMapper userMapper;
     private final EmailService emailService;
     private final LabelService labelService;
 
@@ -41,6 +45,7 @@ public class ProjectService {
             TaskActivityMapper taskActivityMapper,
             ProjectMemberMapper projectMemberMapper,
             ProjectInvitationMapper projectInvitationMapper,
+            UserMapper userMapper,
             EmailService emailService,
             LabelService labelService) {
         this.projectMapper = projectMapper;
@@ -49,6 +54,7 @@ public class ProjectService {
         this.taskActivityMapper = taskActivityMapper;
         this.projectMemberMapper = projectMemberMapper;
         this.projectInvitationMapper = projectInvitationMapper;
+        this.userMapper = userMapper;
         this.emailService = emailService;
         this.labelService = labelService;
     }
@@ -63,6 +69,21 @@ public class ProjectService {
                         .inSql(Project::getId,
                                 "SELECT project_id FROM project_members WHERE user_id = " + currentUserId)
                         .orderByAsc(Project::getId));
+    }
+
+    /**
+     * 返回项目成员列表（负责人选择用）。
+     */
+    public List<UserSummaryDto> listMembers(Long projectId, Long currentUserId) {
+        requireProjectMember(projectId, currentUserId);
+        List<User> users = userMapper.selectList(
+                new LambdaQueryWrapper<User>()
+                        .inSql(User::getId,
+                                "SELECT user_id FROM project_members WHERE project_id = " + projectId)
+                        .orderByAsc(User::getUsername));
+        return users.stream()
+                .map(u -> new UserSummaryDto(u.getId(), u.getUsername(), u.getAvatarUrl()))
+                .collect(Collectors.toList());
     }
 
     /**

@@ -11,7 +11,6 @@ import { useFavoriteStore } from '../store/favoriteStore'
 import { useProjectStore } from '../store/projectStore'
 import { useViewModeStore } from '../store/viewModeStore'
 import { useRouter } from 'vue-router'
-import { userApi } from '../services/api/user'
 import { projectApi } from '../services/api/project'
 import { activityApi } from '../services/api/activity'
 import { attachmentsApi } from '../services/api/attachments'
@@ -418,12 +417,25 @@ watch(
   () => loadSubIssues()
 )
 
-onMounted(async () => {
-  try {
-    userList.value = await userApi.list()
-  } catch (e) {
-    console.error('Failed to load users:', e)
+async function loadProjectMembers(projectId: number | null) {
+  if (projectId == null) {
+    userList.value = []
+    return
   }
+  try {
+    userList.value = await projectApi.listMembers(projectId)
+  } catch (e) {
+    console.error('Failed to load project members:', e)
+    userList.value = []
+  }
+}
+
+onMounted(async () => {
+  await loadProjectMembers(effectiveProjectId.value)
+})
+
+watch(effectiveProjectId, (id) => {
+  loadProjectMembers(id)
 })
 
 function toDateInputValue(ms: number | undefined | null): string {

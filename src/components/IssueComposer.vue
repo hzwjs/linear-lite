@@ -2,8 +2,9 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTaskStore } from '../store/taskStore'
+import { useProjectStore } from '../store/projectStore'
 import type { Priority, Status, User } from '../types/domain'
-import { userApi } from '../services/api/user'
+import { projectApi } from '../services/api/project'
 import { parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import TiptapEditor from './TiptapEditor.vue'
@@ -41,6 +42,7 @@ const emit = defineEmits<{
 }>()
 
 const store = useTaskStore()
+const projectStore = useProjectStore()
 const { t } = useI18n()
 
 const title = ref('')
@@ -123,13 +125,30 @@ watch(
   }
 )
 
-onMounted(async () => {
-  try {
-    userList.value = await userApi.list()
-  } catch (error) {
-    console.error('Failed to load users:', error)
+async function loadProjectMembers() {
+  const projectId = projectStore.activeProjectId
+  if (projectId == null) {
+    userList.value = []
+    return
   }
+  try {
+    userList.value = await projectApi.listMembers(projectId)
+  } catch (error) {
+    console.error('Failed to load project members:', error)
+    userList.value = []
+  }
+}
+
+onMounted(async () => {
+  await loadProjectMembers()
 })
+
+watch(
+  () => projectStore.activeProjectId,
+  () => {
+    loadProjectMembers()
+  }
+)
 
 async function handleCreate() {
   if (!title.value.trim() || isSaving.value) return

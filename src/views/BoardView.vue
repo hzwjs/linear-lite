@@ -9,7 +9,7 @@ import { useIssuePanelStore } from '../store/issuePanelStore'
 import AddIssueFilterMenu from '../components/issue-filters/AddIssueFilterMenu.vue'
 import CustomSelect from '../components/ui/CustomSelect.vue'
 import type { CustomSelectOption } from '../components/ui/CustomSelect.vue'
-import { userApi } from '../services/api/user'
+import { projectApi } from '../services/api/project'
 import type { User } from '../types/domain'
 import {
   ArrowDownWideNarrow,
@@ -286,19 +286,29 @@ watch(() => route.params.taskId, (newId) => {
   }
 }, { immediate: true })
 
+async function loadProjectMembers(projectId: number | null) {
+  if (projectId == null) {
+    users.value = []
+    return
+  }
+  try {
+    users.value = await projectApi.listMembers(projectId)
+  } catch (e) {
+    console.error('Failed to load project members:', e)
+    users.value = []
+  }
+}
+
 onMounted(async () => {
   store.fetchTasks()
-  try {
-    users.value = await userApi.list()
-  } catch (e) {
-    console.error('Failed to load users:', e)
-  }
+  await loadProjectMembers(projectStore.activeProjectId)
 })
 
 watch(
   () => projectStore.activeProjectId,
   (id) => {
     if (id != null) store.fetchTasks()
+    loadProjectMembers(id)
   }
 )
 

@@ -12,6 +12,7 @@ import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskActivityMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
+import com.linearlite.server.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,6 +45,8 @@ class ProjectServiceTest {
     @Mock
     private ProjectInvitationMapper projectInvitationMapper;
     @Mock
+    private UserMapper userMapper;
+    @Mock
     private EmailService emailService;
     @Mock
     private LabelService labelService;
@@ -59,6 +62,7 @@ class ProjectServiceTest {
                 taskActivityMapper,
                 projectMemberMapper,
                 projectInvitationMapper,
+                userMapper,
                 emailService,
                 labelService
         );

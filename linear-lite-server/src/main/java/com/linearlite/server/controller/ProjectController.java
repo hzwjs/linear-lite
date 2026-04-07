@@ -5,6 +5,7 @@ import com.linearlite.server.dto.CreateProjectInvitationRequest;
 import com.linearlite.server.dto.CreateProjectRequest;
 import com.linearlite.server.dto.TaskLabelResponse;
 import com.linearlite.server.dto.UpdateProjectRequest;
+import com.linearlite.server.dto.UserSummaryDto;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.service.LabelService;
@@ -46,6 +47,18 @@ public class ProjectController {
         Long userId = (Long) httpRequest.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
         List<Project> list = projectService.list(userId);
         return ResponseEntity.ok(ApiResponse.success(list));
+    }
+
+    /**
+     * 获取项目成员列表（负责人选择用）。
+     */
+    @GetMapping("/{id}/members")
+    public ResponseEntity<ApiResponse<List<UserSummaryDto>>> listMembers(
+            HttpServletRequest httpRequest,
+            @PathVariable("id") Long projectId) {
+        Long userId = (Long) httpRequest.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        List<UserSummaryDto> members = projectService.listMembers(projectId, userId);
+        return ResponseEntity.ok(ApiResponse.success(members));
     }
 
     /**
