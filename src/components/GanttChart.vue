@@ -112,8 +112,10 @@ onUnmounted(() => {
 
 <style scoped>
 .gantt-chart {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
   display: flex;
   position: relative;
   background: var(--color-bg-base);
@@ -140,8 +142,11 @@ onUnmounted(() => {
 }
 
 .gantt-chart__canvas {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
 }
 
 .gantt-chart__empty {
@@ -156,12 +161,17 @@ onUnmounted(() => {
 }
 
 .gantt-chart :deep(.gantt-container) {
+  box-sizing: border-box;
   height: 100%;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   border-radius: 0;
   background: transparent;
   overflow-x: auto;
   overflow-y: auto;
   overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .gantt-chart :deep(.gantt-container .grid-header) {
