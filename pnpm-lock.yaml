@@ -59,6 +59,9 @@ importers:
       dompurify:
         specifier: ^3.3.2
         version: 3.3.3
+      frappe-gantt:
+        specifier: ^1.2.2
+        version: 1.2.2
       lowlight:
         specifier: ^3.3.0
         version: 3.3.0
@@ -1059,6 +1062,9 @@ packages:
   frac@1.1.2:
     resolution: {integrity: sha512-w/XBfkibaTl3YDqASwfDUqkna4Z2p9cFSr1aHDt0WoMTECnRfBOv2WArlZILlqgWlmdIlALXGpM2AOhEk5W3IA==}
     engines: {node: '>=0.8'}
+
+  frappe-gantt@1.2.2:
+    resolution: {integrity: sha512-1+uPNRa92LBIeKiZCVhJMiGIifJk5ONaoerXI8eBREXWRZGGoTJR5ATpMpsnAQcyBA6Gnq5wIht4eL+e4eHMBA==}
 
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
@@ -2466,6 +2472,8 @@ snapshots:
       mime-types: 2.1.35
 
   frac@1.1.2: {}
+
+  frappe-gantt@1.2.2: {}
 
   fsevents@2.3.3:
     optional: true

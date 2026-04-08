@@ -6,7 +6,7 @@
 
 **方案概述：** 扩展 `ViewType` 为 `gantt`；新增 Vue 封装组件在 `mounted` 初始化 Frappe 实例并同步 `taskStore`；纯函数完成 `Task` 与甘特数据互转；拖拽结束调用 `updateTask` 乐观更新，失败回滚并重绘。
 
-**技术栈：** Vue 3、Pinia、`frappe-gantt`（待定：Spike 后锁定版本）、现有 `taskStore` / `viewModeStore`、`vue-i18n`。
+**技术栈：** Vue 3、Pinia、`frappe-gantt@^1.2.2`（Spike 结论：采用该库）、现有 `taskStore` / `viewModeStore`、`vue-i18n`。
 
 ---
 
@@ -110,6 +110,40 @@
 **步骤 2：** 运行全量单元测试 `pnpm test`（或等价）。
 
 **步骤 3：** 提交（若仅有文档/锁文件变更可合并为一次 docs 提交）。
+
+---
+
+## Spike 结论（任务 0）
+
+**锁定版本：** `frappe-gantt@1.2.2`（`package.json` 中为 `^1.2.2`，与当前 lockfile 解析一致）。
+
+**许可：** npm 包 `license` 为 **MIT**（`node_modules/frappe-gantt/package.json`），与计划中的商业友好预期一致。
+
+**设计 §1 三种拖拽（基于源码 `src/index.js`、`src/bar.js` 的行为推断；未在仓库内增加临时路由或页面做浏览器点拖复现）：**
+
+| 交互 | 是否原生支持 | 依据 |
+|------|--------------|------|
+| 左沿 / 右沿 | 是 | `mousedown` 在 `.handle.left` / `.handle.right` 上分别置 `is_resizing_left` / `is_resizing_right`；`mousemove` 时左沿同时改 `x` 与 `width`，右沿只改 `width`（`bind_bar_events`），故可单独改 `start` 或 `end`，**工期（条宽）可变**。 |
+| 条体中间平移、工期不变 | 是 | 在 `.bar-wrapper` 上（非左右 handle）`mousedown` 进入 `is_dragging`，`mousemove` 仅 `update_bar_position({ x })`，**不改变 `width`**；`compute_start_end_date` 由 `x` 与 `width` 推导起止，故时间轴上的跨度（列宽 × 列数）保持不变，对应 **平移且跨度不变**。 |
+| 与「改进度」区分 | 是 | `.handle.progress` 圆点走 `bind_bar_progress`，结束触发 `progress_change`；**不**走改 `x`/`width` 的日期逻辑。 |
+
+**假设：** 若启用 `readonly_dates: true` 或 `readonly: true`，中间平移与左右 resize 会被禁用；`fixed_duration: true` 会隐藏左右 resize 柄（`draw_resize_handles`），与「可改工期」冲突，正式集成时应保持默认 `fixed_duration: false`。
+
+**`on_date_change`（等价 API）：** 官方 README 配置表未列出，但 `Gantt.trigger_event` 约定为 `options['on_' + event]`。`Bar.date_changed` 调用 `trigger_event('date_change', …)`，故选项名为 **`on_date_change`**。
+
+**回调签名（与源码一致）：**
+
+```text
+on_date_change(task, newStartDate, endDateForDisplay)
+```
+
+- `task`：内部已更新 `task._start` / `task._end` 的同一对象引用。
+- `newStartDate`：`Date`，由条左缘对齐的列推算。
+- `endDateForDisplay`：`Date`，为 `date_utils.add(new_end_date, -1, 'second')`（`new_end_date` 来自条右缘；库内对「整日结束」常用次日 0 点表示，回调里减 1 秒给出便于展示的「含意上的结束时刻」）。
+
+**注意：** `date_changed()` 在 `update_bar_position` 内每次都会调用，拖拽/resize 过程中 **`on_date_change` 可能连续触发多次**；`mouseup` 时若有位移会再次调用。持久化若需「仅提交一次」，应在集成层做防抖或仅在 `mouseup`/单次提交时写 API。
+
+**推荐结论：** **采用 Frappe Gantt** 实现 §1；**不需要任务 0B**（`vue3-gantt` 备用可留作日后若集成受阻再评估）。正式实现从任务 1 起；本 Spike **未**向生产路由添加任何临时页面。
 
 ---
 
