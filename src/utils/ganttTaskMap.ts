@@ -8,6 +8,13 @@ export interface GanttRow {
   start: string
   end: string
   progress: number
+  /** 前置任务 id（Frappe 多前置用逗号分隔）；用于依赖箭头 */
+  dependencies?: string
+}
+
+/** 与 Frappe setup_tasks 一致，避免 id 含空格时连线匹配失败 */
+export function frappeGanttTaskId(rawId: string): string {
+  return rawId.replace(/ /g, '_')
 }
 
 function calendarDayKey(ms: number): string {
@@ -42,7 +49,7 @@ export function taskToGanttRow(task: Task): GanttRow | null {
   if (progress > 100) progress = 100
 
   return {
-    id: task.id,
+    id: frappeGanttTaskId(task.id),
     name: task.title,
     start,
     end,

@@ -1,10 +1,31 @@
 import type { Task } from '../types/domain'
 import type { ViewConfig } from './viewPreference'
 import { sortTasks } from './taskView'
-import { taskToGanttRow, ganttDatesToTaskPatch, type GanttRow } from './ganttTaskMap'
+import {
+  taskToGanttRow,
+  ganttDatesToTaskPatch,
+  frappeGanttTaskId,
+  type GanttRow
+} from './ganttTaskMap'
 import { formatDateInputValue } from './taskDate'
 
 const MAX_NAME_INDENT_DEPTH = 12
+
+/**
+ * 子任务 `parentId` 存父任务 numericId；解析为父任务在甘特上的 id（与 Frappe 任务 id 一致）。
+ */
+function resolveParentGanttDependencyId(
+  child: Task,
+  allTasks: Task[]
+): string | undefined {
+  if (child.parentId == null || child.parentId === '') return undefined
+  const pid = String(child.parentId)
+  const parent = allTasks.find(
+    (t) => t.numericId != null && String(t.numericId) === pid
+  )
+  if (!parent) return undefined
+  return frappeGanttTaskId(parent.id)
+}
 
 function flattenDescendantTasks(
   allTasks: Task[],
@@ -78,7 +99,11 @@ export function getGanttRows(
       if (!row) return null
       const d = Math.min(depth, MAX_NAME_INDENT_DEPTH)
       const indent = d > 0 ? `${'  '.repeat(d)}` : ''
-      return { ...row, name: indent + row.name }
+      const base = { ...row, name: indent + row.name }
+      if (flatRoots || d === 0) return base
+      const dep = resolveParentGanttDependencyId(task, tasks)
+      if (!dep) return base
+      return { ...base, dependencies: dep }
     })
     .filter((r): r is GanttRow => r != null)
 }

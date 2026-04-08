@@ -107,7 +107,8 @@ describe('getGanttRows', () => {
         name: '  Child',
         start: '2026-04-02',
         end: '2026-04-04',
-        progress: 0
+        progress: 0,
+        dependencies: 'ENG-1'
       }
     ])
   })

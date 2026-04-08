@@ -5,6 +5,8 @@ declare module 'frappe-gantt' {
     start: string | Date
     end: string | Date
     progress?: number
+    /** 前置任务 id，逗号分隔，与官网 dependencies 一致 */
+    dependencies?: string
   }
 
   export interface FrappeGanttOptions {
