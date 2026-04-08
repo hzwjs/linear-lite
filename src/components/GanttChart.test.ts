@@ -69,10 +69,11 @@ describe('GanttChart', () => {
     setActivePinia(createPinia())
   })
 
-  it('renders only top-level dated tasks and clears the chart on unmount', async () => {
+  it('renders top-level tasks (subtasks excluded); undated use createdAt; clears on unmount', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const store = useTaskStore()
+    const undatedCreated = parseDateInputValue('2026-04-10')!
     store.tasks = [
       {
         id: 'ENG-1',
@@ -100,7 +101,7 @@ describe('GanttChart', () => {
         title: 'No dates',
         status: 'todo',
         priority: 'medium',
-        createdAt: 1,
+        createdAt: undatedCreated,
         updatedAt: 1
       }
     ]
@@ -114,6 +115,13 @@ describe('GanttChart', () => {
           name: 'Top level',
           start: '2026-04-01',
           end: '2026-04-03',
+          progress: 0
+        },
+        {
+          id: 'ENG-3',
+          name: 'No dates',
+          start: '2026-04-10',
+          end: '2026-04-10',
           progress: 0
         }
       ])

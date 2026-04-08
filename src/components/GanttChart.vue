@@ -67,11 +67,17 @@ onMounted(() => {
       scheduleDateUpdate(String(task.id), start, end)
     }
   })
+  // 任务常在 fetch 完成后才写入 store，首帧可能为空，需与当前 rows 对齐
+  refreshChart(rows.value)
 })
 
-watch(rows, (nextRows) => {
-  refreshChart(nextRows)
-})
+watch(
+  rows,
+  (nextRows) => {
+    refreshChart(nextRows)
+  },
+  { flush: 'post' }
+)
 
 onUnmounted(() => {
   if (persistTimer != null) {

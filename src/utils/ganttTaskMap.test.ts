@@ -32,13 +32,17 @@ describe('taskToGanttRow', () => {
     })
   })
 
-  it('returns null when neither planned nor due is set', () => {
-    expect(taskToGanttRow(baseTask())).toBeNull()
+  it('uses createdAt as single-day bar when no planned or due', () => {
+    const created = parseDateInputValue('2026-05-10')!
+    const row = taskToGanttRow(
+      baseTask({ createdAt: created, plannedStartDate: undefined, dueDate: undefined })
+    )
+    expect(row).not.toBeNull()
+    expect(row!.start).toBe('2026-05-10')
+    expect(row!.end).toBe('2026-05-10')
     expect(
-      taskToGanttRow(
-        baseTask({ plannedStartDate: null, dueDate: null })
-      )
-    ).toBeNull()
+      taskToGanttRow(baseTask({ createdAt: created, plannedStartDate: null, dueDate: null }))
+    ).toEqual(row)
   })
 
   it('only due: single-day bar (start === end)', () => {

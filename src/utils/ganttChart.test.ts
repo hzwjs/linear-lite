@@ -16,7 +16,8 @@ function baseTask(overrides: Partial<Task> & Pick<Task, 'id'>): Task {
 }
 
 describe('getTopLevelGanttRows', () => {
-  it('keeps board-filtered top-level tasks with dates only', () => {
+  it('maps top-level tasks; drops subtasks; undated use createdAt', () => {
+    const undatedCreated = parseDateInputValue('2026-06-01')!
     const rows = getTopLevelGanttRows([
       baseTask({
         id: 'ENG-1',
@@ -33,7 +34,8 @@ describe('getTopLevelGanttRows', () => {
       }),
       baseTask({
         id: 'ENG-3',
-        title: 'Top level without dates'
+        title: 'Top level without dates',
+        createdAt: undatedCreated
       })
     ])
 
@@ -43,6 +45,13 @@ describe('getTopLevelGanttRows', () => {
         name: 'Top level dated',
         start: '2026-04-01',
         end: '2026-04-03',
+        progress: 0
+      },
+      {
+        id: 'ENG-3',
+        name: 'Top level without dates',
+        start: '2026-06-01',
+        end: '2026-06-01',
         progress: 0
       }
     ])

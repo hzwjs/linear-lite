@@ -18,8 +18,6 @@ export function taskToGanttRow(task: Task): GanttRow | null {
   const hasPlanned = task.plannedStartDate != null
   const hasDue = task.dueDate != null
 
-  if (!hasPlanned && !hasDue) return null
-
   let startMs: number
   let endMs: number
 
@@ -29,8 +27,11 @@ export function taskToGanttRow(task: Task): GanttRow | null {
     if (calendarDayKey(startMs) > calendarDayKey(endMs)) return null
   } else if (hasDue) {
     startMs = endMs = task.dueDate!
-  } else {
+  } else if (hasPlanned) {
     startMs = endMs = task.plannedStartDate!
+  } else {
+    // 无计划/截止时在创建日显示单日条，否则多数任务永远不会出现在甘特上
+    startMs = endMs = task.createdAt
   }
 
   const start = formatDateInputValue(startMs)
