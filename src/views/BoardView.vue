@@ -25,7 +25,7 @@ import {
   User as UserIcon
 } from 'lucide-vue-next'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
-import type { CompletedVisibility, GroupBy, OrderBy, VisibleProperty } from '../utils/viewPreference'
+import type { CompletedVisibility, GroupBy, OrderBy, ViewType, VisibleProperty } from '../utils/viewPreference'
 import {
   readProjectBoard,
   writeProjectBoard,
@@ -388,7 +388,7 @@ function openImportModal() {
 
 const viewType = computed(() => viewModeStore.viewType)
 
-function setView(v: 'board' | 'list') {
+function setView(v: ViewType) {
   viewModeStore.setView(v)
 }
 
@@ -507,6 +507,14 @@ function onClickOutsideDisplay(event: MouseEvent) {
             @click="setView('list')"
           >
             {{ t('common.list') }}
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ active: viewType === 'gantt' }"
+            @click="setView('gantt')"
+          >
+            {{ t('common.gantt') }}
           </button>
         </div>
         <input

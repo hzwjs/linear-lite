@@ -65,6 +65,7 @@ const en = {
     creating: 'Creating...',
     board: 'Board',
     list: 'List',
+    gantt: 'Gantt',
     filter: 'Filter',
     display: 'Display',
     labels: 'Labels',

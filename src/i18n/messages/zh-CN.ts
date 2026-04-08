@@ -65,6 +65,7 @@ const zhCN = {
     creating: '创建中...',
     board: '看板',
     list: '列表',
+    gantt: '甘特',
     filter: '筛选',
     display: '显示',
     labels: '标签',
