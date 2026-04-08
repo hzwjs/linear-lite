@@ -212,7 +212,8 @@ const en = {
     openOnly: 'Open only',
     id: 'ID',
     progress: 'Progress',
-    plannedStart: 'Planned start'
+    plannedStart: 'Planned start',
+    ganttEmpty: 'No top-level tasks in the current result can be shown on the Gantt chart.'
   },
   issueComposer: {
     dialogLabel: 'Create issue',

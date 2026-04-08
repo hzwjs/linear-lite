@@ -212,7 +212,8 @@ const zhCN = {
     openOnly: '仅未完成',
     id: 'ID',
     progress: '进度',
-    plannedStart: '计划开始'
+    plannedStart: '计划开始',
+    ganttEmpty: '当前筛选结果中没有可显示在甘特图上的顶层任务。'
   },
   issueComposer: {
     dialogLabel: '创建任务',

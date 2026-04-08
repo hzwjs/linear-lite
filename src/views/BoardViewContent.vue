@@ -10,6 +10,7 @@ import { useIssuePanelStore } from '../store/issuePanelStore'
 import TaskCard from '../components/TaskCard.vue'
 import TaskEditor from '../components/TaskEditor.vue'
 import TaskListView from '../components/TaskListView.vue'
+import GanttChart from '../components/GanttChart.vue'
 import IssueComposer from '../components/IssueComposer.vue'
 import TaskImportModal from '../components/TaskImportModal.vue'
 import type { User } from '../types/domain'
@@ -292,7 +293,7 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-        <div v-else class="list-wrap">
+        <div v-else-if="viewType === 'list'" class="list-wrap">
           <TaskListView
             v-model:subtask-expanded="listSubtaskExpanded"
             :groups="localizedTaskGroups"
@@ -303,6 +304,9 @@ onUnmounted(() => {
             @create-in-status="openCreateEditor"
             @add-sub-issue="(task) => openCreateEditor(undefined, task.numericId)"
           />
+        </div>
+        <div v-else-if="viewType === 'gantt'" class="gantt-wrap">
+          <GanttChart />
         </div>
       </section>
     </div>
@@ -365,6 +369,13 @@ onUnmounted(() => {
   overflow: hidden;
 }
 .list-wrap {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-base);
+}
+.gantt-wrap {
   flex: 1;
   overflow: hidden;
   display: flex;
