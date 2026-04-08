@@ -113,6 +113,55 @@ describe('getGanttRows', () => {
     ])
   })
 
+  it('includes orphan subtasks when parent has no numericId (tree walk skipped them)', () => {
+    const rows = getGanttRows(
+      [
+        baseTask({
+          id: 'HZW-P',
+          title: 'Parent',
+          plannedStartDate: parseDateInputValue('2026-04-01'),
+          dueDate: parseDateInputValue('2026-04-02'),
+          updatedAt: 2
+        }),
+        baseTask({
+          id: 'HZW-C',
+          title: 'Child',
+          parentId: '999',
+          numericId: 2,
+          plannedStartDate: parseDateInputValue('2026-04-03'),
+          dueDate: parseDateInputValue('2026-04-04'),
+          updatedAt: 1
+        })
+      ],
+      cfg({ showSubIssues: true, nestedSubIssues: true }),
+      false
+    )
+    expect(rows.map((r) => r.id)).toEqual(['HZW-P', 'HZW-C'])
+  })
+
+  it('open_only excludes terminal statuses like the list', () => {
+    const rows = getGanttRows(
+      [
+        baseTask({
+          id: 'OPEN',
+          title: 'Open',
+          plannedStartDate: parseDateInputValue('2026-04-01'),
+          dueDate: parseDateInputValue('2026-04-02')
+        }),
+        baseTask({
+          id: 'DONE',
+          title: 'Done',
+          status: 'done',
+          plannedStartDate: parseDateInputValue('2026-04-03'),
+          dueDate: parseDateInputValue('2026-04-04')
+        })
+      ],
+      cfg({ completedVisibility: 'open_only' }),
+      false
+    )
+    expect(rows.map((r) => r.id)).toEqual(['OPEN'])
+  })
+
   it('flatRoots: all tasks sorted flat, no nesting', () => {
     const rows = getGanttRows(
       [

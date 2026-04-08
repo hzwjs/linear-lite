@@ -170,6 +170,14 @@ export function filterVisibleTaskRows(
 
 const TERMINAL_STATUSES: Task['status'][] = ['done', 'canceled', 'duplicate']
 
+/** 与列表 buildTaskGroups 一致：仅未完成任务参与后续逻辑（open_only 时） */
+export function applyCompletedVisibility(tasks: Task[], config: ViewConfig): Task[] {
+  if (config.completedVisibility === 'open_only') {
+    return tasks.filter((task) => !TERMINAL_STATUSES.includes(task.status))
+  }
+  return tasks
+}
+
 export function buildTaskGroups(
   tasks: Task[],
   config: ViewConfig,
@@ -178,9 +186,7 @@ export function buildTaskGroups(
 ): TaskGroup[] {
   const flatRoots =
     options?.searchActive === true || options?.taskFiltersActive === true
-  const source = config.completedVisibility === 'open_only'
-    ? tasks.filter((task) => !TERMINAL_STATUSES.includes(task.status))
-    : tasks
+  const source = applyCompletedVisibility(tasks, config)
 
   const seeds = flatRoots ? source : source.filter((t) => t.parentId == null)
   const grouped = new Map<string, TaskGroup>()

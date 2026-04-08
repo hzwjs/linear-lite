@@ -1,6 +1,6 @@
 import type { Task } from '../types/domain'
 import type { ViewConfig } from './viewPreference'
-import { sortTasks } from './taskView'
+import { applyCompletedVisibility, sortTasks } from './taskView'
 import {
   taskToGanttRow,
   ganttDatesToTaskPatch,
@@ -54,6 +54,8 @@ function flattenDescendantTasks(
 /**
  * 与列表一致：开启 showSubIssues 时父任务后紧跟子任务（可选 nested）；否则仅顶层。
  * flatRoots（搜索/筛选命中子任务等）时与分组视图一致，扁平排序、不嵌套。
+ *
+ * `tasks` 须已与列表同源（例如已 applyCompletedVisibility）。
  */
 export function orderedTasksForGanttWithDepth(
   tasks: Task[],
@@ -85,7 +87,13 @@ export function orderedTasksForGanttWithDepth(
       )
     }
   }
-  return out
+  // 父任务无 numericId、或 parentId 与父 numericId 不一致导致未挂到树上的子任务，列表里仍可能存在，甘特补在末尾避免「少条」
+  const seen = new Set(out.map(({ task: t }) => t.id))
+  const orphans = sortTasks(
+    tasks.filter((t) => !seen.has(t.id)),
+    config
+  ).map((task) => ({ task, depth: 0 as const }))
+  return [...out, ...orphans]
 }
 
 export function getGanttRows(
@@ -93,7 +101,8 @@ export function getGanttRows(
   config: ViewConfig,
   flatRoots: boolean
 ): GanttRow[] {
-  return orderedTasksForGanttWithDepth(tasks, config, flatRoots)
+  const source = applyCompletedVisibility(tasks, config)
+  return orderedTasksForGanttWithDepth(source, config, flatRoots)
     .map(({ task, depth }) => {
       const row = taskToGanttRow(task)
       if (!row) return null
