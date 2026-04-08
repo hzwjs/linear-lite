@@ -1,6 +1,6 @@
 const VIEW_PREF_KEY = 'linear-lite-view'
 
-export type ViewType = 'board' | 'list'
+export type ViewType = 'board' | 'list' | 'gantt'
 export type GroupBy = 'status' | 'priority' | 'assignee' | 'project' | 'none'
 export type OrderBy = 'updatedAt' | 'createdAt' | 'priority' | 'dueDate' | 'title'
 export type OrderDirection = 'asc' | 'desc'
@@ -110,7 +110,7 @@ function migrateCompletedVisibilityForScopeTab(
 }
 
 function isViewType(value: unknown): value is ViewType {
-  return value === 'board' || value === 'list'
+  return value === 'board' || value === 'list' || value === 'gantt'
 }
 
 export function normalizeViewConfig(value: unknown): ViewConfig {
@@ -151,7 +151,7 @@ export function getStoredViewConfig(): ViewConfig {
     const raw = localStorage.getItem(VIEW_PREF_KEY)
     if (!raw) return { ...DEFAULT_VIEW_CONFIG }
 
-    if (raw === 'board' || raw === 'list') {
+    if (raw === 'board' || raw === 'list' || raw === 'gantt') {
       return {
         ...DEFAULT_VIEW_CONFIG,
         layout: raw,

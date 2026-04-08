@@ -39,6 +39,18 @@ describe('viewModeStore', () => {
     expect(store.viewType).toBe('list')
   })
 
+  it('persists and restores gantt layout', async () => {
+    const store = useViewModeStore()
+    store.setView('gantt')
+    await nextTick()
+
+    setActivePinia(createPinia())
+    const restored = useViewModeStore()
+
+    expect(restored.viewConfig.layout).toBe('gantt')
+    expect(restored.viewType).toBe('gantt')
+  })
+
   it('updates grouping and ordering independently', () => {
     const store = useViewModeStore()
 
