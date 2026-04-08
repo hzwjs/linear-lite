@@ -59,6 +59,11 @@ function scheduleDateUpdate(taskId: string, start: Date, end: Date) {
 onMounted(() => {
   ganttRef.value = new Gantt(`#${chartId}`, rows.value, {
     view_mode: 'Day',
+    // 默认 true：在 scrollLeft 处于前半段时任意 mousewheel 都会向过去扩展并重绘，
+    // 横向滑动也会被当成触发条件，表现为只能往更早日期跑、无法稳定滑向未来。
+    infinite_padding: false,
+    // 「今天」若不在任务时间范围内时 scroll 行为怪异；对齐到时间轴起点（含视图 padding）
+    scroll_to: 'start',
     today_button: false,
     readonly_progress: true,
     popup: false,
@@ -154,6 +159,9 @@ onUnmounted(() => {
   height: 100%;
   border-radius: 0;
   background: transparent;
+  overflow-x: auto;
+  overflow-y: auto;
+  overscroll-behavior-x: contain;
 }
 
 .gantt-chart :deep(.gantt-container .grid-header) {

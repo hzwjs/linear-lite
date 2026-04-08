@@ -9,6 +9,8 @@ declare module 'frappe-gantt' {
 
   export interface FrappeGanttOptions {
     view_mode?: string
+    infinite_padding?: boolean
+    scroll_to?: 'start' | 'end' | 'today' | string | Date | null
     today_button?: boolean
     readonly_progress?: boolean
     popup?: false | ((...args: unknown[]) => string | false | void)
