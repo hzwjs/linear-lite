@@ -69,7 +69,7 @@ describe('GanttChart', () => {
     setActivePinia(createPinia())
   })
 
-  it('renders top-level tasks (subtasks excluded); undated use createdAt; clears on unmount', async () => {
+  it('renders subtasks under parent (showSubIssues); undated use createdAt; clears on unmount', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const store = useTaskStore()
@@ -80,6 +80,7 @@ describe('GanttChart', () => {
         title: 'Top level',
         status: 'todo',
         priority: 'medium',
+        numericId: 101,
         plannedStartDate: parseDateInputValue('2026-04-01'),
         dueDate: parseDateInputValue('2026-04-03'),
         createdAt: 1,
@@ -91,6 +92,7 @@ describe('GanttChart', () => {
         status: 'todo',
         priority: 'medium',
         parentId: '101',
+        numericId: 102,
         plannedStartDate: parseDateInputValue('2026-04-02'),
         dueDate: parseDateInputValue('2026-04-04'),
         createdAt: 1,
@@ -115,6 +117,13 @@ describe('GanttChart', () => {
           name: 'Top level',
           start: '2026-04-01',
           end: '2026-04-03',
+          progress: 0
+        },
+        {
+          id: 'ENG-2',
+          name: '  Child',
+          start: '2026-04-02',
+          end: '2026-04-04',
           progress: 0
         },
         {

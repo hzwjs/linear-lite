@@ -4,18 +4,31 @@ import { useI18n } from 'vue-i18n'
 import Gantt from 'frappe-gantt'
 import '../styles/frappe-gantt.css'
 import { useTaskStore } from '../store/taskStore'
-import { dateRangeToTaskPatch, getTopLevelGanttRows } from '../utils/ganttChart'
+import { useViewModeStore } from '../store/viewModeStore'
+import { dateRangeToTaskPatch, getGanttRows } from '../utils/ganttChart'
 
 const UPDATE_DEBOUNCE_MS = 320
 
 let nextChartId = 0
 
 const store = useTaskStore()
+const viewModeStore = useViewModeStore()
 const { t } = useI18n()
 const chartHostRef = ref<HTMLElement | null>(null)
 const chartId = `gantt-chart-${++nextChartId}`
 const ganttRef = shallowRef<Gantt | null>(null)
-const rows = computed(() => getTopLevelGanttRows(store.filteredTasks))
+const ganttFlatRoots = computed(
+  () =>
+    store.searchQuery.trim().length > 0 ||
+    store.filterStatusList.length > 0 ||
+    store.filterPriorityList.length > 0 ||
+    store.filterAssigneeList.length > 0 ||
+    store.filterLabelIds.length > 0
+)
+
+const rows = computed(() =>
+  getGanttRows(store.filteredTasks, viewModeStore.viewConfig, ganttFlatRoots.value)
+)
 const hasRows = computed(() => rows.value.length > 0)
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null

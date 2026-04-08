@@ -66,7 +66,7 @@ function compareMaybeNumber(a?: number | null, b?: number | null) {
   return a - b
 }
 
-function sortTasks(tasks: Task[], config: ViewConfig) {
+export function sortTasks(tasks: Task[], config: ViewConfig) {
   const sorted = [...tasks].sort((left, right) => {
     let result = 0
     switch (config.orderBy) {
