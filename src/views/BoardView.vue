@@ -437,7 +437,7 @@ type ScopeTab = 'all' | 'active' | 'backlog'
 const scopeTab = computed({
   get(): ScopeTab {
     if (viewModeStore.viewConfig.completedVisibility === 'open_only') return 'active'
-    if (store.filterStatusList.length === 1 && store.filterStatusList[0] === 'todo') return 'backlog'
+    if (store.filterStatusList.length === 1 && store.filterStatusList[0] === 'backlog') return 'backlog'
     return 'all'
   },
   set(tab: ScopeTab) {
@@ -445,7 +445,7 @@ const scopeTab = computed({
       store.filterStatusList = []
       viewModeStore.setCompletedVisibility('open_only')
     } else if (tab === 'backlog') {
-      store.filterStatusList = ['todo']
+      store.filterStatusList = ['backlog']
       viewModeStore.setCompletedVisibility('all')
     } else {
       store.filterStatusList = []

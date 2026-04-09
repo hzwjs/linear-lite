@@ -149,7 +149,7 @@ const zhCN = {
     searchIssues: '搜索任务...',
     allIssues: '全部任务',
     active: '进行中',
-    backlog: '待办',
+    backlog: '待规划',
     filterOptions: '筛选选项',
     filterSectionTitle: '筛选',
     addFilterPlaceholder: '添加筛选条件…',
@@ -451,7 +451,7 @@ const zhCN = {
     progressDragAria: '拖动或左右键调整进度'
   },
   status: {
-    backlog: '待办',
+    backlog: '待规划',
     todo: '待处理',
     in_progress: '进行中',
     in_review: '审核中',
