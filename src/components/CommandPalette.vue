@@ -15,6 +15,7 @@ const props = withDefaults(
   defineProps<{
     open: boolean
     commands: CommandItem[]
+    badge?: string
   }>(),
   { commands: () => [] }
 )
@@ -145,6 +146,9 @@ onUnmounted(() => {
     >
       <div class="command-palette-backdrop" @click="() => close()" />
       <div class="command-palette-panel" ref="listEl">
+        <div v-if="badge" class="command-palette-badge">
+          <span class="badge-text">{{ badge }}</span>
+        </div>
         <input
           ref="inputEl"
           v-model="query"
@@ -214,6 +218,19 @@ onUnmounted(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+.command-palette-badge {
+  padding: 12px 16px 0;
+  display: flex;
+  align-items: center;
+}
+.badge-text {
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 .command-palette-input {
   width: 100%;

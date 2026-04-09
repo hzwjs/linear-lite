@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onUnmounted } from 'vue'
+import { ref, onUnmounted, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   PriorityUrgentIcon,
@@ -14,8 +14,15 @@ import {
   Copy,
   FoldVertical,
   UnfoldVertical,
-  User as UserIcon
+  User as UserIcon,
+  X,
+  Activity,
+  FolderOpen,
+  Tag,
+  Calendar,
+  Link as LinkIcon
 } from 'lucide-vue-next'
+import CommandPalette, { type CommandItem } from './CommandPalette.vue'
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import { useTaskStore } from '../store/taskStore'
@@ -61,7 +68,103 @@ const copyFeedbackTaskId = ref<string | null>(null)
 let copyFeedbackClearTimer: ReturnType<typeof setTimeout> | null = null
 const COPY_FEEDBACK_MS = 1800
 
+const selectedTaskIds = ref<Set<string>>(new Set())
+const bulkCommandsOpen = ref(false)
+
+function toggleSelection(taskId: string) {
+  const next = new Set(selectedTaskIds.value)
+  if (next.has(taskId)) {
+    next.delete(taskId)
+  } else {
+    next.add(taskId)
+  }
+  selectedTaskIds.value = next
+}
+
+function clearSelection() {
+  selectedTaskIds.value.clear()
+}
+
+const bulkCommands = computed<CommandItem[]>(() => [
+  {
+    id: 'assign-to',
+    label: 'Assign to...',
+    keywords: ['assign'],
+    icon: UserIcon,
+    run: () => { }
+  },
+  {
+    id: 'assign-to-me',
+    label: 'Assign to me',
+    keywords: ['assign', 'me'],
+    icon: UserIcon,
+    run: async () => {
+      // Implement direct assignment eventually, for now just clear
+      clearSelection()
+    }
+  },
+  {
+    id: 'change-status',
+    label: 'Change status...',
+    keywords: ['status'],
+    icon: Activity,
+    run: () => { }
+  },
+  {
+    id: 'change-priority',
+    label: 'Change priority...',
+    keywords: ['priority'],
+    icon: Activity,
+    run: () => { }
+  },
+  {
+    id: 'add-to-project',
+    label: 'Add to project...',
+    keywords: ['project'],
+    icon: FolderOpen,
+    run: () => { }
+  },
+  {
+    id: 'change-labels',
+    label: 'Change or add labels...',
+    keywords: ['label'],
+    icon: Tag,
+    run: () => { }
+  },
+  {
+    id: 'set-due-date',
+    label: 'Set due date...',
+    keywords: ['date', 'due'],
+    icon: Calendar,
+    run: () => { }
+  },
+  {
+    id: 'copy-links',
+    label: 'Copy issue IDs as links',
+    keywords: ['copy', 'link'],
+    icon: LinkIcon,
+    run: async () => {
+      const ids = Array.from(selectedTaskIds.value).join(', ')
+      await navigator.clipboard.writeText(ids)
+      clearSelection()
+    }
+  }
+])
+
+function onKeydown(e: KeyboardEvent) {
+  if (selectedTaskIds.value.size > 0 && e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault()
+    e.stopPropagation()
+    bulkCommandsOpen.value = true
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', onKeydown, true)
+})
+
 onUnmounted(() => {
+  document.removeEventListener('keydown', onKeydown, true)
   if (copyFeedbackClearTimer != null) {
     clearTimeout(copyFeedbackClearTimer)
     copyFeedbackClearTimer = null
@@ -122,12 +225,6 @@ function isOverdue(task: Task): boolean {
 
 function statusLabel(s: Status): string {
   return getStatusLabel(s)
-}
-
-async function toggleComplete(e: MouseEvent, task: Task) {
-  e.stopPropagation()
-  const newStatus = task.status === 'done' ? 'todo' : 'done'
-  await store.transitionTask(task.id, newStatus)
 }
 
 async function onStatusPicked(task: Task, next: Status) {
@@ -409,19 +506,20 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
                 }}</span>
               </button>
             </div>
-            <div class="task-row-leading">
-              <button
-                v-if="rowHoveredId === row.task.id"
-                type="button"
-                class="task-check"
-                :aria-label="row.task.status === 'done' ? t('taskList.markNotDone') : t('taskList.markDone')"
-                @click="toggleComplete($event, row.task)"
+            <div
+              class="task-row-select"
+              :class="{ visible: selectedTaskIds.size > 0 || rowHoveredId === row.task.id }"
+              @click.stop
+            >
+              <input
+                type="checkbox"
+                class="task-row-checkbox"
+                :checked="selectedTaskIds.has(row.task.id)"
+                @click.stop="toggleSelection(row.task.id)"
               >
-                <CheckCircle v-if="row.task.status === 'done'" class="icon icon-14 icon-done" />
-                <Circle v-else class="icon icon-14 icon-circle" />
-              </button>
+            </div>
+            <div class="task-row-leading">
               <component
-                v-else
                 :is="priorityIcons[row.task.priority]"
                 class="icon icon-14 priority-icon"
                 :aria-label="row.task.priority"
@@ -587,6 +685,30 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
         </div>
       </div>
     </div>
+    <Teleport to="body">
+      <transition name="fade-up">
+        <div v-if="selectedTaskIds.size > 0" class="bulk-action-bar-wrapper">
+          <div class="bulk-action-bar">
+            <div class="bulk-bar-pill bulk-bar-count">
+              <span class="bulk-text">{{ selectedTaskIds.size }} selected</span>
+            </div>
+            <button type="button" class="bulk-bar-dismiss" aria-label="Clear selection" @click="clearSelection">
+              <X class="bulk-icon-14" stroke-width="2.5" aria-hidden="true" />
+            </button>
+            <button type="button" class="bulk-bar-pill bulk-action-btn" @click="bulkCommandsOpen = true">
+              <span class="bulk-kbd">⌘</span> <span class="bulk-text">Actions</span>
+            </button>
+          </div>
+        </div>
+      </transition>
+      <CommandPalette
+        v-if="bulkCommandsOpen"
+        :open="bulkCommandsOpen"
+        :badge="`${selectedTaskIds.size} issues`"
+        :commands="bulkCommands"
+        @close="bulkCommandsOpen = false"
+      />
+    </Teleport>
   </div>
 </template>
 
@@ -1214,5 +1336,114 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
 .task-row-add:hover {
   background: var(--color-bg-hover);
   color: var(--color-text-secondary);
+}
+
+/* 批量操作复选框 */
+.task-row-select {
+  flex: 0 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+}
+.task-row-select.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.task-row-checkbox {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--color-accent);
+  border-radius: 3px;
+  margin: 0;
+}
+
+/* 底部悬浮操作条 */
+.bulk-action-bar-wrapper {
+  position: fixed;
+  bottom: 32px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 200;
+}
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: auto;
+}
+.bulk-bar-pill {
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+  border-radius: 20px;
+  height: 36px;
+  padding: 0 14px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+.bulk-bar-dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: 50%;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.bulk-bar-dismiss:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.bulk-icon-14 {
+  width: 14px;
+  height: 14px;
+}
+.bulk-action-btn {
+  padding: 0 16px;
+  cursor: pointer;
+  transition: box-shadow var(--transition-fast);
+}
+.bulk-action-btn:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+.bulk-kbd {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-muted);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 4px;
+  padding: 1px 4px;
+  margin-right: 8px;
+  font-weight: 500;
+}
+
+html[data-theme="dark"] .bulk-bar-pill {
+  background: var(--color-bg-elevated);
+}
+
+.fade-up-enter-active,
+.fade-up-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.fade-up-enter-from,
+.fade-up-leave-to {
+  opacity: 0;
+  transform: translateY(12px) scale(0.96);
 }
 </style>
