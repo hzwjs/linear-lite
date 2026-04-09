@@ -159,7 +159,9 @@ onUnmounted(() => {
   min-height: 0;
   min-width: 0;
   width: 100%;
-  overflow: hidden;
+  /* frappe-gantt 会把 .gantt-container 设成与 SVG 等高的内联 height；父级若 hidden 会把多出行裁掉且无法纵向滚动 */
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .gantt-chart__empty {
@@ -175,7 +177,7 @@ onUnmounted(() => {
 
 .gantt-chart :deep(.gantt-container) {
   box-sizing: border-box;
-  height: 100%;
+  /* 高度由库在 render 时写入的内联 style 决定，勿用 100% 压扁内容区 */
   width: 100%;
   max-width: 100%;
   min-width: 0;
