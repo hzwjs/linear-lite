@@ -453,15 +453,20 @@ async function startImageUpload(localId: string) {
   })
   try {
     const uploaded = await uploadApi.uploadImage(entry.file)
-    const updated = updateImageNodeByLocalId(localId, {
-      src: uploaded.url,
-      uploadState: UPLOADED_IMAGE_STATE,
-      errorMessage: null,
-    })
-    if (updated) {
+    
+    const img = new window.Image()
+    const handleLoad = () => {
+      updateImageNodeByLocalId(localId, {
+        src: uploaded.url,
+        uploadState: UPLOADED_IMAGE_STATE,
+        errorMessage: null,
+      })
       revokePreviewUrl(localId)
       uploadStateByLocalId.delete(localId)
     }
+    img.onload = handleLoad
+    img.onerror = handleLoad
+    img.src = uploaded.url
   } catch (error) {
     updateImageNodeByLocalId(localId, {
       uploadState: FAILED_IMAGE_STATE,

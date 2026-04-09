@@ -35,6 +35,6 @@
 - **拷贝时**：若 `../dist` 不存在，resources 拷贝失败，整个 `package` 失败。
 - **验收**：
   1. 在 `linear-lite-server` 下执行 `mvn clean package`，成功生成 JAR。
-  2. 执行 `java -jar target/linear-lite-server-0.1.0-SNAPSHOT.jar`，浏览器访问 `http://localhost:8080/` 看到前端；访问子路径并刷新仍为 SPA。
+  2. 执行 `java -jar target/linear-lite-server-0.1.0-SNAPSHOT.jar`，浏览器访问 `http://localhost:9080/` 看到前端；访问子路径并刷新仍为 SPA。
   3. 登录、项目/任务等核心流程与开发环境一致。
-- **文档**：README（及可选的 linear-lite-server/README）增加「单 JAR 部署」小节：从 `linear-lite-server` 执行 `mvn clean package`、运行 JAR、访问 `http://host:8080/`，并注明需预装 Node/npm。
+- **文档**：README（及可选的 linear-lite-server/README）增加「单 JAR 部署」小节：从 `linear-lite-server` 执行 `mvn clean package`、运行 JAR、访问 `http://host:9080/`，并注明需预装 Node/npm。

@@ -52,7 +52,7 @@ mvn spring-boot:run
 | `MYSQL_DATABASE` | linear_lite | 数据库名 |
 | `MYSQL_USERNAME` | root | 数据库用户 |
 | `MYSQL_PASSWORD` | Password1! | 数据库密码（生产建议用环境变量覆盖） |
-| `SERVER_PORT` | 8080 | 服务端口 |
+| `SERVER_PORT` | 9080 | 服务端口 |
 | `R2_ENABLED` | false | 是否启用 Cloudflare R2 图片存储 |
 | `R2_ENDPOINT` | （空） | R2 S3 兼容端点 |
 | `R2_ACCESS_KEY_ID` | （空） | R2 Access Key ID |

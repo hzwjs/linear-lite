@@ -92,7 +92,7 @@ kill_java_holding_jar() {
 }
 
 listen_port_busy() {
-  local p="${SERVER_PORT:-8080}"
+  local p="${SERVER_PORT:-9080}"
   if command -v ss >/dev/null 2>&1; then
     ss -tln 2>/dev/null | grep -q ":$p " && return 0
     return 1
@@ -114,7 +114,7 @@ start() {
   fi
   load_env
   if listen_port_busy; then
-    die "端口 ${SERVER_PORT:-8080} 已被占用，请先执行 $0 stop（会按 JAR 清理孤儿进程）"
+    die "端口 ${SERVER_PORT:-9080} 已被占用，请先执行 $0 stop（会按 JAR 清理孤儿进程）"
   fi
   log "启动: $JAR_PATH（工作目录: $APP_HOME）"
   log "日志: $LOG_FILE"

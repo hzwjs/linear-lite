@@ -34,7 +34,7 @@ cd linear-lite-server
 mvn spring-boot:run
 ```
 
-默认端口 **8080**。常用环境变量（不设则用默认值）：
+默认端口 **9080**。常用环境变量（不设则用默认值）：
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -43,7 +43,7 @@ mvn spring-boot:run
 | `MYSQL_DATABASE` | linear_lite | 数据库名 |
 | `MYSQL_USERNAME` | root | 数据库用户 |
 | `MYSQL_PASSWORD` | （空） | 数据库密码 |
-| `SERVER_PORT` | 8080 | 服务端口 |
+| `SERVER_PORT` | 9080 | 服务端口 |
 | `JWT_SECRET` | linear-lite-default-secret-... | 生产环境请修改 |
 | `R2_ENABLED` | false | 是否启用 Cloudflare R2 图片存储 |
 | `R2_ENDPOINT` | （空） | R2 S3 兼容端点 |
@@ -57,7 +57,7 @@ mvn spring-boot:run
 
 ```bash
 export MYSQL_PASSWORD=your_password
-export SERVER_PORT=8080
+export SERVER_PORT=9080
 mvn spring-boot:run
 ```
 
@@ -79,7 +79,7 @@ npm run dev
 
 前端默认运行在 **http://localhost:5173**。
 
-- **开发环境**：Vite 将 `/api` 代理到 `http://localhost:8080`，无需配置即可访问后端。
+- **开发环境**：Vite 将 `/api` 代理到 `http://localhost:9080`，无需配置即可访问后端。
 - **生产/自定义后端地址**：构建时设置 `VITE_API_BASE_URL`，例如：
   `VITE_API_BASE_URL=https://api.example.com npm run build`
 
@@ -97,7 +97,7 @@ npm run dev
    mvn clean package
    ```
 3. **运行**：`java -jar target/linear-lite-server-0.1.0-SNAPSHOT.jar`（数据库等环境变量同「启动后端」）。
-4. **访问**：浏览器打开 `http://localhost:8080/` 即可使用前端；API 仍为 `/api`，同源部署无需配置 `VITE_API_BASE_URL`。
+4. **访问**：浏览器打开 `http://localhost:9080/` 即可使用前端；API 仍为 `/api`，同源部署无需配置 `VITE_API_BASE_URL`。
 
 单 JAR 部署时无需设置 `VITE_API_BASE_URL`。
 

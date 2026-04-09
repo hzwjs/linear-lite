@@ -145,7 +145,7 @@ public void addResourceHandlers(ResourceHandlerRegistry registry) {
 **Step 2: 验证**
 
 - 在 `linear-lite-server` 下执行 `mvn clean package -DskipTests`，确认 BUILD SUCCESS。
-- 执行 `java -jar target/linear-lite-server-0.1.0-SNAPSHOT.jar`（需 MySQL 等已配置），浏览器访问 `http://localhost:8080/` 应看到前端；访问 `http://localhost:8080/projects` 并刷新，应仍为同一 SPA（不 404）。
+- 执行 `java -jar target/linear-lite-server-0.1.0-SNAPSHOT.jar`（需 MySQL 等已配置），浏览器访问 `http://localhost:9080/` 应看到前端；访问 `http://localhost:9080/projects` 并刷新，应仍为同一 SPA（不 404）。
 - 登录、打开项目/任务等核心流程与开发环境一致。
 
 **Step 3: Commit**
@@ -169,7 +169,7 @@ git commit -m "feat(server): serve static frontend and SPA fallback to index.htm
 
 - 从 `linear-lite-server` 目录执行 `mvn clean package`（需本机已安装 Node.js 与 npm）。
 - 运行：`java -jar target/linear-lite-server-0.1.0-SNAPSHOT.jar`。
-- 浏览器访问 `http://localhost:8080/` 即可使用前端；API 仍为 `/api`，同源无需配置 `VITE_API_BASE_URL`。
+- 浏览器访问 `http://localhost:9080/` 即可使用前端；API 仍为 `/api`，同源无需配置 `VITE_API_BASE_URL`。
 - 注明：单 JAR 部署时无需设置 `VITE_API_BASE_URL`。
 
 **Step 2: Commit**
@@ -184,4 +184,4 @@ git commit -m "docs: add single JAR deployment section"
 ### 验收总结
 
 - 在 `linear-lite-server` 下执行 `mvn clean package`，成功生成 JAR。
-- `java -jar target/linear-lite-server-0.1.0-SNAPSHOT.jar` 后，访问 `http://localhost:8080/` 为前端，子路径刷新正常，API 同源工作。
+- `java -jar target/linear-lite-server-0.1.0-SNAPSHOT.jar` 后，访问 `http://localhost:9080/` 为前端，子路径刷新正常，API 同源工作。
