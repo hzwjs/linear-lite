@@ -39,8 +39,28 @@ let pendingDateUpdate:
     }
   | null = null
 
-function refreshChart(nextRows = rows.value) {
-  ganttRef.value?.refresh(nextRows)
+const displayRows = shallowRef<any[]>([])
+let frozenIds: string[] | null = null
+
+// Unlock sorting when user actively changes view configurations or filters
+watch(
+  () => [
+    store.searchQuery,
+    store.filterStatusList,
+    store.filterPriorityList,
+    store.filterAssigneeList,
+    store.filterLabelIds,
+    viewModeStore.viewConfig
+  ],
+  () => {
+    frozenIds = null
+  },
+  { deep: true }
+)
+
+function refreshChart(nextRows = displayRows.value) {
+  if (!ganttRef.value) return
+  ganttRef.value.refresh(nextRows)
 }
 
 async function flushPendingDateUpdate() {
@@ -52,7 +72,7 @@ async function flushPendingDateUpdate() {
     await store.updateTask(current.taskId, current.patch)
   } catch {
     await store.fetchTasks()
-    refreshChart(rows.value)
+    refreshChart(displayRows.value)
   }
 }
 
@@ -70,7 +90,8 @@ function scheduleDateUpdate(taskId: string, start: Date, end: Date) {
 }
 
 onMounted(() => {
-  ganttRef.value = new Gantt(`#${chartId}`, rows.value, {
+  displayRows.value = rows.value
+  ganttRef.value = new Gantt(`#${chartId}`, displayRows.value, {
     view_mode: 'Day',
     // 默认 true：在 scrollLeft 处于前半段时任意 mousewheel 都会向过去扩展并重绘，
     // 横向滑动也会被当成触发条件，表现为只能往更早日期跑、无法稳定滑向未来。
@@ -82,19 +103,46 @@ onMounted(() => {
     popup: false,
     on_date_change(task, start, end) {
       if (!task?.id) return
+      // Freeze the sorting order so the adjusted task doesn't visually jump to a new row
+      if (!frozenIds && displayRows.value.length > 0) {
+        frozenIds = displayRows.value.map(r => r.id)
+      }
       scheduleDateUpdate(String(task.id), start, end)
     }
   })
   // 任务常在 fetch 完成后才写入 store，首帧可能为空，需与当前 rows 对齐
-  refreshChart(rows.value)
+  refreshChart(displayRows.value)
 })
 
 watch(
   rows,
   (nextRows) => {
-    refreshChart(nextRows)
+    // Break the visual freeze if collection size changes (add/delete)
+    if (frozenIds && frozenIds.length !== nextRows.length) {
+      frozenIds = null
+    }
+
+    let finalRows = nextRows
+    if (frozenIds) {
+      const rowMap = new Map(nextRows.map(r => [r.id, r]))
+      const preserved: any[] = []
+      for (const id of frozenIds) {
+        if (rowMap.has(id)) {
+          preserved.push(rowMap.get(id))
+          rowMap.delete(id)
+        }
+      }
+      // append any unmatched rows at the end just in case
+      for (const r of rowMap.values()) {
+        preserved.push(r)
+      }
+      finalRows = preserved
+    }
+
+    displayRows.value = finalRows
+    refreshChart(finalRows)
   },
-  { flush: 'post' }
+  { flush: 'post', immediate: true }
 )
 
 onUnmounted(() => {
