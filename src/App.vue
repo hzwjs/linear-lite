@@ -446,23 +446,25 @@ onUnmounted(() => {
         </section>
 
         <section class="sidebar-group sidebar-group--projects">
-          <div
-            role="button"
-            tabindex="0"
-            class="sidebar-group-header"
-            @click="toggleProjectsCollapsed"
-            @keydown.enter="toggleProjectsCollapsed"
-            @keydown.space.prevent="toggleProjectsCollapsed"
-          >
-            <ChevronDown v-if="!sidebarCollapsed.projects" class="sidebar-group-chevron" />
-            <ChevronRight v-else class="sidebar-group-chevron" />
-            <span class="sidebar-group-title">{{ t('sidebar.projects') }}</span>
+          <div class="sidebar-group-header">
+            <div
+              role="button"
+              tabindex="0"
+              class="sidebar-group-header-toggle"
+              @click="toggleProjectsCollapsed"
+              @keydown.enter="toggleProjectsCollapsed"
+              @keydown.space.prevent="toggleProjectsCollapsed"
+            >
+              <ChevronDown v-if="!sidebarCollapsed.projects" class="sidebar-group-chevron" />
+              <ChevronRight v-else class="sidebar-group-chevron" />
+              <span class="sidebar-group-title">{{ t('sidebar.projects') }}</span>
+            </div>
             <button
               type="button"
               class="sidebar-group-action"
               :title="t('sidebar.newProjectTitle')"
               :aria-label="t('sidebar.newProjectTitle')"
-              @click.stop="createProjectOpen = true"
+              @click="createProjectOpen = true"
             >
               <Plus class="sidebar-group-action-icon" />
             </button>
@@ -471,21 +473,26 @@ onUnmounted(() => {
             <div
               v-for="p in projectStore.projects"
               :key="p.id"
-              role="button"
-              tabindex="0"
               class="sidebar-item"
               :class="{ active: projectStore.activeProjectId === p.id }"
               :title="p.identifier"
-              @click="selectProject(p.id)"
-              @keydown.enter="selectProject(p.id)"
-              @keydown.space.prevent="selectProject(p.id)"
             >
-              <Folder class="sidebar-item-icon" />
-              <span class="sidebar-item-name">{{ p.name }}</span>
+              <div
+                role="button"
+                tabindex="0"
+                class="sidebar-item-main"
+                @click="selectProject(p.id)"
+                @keydown.enter="selectProject(p.id)"
+                @keydown.space.prevent="selectProject(p.id)"
+              >
+                <Folder class="sidebar-item-icon" />
+                <span class="sidebar-item-name">{{ p.name }}</span>
+              </div>
               <button
                 type="button"
                 class="sidebar-item-menu"
                 :title="t('sidebar.projectSettings')"
+                :aria-label="t('sidebar.projectSettings')"
                 @click="openProjectSettings($event, p)"
               >
                 <MoreVertical class="icon-14" />
@@ -626,8 +633,16 @@ onUnmounted(() => {
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
-  cursor: pointer;
   transition: background var(--transition-fast);
+}
+.sidebar-group-header-toggle {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
 }
 .sidebar-group-header:hover {
   background: var(--color-bg-hover);
@@ -690,15 +705,30 @@ onUnmounted(() => {
   align-items: center;
   width: 100%;
   padding: 5px 8px;
-  gap: 8px;
+  gap: 4px;
   text-align: left;
   color: var(--color-text-secondary);
   font-size: 13px;
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
-  cursor: pointer;
+  cursor: default;
   transition: background var(--transition-fast), color var(--transition-fast);
+}
+.sidebar-item-main {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 8px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: none;
 }
 .sidebar-item:hover {
   background: var(--color-bg-hover);
