@@ -77,7 +77,7 @@ onMounted(() => {
     infinite_padding: false,
     // 「今天」若不在任务时间范围内时 scroll 行为怪异；对齐到时间轴起点（含视图 padding）
     scroll_to: 'start',
-    today_button: false,
+    today_button: true,
     readonly_progress: true,
     popup: false,
     on_date_change(task, start, end) {
@@ -132,9 +132,11 @@ onUnmounted(() => {
   display: flex;
   position: relative;
   background: var(--color-bg-base);
-  --g-arrow-color: var(--color-border);
+
+  /* Overrides to match frappe.io/gantt official example */
+  --g-arrow-color: #1f2937; /* official default dark color for arrows */
   --g-bar-color: var(--color-bg-base);
-  --g-bar-border: var(--color-border);
+  --g-bar-border: var(--color-border); /* Tasks need clear borders */
   --g-tick-color-thick: var(--color-border-subtle);
   --g-tick-color: var(--color-border-subtle);
   --g-actions-background: var(--color-bg-muted);
@@ -149,7 +151,7 @@ onUnmounted(() => {
   --g-header-background: var(--color-bg-base);
   --g-row-color: var(--color-bg-base);
   --g-row-border-color: var(--color-border-subtle);
-  --g-today-highlight: var(--color-accent);
+  --g-today-highlight: #323d4e; /* Dark prominent color matching official */
   --g-popup-actions: var(--color-bg-muted);
   --g-weekend-highlight-color: var(--color-bg-subtle);
 }
@@ -159,7 +161,6 @@ onUnmounted(() => {
   min-height: 0;
   min-width: 0;
   width: 100%;
-  /* frappe-gantt 会把 .gantt-container 设成与 SVG 等高的内联 height；父级若 hidden 会把多出行裁掉且无法纵向滚动 */
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -177,14 +178,12 @@ onUnmounted(() => {
 
 .gantt-chart :deep(.gantt-container) {
   box-sizing: border-box;
-  /* 高度由库在 render 时写入的内联 style 决定，勿用 100% 压扁内容区 */
   width: 100%;
   max-width: 100%;
   min-width: 0;
   border-radius: 0;
   background: transparent;
-  overflow-x: auto;
-  overflow-y: auto;
+  overflow: visible !important; /* Forces sticky children to stick to .gantt-chart__canvas */
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
 }
@@ -195,5 +194,39 @@ onUnmounted(() => {
 
 .gantt-chart :deep(.gantt .bar-label) {
   font-family: inherit;
+  font-weight: 500;
+}
+
+/* 1. 任务 item 明显化: add visible stroke/border and slight radius */
+.gantt-chart :deep(.gantt .bar-wrapper .bar) {
+  stroke-width: 1px !important;
+  stroke: #e0e0e0 !important;
+  rx: 4px; /* rounded corners */
+  ry: 4px;
+}
+
+/* 2. 缺了 Today 标记: Ensure "Today" is styled prominently like official */
+.gantt-chart :deep(.gantt-container .current-highlight) {
+  width: 1px;
+  background-color: var(--g-today-highlight);
+}
+.gantt-chart :deep(.gantt-container .current-date-highlight) {
+  background-color: var(--g-today-highlight);
+  color: #ffffff;
+  font-weight: bold;
+  border-radius: 4px;
+  padding: 2px 6px; /* give it proper badge appearance */
+}
+.gantt-chart :deep(.gantt-container .current-ball-highlight) {
+  background-color: var(--g-today-highlight);
+  width: 6px !important;
+  height: 6px !important;
+  margin-left: -2.5px;
+}
+
+/* 3. 主/子任务的连线明显化 */
+.gantt-chart :deep(.gantt .arrow) {
+  stroke-width: 1.5px !important; /* Standard width */
+  stroke: #1f2937 !important; /* Official arrow color */
 }
 </style>
