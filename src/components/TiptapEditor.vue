@@ -27,6 +27,8 @@ import {
 } from '../utils/editorImageUpload'
 import { useI18n } from 'vue-i18n'
 import { TaskImage } from '../extensions/TaskImage'
+import Mention from '@tiptap/extension-mention'
+import { createMentionListRender } from '../extensions/mentionSuggestionDom'
 import TiptapSlashMenu from './TiptapSlashMenu.vue'
 import { Skeleton } from '@brayamvalero/vue3-skeleton'
 import '@brayamvalero/vue3-skeleton/dist/style.css'
@@ -40,6 +42,8 @@ const props = withDefaults(
     modelValue?: string
     placeholder?: string
     minHeight?: number
+    /** 传入则启用 @ 成员建议（任务评论等）；不传则不注册 Mention */
+    mentionMembers?: Array<{ id: number; label: string }>
   }>(),
   {
     modelValue: '',
@@ -186,6 +190,25 @@ function randomLocalId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+const mentionExtension =
+  props.mentionMembers !== undefined
+    ? Mention.configure({
+        HTMLAttributes: { class: 'editor-mention-node' },
+        suggestion: {
+          allowedPrefixes: null,
+          items: ({ query }) => {
+            const list = props.mentionMembers ?? []
+            const q = (query ?? '').toLowerCase()
+            return list
+              .filter((m) => m.label.toLowerCase().includes(q))
+              .slice(0, 24)
+              .map((m) => ({ id: String(m.id), label: m.label }))
+          },
+          render: () => createMentionListRender(),
+        },
+      })
+    : null
+
 const slashMenuExtension = Extension.create({
   name: 'slashMenu',
   addKeyboardShortcuts() {
@@ -252,6 +275,7 @@ const editor = useEditor({
       emptyEditorClass: 'is-editor-empty',
     }),
     slashMenuExtension,
+    ...(mentionExtension ? [mentionExtension] : []),
   ],
   content: mdToHtml(props.modelValue ?? ''),
   onUpdate: ({ editor: ed }: { editor: { getHTML: () => string } }) => {
@@ -351,7 +375,23 @@ function closeSlashMenu() {
 function focusEditor() {
   editor.value?.commands.focus()
 }
-defineExpose({ focus: focusEditor })
+
+function getMentionedUserIdsFromDoc(): number[] {
+  if (!editor.value) return []
+  const ids: number[] = []
+  editor.value.state.doc.descendants((node) => {
+    if (node.type.name === 'mention') {
+      const raw = node.attrs.id as string | null | undefined
+      if (raw == null) return true
+      const n = parseInt(String(raw), 10)
+      if (Number.isFinite(n)) ids.push(n)
+    }
+    return true
+  })
+  return [...new Set(ids)]
+}
+
+defineExpose({ focus: focusEditor, getMentionedUserIdsFromDoc })
 
 function onWrapMouseDown(e: MouseEvent) {
   const target = e.target as HTMLElement
@@ -371,7 +411,8 @@ function handleClickOutside(e: MouseEvent) {
   const target = e.target as Node
   const inEditor = editorWrapRef.value?.contains(target)
   const inMenu = document.querySelector('[data-slash-menu]')?.contains(target)
-  if (!inEditor && !inMenu) closeSlashMenu()
+  const inMention = (target as HTMLElement).closest?.('.tiptap-mention-suggestion')
+  if (!inEditor && !inMenu && !inMention) closeSlashMenu()
 }
 
 function revokePreviewUrl(localId: string) {
@@ -852,4 +893,48 @@ watch(
   color: var(--color-text-secondary);
 }
 
+.tiptap-editor-wrap :deep(.tiptap span[data-type='mention']) {
+  border-radius: 4px;
+  padding: 0 3px;
+  background: color-mix(in srgb, var(--color-accent, #5e6ad2) 18%, transparent);
+  color: var(--color-accent, #5e6ad2);
+  font-weight: 500;
+}
+
+</style>
+
+<style>
+/* suggestion 挂在 body 上，不能 scoped */
+.tiptap-mention-suggestion {
+  min-width: 200px;
+  max-width: 280px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #e5e5e5);
+  background: var(--color-bg-elevated, #fff);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+.tiptap-mention-suggestion-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--color-text, #111);
+}
+.tiptap-mention-suggestion-item:hover,
+.tiptap-mention-suggestion-item--active {
+  background: var(--color-bg-hover, rgba(0, 0, 0, 0.06));
+}
+.tiptap-mention-suggestion-empty {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--color-text-muted, #888);
+}
 </style>

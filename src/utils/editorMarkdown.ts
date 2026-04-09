@@ -103,6 +103,16 @@ turndown.addRule('tiptapTaskItem', {
   },
 })
 
+turndown.addRule('tiptapMention', {
+  filter: (node) =>
+    node.nodeName === 'SPAN' && (node as HTMLElement).getAttribute('data-type') === 'mention',
+  replacement: (_content, node) => {
+    const el = node as HTMLElement
+    const label = el.getAttribute('data-label') ?? el.textContent?.trim() ?? ''
+    return label ? `@${label}` : ''
+  },
+})
+
 /**
  * 从 HTML 提取纯文本，作为单段 Markdown 回退（序列化失败时用）。
  */

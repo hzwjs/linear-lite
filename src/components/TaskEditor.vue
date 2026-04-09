@@ -155,6 +155,16 @@ const mentionCandidates = computed(() => {
   return userList.value.filter((u) => u.id !== selfId)
 })
 
+/** 评论编辑器 @ 建议数据源（与 mentionCandidates 一致，格式供 TipTap Mention 使用） */
+const mentionMembersForCommentEditor = computed(() =>
+  mentionCandidates.value.map((u) => ({
+    id: u.id,
+    label: (u.username ?? '').trim() || `user-${u.id}`,
+  }))
+)
+
+const commentEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
+
 const assigneeOptions = computed<CustomSelectOption[]>(() => {
   const list: CustomSelectOption[] = [{ value: '', label: t('common.unassigned'), icon: UserIcon }]
   for (const u of userList.value) {
@@ -327,7 +337,9 @@ async function submitComment() {
   if (!body) return
   commentSubmitting.value = true
   try {
-    const ids = [...commentMentionIds.value]
+    const fromDoc = commentEditorRef.value?.getMentionedUserIdsFromDoc?.() ?? []
+    const fromChips = [...commentMentionIds.value]
+    const ids = [...new Set([...fromDoc, ...fromChips])]
     await taskCommentsApi.create(props.task.id, body, ids)
     commentBody.value = ''
     commentMentionIds.value = new Set()
@@ -1278,7 +1290,9 @@ async function toggleFavorite() {
               </div>
               <div class="comment-compose">
                 <TiptapEditor
+                  ref="commentEditorRef"
                   v-model="commentBody"
+                  :mention-members="mentionMembersForCommentEditor"
                   :placeholder="t('taskEditor.leaveComment')"
                   :min-height="56"
                 />
