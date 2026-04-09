@@ -141,8 +141,10 @@ const zhCN = {
   commandPalette: {
     title: '命令面板',
     searchPlaceholder: '输入命令或搜索...',
+    nestedSearchPlaceholder: '搜索…',
     searchAria: '搜索命令',
-    noMatches: '没有匹配的命令。'
+    noMatches: '没有匹配的命令。',
+    backAria: '返回'
   },
   boardView: {
     newIssue: '新建任务',
@@ -448,7 +450,29 @@ const zhCN = {
     changeAssignee: '更改负责人',
     assigneeSearchPlaceholder: '搜索成员',
     clearDate: '清除日期',
-    progressDragAria: '拖动或左右键调整进度'
+    progressDragAria: '拖动或左右键调整进度',
+    bulk: {
+      assignTo: '指派给…',
+      assignToMe: '指派给我',
+      changeStatus: '更改状态…',
+      changePriority: '更改优先级…',
+      changeLabels: '更改或添加标签…',
+      setDueDate: '设置截止日期…',
+      selectedCount: '已选 {n} 项',
+      issuesBadge: '{n} 个任务',
+      nestedAssign: '指派给',
+      nestedStatus: '更改状态',
+      nestedPriority: '更改优先级',
+      nestedLabels: '添加标签',
+      nestedDueDate: '设置截止日期',
+      dueClear: '清除截止日期',
+      dueToday: '截止今天',
+      dueEndOfWeek: '截止本周末',
+      labelsLoading: '正在加载标签…',
+      labelsEmpty: '该项目下暂无标签',
+      labelsNeedProject: '请先选择项目',
+      actions: '操作'
+    }
   },
   status: {
     backlog: '待规划',

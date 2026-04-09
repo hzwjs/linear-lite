@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onUnmounted, computed, onMounted } from 'vue'
+import { ref, watch, onUnmounted, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   PriorityUrgentIcon,
@@ -12,21 +12,32 @@ import {
   Circle,
   CheckCircle,
   Copy,
+  CircleDashed,
+  CircleX,
+  Eye,
   FoldVertical,
+  Loader2,
   UnfoldVertical,
   User as UserIcon,
+  UserPlus,
+  UserCheck,
+  UserX,
   X,
-  Activity,
-  FolderOpen,
+  ListChecks,
+  Gauge,
   Tag,
-  Calendar,
-  Link as LinkIcon
+  Calendar
 } from 'lucide-vue-next'
 import CommandPalette, { type CommandItem } from './CommandPalette.vue'
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
+import type { TaskLabelWriteItem } from '../services/api/types'
 import { useTaskStore } from '../store/taskStore'
 import { useProjectStore } from '../store/projectStore'
+import { useAuthStore } from '../store/authStore'
+import { projectApi } from '../services/api/project'
+import { getStatusLabel, getPriorityLabel } from '../utils/enumLabels'
+import { parseDateInputValue, formatDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { labelListDotColor, sortedTaskLabelsForList } from '../utils/taskLabelListDisplay'
 import { filterVisibleTaskRows, type TaskGroup, type TaskRow } from '../utils/taskView'
 import type { VisibleProperty } from '../utils/viewPreference'
@@ -37,7 +48,6 @@ import {
   resolveAssigneeUser,
   taskHasAssignableDisplay
 } from '../utils/taskAssigneeDisplay'
-import { getStatusLabel } from '../utils/enumLabels'
 import TaskRowStatusPicker from './TaskRowStatusPicker.vue'
 import TaskRowAssigneePicker from './TaskRowAssigneePicker.vue'
 import TaskRowInlineDateCell from './TaskRowInlineDateCell.vue'
@@ -60,6 +70,7 @@ const subtaskExpanded = defineModel<Record<string, boolean>>('subtaskExpanded', 
 
 const store = useTaskStore()
 const projectStore = useProjectStore()
+const authStore = useAuthStore()
 const { t } = useI18n()
 const collapsed = ref<Record<string, boolean>>({})
 const rowHoveredId = ref<string | null>(null)
@@ -70,6 +81,364 @@ const COPY_FEEDBACK_MS = 1800
 
 const selectedTaskIds = ref<Set<string>>(new Set())
 const bulkCommandsOpen = ref(false)
+
+type BulkSubmenu = 'none' | 'assign' | 'status' | 'priority' | 'labels' | 'dueDate'
+const bulkSubmenu = ref<BulkSubmenu>('none')
+const bulkLabelsList = ref<{ id: number; name: string }[]>([])
+const bulkLabelsLoading = ref(false)
+
+const bulkStatusIcons: Record<Status, typeof Circle> = {
+  backlog: CircleDashed,
+  todo: Circle,
+  in_progress: Loader2,
+  in_review: Eye,
+  done: CheckCircle,
+  canceled: CircleX,
+  duplicate: Copy
+}
+
+const ALL_STATUSES: Status[] = [
+  'backlog',
+  'todo',
+  'in_progress',
+  'in_review',
+  'done',
+  'canceled',
+  'duplicate'
+]
+
+const sortedPickerUsers = computed(() => {
+  const list = [...(props.users ?? [])]
+  list.sort((a, b) => a.username.localeCompare(b.username, undefined, { sensitivity: 'base' }))
+  return list
+})
+
+function closeBulkPalette() {
+  bulkCommandsOpen.value = false
+  bulkSubmenu.value = 'none'
+}
+
+function onBulkPaletteBack() {
+  bulkSubmenu.value = 'none'
+}
+
+watch(bulkCommandsOpen, (open) => {
+  if (!open) bulkSubmenu.value = 'none'
+})
+
+watch(
+  () =>
+    bulkCommandsOpen.value && bulkSubmenu.value === 'labels'
+      ? projectStore.activeProjectId
+      : null,
+  async (pid) => {
+    if (pid == null) {
+      bulkLabelsList.value = []
+      bulkLabelsLoading.value = false
+      return
+    }
+    bulkLabelsLoading.value = true
+    try {
+      bulkLabelsList.value = await projectApi.listLabels(pid)
+    } catch {
+      bulkLabelsList.value = []
+    } finally {
+      bulkLabelsLoading.value = false
+    }
+  }
+)
+
+function endOfLocalWeekMs(): number {
+  const d = new Date()
+  const day = d.getDay()
+  const add = day === 0 ? 0 : 7 - day
+  const sun = new Date(d.getFullYear(), d.getMonth(), d.getDate() + add)
+  return parseDateInputValue(formatDateInputValue(sun.getTime()))!
+}
+
+function toLabelWriteItemsMerge(task: Task, addedLabelId: number): TaskLabelWriteItem[] {
+  const existing = task.labels ?? []
+  if (existing.some((l) => l.id === addedLabelId)) {
+    return existing.map((l) => ({ id: l.id }))
+  }
+  return [...existing.map((l) => ({ id: l.id })), { id: addedLabelId }]
+}
+
+async function bulkUpdateAll(updater: (taskKey: string) => Promise<unknown>): Promise<void> {
+  const ids = [...selectedTaskIds.value]
+  await Promise.allSettled(ids.map((id) => updater(id)))
+}
+
+async function applyBulkAssignUser(userId: number) {
+  await bulkUpdateAll((id) => store.updateTask(id, { assigneeId: userId }))
+  closeBulkPalette()
+  clearSelection()
+}
+
+async function applyBulkUnassign() {
+  await bulkUpdateAll((id) => store.updateTask(id, { clearAssignee: true }))
+  closeBulkPalette()
+  clearSelection()
+}
+
+async function applyBulkAssignToMe() {
+  const uid = authStore.currentUser?.id
+  if (uid == null) return
+  await bulkUpdateAll((id) => store.updateTask(id, { assigneeId: uid }))
+  closeBulkPalette()
+  clearSelection()
+}
+
+async function applyBulkStatus(status: Status) {
+  await bulkUpdateAll((id) => store.transitionTask(id, status))
+  closeBulkPalette()
+  clearSelection()
+}
+
+async function applyBulkPriority(priority: Priority) {
+  await bulkUpdateAll((id) => store.updateTask(id, { priority }))
+  closeBulkPalette()
+  clearSelection()
+}
+
+async function applyBulkAddLabel(labelId: number) {
+  await bulkUpdateAll(async (id) => {
+    const task = store.tasks.find((x) => x.id === id)
+    if (!task) return
+    await store.updateTask(id, { labels: toLabelWriteItemsMerge(task, labelId) })
+  })
+  closeBulkPalette()
+  clearSelection()
+}
+
+async function applyBulkDueClear() {
+  await bulkUpdateAll((id) => store.updateTask(id, { clearDueDate: true }))
+  closeBulkPalette()
+  clearSelection()
+}
+
+async function applyBulkDueMs(ms: number) {
+  await bulkUpdateAll((id) => store.updateTask(id, { dueDate: ms }))
+  closeBulkPalette()
+  clearSelection()
+}
+
+const bulkPaletteNestedDepth = computed(() => (bulkSubmenu.value === 'none' ? 0 : 1))
+
+const bulkPaletteNestedTitle = computed(() => {
+  switch (bulkSubmenu.value) {
+    case 'assign':
+      return t('taskList.bulk.nestedAssign')
+    case 'status':
+      return t('taskList.bulk.nestedStatus')
+    case 'priority':
+      return t('taskList.bulk.nestedPriority')
+    case 'labels':
+      return t('taskList.bulk.nestedLabels')
+    case 'dueDate':
+      return t('taskList.bulk.nestedDueDate')
+    default:
+      return ''
+  }
+})
+
+const bulkPaletteCommands = computed<CommandItem[]>(() => {
+  if (bulkSubmenu.value === 'assign') {
+    const rows: CommandItem[] = [
+      {
+        id: 'bulk-assign-unassigned',
+        label: t('common.unassigned'),
+        keywords: ['unassigned', 'clear', 'none'],
+        icon: UserX,
+        run: () => {
+          void applyBulkUnassign()
+        }
+      }
+    ]
+    for (const u of sortedPickerUsers.value) {
+      const name = u.username
+      rows.push({
+        id: `bulk-assign-${u.id}`,
+        label: name,
+        keywords: [name.toLowerCase()],
+        icon: UserIcon,
+        run: () => {
+          void applyBulkAssignUser(u.id)
+        }
+      })
+    }
+    return rows
+  }
+
+  if (bulkSubmenu.value === 'status') {
+    return ALL_STATUSES.map((s) => ({
+      id: `bulk-status-${s}`,
+      label: getStatusLabel(s),
+      keywords: [getStatusLabel(s).toLowerCase(), s],
+      icon: bulkStatusIcons[s],
+      run: () => {
+        void applyBulkStatus(s)
+      }
+    }))
+  }
+
+  if (bulkSubmenu.value === 'priority') {
+    const order: Priority[] = ['urgent', 'high', 'medium', 'low']
+    return order.map((p) => ({
+      id: `bulk-priority-${p}`,
+      label: getPriorityLabel(p),
+      keywords: [getPriorityLabel(p).toLowerCase(), p],
+      icon: priorityIcons[p],
+      run: () => {
+        void applyBulkPriority(p)
+      }
+    }))
+  }
+
+  if (bulkSubmenu.value === 'labels') {
+    if (bulkLabelsLoading.value) {
+      return [
+        {
+          id: 'bulk-labels-loading',
+          label: t('taskList.bulk.labelsLoading'),
+          keywords: [],
+          icon: Tag,
+          run: () => {},
+          keepOpen: true
+        }
+      ]
+    }
+    if (projectStore.activeProjectId == null) {
+      return [
+        {
+          id: 'bulk-labels-no-project',
+          label: t('taskList.bulk.labelsNeedProject'),
+          keywords: [],
+          icon: Tag,
+          run: () => {},
+          keepOpen: true
+        }
+      ]
+    }
+    if (bulkLabelsList.value.length === 0) {
+      return [
+        {
+          id: 'bulk-labels-empty',
+          label: t('taskList.bulk.labelsEmpty'),
+          keywords: [],
+          icon: Tag,
+          run: () => {},
+          keepOpen: true
+        }
+      ]
+    }
+    return bulkLabelsList.value.map((lab) => ({
+      id: `bulk-label-${lab.id}`,
+      label: lab.name,
+      keywords: [lab.name.toLowerCase()],
+      icon: Tag,
+      run: () => {
+        void applyBulkAddLabel(lab.id)
+      }
+    }))
+  }
+
+  if (bulkSubmenu.value === 'dueDate') {
+    const todayMs = parseDateInputValue(todayDateInputValue())!
+    const weekEnd = endOfLocalWeekMs()
+    return [
+      {
+        id: 'bulk-due-clear',
+        label: t('taskList.bulk.dueClear'),
+        keywords: ['clear', 'remove'],
+        icon: Calendar,
+        run: () => {
+          void applyBulkDueClear()
+        }
+      },
+      {
+        id: 'bulk-due-today',
+        label: t('taskList.bulk.dueToday'),
+        keywords: ['today'],
+        icon: Calendar,
+        run: () => {
+          void applyBulkDueMs(todayMs)
+        }
+      },
+      {
+        id: 'bulk-due-week',
+        label: t('taskList.bulk.dueEndOfWeek'),
+        keywords: ['week', 'sunday'],
+        icon: Calendar,
+        run: () => {
+          void applyBulkDueMs(weekEnd)
+        }
+      }
+    ]
+  }
+
+  return [
+    {
+      id: 'assign-to',
+      label: t('taskList.bulk.assignTo'),
+      keywords: ['assign'],
+      icon: UserPlus,
+      run: () => {
+        bulkSubmenu.value = 'assign'
+      },
+      keepOpen: true
+    },
+    {
+      id: 'assign-to-me',
+      label: t('taskList.bulk.assignToMe'),
+      keywords: ['assign', 'me'],
+      icon: UserCheck,
+      run: () => {
+        void applyBulkAssignToMe()
+      }
+    },
+    {
+      id: 'change-status',
+      label: t('taskList.bulk.changeStatus'),
+      keywords: ['status'],
+      icon: ListChecks,
+      run: () => {
+        bulkSubmenu.value = 'status'
+      },
+      keepOpen: true
+    },
+    {
+      id: 'change-priority',
+      label: t('taskList.bulk.changePriority'),
+      keywords: ['priority'],
+      icon: Gauge,
+      run: () => {
+        bulkSubmenu.value = 'priority'
+      },
+      keepOpen: true
+    },
+    {
+      id: 'change-labels',
+      label: t('taskList.bulk.changeLabels'),
+      keywords: ['label'],
+      icon: Tag,
+      run: () => {
+        bulkSubmenu.value = 'labels'
+      },
+      keepOpen: true
+    },
+    {
+      id: 'set-due-date',
+      label: t('taskList.bulk.setDueDate'),
+      keywords: ['date', 'due'],
+      icon: Calendar,
+      run: () => {
+        bulkSubmenu.value = 'dueDate'
+      },
+      keepOpen: true
+    }
+  ]
+})
 
 function toggleSelection(taskId: string) {
   const next = new Set(selectedTaskIds.value)
@@ -84,72 +453,6 @@ function toggleSelection(taskId: string) {
 function clearSelection() {
   selectedTaskIds.value.clear()
 }
-
-const bulkCommands = computed<CommandItem[]>(() => [
-  {
-    id: 'assign-to',
-    label: 'Assign to...',
-    keywords: ['assign'],
-    icon: UserIcon,
-    run: () => { }
-  },
-  {
-    id: 'assign-to-me',
-    label: 'Assign to me',
-    keywords: ['assign', 'me'],
-    icon: UserIcon,
-    run: async () => {
-      // Implement direct assignment eventually, for now just clear
-      clearSelection()
-    }
-  },
-  {
-    id: 'change-status',
-    label: 'Change status...',
-    keywords: ['status'],
-    icon: Activity,
-    run: () => { }
-  },
-  {
-    id: 'change-priority',
-    label: 'Change priority...',
-    keywords: ['priority'],
-    icon: Activity,
-    run: () => { }
-  },
-  {
-    id: 'add-to-project',
-    label: 'Add to project...',
-    keywords: ['project'],
-    icon: FolderOpen,
-    run: () => { }
-  },
-  {
-    id: 'change-labels',
-    label: 'Change or add labels...',
-    keywords: ['label'],
-    icon: Tag,
-    run: () => { }
-  },
-  {
-    id: 'set-due-date',
-    label: 'Set due date...',
-    keywords: ['date', 'due'],
-    icon: Calendar,
-    run: () => { }
-  },
-  {
-    id: 'copy-links',
-    label: 'Copy issue IDs as links',
-    keywords: ['copy', 'link'],
-    icon: LinkIcon,
-    run: async () => {
-      const ids = Array.from(selectedTaskIds.value).join(', ')
-      await navigator.clipboard.writeText(ids)
-      clearSelection()
-    }
-  }
-])
 
 function onKeydown(e: KeyboardEvent) {
   if (selectedTaskIds.value.size > 0 && e.key === 'k' && (e.metaKey || e.ctrlKey)) {
@@ -690,13 +993,13 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
         <div v-if="selectedTaskIds.size > 0" class="bulk-action-bar-wrapper">
           <div class="bulk-action-bar">
             <div class="bulk-bar-pill bulk-bar-count">
-              <span class="bulk-text">{{ selectedTaskIds.size }} selected</span>
+              <span class="bulk-text">{{ t('taskList.bulk.selectedCount', { n: selectedTaskIds.size }) }}</span>
             </div>
             <button type="button" class="bulk-bar-dismiss" aria-label="Clear selection" @click="clearSelection">
               <X class="bulk-icon-14" stroke-width="2.5" aria-hidden="true" />
             </button>
             <button type="button" class="bulk-bar-pill bulk-action-btn" @click="bulkCommandsOpen = true">
-              <span class="bulk-kbd">⌘</span> <span class="bulk-text">Actions</span>
+              <span class="bulk-kbd">⌘</span> <span class="bulk-text">{{ t('taskList.bulk.actions') }}</span>
             </button>
           </div>
         </div>
@@ -704,8 +1007,11 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
       <CommandPalette
         v-if="bulkCommandsOpen"
         :open="bulkCommandsOpen"
-        :badge="`${selectedTaskIds.size} issues`"
-        :commands="bulkCommands"
+        :badge="t('taskList.bulk.issuesBadge', { n: selectedTaskIds.size })"
+        :commands="bulkPaletteCommands"
+        :nested-depth="bulkPaletteNestedDepth"
+        :nested-title="bulkPaletteNestedTitle"
+        @back="onBulkPaletteBack"
         @close="bulkCommandsOpen = false"
       />
     </Teleport>

@@ -141,8 +141,10 @@ const en = {
   commandPalette: {
     title: 'Command palette',
     searchPlaceholder: 'Type a command or search...',
+    nestedSearchPlaceholder: 'Search…',
     searchAria: 'Search commands',
-    noMatches: 'No commands match.'
+    noMatches: 'No commands match.',
+    backAria: 'Back'
   },
   boardView: {
     newIssue: 'New issue',
@@ -448,7 +450,29 @@ const en = {
     changeAssignee: 'Change assignee',
     assigneeSearchPlaceholder: 'Search members',
     clearDate: 'Clear date',
-    progressDragAria: 'Drag or use arrow keys to adjust progress'
+    progressDragAria: 'Drag or use arrow keys to adjust progress',
+    bulk: {
+      assignTo: 'Assign to…',
+      assignToMe: 'Assign to me',
+      changeStatus: 'Change status…',
+      changePriority: 'Change priority…',
+      changeLabels: 'Change or add labels…',
+      setDueDate: 'Set due date…',
+      selectedCount: '{n} selected',
+      issuesBadge: '{n} issues',
+      nestedAssign: 'Assign to',
+      nestedStatus: 'Change status',
+      nestedPriority: 'Change priority',
+      nestedLabels: 'Add label',
+      nestedDueDate: 'Set due date',
+      dueClear: 'Clear due date',
+      dueToday: 'Due today',
+      dueEndOfWeek: 'Due end of week',
+      labelsLoading: 'Loading labels…',
+      labelsEmpty: 'No labels in this project',
+      labelsNeedProject: 'Select a project first',
+      actions: 'Actions'
+    }
   },
   status: {
     backlog: 'Backlog',

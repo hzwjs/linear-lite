@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ChevronLeft } from 'lucide-vue-next'
 import { useOverlayStore } from '../store/overlayStore'
 
 export interface CommandItem {
@@ -9,6 +10,8 @@ export interface CommandItem {
   keywords: string[]
   icon?: unknown
   run: () => void
+  /** 为 true 时执行后不关闭面板（用于进入二级列表） */
+  keepOpen?: boolean
 }
 
 const props = withDefaults(
@@ -16,12 +19,17 @@ const props = withDefaults(
     open: boolean
     commands: CommandItem[]
     badge?: string
+    /** >0 时 Escape 先退回一级，由父组件减小深度 */
+    nestedDepth?: number
+    /** 二级顶栏标题 */
+    nestedTitle?: string
   }>(),
-  { commands: () => [] }
+  { commands: () => [], nestedDepth: 0, nestedTitle: '' }
 )
 
 const emit = defineEmits<{
   close: []
+  back: []
 }>()
 
 const overlayStore = useOverlayStore()
@@ -67,13 +75,25 @@ function close(restoreFocus = true) {
 function runCommand(cmd: CommandItem) {
   const skipRestore = cmd.id === 'focus-search'
   cmd.run()
+  if (cmd.keepOpen) {
+    nextTick(() => inputEl.value?.focus())
+    return
+  }
   close(!skipRestore)
+}
+
+function goBack() {
+  emit('back')
 }
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     e.preventDefault()
     e.stopPropagation()
+    if (props.nestedDepth > 0) {
+      goBack()
+      return
+    }
     close()
     return
   }
@@ -116,6 +136,15 @@ watch(filteredCommands, () => {
   selectedIndex.value = Math.min(selectedIndex.value, filteredCommands.value.length - 1)
 })
 
+watch(
+  () => props.nestedDepth,
+  () => {
+    query.value = ''
+    selectedIndex.value = 0
+    nextTick(() => inputEl.value?.focus())
+  }
+)
+
 // 焦点陷阱：焦点离开面板时拉回
 function onFocusIn(e: FocusEvent) {
   const target = e.target as Node
@@ -149,12 +178,25 @@ onUnmounted(() => {
         <div v-if="badge" class="command-palette-badge">
           <span class="badge-text">{{ badge }}</span>
         </div>
+        <div v-if="nestedDepth > 0" class="command-palette-nested-head">
+          <button
+            type="button"
+            class="command-palette-back-btn"
+            :aria-label="t('commandPalette.backAria')"
+            @click="goBack"
+          >
+            <ChevronLeft class="command-palette-back-icon" stroke-width="2" aria-hidden="true" />
+          </button>
+          <span class="command-palette-nested-title">{{ nestedTitle || t('commandPalette.title') }}</span>
+        </div>
         <input
           ref="inputEl"
           v-model="query"
           type="text"
           class="command-palette-input"
-          :placeholder="t('commandPalette.searchPlaceholder')"
+          :placeholder="
+            nestedDepth > 0 ? t('commandPalette.nestedSearchPlaceholder') : t('commandPalette.searchPlaceholder')
+          "
           :aria-label="t('commandPalette.searchAria')"
           autocomplete="off"
         />
@@ -231,6 +273,39 @@ onUnmounted(() => {
   font-weight: 500;
   padding: 2px 6px;
   border-radius: 4px;
+}
+.command-palette-nested-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 8px 0 12px;
+  min-height: 40px;
+}
+.command-palette-back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.command-palette-back-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.command-palette-back-icon {
+  width: 18px;
+  height: 18px;
+}
+.command-palette-nested-title {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
 }
 .command-palette-input {
   width: 100%;
