@@ -430,7 +430,20 @@ const en = {
     hoursAgo: '{count}h ago',
     daysAgo: '{count}d ago',
     monthsAgo: '{count}mo ago',
-    importedAssigneeLine: 'Imported assignee: {name}'
+    importedAssigneeLine: 'Imported assignee: {name}',
+    comments: 'Comments',
+    commentsLoading: 'Loading comments…',
+    noComments: 'No comments yet.',
+    notifyMembers: 'Notify members',
+    commentSendFailed: 'Failed to send',
+    deleteComment: 'Delete',
+    deleteCommentAria: 'Delete this comment'
+  },
+  notifications: {
+    title: 'Notifications',
+    empty: 'No notifications',
+    markAllRead: 'Mark all read',
+    mentionInIssue: 'Mentioned you on {key}'
   },
   taskList: {
     changeStatus: 'Change status',

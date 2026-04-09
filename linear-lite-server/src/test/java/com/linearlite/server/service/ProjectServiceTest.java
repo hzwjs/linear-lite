@@ -6,10 +6,13 @@ import com.linearlite.server.entity.ProjectInvitation;
 import com.linearlite.server.entity.ProjectMember;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.exception.ForbiddenOperationException;
+import com.linearlite.server.mapper.CommentMentionMapper;
+import com.linearlite.server.mapper.InAppNotificationMapper;
 import com.linearlite.server.mapper.ProjectInvitationMapper;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskActivityMapper;
+import com.linearlite.server.mapper.TaskCommentMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
 import com.linearlite.server.mapper.UserMapper;
@@ -20,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -50,6 +54,12 @@ class ProjectServiceTest {
     private EmailService emailService;
     @Mock
     private LabelService labelService;
+    @Mock
+    private TaskCommentMapper taskCommentMapper;
+    @Mock
+    private CommentMentionMapper commentMentionMapper;
+    @Mock
+    private InAppNotificationMapper inAppNotificationMapper;
 
     private ProjectService projectService;
 
@@ -64,7 +74,10 @@ class ProjectServiceTest {
                 projectInvitationMapper,
                 userMapper,
                 emailService,
-                labelService
+                labelService,
+                taskCommentMapper,
+                commentMentionMapper,
+                inAppNotificationMapper
         );
     }
 
@@ -154,9 +167,12 @@ class ProjectServiceTest {
         when(projectMapper.selectById(3L)).thenReturn(project);
         when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(task));
         when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(taskCommentMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
 
         projectService.delete(3L, 7L);
 
+        verify(inAppNotificationMapper).delete(any(LambdaQueryWrapper.class));
+        verify(taskCommentMapper).delete(any(LambdaQueryWrapper.class));
         verify(labelService).deleteLinksForTaskIds(List.of(11L));
         verify(taskActivityMapper).delete(any(LambdaQueryWrapper.class));
         verify(taskFavoriteMapper).delete(any(LambdaQueryWrapper.class));

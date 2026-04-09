@@ -53,4 +53,18 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.UNAUTHORIZED)
                 .body(ApiResponse.fail(HttpStatus.UNAUTHORIZED.value(), e.getMessage()));
     }
+
+    @ExceptionHandler(UnprocessableEntityException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnprocessable(UnprocessableEntityException e) {
+        return ResponseEntity
+                .status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(ApiResponse.fail(HttpStatus.UNPROCESSABLE_ENTITY.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(ConflictOperationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleConflict(ConflictOperationException e) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiResponse.fail(HttpStatus.CONFLICT.value(), e.getMessage()));
+    }
 }

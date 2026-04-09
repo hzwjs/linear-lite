@@ -6,6 +6,8 @@ const AUTO_SAVE_DEBOUNCE_MS = 600
 const SAVED_INDICATOR_MS = 2000
 
 import type { Task, Status, Priority, TaskActivity, User } from '../types/domain'
+import { useAuthStore } from '../store/authStore'
+import { useNotificationStore } from '../store/notificationStore'
 import { useTaskStore } from '../store/taskStore'
 import { useFavoriteStore } from '../store/favoriteStore'
 import { useProjectStore } from '../store/projectStore'
@@ -13,10 +15,12 @@ import { useViewModeStore } from '../store/viewModeStore'
 import { useRouter } from 'vue-router'
 import { projectApi } from '../services/api/project'
 import { activityApi } from '../services/api/activity'
+import { taskCommentsApi, type TaskCommentDto } from '../services/api/taskComments'
 import { attachmentsApi } from '../services/api/attachments'
 import type { TaskLabelWriteItem } from '../services/api/types'
 import type { TaskAttachment } from '../services/api/types'
 import { formatTaskActivity, getActivityAvatarLabel } from '../utils/taskActivity'
+import { renderMarkdown } from '../utils/markdown'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
@@ -43,7 +47,8 @@ import {
   Star,
   Paperclip,
   Folder,
-  Send
+  Send,
+  Trash2
 } from 'lucide-vue-next'
 import TaskRowStatusPicker from './TaskRowStatusPicker.vue'
 
@@ -68,6 +73,8 @@ const emit = defineEmits<{
   navigate: [taskId: string]
 }>()
 
+const authStore = useAuthStore()
+const notificationStore = useNotificationStore()
 const store = useTaskStore()
 const favoriteStore = useFavoriteStore()
 const projectStore = useProjectStore()
@@ -113,6 +120,11 @@ const userList = ref<User[]>([])
 const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
 const activities = ref<TaskActivity[]>([])
 const activitiesLoading = ref(false)
+const comments = ref<TaskCommentDto[]>([])
+const commentsLoading = ref(false)
+const commentBody = ref('')
+const commentSubmitting = ref(false)
+const commentMentionIds = ref<Set<number>>(new Set())
 const attachmentInputRef = ref<HTMLInputElement | null>(null)
 const attachments = ref<TaskAttachment[]>([])
 const attachmentsLoading = ref(false)
@@ -138,6 +150,11 @@ const priorityOptions = computed<CustomSelectOption[]>(() => [
   { value: 'high', label: getPriorityLabel('high'), icon: PriorityHighIcon },
   { value: 'urgent', label: getPriorityLabel('urgent'), icon: PriorityUrgentIcon }
 ])
+const mentionCandidates = computed(() => {
+  const selfId = authStore.currentUser?.id
+  return userList.value.filter((u) => u.id !== selfId)
+})
+
 const assigneeOptions = computed<CustomSelectOption[]>(() => {
   const list: CustomSelectOption[] = [{ value: '', label: t('common.unassigned'), icon: UserIcon }]
   for (const u of userList.value) {
@@ -275,6 +292,66 @@ async function loadActivities(options?: { silent?: boolean }) {
   }
 }
 
+async function loadComments(options?: { silent?: boolean }) {
+  if (props.mode !== 'edit' || !props.task?.id) {
+    comments.value = []
+    return
+  }
+  const silent = options?.silent === true && comments.value.length > 0
+  if (!silent) commentsLoading.value = true
+  try {
+    comments.value = await taskCommentsApi.list(props.task.id)
+  } catch {
+    comments.value = []
+  } finally {
+    if (!silent) commentsLoading.value = false
+  }
+}
+
+function commentTimeFromIso(iso: string) {
+  const ms = Date.parse(iso)
+  if (Number.isNaN(ms)) return ''
+  return relativeTimeFromNow(ms)
+}
+
+function toggleMentionUser(userId: number) {
+  const next = new Set(commentMentionIds.value)
+  if (next.has(userId)) next.delete(userId)
+  else next.add(userId)
+  commentMentionIds.value = next
+}
+
+async function submitComment() {
+  if (props.mode !== 'edit' || !props.task?.id || commentSubmitting.value) return
+  const body = commentBody.value.trim()
+  if (!body) return
+  commentSubmitting.value = true
+  try {
+    const ids = [...commentMentionIds.value]
+    await taskCommentsApi.create(props.task.id, body, ids)
+    commentBody.value = ''
+    commentMentionIds.value = new Set()
+    await loadComments({ silent: true })
+    void notificationStore.refreshUnread()
+  } catch (e) {
+    console.error(e)
+    alert(e instanceof Error ? e.message : t('taskEditor.commentSendFailed'))
+  } finally {
+    commentSubmitting.value = false
+  }
+}
+
+async function deleteCommentRow(c: TaskCommentDto) {
+  if (!props.task?.id || !c.deletable) return
+  try {
+    await taskCommentsApi.delete(props.task.id, c.id)
+    await loadComments({ silent: true })
+  } catch (e) {
+    console.error(e)
+    alert(e instanceof Error ? e.message : t('taskEditor.commentSendFailed'))
+  }
+}
+
 function openSubIssueForm() {
   showSubIssueForm.value = true
   subIssueFormTitle.value = ''
@@ -408,6 +485,7 @@ watch(
   () => {
     loadSubIssues()
     loadActivities()
+    loadComments()
     loadAttachments()
   },
   { immediate: true }
@@ -1163,23 +1241,58 @@ async function toggleFavorite() {
               </div>
               <div v-else class="activity-empty">{{ t('taskEditor.noActivityYet') }}</div>
             </div>
-            <div class="comment-input-wrap">
-              <input
-                type="text"
-                class="comment-input"
-                :placeholder="t('taskEditor.leaveComment')"
-                readonly
-                :aria-label="t('taskEditor.commentAria')"
-              />
-              <div class="comment-input-actions">
-                <button type="button" class="comment-action-btn" :aria-label="t('common.attach')">
-                  <Paperclip class="icon-14" />
+            <template v-if="mode === 'edit' && task">
+              <div class="comments-head">{{ t('taskEditor.comments') }}</div>
+              <div v-if="commentsLoading" class="activity-empty">{{ t('taskEditor.commentsLoading') }}</div>
+              <div v-else-if="comments.length" class="task-comments-list">
+                <div v-for="c in comments" :key="c.id" class="task-comment-row">
+                  <div class="task-comment-meta">
+                    <strong>{{ c.authorName }}</strong>
+                    <span> · {{ commentTimeFromIso(c.createdAt) }}</span>
+                    <button
+                      v-if="c.deletable"
+                      type="button"
+                      class="task-comment-delete"
+                      :aria-label="t('taskEditor.deleteCommentAria')"
+                      @click="deleteCommentRow(c)"
+                    >
+                      <Trash2 class="icon-14" />
+                    </button>
+                  </div>
+                  <div class="task-comment-body markdown-body" v-html="renderMarkdown(c.body)" />
+                </div>
+              </div>
+              <div v-else class="activity-empty">{{ t('taskEditor.noComments') }}</div>
+              <div v-if="mentionCandidates.length" class="comment-mention-chips">
+                <span class="comment-mention-label">{{ t('taskEditor.notifyMembers') }}</span>
+                <button
+                  v-for="u in mentionCandidates"
+                  :key="u.id"
+                  type="button"
+                  class="comment-mention-chip"
+                  :class="{ 'comment-mention-chip--on': commentMentionIds.has(u.id) }"
+                  @click="toggleMentionUser(u.id)"
+                >
+                  @{{ u.username }}
                 </button>
-                <button type="button" class="comment-action-btn" :aria-label="t('taskEditor.sendAria')">
+              </div>
+              <div class="comment-compose">
+                <TiptapEditor
+                  v-model="commentBody"
+                  :placeholder="t('taskEditor.leaveComment')"
+                  :min-height="56"
+                />
+                <button
+                  type="button"
+                  class="comment-send-btn"
+                  :disabled="commentSubmitting || !commentBody.trim()"
+                  :aria-label="t('taskEditor.sendAria')"
+                  @click="submitComment"
+                >
                   <Send class="icon-14" />
                 </button>
               </div>
-            </div>
+            </template>
           </div>
         </section>
       </div>
@@ -1831,36 +1944,36 @@ async function toggleFavorite() {
 .linear-unsubscribe:hover {
   color: var(--color-text-secondary);
 }
-.comment-input-wrap {
+.comments-head {
+  margin-top: 16px;
+  margin-bottom: 8px;
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.task-comments-list {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.task-comment-row {
   padding: 10px 12px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
   background: var(--color-bg-base);
 }
-.comment-input {
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  font-size: var(--font-size-caption);
-  color: var(--color-text-primary);
-}
-.comment-input::placeholder {
-  color: var(--color-text-muted);
-}
-.comment-input:focus {
-  outline: none;
-}
-.comment-input-actions {
+.task-comment-meta {
   display: flex;
   align-items: center;
-  gap: 2px;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  margin-bottom: 6px;
 }
-.comment-action-btn {
+.task-comment-delete {
+  margin-left: auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1870,11 +1983,75 @@ async function toggleFavorite() {
   color: var(--color-text-muted);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: color var(--transition-fast), background var(--transition-fast);
 }
-.comment-action-btn:hover {
-  color: var(--color-text-secondary);
+.task-comment-delete:hover {
+  color: var(--color-danger, #e5484d);
   background: var(--color-bg-hover);
+}
+.task-comment-body {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-primary);
+  line-height: 1.45;
+}
+.task-comment-body :deep(p) {
+  margin: 0 0 0.5em;
+}
+.task-comment-body :deep(p:last-child) {
+  margin-bottom: 0;
+}
+.comment-mention-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.comment-mention-label {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+.comment-mention-chip {
+  padding: 4px 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+  background: var(--color-bg-base);
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
+.comment-mention-chip--on {
+  border-color: var(--color-accent, #5e6ad2);
+  background: rgba(94, 106, 210, 0.12);
+  color: var(--color-accent, #5e6ad2);
+}
+.comment-compose {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-base);
+}
+.comment-compose :deep(.tiptap-editor-wrap) {
+  flex: 1;
+  min-width: 0;
+}
+.comment-send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent, #5e6ad2);
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.comment-send-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .section-kicker {
   font-size: var(--font-size-xs);

@@ -1,16 +1,22 @@
 package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.linearlite.server.entity.CommentMention;
+import com.linearlite.server.entity.InAppNotification;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.ProjectInvitation;
 import com.linearlite.server.entity.ProjectMember;
 import com.linearlite.server.entity.Task;
+import com.linearlite.server.entity.TaskComment;
 import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.exception.ResourceNotFoundException;
+import com.linearlite.server.mapper.CommentMentionMapper;
+import com.linearlite.server.mapper.InAppNotificationMapper;
 import com.linearlite.server.mapper.ProjectInvitationMapper;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskActivityMapper;
+import com.linearlite.server.mapper.TaskCommentMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
 import com.linearlite.server.mapper.UserMapper;
@@ -37,6 +43,9 @@ public class ProjectService {
     private final UserMapper userMapper;
     private final EmailService emailService;
     private final LabelService labelService;
+    private final TaskCommentMapper taskCommentMapper;
+    private final CommentMentionMapper commentMentionMapper;
+    private final InAppNotificationMapper inAppNotificationMapper;
 
     public ProjectService(
             ProjectMapper projectMapper,
@@ -47,7 +56,10 @@ public class ProjectService {
             ProjectInvitationMapper projectInvitationMapper,
             UserMapper userMapper,
             EmailService emailService,
-            LabelService labelService) {
+            LabelService labelService,
+            TaskCommentMapper taskCommentMapper,
+            CommentMentionMapper commentMentionMapper,
+            InAppNotificationMapper inAppNotificationMapper) {
         this.projectMapper = projectMapper;
         this.taskMapper = taskMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
@@ -57,6 +69,9 @@ public class ProjectService {
         this.userMapper = userMapper;
         this.emailService = emailService;
         this.labelService = labelService;
+        this.taskCommentMapper = taskCommentMapper;
+        this.commentMentionMapper = commentMentionMapper;
+        this.inAppNotificationMapper = inAppNotificationMapper;
     }
 
     /**
@@ -200,6 +215,16 @@ public class ProjectService {
                 .collect(Collectors.toList());
 
         if (!taskIds.isEmpty()) {
+            inAppNotificationMapper.delete(
+                    new LambdaQueryWrapper<InAppNotification>().in(InAppNotification::getTaskId, taskIds));
+            List<TaskComment> comments = taskCommentMapper.selectList(
+                    new LambdaQueryWrapper<TaskComment>().in(TaskComment::getTaskId, taskIds));
+            List<Long> commentIds = comments.stream().map(TaskComment::getId).collect(Collectors.toList());
+            if (!commentIds.isEmpty()) {
+                commentMentionMapper.delete(
+                        new LambdaQueryWrapper<CommentMention>().in(CommentMention::getCommentId, commentIds));
+            }
+            taskCommentMapper.delete(new LambdaQueryWrapper<TaskComment>().in(TaskComment::getTaskId, taskIds));
             labelService.deleteLinksForTaskIds(taskIds);
             taskActivityMapper.delete(
                     new LambdaQueryWrapper<com.linearlite.server.entity.TaskActivity>()

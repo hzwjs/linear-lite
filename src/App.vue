@@ -7,6 +7,7 @@ import { useTaskStore } from './store/taskStore'
 import { useFavoriteStore } from './store/favoriteStore'
 import { useOverlayStore } from './store/overlayStore'
 import { useViewModeStore } from './store/viewModeStore'
+import NotificationCenter from './components/NotificationCenter.vue'
 import CreateProjectModal from './components/CreateProjectModal.vue'
 import ProjectSettingsModal from './components/ProjectSettingsModal.vue'
 import CommandPalette from './components/CommandPalette.vue'
@@ -15,6 +16,7 @@ import type { Project } from './types/domain'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useLocaleStore } from './store/localeStore'
+import { useNotificationStore } from './store/notificationStore'
 import {
   Plus,
   LayoutGrid,
@@ -73,6 +75,7 @@ const favoriteStore = useFavoriteStore()
 const overlayStore = useOverlayStore()
 const viewModeStore = useViewModeStore()
 const localeStore = useLocaleStore()
+useNotificationStore()
 const { t } = useI18n()
 
 const createProjectOpen = ref(false)
@@ -348,6 +351,7 @@ onUnmounted(() => {
         </button>
         <span class="sidebar-brand-name">{{ t('app.name') }}</span>
         <div class="sidebar-brand-actions">
+          <NotificationCenter />
           <button
             type="button"
             class="sidebar-icon-btn"

@@ -430,7 +430,20 @@ const zhCN = {
     hoursAgo: '{count} 小时前',
     daysAgo: '{count} 天前',
     monthsAgo: '{count} 个月前',
-    importedAssigneeLine: '导入处理人：{name}'
+    importedAssigneeLine: '导入处理人：{name}',
+    comments: '评论',
+    commentsLoading: '评论加载中…',
+    noComments: '暂无评论。',
+    notifyMembers: '提醒成员',
+    commentSendFailed: '发送失败',
+    deleteComment: '删除',
+    deleteCommentAria: '删除该评论'
+  },
+  notifications: {
+    title: '通知',
+    empty: '暂无通知',
+    markAllRead: '全部已读',
+    mentionInIssue: '在 {key} 中提及你'
   },
   taskList: {
     changeStatus: '更改状态',

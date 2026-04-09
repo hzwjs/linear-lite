@@ -57,11 +57,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        String authHeader = request.getHeader(AUTHORIZATION_HEADER);
-        String token = null;
-        if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
-            token = authHeader.substring(BEARER_PREFIX.length()).trim();
-        }
+        String token = resolveToken(request);
 
         if (token == null || token.isEmpty()) {
             send401(response, "缺少认证信息");
@@ -78,6 +74,25 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         } catch (IllegalArgumentException e) {
             send401(response, "无效或过期的 Token");
         }
+    }
+
+    /**
+     * EventSource 无法设置 Authorization 头时，允许对通知 SSE 使用 query {@code access_token}（仅此路径）。
+     */
+    private String resolveToken(HttpServletRequest request) {
+        String authHeader = request.getHeader(AUTHORIZATION_HEADER);
+        if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
+            return authHeader.substring(BEARER_PREFIX.length()).trim();
+        }
+        String path = request.getRequestURI();
+        if (path != null && path.endsWith("/notifications/stream")
+                && "GET".equalsIgnoreCase(request.getMethod())) {
+            String q = request.getParameter("access_token");
+            if (q != null && !q.isBlank()) {
+                return q.trim();
+            }
+        }
+        return null;
     }
 
     private void send401(HttpServletResponse response, String message) throws IOException {
