@@ -124,17 +124,25 @@ export const useTaskStore = defineStore('taskStore', () => {
       isLoading.value = false
       return
     }
+    /** 本次请求对应的项目；切换项目后迟到的响应不得写回列表或关掉新请求的 loading */
+    const requestedProjectId = projectId
     isLoading.value = true
     error.value = null
+    tasks.value = []
     try {
-      tasks.value = await taskApi.list(projectId, { topLevelOnly: false })
+      const list = await taskApi.list(requestedProjectId, { topLevelOnly: false })
+      if (useProjectStore().activeProjectId !== requestedProjectId) return
+      tasks.value = list
     } catch (err: unknown) {
+      if (useProjectStore().activeProjectId !== requestedProjectId) return
       error.value =
         err instanceof Error
           ? err.message
           : translate('taskStore.errors.loadFailed', undefined, 'Failed to load tasks.')
     } finally {
-      isLoading.value = false
+      if (useProjectStore().activeProjectId === requestedProjectId) {
+        isLoading.value = false
+      }
     }
   }
 

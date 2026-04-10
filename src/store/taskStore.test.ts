@@ -183,4 +183,42 @@ describe('taskStore', () => {
     store.stripProjectLabelFromTasks(10, 1)
     expect(store.filterLabelIds).toEqual([])
   })
+
+  it('fetchTasks clears tasks immediately and ignores stale responses after project switch', async () => {
+    const projectStore = useProjectStore()
+    projectStore.setActiveProject(1)
+
+    let resolveP1!: (v: Task[]) => void
+    const p1 = new Promise<Task[]>((r) => {
+      resolveP1 = r
+    })
+    let resolveP2!: (v: Task[]) => void
+    const p2 = new Promise<Task[]>((r) => {
+      resolveP2 = r
+    })
+    vi.mocked(taskApi.list)
+      .mockImplementationOnce(() => p1)
+      .mockImplementationOnce(() => p2)
+
+    const store = useTaskStore()
+    store.tasks = [baseTask({ id: 'OLD', projectId: 1 })]
+
+    const first = store.fetchTasks()
+    expect(store.tasks).toEqual([])
+    expect(store.isLoading).toBe(true)
+
+    projectStore.setActiveProject(2)
+    const second = store.fetchTasks()
+    expect(store.tasks).toEqual([])
+    expect(store.isLoading).toBe(true)
+
+    resolveP2([baseTask({ id: 'P2', projectId: 2 })])
+    await second
+    expect(store.tasks.map((t) => t.id)).toEqual(['P2'])
+    expect(store.isLoading).toBe(false)
+
+    resolveP1([baseTask({ id: 'P1-STALE', projectId: 1 })])
+    await first
+    expect(store.tasks.map((t) => t.id)).toEqual(['P2'])
+  })
 })
