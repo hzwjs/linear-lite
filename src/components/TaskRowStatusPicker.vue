@@ -52,6 +52,7 @@ const statusOptions = computed<StatusOption[]>(() => [
   { value: 'canceled', label: getStatusLabel('canceled'), icon: CircleX, shortcut: '6' },
   { value: 'duplicate', label: getStatusLabel('duplicate'), icon: Copy, shortcut: '7' }
 ])
+const currentStatusLabel = computed(() => getStatusLabel(props.status))
 
 const isOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
@@ -228,7 +229,8 @@ onUnmounted(() => {
       ref="triggerRef"
       type="button"
       class="task-row-status-trigger"
-      :aria-label="t('taskList.changeStatus')"
+      :class="`task-row-status-trigger--${status}`"
+      :aria-label="`${t('taskList.changeStatus')}: ${currentStatusLabel}`"
       :aria-expanded="isOpen"
       aria-haspopup="listbox"
       :aria-controls="isOpen ? listboxId : undefined"

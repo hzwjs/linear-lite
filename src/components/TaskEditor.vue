@@ -12,6 +12,7 @@ import { useTaskStore } from '../store/taskStore'
 import { useFavoriteStore } from '../store/favoriteStore'
 import { useProjectStore } from '../store/projectStore'
 import { useViewModeStore } from '../store/viewModeStore'
+import { useIssuePanelStore } from '../store/issuePanelStore'
 import { useRouter } from 'vue-router'
 import { projectApi } from '../services/api/project'
 import { activityApi } from '../services/api/activity'
@@ -19,11 +20,17 @@ import { taskCommentsApi, type TaskCommentDto } from '../services/api/taskCommen
 import { attachmentsApi } from '../services/api/attachments'
 import type { TaskLabelWriteItem } from '../services/api/types'
 import type { TaskAttachment } from '../services/api/types'
-import { formatTaskActivity, getActivityAvatarLabel } from '../utils/taskActivity'
+import { getActivityAvatarLabel } from '../utils/taskActivity'
+import {
+  type TaskActivityDisplayItem,
+  formatTaskActivityDisplayItem,
+  groupTaskActivitiesForDisplay
+} from '../utils/taskActivityGroup'
 import { renderMarkdown } from '../utils/markdown'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
+import { getTaskDueState } from '../utils/taskDueState'
 import TiptapEditor from './TiptapEditor.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
@@ -79,6 +86,7 @@ const store = useTaskStore()
 const favoriteStore = useFavoriteStore()
 const projectStore = useProjectStore()
 const viewModeStore = useViewModeStore()
+const issuePanelStore = useIssuePanelStore()
 const router = useRouter()
 const { t } = useI18n()
 
@@ -120,6 +128,19 @@ const userList = ref<User[]>([])
 const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
 const activities = ref<TaskActivity[]>([])
 const activitiesLoading = ref(false)
+const activityDisplayItems = computed(() => groupTaskActivitiesForDisplay(activities.value))
+
+function activityDisplayRowKey(item: TaskActivityDisplayItem): string {
+  if (item.kind === 'single') return `activity-${item.activity.id}`
+  const first = item.activities[0]
+  return `activity-group-${first?.id ?? 'unknown'}-${item.activities.length}`
+}
+
+function activityDisplayRowTime(item: TaskActivityDisplayItem): number {
+  if (item.kind === 'single') return item.activity.createdAt
+  return item.activities[0]?.createdAt ?? 0
+}
+
 const comments = ref<TaskCommentDto[]>([])
 const commentsLoading = ref(false)
 const commentBody = ref('')
@@ -130,6 +151,8 @@ const attachments = ref<TaskAttachment[]>([])
 const attachmentsLoading = ref(false)
 const attachmentUploadError = ref('')
 const attachmentsCollapsed = ref(false)
+const dueStateNow = ref(Date.now())
+let dueStateNowTimer: ReturnType<typeof setInterval> | null = null
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024 // 10MB
 /** 刚由本端保存的任务 id，避免 save 后 loadForm 用接口返回值覆盖编辑器内容 */
 const justSavedTaskId = ref<string | null>(null)
@@ -185,6 +208,22 @@ const breadcrumbScopeName = computed(() => {
 })
 
 const showBreadcrumb = computed(() => props.mode === 'edit' && !!props.task)
+const workspaceSourceLabel = computed(() => {
+  if (props.mode !== 'edit' || !props.task?.id) return null
+  if (issuePanelStore.workspaceTaskId !== props.task.id) return null
+  return issuePanelStore.workspaceSourceLabel
+})
+const taskDueState = computed(() => getTaskDueState(parseDateInputValue(formDueDate.value), new Date(dueStateNow.value)))
+const taskDueStateText = computed(() => {
+  const state = taskDueState.value
+  if (!state.hasDueDate) return ''
+  if (state.kind === 'today') return t('taskEditor.dueToday')
+  if (state.kind === 'overdue') return t('taskEditor.dueOverdueDays', { count: state.dayCount })
+  return t('taskEditor.dueInDays', { count: state.dayCount })
+})
+const showAttachmentBody = computed(
+  () => attachmentsLoading.value || attachmentUploadError.value.length > 0 || attachments.value.length > 0
+)
 const isFavorited = computed(() => {
   if (!props.task?.id) return false
   return favoriteStore.isFavorite(props.task.id) || props.task.favorited === true
@@ -329,6 +368,13 @@ function toggleMentionUser(userId: number) {
   if (next.has(userId)) next.delete(userId)
   else next.add(userId)
   commentMentionIds.value = next
+}
+
+function onCommentEditorKeydown(e: KeyboardEvent) {
+  if (e.isComposing) return
+  if (!(e.metaKey || e.ctrlKey) || e.key !== 'Enter') return
+  e.preventDefault()
+  void submitComment()
 }
 
 async function submitComment() {
@@ -524,8 +570,21 @@ onMounted(async () => {
   await loadProjectMembers(effectiveProjectId.value)
 })
 
+onMounted(() => {
+  dueStateNowTimer = setInterval(() => {
+    dueStateNow.value = Date.now()
+  }, 60_000)
+})
+
 watch(effectiveProjectId, (id) => {
   loadProjectMembers(id)
+})
+
+onBeforeUnmount(() => {
+  if (dueStateNowTimer != null) {
+    clearInterval(dueStateNowTimer)
+    dueStateNowTimer = null
+  }
 })
 
 function toDateInputValue(ms: number | undefined | null): string {
@@ -1017,6 +1076,7 @@ async function toggleFavorite() {
       <div class="editor-header-actions">
         <span v-if="saveStatus === 'saved'" class="save-indicator save-indicator--saved">{{ t('taskEditor.saved') }}</span>
         <span v-else-if="saveStatus === 'saving'" class="save-indicator save-indicator--saving">{{ t('taskEditor.saving') }}</span>
+        <div v-if="workspaceSourceLabel" class="issue-source">{{ workspaceSourceLabel }}</div>
         <div v-if="position && total" class="issue-position">{{ position }} / {{ total }}</div>
         <button
           class="nav-btn"
@@ -1087,6 +1147,7 @@ async function toggleFavorite() {
         <section v-if="mode === 'edit' && task" class="content-section subdued linear-section">
           <div class="linear-section-head-wrap">
             <button
+              v-if="showAttachmentBody"
               type="button"
               class="linear-section-head"
               :aria-expanded="!attachmentsCollapsed"
@@ -1096,8 +1157,12 @@ async function toggleFavorite() {
               <span class="linear-section-title">{{ t('taskEditor.attachments') }}</span>
               <span class="linear-section-count">{{ attachments.length }}</span>
             </button>
+            <div v-else class="linear-section-head linear-section-head--static">
+              <span class="linear-section-title">{{ t('taskEditor.attachments') }}</span>
+              <span class="linear-section-count">{{ attachments.length }}</span>
+            </div>
           </div>
-          <div v-show="!attachmentsCollapsed" class="linear-section-body">
+          <div v-if="showAttachmentBody" v-show="!attachmentsCollapsed" class="linear-section-body">
             <p v-if="attachmentsLoading" class="linear-placeholder">{{ t('common.loading') }}</p>
             <template v-else>
               <p v-if="attachmentUploadError" class="linear-placeholder linear-placeholder--error">{{ attachmentUploadError }}</p>
@@ -1267,7 +1332,7 @@ async function toggleFavorite() {
                 @{{ u.username }}
               </button>
             </div>
-            <div class="comment-compose">
+            <div class="comment-compose" @keydown.capture="onCommentEditorKeydown">
               <TiptapEditor
                 ref="commentEditorRef"
                 v-model="commentBody"
@@ -1285,6 +1350,7 @@ async function toggleFavorite() {
                 <Send class="icon-14" />
               </button>
             </div>
+            <div class="comment-compose-hint">{{ t('taskEditor.commentShortcutHint') }}</div>
           </div>
         </section>
 
@@ -1296,11 +1362,16 @@ async function toggleFavorite() {
           <div class="linear-section-body">
             <div v-if="activitiesLoading" class="activity-empty">{{ t('taskEditor.loadingActivity') }}</div>
             <div v-else class="activity-list-wrap">
-              <template v-if="activities.length">
-                <div v-for="activity in activities" :key="activity.id" class="activity-item">
-                  <div class="activity-avatar">{{ getActivityAvatarLabel(activity.actorName) }}</div>
+              <template v-if="activityDisplayItems.length">
+                <div
+                  v-for="item in activityDisplayItems"
+                  :key="activityDisplayRowKey(item)"
+                  class="activity-item"
+                >
+                  <div class="activity-avatar">{{ getActivityAvatarLabel(item.actorName) }}</div>
                   <div class="activity-text">
-                    {{ formatTaskActivity(activity) }} · {{ relativeTimeFromNow(activity.createdAt) }}
+                    {{ formatTaskActivityDisplayItem(item) }} ·
+                    {{ relativeTimeFromNow(activityDisplayRowTime(item)) }}
                   </div>
                 </div>
               </template>
@@ -1318,111 +1389,125 @@ async function toggleFavorite() {
 
       <div class="editor-props">
         <div class="props-card">
-          <div class="prop-row">
-            <span class="prop-label">{{ t('common.status') }}</span>
-            <CustomSelect
-              id="task-status"
-              v-model="formStatus"
-              :options="statusOptions"
-              :search-placeholder="t('boardView.filterByStatus')"
-              search-shortcut-badge="S"
-              :aria-label="t('common.status')"
-              trigger-class="prop-trigger prop-trigger--linear"
-            />
-          </div>
-          <div class="prop-row">
-            <span class="prop-label">{{ t('taskEditor.setPriority') }}</span>
-            <CustomSelect
-              id="task-priority"
-              v-model="formPriority"
-              :options="priorityOptions"
-              :aria-label="t('common.priority')"
-              trigger-class="prop-trigger prop-trigger--linear"
-            />
-          </div>
-          <div class="prop-row">
-            <span class="prop-label">{{ t('common.assignee') }}</span>
-            <div class="prop-assignee-stack">
+          <section class="prop-group">
+            <h3 class="prop-group-title">{{ t('taskEditor.execution') }}</h3>
+            <div class="prop-row">
+              <span class="prop-label">{{ t('common.status') }}</span>
               <CustomSelect
-                id="task-assignee"
-                v-model="formAssigneeId"
-                :options="assigneeOptions"
-                :placeholder="t('common.assignee')"
-                :aria-label="t('common.assignee')"
+                id="task-status"
+                v-model="formStatus"
+                :options="statusOptions"
+                :search-placeholder="t('boardView.filterByStatus')"
+                search-shortcut-badge="S"
+                :aria-label="t('common.status')"
                 trigger-class="prop-trigger prop-trigger--linear"
               />
-              <p v-if="importedAssigneeOnlyLabel" class="external-assignee-hint">
-                {{ t('taskEditor.importedAssigneeLine', { name: importedAssigneeOnlyLabel }) }}
-              </p>
             </div>
-          </div>
-          <div class="prop-row">
-            <span class="prop-label">{{ t('common.plannedStartDate') }}</span>
-            <CustomDatePicker
-              id="task-planned-start"
-              v-model="formPlannedStartDate"
-              :placeholder="t('common.plannedStartDate')"
-              :aria-label="t('common.plannedStartDate')"
-              trigger-class="prop-trigger prop-trigger--linear"
-            />
-          </div>
-          <div class="prop-row">
-            <span class="prop-label">{{ t('common.dueDate') }}</span>
-            <CustomDatePicker
-              id="task-due"
-              v-model="formDueDate"
-              :placeholder="t('common.dueDate')"
-              :aria-label="t('common.dueDate')"
-              trigger-class="prop-trigger prop-trigger--linear"
-            />
-          </div>
-          <div v-if="mode === 'edit'" class="prop-row">
-            <span class="prop-label">{{ t('taskEditor.progress') }}</span>
-            <div class="prop-progress-control">
-              <input
-                id="task-progress"
-                v-model.number="formProgressPercent"
-                class="prop-progress-range"
-                type="range"
-                min="0"
-                max="100"
-                step="1"
-                :aria-label="t('taskEditor.progressAria')"
+            <div class="prop-row">
+              <span class="prop-label">{{ t('taskEditor.setPriority') }}</span>
+              <CustomSelect
+                id="task-priority"
+                v-model="formPriority"
+                :options="priorityOptions"
+                :aria-label="t('common.priority')"
+                trigger-class="prop-trigger prop-trigger--linear"
               />
-              <span class="prop-progress-value">{{ clampTaskProgress(formProgressPercent) }}%</span>
             </div>
-          </div>
-          <div v-if="showPropRowLabels" class="prop-row prop-row-labels">
-            <span class="prop-label">{{ t('common.labels') }}</span>
-            <TaskLabelCombobox
-              ref="taskLabelComboboxRef"
-              v-model="labelInput"
-              :labels="formLabels"
-              :project-id="effectiveProjectId"
-              :disabled="mode !== 'edit' || !task"
-              :sidebar-root="editorPanelRef"
-              :task-id="task?.id ?? null"
-              :placeholder="t('taskEditor.addLabel')"
-              :ariaLabel="t('taskEditor.addLabel')"
-              :remove-label-aria-label="t('taskEditor.removeLabel')"
-              :delete-definition-aria-label="t('taskEditor.deleteProjectLabelDefinition')"
-              @pick="pickSuggestion"
-              @create="commitLabelInput"
-              @remove="removeFormLabel"
-              @delete-label-definition="onDeleteLabelDefinition"
-            />
-          </div>
-          <div class="prop-row prop-row--linear-action">
-            <span class="prop-label">{{ t('common.project') }}</span>
-            <button type="button" class="prop-action-trigger" :aria-label="t('taskEditor.addToProject')">
-              <Folder class="icon-14" />
-              <span>{{ taskProjectName ?? t('taskEditor.addToProject') }}</span>
-            </button>
-          </div>
-          <div v-if="mode === 'edit' && task?.completedAt" class="prop-row read-only">
-            <span class="prop-label">{{ t('taskEditor.completedAt') }}</span>
-            <span class="read-only-value">{{ new Date(task.completedAt).toLocaleString() }}</span>
-          </div>
+            <div class="prop-row">
+              <span class="prop-label">{{ t('common.assignee') }}</span>
+              <div class="prop-assignee-stack">
+                <CustomSelect
+                  id="task-assignee"
+                  v-model="formAssigneeId"
+                  :options="assigneeOptions"
+                  :placeholder="t('common.assignee')"
+                  :aria-label="t('common.assignee')"
+                  trigger-class="prop-trigger prop-trigger--linear"
+                />
+                <p v-if="importedAssigneeOnlyLabel" class="external-assignee-hint">
+                  {{ t('taskEditor.importedAssigneeLine', { name: importedAssigneeOnlyLabel }) }}
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section class="prop-group">
+            <h3 class="prop-group-title">{{ t('taskEditor.time') }}</h3>
+            <div class="prop-row">
+              <span class="prop-label">{{ t('common.plannedStartDate') }}</span>
+              <CustomDatePicker
+                id="task-planned-start"
+                v-model="formPlannedStartDate"
+                :placeholder="t('common.plannedStartDate')"
+                :aria-label="t('common.plannedStartDate')"
+                trigger-class="prop-trigger prop-trigger--linear"
+              />
+            </div>
+            <div class="prop-row prop-row--with-helper">
+              <span class="prop-label">{{ t('common.dueDate') }}</span>
+              <div class="prop-row-stack">
+                <CustomDatePicker
+                  id="task-due"
+                  v-model="formDueDate"
+                  :placeholder="t('common.dueDate')"
+                  :aria-label="t('common.dueDate')"
+                  trigger-class="prop-trigger prop-trigger--linear"
+                />
+                <p v-if="taskDueStateText" class="prop-row-help">{{ taskDueStateText }}</p>
+              </div>
+            </div>
+            <div v-if="mode === 'edit'" class="prop-row">
+              <span class="prop-label">{{ t('taskEditor.progress') }}</span>
+              <div class="prop-progress-control">
+                <input
+                  id="task-progress"
+                  v-model.number="formProgressPercent"
+                  class="prop-progress-range"
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  :aria-label="t('taskEditor.progressAria')"
+                />
+                <span class="prop-progress-value">{{ clampTaskProgress(formProgressPercent) }}%</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="prop-group">
+            <h3 class="prop-group-title">{{ t('taskEditor.archive') }}</h3>
+            <div v-if="showPropRowLabels" class="prop-row prop-row-labels">
+              <span class="prop-label">{{ t('common.labels') }}</span>
+              <TaskLabelCombobox
+                ref="taskLabelComboboxRef"
+                v-model="labelInput"
+                :labels="formLabels"
+                :project-id="effectiveProjectId"
+                :disabled="mode !== 'edit' || !task"
+                :sidebar-root="editorPanelRef"
+                :task-id="task?.id ?? null"
+                :placeholder="t('taskEditor.addLabel')"
+                :ariaLabel="t('taskEditor.addLabel')"
+                :remove-label-aria-label="t('taskEditor.removeLabel')"
+                :delete-definition-aria-label="t('taskEditor.deleteProjectLabelDefinition')"
+                @pick="pickSuggestion"
+                @create="commitLabelInput"
+                @remove="removeFormLabel"
+                @delete-label-definition="onDeleteLabelDefinition"
+              />
+            </div>
+            <div class="prop-row prop-row--linear-action">
+              <span class="prop-label">{{ t('common.project') }}</span>
+              <button type="button" class="prop-action-trigger" :aria-label="t('taskEditor.addToProject')">
+                <Folder class="icon-14" />
+                <span>{{ taskProjectName ?? t('taskEditor.addToProject') }}</span>
+              </button>
+            </div>
+            <div v-if="mode === 'edit' && task?.completedAt" class="prop-row read-only">
+              <span class="prop-label">{{ t('taskEditor.completedAt') }}</span>
+              <span class="read-only-value">{{ new Date(task.completedAt).toLocaleString() }}</span>
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -1560,6 +1645,13 @@ async function toggleFavorite() {
 .issue-position {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
+}
+.issue-source {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-muted);
 }
 .nav-btn {
   width: 24px;
@@ -2049,6 +2141,11 @@ async function toggleFavorite() {
   flex: 1;
   min-width: 0;
 }
+.comment-compose-hint {
+  margin-top: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
 .comment-send-btn {
   display: flex;
   align-items: center;
@@ -2117,11 +2214,30 @@ async function toggleFavorite() {
 .props-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
   padding: 0;
   border: none;
   border-radius: 0;
   background: transparent;
+}
+.prop-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.prop-group:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+.prop-group-title {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
 }
 .props-title {
   font-size: var(--font-size-xs);
@@ -2136,11 +2252,26 @@ async function toggleFavorite() {
   flex-direction: column;
   gap: 4px;
 }
+.prop-row--with-helper {
+  gap: 6px;
+}
 .prop-assignee-stack {
   display: flex;
   flex-direction: column;
   gap: 6px;
   width: 100%;
+}
+.prop-row-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.prop-row-help {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: 1.35;
 }
 .external-assignee-hint {
   margin: 0;

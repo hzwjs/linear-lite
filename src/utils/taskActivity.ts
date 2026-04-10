@@ -30,8 +30,16 @@ export function getActivityAvatarLabel(actorName: string | null | undefined): st
   return getInitials(trimmed)
 }
 
+export function normalizeActivityActorName(actorName: string | null | undefined): string {
+  return (actorName ?? '').trim()
+}
+
+export function formatTaskActivityFieldLabel(fieldName: string | null | undefined): string {
+  return normalizeFieldLabel(fieldName)
+}
+
 export function formatTaskActivity(activity: TaskActivity): string {
-  const actor = activity.actorName ?? 'Someone'
+  const actor = normalizeActivityActorName(activity.actorName) || 'Someone'
   switch (activity.actionType) {
     case 'created':
       return translate('activity.created', { actor })

@@ -13,12 +13,14 @@ export const useIssuePanelStore = defineStore('issuePanelStore', () => {
   const isComposerOpen = ref(false)
   const composerDefaults = ref<ComposerDefaults>({})
   const workspaceTaskId = ref<string | null>(null)
+  const workspaceSourceLabel = ref<string | null>(null)
   const selectedTaskId = ref<string | null>(null)
 
   function openComposer(defaults: ComposerDefaults = {}) {
     isComposerOpen.value = true
     composerDefaults.value = { ...defaults }
     workspaceTaskId.value = null
+    workspaceSourceLabel.value = null
   }
 
   function closeComposer() {
@@ -26,14 +28,24 @@ export const useIssuePanelStore = defineStore('issuePanelStore', () => {
     composerDefaults.value = {}
   }
 
-  function openWorkspace(taskId: string) {
+  function openWorkspace(taskId: string, sourceLabel?: string | null) {
+    let nextSourceLabel: string | null
+    if (sourceLabel === undefined) {
+      nextSourceLabel = workspaceTaskId.value === taskId ? workspaceSourceLabel.value : null
+    } else if (sourceLabel === null) {
+      nextSourceLabel = null
+    } else {
+      nextSourceLabel = sourceLabel.trim() || null
+    }
     workspaceTaskId.value = taskId
+    workspaceSourceLabel.value = nextSourceLabel
     selectedTaskId.value = taskId
     closeComposer()
   }
 
   function closeWorkspace() {
     workspaceTaskId.value = null
+    workspaceSourceLabel.value = null
   }
 
   function setSelectedTask(taskId: string | null) {
@@ -70,6 +82,7 @@ export const useIssuePanelStore = defineStore('issuePanelStore', () => {
     isComposerOpen,
     composerDefaults,
     workspaceTaskId,
+    workspaceSourceLabel,
     selectedTaskId,
     openComposer,
     closeComposer,
