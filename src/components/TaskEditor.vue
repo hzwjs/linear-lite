@@ -1229,6 +1229,65 @@ async function toggleFavorite() {
           </div>
         </section>
 
+        <section v-if="mode === 'edit' && task" class="content-section subdued linear-section">
+          <div class="linear-section-head linear-section-head--static">
+            <span class="linear-section-title">{{ t('taskEditor.comments') }}</span>
+          </div>
+          <div class="linear-section-body">
+            <div v-if="commentsLoading" class="activity-empty">{{ t('taskEditor.commentsLoading') }}</div>
+            <div v-else-if="comments.length" class="task-comments-list">
+              <div v-for="c in comments" :key="c.id" class="task-comment-row">
+                <div class="task-comment-meta">
+                  <strong>{{ c.authorName }}</strong>
+                  <span> · {{ commentTimeFromIso(c.createdAt) }}</span>
+                  <button
+                    v-if="c.deletable"
+                    type="button"
+                    class="task-comment-delete"
+                    :aria-label="t('taskEditor.deleteCommentAria')"
+                    @click="deleteCommentRow(c)"
+                  >
+                    <Trash2 class="icon-14" />
+                  </button>
+                </div>
+                <div class="task-comment-body markdown-body" v-html="renderMarkdown(c.body)" />
+              </div>
+            </div>
+            <div v-else class="activity-empty">{{ t('taskEditor.noComments') }}</div>
+            <div v-if="mentionCandidates.length" class="comment-mention-chips">
+              <span class="comment-mention-label">{{ t('taskEditor.notifyMembers') }}</span>
+              <button
+                v-for="u in mentionCandidates"
+                :key="u.id"
+                type="button"
+                class="comment-mention-chip"
+                :class="{ 'comment-mention-chip--on': commentMentionIds.has(u.id) }"
+                @click="toggleMentionUser(u.id)"
+              >
+                @{{ u.username }}
+              </button>
+            </div>
+            <div class="comment-compose">
+              <TiptapEditor
+                ref="commentEditorRef"
+                v-model="commentBody"
+                :mention-members="mentionMembersForCommentEditor"
+                :placeholder="t('taskEditor.leaveComment')"
+                :min-height="56"
+              />
+              <button
+                type="button"
+                class="comment-send-btn"
+                :disabled="commentSubmitting || !commentBody.trim()"
+                :aria-label="t('taskEditor.sendAria')"
+                @click="submitComment"
+              >
+                <Send class="icon-14" />
+              </button>
+            </div>
+          </div>
+        </section>
+
         <section class="content-section subdued linear-section">
           <div class="linear-section-head linear-section-head--static">
             <span class="linear-section-title">{{ t('taskEditor.activity') }}</span>
@@ -1253,60 +1312,6 @@ async function toggleFavorite() {
               </div>
               <div v-else class="activity-empty">{{ t('taskEditor.noActivityYet') }}</div>
             </div>
-            <template v-if="mode === 'edit' && task">
-              <div class="comments-head">{{ t('taskEditor.comments') }}</div>
-              <div v-if="commentsLoading" class="activity-empty">{{ t('taskEditor.commentsLoading') }}</div>
-              <div v-else-if="comments.length" class="task-comments-list">
-                <div v-for="c in comments" :key="c.id" class="task-comment-row">
-                  <div class="task-comment-meta">
-                    <strong>{{ c.authorName }}</strong>
-                    <span> · {{ commentTimeFromIso(c.createdAt) }}</span>
-                    <button
-                      v-if="c.deletable"
-                      type="button"
-                      class="task-comment-delete"
-                      :aria-label="t('taskEditor.deleteCommentAria')"
-                      @click="deleteCommentRow(c)"
-                    >
-                      <Trash2 class="icon-14" />
-                    </button>
-                  </div>
-                  <div class="task-comment-body markdown-body" v-html="renderMarkdown(c.body)" />
-                </div>
-              </div>
-              <div v-else class="activity-empty">{{ t('taskEditor.noComments') }}</div>
-              <div v-if="mentionCandidates.length" class="comment-mention-chips">
-                <span class="comment-mention-label">{{ t('taskEditor.notifyMembers') }}</span>
-                <button
-                  v-for="u in mentionCandidates"
-                  :key="u.id"
-                  type="button"
-                  class="comment-mention-chip"
-                  :class="{ 'comment-mention-chip--on': commentMentionIds.has(u.id) }"
-                  @click="toggleMentionUser(u.id)"
-                >
-                  @{{ u.username }}
-                </button>
-              </div>
-              <div class="comment-compose">
-                <TiptapEditor
-                  ref="commentEditorRef"
-                  v-model="commentBody"
-                  :mention-members="mentionMembersForCommentEditor"
-                  :placeholder="t('taskEditor.leaveComment')"
-                  :min-height="56"
-                />
-                <button
-                  type="button"
-                  class="comment-send-btn"
-                  :disabled="commentSubmitting || !commentBody.trim()"
-                  :aria-label="t('taskEditor.sendAria')"
-                  @click="submitComment"
-                >
-                  <Send class="icon-14" />
-                </button>
-              </div>
-            </template>
           </div>
         </section>
       </div>
@@ -1956,13 +1961,6 @@ async function toggleFavorite() {
   transition: color var(--transition-fast);
 }
 .linear-unsubscribe:hover {
-  color: var(--color-text-secondary);
-}
-.comments-head {
-  margin-top: 16px;
-  margin-bottom: 8px;
-  font-size: var(--font-size-caption);
-  font-weight: 600;
   color: var(--color-text-secondary);
 }
 .task-comments-list {
