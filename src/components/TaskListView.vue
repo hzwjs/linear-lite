@@ -630,6 +630,11 @@ function groupHasExpandableSubtasks(group: TaskGroup): boolean {
   return expandableParentTaskIdsInGroup(group).length > 0
 }
 
+/** 当前视图任意分组存在可展开父任务时，所有分组统一留展开列，避免分组间列错位 */
+const listHasExpandableSubtasks = computed(() =>
+  props.groups.some((g) => groupHasExpandableSubtasks(g))
+)
+
 function groupAllExpandableExpanded(group: TaskGroup): boolean {
   const ids = expandableParentTaskIdsInGroup(group)
   return ids.length > 0 && ids.every((id) => subtaskExpanded.value[id] === true)
@@ -787,46 +792,55 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
             :key="row.task.id"
             class="task-row"
             :class="{ overdue: isOverdue(row.task), selected: props.selectedTaskId === row.task.id }"
-            :style="{ paddingLeft: row.depth > 0 ? `calc(12px + ${row.depth * 20}px)` : undefined }"
+            :style="{ paddingLeft: row.depth > 0 ? `calc(var(--task-row-pad-left) + ${row.depth * 20}px)` : undefined }"
             tabindex="0"
             @mouseenter="setHoveredId(row.task.id)"
             @mouseleave="setHoveredId(null)"
             @click="onRowClick(row.task)"
           >
-            <div class="task-row-sub-expand">
-              <button
-                v-if="hasExpandableSubtasksInGroup(row.task, group)"
-                type="button"
-                class="task-row-sub-toggle"
-                :aria-expanded="isSubtasksExpanded(row.task.id)"
-                :aria-label="
-                  isSubtasksExpanded(row.task.id) ? t('taskList.collapseSubtasks') : t('taskList.expandSubtasks')
-                "
-                @click="toggleSubtasksExpanded(row.task.id, $event)"
+            <div class="task-row-meta-leading">
+              <div
+                class="task-row-sub-expand"
+                :class="{
+                  'task-row-sub-expand--empty':
+                    !hasExpandableSubtasksInGroup(row.task, group) &&
+                    !listHasExpandableSubtasks
+                }"
               >
-                <span class="tree-chevron-glyph" aria-hidden="true">{{
-                  isSubtasksExpanded(row.task.id) ? '▾' : '▸'
-                }}</span>
-              </button>
-            </div>
-            <div
-              class="task-row-select"
-              :class="{ visible: selectedTaskIds.size > 0 || rowHoveredId === row.task.id }"
-              @click.stop
-            >
-              <input
-                type="checkbox"
-                class="task-row-checkbox"
-                :checked="selectedTaskIds.has(row.task.id)"
-                @click.stop="toggleSelection(row.task.id)"
+                <button
+                  v-if="hasExpandableSubtasksInGroup(row.task, group)"
+                  type="button"
+                  class="task-row-sub-toggle"
+                  :aria-expanded="isSubtasksExpanded(row.task.id)"
+                  :aria-label="
+                    isSubtasksExpanded(row.task.id) ? t('taskList.collapseSubtasks') : t('taskList.expandSubtasks')
+                  "
+                  @click="toggleSubtasksExpanded(row.task.id, $event)"
+                >
+                  <span class="tree-chevron-glyph" aria-hidden="true">{{
+                    isSubtasksExpanded(row.task.id) ? '▾' : '▸'
+                  }}</span>
+                </button>
+              </div>
+              <div
+                class="task-row-select"
+                :class="{ visible: selectedTaskIds.size > 0 || rowHoveredId === row.task.id }"
+                @click.stop
               >
-            </div>
-            <div class="task-row-leading">
-              <component
-                :is="priorityIcons[row.task.priority]"
-                class="icon icon-14 priority-icon"
-                :aria-label="row.task.priority"
-              />
+                <input
+                  type="checkbox"
+                  class="task-row-checkbox"
+                  :checked="selectedTaskIds.has(row.task.id)"
+                  @click.stop="toggleSelection(row.task.id)"
+                >
+              </div>
+              <div class="task-row-leading">
+                <component
+                  :is="priorityIcons[row.task.priority]"
+                  class="icon icon-14 priority-icon"
+                  :aria-label="row.task.priority"
+                />
+              </div>
             </div>
             <span class="task-row-key">{{ row.task.id }}</span>
             <TaskRowStatusPicker
@@ -1027,6 +1041,11 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   min-height: 0;
   overflow: hidden;
   --list-row-border: #f5f5f5;
+  /** 子任务展开列宽：与分组 chevron 同宽，整表无子任务树时收起 */
+  --task-row-sub-expand-width: 22px;
+  --task-row-pad-left: 6px;
+  /** 展开钮 / 复选框 / 优先级 三者之间的间距（行内其余列仍用 .task-row 的 gap） */
+  --task-row-meta-leading-gap: 3px;
 }
 
 .list-view-scroll {
@@ -1084,8 +1103,8 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
 }
 .group-toggle-chevron {
   flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
+  width: var(--task-row-sub-expand-width);
+  height: var(--task-row-sub-expand-width);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1148,21 +1167,35 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
 }
 
 /* 行：分割线更轻；选中态仅左侧条，背景与 hover 一致不抢眼 */
+.task-row-meta-leading {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: var(--task-row-meta-leading-gap);
+}
 .task-row-sub-expand {
-  flex: 0 0 34px;
-  width: 34px;
+  flex: 0 0 var(--task-row-sub-expand-width);
+  width: var(--task-row-sub-expand-width);
   display: flex;
   align-items: center;
   justify-content: center;
+}
+/* 仅当整表都没有可展开父任务时收起；否则保留宽度，跨分组列对齐 */
+.task-row-sub-expand--empty {
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 .task-row-sub-toggle {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 34px;
-  min-height: 34px;
-  width: 34px;
-  height: 34px;
+  min-width: var(--task-row-sub-expand-width);
+  min-height: var(--task-row-sub-expand-width);
+  width: var(--task-row-sub-expand-width);
+  height: var(--task-row-sub-expand-width);
   padding: 0;
   border: none;
   border-radius: var(--radius-sm);
@@ -1181,10 +1214,10 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
 .task-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-height: 36px;
   height: 36px;
-  padding: 0 12px;
+  padding: 0 12px 0 var(--task-row-pad-left);
   cursor: pointer;
   border-bottom: 1px solid var(--list-row-border);
   transition: background-color var(--transition-fast), box-shadow var(--transition-fast);
@@ -1209,11 +1242,11 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
 }
 
 .task-row-leading {
-  flex: 0 0 20px;
+  flex: 0 0 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  width: 18px;
 }
 .task-check {
   display: flex;
@@ -1646,10 +1679,11 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
 
 /* 批量操作复选框 */
 .task-row-select {
-  flex: 0 0 20px;
+  flex: 0 0 16px;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 16px;
   opacity: 0;
   pointer-events: none;
 }
