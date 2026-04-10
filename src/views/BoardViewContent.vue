@@ -1,3 +1,20 @@
+<script lang="ts">
+export function resolveWorkspaceSourceLabel(
+  taskId: string,
+  groups: Array<{
+    label: string
+    tasks: Array<{ id: string }>
+    rows?: Array<{ task: { id: string } }>
+  }>
+): string | null {
+  const group = groups.find((candidate) => {
+    if (candidate.tasks.some((task) => task.id === taskId)) return true
+    return candidate.rows?.some((row) => row.task.id === taskId) ?? false
+  })
+  return group?.label ?? null
+}
+</script>
+
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -114,12 +131,18 @@ function openCreateEditor(defaultStatus?: Status, parentNumericId?: number) {
   })
 }
 
-function openEditEditor(task: { id: string }) {
+function findWorkspaceSourceLabel(taskId: string) {
+  return resolveWorkspaceSourceLabel(taskId, localizedTaskGroups.value)
+}
+
+function openEditEditor(task: { id: string }, sourceLabel?: string | null) {
+  issuePanelStore.openWorkspace(task.id, sourceLabel ?? findWorkspaceSourceLabel(task.id))
   router.push(`/tasks/${task.id}`)
 }
 
 async function closeEditor() {
   await taskEditorRef.value?.flushPendingSave?.()
+  issuePanelStore.closeWorkspace()
   router.push('/')
 }
 
