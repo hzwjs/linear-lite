@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Bell } from 'lucide-vue-next'
@@ -26,9 +26,17 @@ function onClickOutside(ev: MouseEvent) {
   if (!el.contains(ev.target as Node)) open.value = false
 }
 
+function detachClickOutside() {
+  document.removeEventListener('click', onClickOutside, true)
+}
+
 watch(open, (v) => {
   if (v) document.addEventListener('click', onClickOutside, true)
-  else document.removeEventListener('click', onClickOutside, true)
+  else detachClickOutside()
+})
+
+onUnmounted(() => {
+  detachClickOutside()
 })
 
 async function onItemClick(id: number, taskKey: string) {
