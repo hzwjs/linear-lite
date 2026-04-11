@@ -630,9 +630,16 @@ function groupHasExpandableSubtasks(group: TaskGroup): boolean {
   return expandableParentTaskIdsInGroup(group).length > 0
 }
 
-/** 当前视图任意分组存在可展开父任务时，所有分组统一留展开列，避免分组间列错位 */
+/**
+ * 任意分组存在可展开父任务时，全表统一留展开列，避免分组间、行与行之间列错位。
+ * 仅看 subtaskExpandPath 不够：筛选后子行可能不在当前 group.rows 里，但父任务仍可能因
+ * subIssueCount 显示展开钮；此时若不占位，仅带箭头的行会与分组头对齐，而其它行更靠右。
+ */
 const listHasExpandableSubtasks = computed(() =>
-  props.groups.some((g) => groupHasExpandableSubtasks(g))
+  props.groups.some((g) => {
+    if (groupHasExpandableSubtasks(g)) return true
+    return groupListRows(g).some((row) => hasExpandableSubtasksInGroup(row.task, g))
+  })
 )
 
 function groupAllExpandableExpanded(group: TaskGroup): boolean {

@@ -26,7 +26,7 @@ export interface AdjacentTaskIds {
 }
 
 export interface BuildTaskGroupsOptions {
-  /** 为 true 时：过滤后的子任务也参与分组；列表不再挂嵌套子行，避免与扁平结果重复 */
+  /** 为 true 时：过滤后的子任务也参与分组；列表在 showSubIssues 下仍按父子关系缩进，且每任务只出现一行 */
   searchActive?: boolean
   /**
    * 为 true 时：与 searchActive 相同，用过滤后的全部任务参与分组（含子任务）。
@@ -129,6 +129,33 @@ function sortGroups(groups: TaskGroup[], groupBy: GroupBy) {
   return [...groups].sort((left, right) => left.label.localeCompare(right.label))
 }
 
+function indexTasksByNumericId(tasks: Task[]): Map<number, Task> {
+  const map = new Map<number, Task>()
+  for (const t of tasks) {
+    if (t.numericId != null) map.set(t.numericId, t)
+  }
+  return map
+}
+
+/**
+ * 筛选/搜索扁平分组时：在本组内作为「顶层行」展示的任务。
+ * 父任务不在筛选结果、或父在其它分组时，子任务单独占一行（depth=0）。
+ */
+function isDisplayRootInFilteredGroup(
+  task: Task,
+  groupKey: string,
+  sourceByNumericId: Map<number, Task>,
+  config: ViewConfig,
+  users: User[]
+): boolean {
+  if (task.parentId == null) return true
+  const parentNumeric = Number(task.parentId)
+  if (!Number.isFinite(parentNumeric)) return true
+  const parent = sourceByNumericId.get(parentNumeric)
+  if (!parent) return true
+  return groupMeta(parent, config.groupBy, users).key !== groupKey
+}
+
 /** 某父任务下的子任务行（含深度与父标题），nested 时递归包含孙级。parentNumericId 为父任务后端主键，与 Task.parentId（字符串形式的父主键）匹配。 */
 function getDescendantRows(
   allTasks: Task[],
@@ -137,10 +164,15 @@ function getDescendantRows(
   parentTaskId: string,
   pathFromRoot: string[],
   nested: boolean,
-  config: ViewConfig
+  config: ViewConfig,
+  allowedTaskIds?: Set<string>
 ): TaskRow[] {
   const parentIdStr = String(parentNumericId)
-  const children = allTasks.filter((t) => t.parentId != null && String(t.parentId) === parentIdStr)
+  const children = allTasks.filter((t) => {
+    if (t.parentId == null || String(t.parentId) !== parentIdStr) return false
+    if (allowedTaskIds != null && !allowedTaskIds.has(t.id)) return false
+    return true
+  })
   const sorted = sortTasks(children, config)
   const result: TaskRow[] = []
   const thisPath = [...pathFromRoot, parentTaskId]
@@ -148,7 +180,7 @@ function getDescendantRows(
     result.push({ task, depth: thisPath.length, parentTitle, subtaskExpandPath: thisPath })
     if (nested && task.numericId != null) {
       result.push(
-        ...getDescendantRows(allTasks, task.numericId, task.title, task.id, thisPath, true, config)
+        ...getDescendantRows(allTasks, task.numericId, task.title, task.id, thisPath, true, config, allowedTaskIds)
       )
     }
   }
@@ -233,9 +265,32 @@ export function buildTaskGroups(
   const out = sortGroups([...grouped.values()], config.groupBy)
 
   if (config.showSubIssues) {
+    const sourceByNumericId = indexTasksByNumericId(source)
     for (const group of out) {
       if (flatRoots) {
-        group.rows = group.tasks.map((task) => ({ task, depth: 0 }))
+        const inGroupIds = new Set(group.tasks.map((t) => t.id))
+        const roots = group.tasks.filter((t) =>
+          isDisplayRootInFilteredGroup(t, group.key, sourceByNumericId, config, users)
+        )
+        const rows: TaskRow[] = []
+        for (const task of sortTasks(roots, config)) {
+          rows.push({ task, depth: 0 })
+          if (task.numericId != null) {
+            rows.push(
+              ...getDescendantRows(
+                source,
+                task.numericId,
+                task.title,
+                task.id,
+                [],
+                config.nestedSubIssues,
+                config,
+                inGroupIds
+              )
+            )
+          }
+        }
+        group.rows = rows
         continue
       }
       const rows: TaskRow[] = []

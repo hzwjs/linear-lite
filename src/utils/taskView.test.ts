@@ -191,6 +191,46 @@ describe('buildTaskGroups', () => {
     expect(groups[0]?.tasks.map((t) => t.id)).toEqual(['ENG-2'])
   })
 
+  it('when taskFiltersActive and showSubIssues, parent and child in same group keep subtask depth', () => {
+    const withSubs: Task[] = [
+      {
+        id: 'ENG-1',
+        numericId: 101,
+        title: 'Parent',
+        status: 'todo',
+        priority: 'high',
+        assigneeId: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        subIssueCount: 1
+      },
+      {
+        id: 'ENG-2',
+        numericId: 102,
+        title: 'Child',
+        status: 'todo',
+        priority: 'high',
+        parentId: '101',
+        assigneeId: 1,
+        createdAt: 2,
+        updatedAt: 2
+      }
+    ]
+    const filtered = withSubs.filter((t) => t.assigneeId === 1)
+    const groups = buildTaskGroups(
+      filtered,
+      { ...baseConfig, showSubIssues: true },
+      users,
+      { taskFiltersActive: true }
+    )
+    const rows = groups[0]?.rows ?? []
+    expect(rows.map((r) => ({ id: r.task.id, depth: r.depth }))).toEqual([
+      { id: 'ENG-1', depth: 0 },
+      { id: 'ENG-2', depth: 1 }
+    ])
+    expect(rows[1]?.subtaskExpandPath).toEqual(['ENG-1'])
+  })
+
   it('when searchActive, matching subtasks appear in groups as flat rows', () => {
     const withSubs: Task[] = [
       {
