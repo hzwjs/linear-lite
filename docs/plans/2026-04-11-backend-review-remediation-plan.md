@@ -63,6 +63,7 @@
 **步骤 1：** `invite`：删除拼接邮箱的 `inSql`。改为：用 `userMapper.selectOne` + `eq(User::getEmail, normalizedEmail)`（或 `selectCount`）得到用户 id；若 id 非空，再 `projectMemberMapper.selectCount` + `eq(ProjectMember::getProjectId)` + `eq(ProjectMember::getUserId, userId)` 判断「已在项目中」。
 
 **步骤 2：** `list` / `listMembers`：将 `"SELECT ... WHERE user_id = " + currentUserId` 与 `project_id = " + projectId` 的 `inSql` 改为 **参数化** 写法。优先使用 MyBatis-Plus 的 `exists` / `nested` / `in` 子查询 API；若 API 不便，可用 **独立 Mapper 方法** `@Select("... WHERE user_id = #{userId}")` 返回 id 列表再 `.in(Project::getId, ids)`。目标：**禁止**在 SQL 字符串中拼接任何外部输入（含 Long 也应占位符化以统一风格）。
+若采用“先查 ids 再 `.in(...)`”路径，必须处理空集合：`ids.isEmpty()` 时直接返回空结果，禁止生成 `IN ()`。
 
 **步骤 3：** `rtk mvn -q -f linear-lite-server/pom.xml test`  
 **预期：** 通过。
@@ -157,10 +158,15 @@ CREATE TABLE project_task_seq (
 
 **步骤 3：** 移除对 `count + 1` / `count + index + 1` 的依赖（与 seq 对齐，注意已有项目首次迁移：可在首次取号时 `INSERT` 并初始化 `next_number` 为当前 `MAX` 序号解析值 + 1，若实现成本高可先文档要求手工 backfill，优先保证新数据正确）。
 
-**步骤 4：** `rtk mvn -q -f linear-lite-server/pom.xml test`  
+**步骤 4（迁移门禁，必须）：**
+- 提供并执行 backfill SQL：按项目把 `project_task_seq.next_number` 初始化为 `max(task_key 序号)+1`。
+- 提供并执行校验 SQL：检查 `project_task_seq` 覆盖全部项目、`next_number` 大于现存最大序号、`task_key` 无重复。
+- 未完成 backfill + 校验前，不得在该环境开启新版本写流量。
+
+**步骤 5：** `rtk mvn -q -f linear-lite-server/pom.xml test`  
 **预期：** 通过。
 
-**步骤 5：** 提交：`fix(server): 项目维度原子任务序号，避免并发 task_key 冲突`
+**步骤 6：** 提交：`fix(server): 项目维度原子任务序号，避免并发 task_key 冲突`
 
 ---
 
@@ -188,7 +194,8 @@ CREATE TABLE project_task_seq (
 - 修改：`linear-lite-server/src/main/java/com/linearlite/server/service/TaskAttachmentService.java`
 - 可能修改：`linear-lite-server/src/main/java/com/linearlite/server/controller/...`（若返回类型从 `byte[]` 改为 `Resource`）
 
-**步骤 1：** S3 `GetObject` 返回流，封装为 `InputStream`，由调用方关闭（try-with-resources 或 `StreamingResponseBody`）。
+**步骤 1：** 统一采用 `StreamingResponseBody`（或等价单一范式）输出下载流，不允许保留“多种可选关闭路径”。
+在实现中明确关闭责任：`TaskAttachmentService` 返回可关闭流对象，Controller 侧在流式回调中 `try-with-resources` 读取并写出，确保异常路径也关闭连接。
 
 **步骤 2：** Controller 返回流式 body；若可取得 `Content-Length` 则设置；增加可配置 **最大字节** 上限，超限抛业务异常并由 `GlobalExceptionHandler` 映射。
 
@@ -222,12 +229,15 @@ CREATE TABLE project_task_seq (
 
 ### 任务 12：全量验证与单分支合入准备
 
-**步骤 1：** `rtk mvn -q -f linear-lite-server/pom.xml test`  
+**步骤 1（Gate A）：** 完成 P0 + P1 后先执行一次 `rtk mvn -q -f linear-lite-server/pom.xml test`，并完成手工安全回归（越权、注入、密码、配置、事务）。
+Gate A 满足后允许优先合入/发布，不必等待重构任务。
+
+**步骤 2（Gate B）：** P2 + 结构重构完成后再次执行 `rtk mvn -q -f linear-lite-server/pom.xml test`。  
 **预期：** BUILD SUCCESS，测试全通过。
 
-**步骤 2：** 手工清单（文档勾选项即可）：非成员 `GET /api/tasks/{key}/activities` 401/403；邀请恶意邮箱；两并发 POST 创建同项目任务 key 不重复；附件大文件下载内存不明显飙升（可抽样观察）。
+**步骤 3：** 手工清单（文档勾选项即可）：非成员 `GET /api/tasks/{key}/activities` 401/403；邀请恶意邮箱；两并发 POST 创建同项目任务 key 不重复；附件大文件下载内存不明显飙升（可抽样观察）；序号 backfill 校验脚本在目标环境通过。
 
-**步骤 3：** 按团队流程发起 **单次** merge / squash merge；合入说明中引用本计划与设计文档。
+**步骤 4：** 按团队流程发起 merge（可单次合并或按 Gate A/Gate B 分批合并）；合入说明中引用本计划与设计文档。
 
 ---
 
@@ -246,3 +256,18 @@ CREATE TABLE project_task_seq (
 
 - 设计：`docs/plans/2026-04-11-backend-review-remediation-design.md`
 - 评审：`docs/reviews/backend-code-review-2026-04-11.md`
+
+---
+
+## 执行记录（2026-04-11 更新）
+
+- 任务 8（序号表门禁）已补充可审计脚本：
+  - `linear-lite-server/scripts/backfill-project-task-seq.sql`
+  - `linear-lite-server/scripts/verify-project-task-seq.sql`
+- 任务 10（流式下载）补充空 `fileSize` 防御，避免空值下载路径风险。
+- 任务 11（结构债）完成第二轮收敛：
+  - `TaskCommandService` 承接命令职责（create/update/favorite）。
+  - `TaskQueryService` 承接查询职责（list/get/favorites/enrich）。
+  - `TaskImportService` 承接导入职责。
+  - `TaskService` 收敛为兼容门面，保留最小职责。
+- 验证：`rtk mvn -q -f linear-lite-server/pom.xml test` 通过。

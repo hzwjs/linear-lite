@@ -15,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
+import java.io.ByteArrayInputStream;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -147,5 +148,47 @@ class TaskAttachmentServiceTest {
         assertThrows(ForbiddenOperationException.class,
                 () -> taskAttachmentService.upload("ENG-1", multipartFile, 10L));
         verify(taskAttachmentMapper, never()).insert(any());
+    }
+
+    @Test
+    void downloadRejectsWhenFileSizeMissing() {
+        Task task = new Task();
+        task.setId(1L);
+        when(taskQueryService.getByKeyOrThrow("ENG-1", 10L)).thenReturn(task);
+        TaskAttachment att = new TaskAttachment();
+        att.setId(51L);
+        att.setTaskId(1L);
+        att.setObjectKey("attachments/1/missing-size.bin");
+        att.setFileSize(null);
+        when(taskAttachmentMapper.selectOne(any())).thenReturn(att);
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> taskAttachmentService.getAttachmentForDownload("ENG-1", 51L, 10L));
+        assertEquals("附件缺少文件大小信息，拒绝下载", ex.getMessage());
+        verify(objectStorageService, never()).openObjectStreamByKey(any());
+    }
+
+    @Test
+    void downloadReturnsStreamWhenFileSizeValid() {
+        Task task = new Task();
+        task.setId(1L);
+        when(taskQueryService.getByKeyOrThrow("ENG-1", 10L)).thenReturn(task);
+        TaskAttachment att = new TaskAttachment();
+        att.setId(52L);
+        att.setTaskId(1L);
+        att.setObjectKey("attachments/1/ok.bin");
+        att.setFileName("ok.bin");
+        att.setFileSize(100L);
+        att.setContentType("application/octet-stream");
+        when(taskAttachmentMapper.selectOne(any())).thenReturn(att);
+        when(objectStorageService.openObjectStreamByKey("attachments/1/ok.bin"))
+                .thenReturn(new ByteArrayInputStream(new byte[]{1, 2, 3}));
+
+        var download = taskAttachmentService.getAttachmentForDownload("ENG-1", 52L, 10L);
+
+        assertEquals("ok.bin", download.fileName());
+        assertEquals(100L, download.contentLength());
+        verify(objectStorageService).openObjectStreamByKey("attachments/1/ok.bin");
     }
 }

@@ -88,6 +88,9 @@ mvn spring-boot:run
 
 - **路径**：`src/main/resources/schema.sql` — 建表（含 `task_key`、`due_date`、`completed_at`、`task_attachments` 等）与种子数据（同一文件）。
 - **已有旧库**：若表结构落后于当前 `schema.sql`，需自行 `ALTER` / 补表，或从 git 历史取已删除的增量脚本对照执行。
+- **`project_task_seq` 迁移门禁**：对历史库上线前先执行：
+  - `linear-lite-server/scripts/backfill-project-task-seq.sql`
+  - `linear-lite-server/scripts/verify-project-task-seq.sql`（三段查询均应返回空结果集）
 
 - **示例（本地或测试库）**：
 

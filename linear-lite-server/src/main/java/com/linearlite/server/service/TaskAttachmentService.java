@@ -80,13 +80,17 @@ public class TaskAttachmentService {
         if (attachment == null) {
             throw new ResourceNotFoundException("附件不存在: " + attachmentId);
         }
-        if (attachment.getFileSize() > maxDownloadBytes) {
+        Long fileSize = attachment.getFileSize();
+        if (fileSize == null) {
+            throw new IllegalArgumentException("附件缺少文件大小信息，拒绝下载");
+        }
+        if (fileSize > maxDownloadBytes) {
             throw new IllegalArgumentException("附件超过下载大小限制");
         }
         java.io.InputStream stream = objectStorageService.openObjectStreamByKey(attachment.getObjectKey());
         String fileName = attachment.getFileName() != null ? attachment.getFileName() : "download";
         String contentType = attachment.getContentType();
-        return new AttachmentDownload(stream, fileName, contentType, attachment.getFileSize());
+        return new AttachmentDownload(stream, fileName, contentType, fileSize);
     }
 
     public void delete(String taskKey, Long attachmentId, Long userId) {
