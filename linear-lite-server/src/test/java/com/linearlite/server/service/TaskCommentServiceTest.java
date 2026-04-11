@@ -28,6 +28,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -125,18 +126,26 @@ class TaskCommentServiceTest {
     }
 
     @Test
-    void createReplyUnderReplyStillCapsDepth1AndUsesOriginalRoot() {
+    void createReplyUnderReplyUsesVerifiedRootAndCapsDepthAt1() {
         Task task = new Task();
         task.setId(1L);
         task.setProjectId(10L);
         task.setTaskKey("ENG-1");
         when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 5L)).thenReturn(task);
+
+        TaskComment root = new TaskComment();
+        root.setId(42L);
+        root.setTaskId(1L);
+        root.setDepth(0);
+        root.setRootId(null);
+
         TaskComment parent = new TaskComment();
         parent.setId(99L);
         parent.setTaskId(1L);
         parent.setDepth(3);
         parent.setRootId(42L);
         when(taskCommentMapper.selectById(99L)).thenReturn(parent);
+        when(taskCommentMapper.selectById(42L)).thenReturn(root);
         User author = new User();
         author.setId(5L);
         author.setUsername("alice");
@@ -162,6 +171,125 @@ class TaskCommentServiceTest {
         assertEquals(99L, inserted.getParentId());
         assertEquals(42L, inserted.getRootId());
         assertEquals(1, inserted.getDepth());
+    }
+
+    @Test
+    void createReplyFallsBackToParentWhenParentRootMissing() {
+        Task task = new Task();
+        task.setId(1L);
+        task.setProjectId(10L);
+        task.setTaskKey("ENG-1");
+        when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 5L)).thenReturn(task);
+
+        TaskComment parent = new TaskComment();
+        parent.setId(99L);
+        parent.setTaskId(1L);
+        parent.setDepth(2);
+        parent.setRootId(42L);
+        when(taskCommentMapper.selectById(99L)).thenReturn(parent);
+        when(taskCommentMapper.selectById(42L)).thenReturn(null);
+
+        User author = new User();
+        author.setId(5L);
+        author.setUsername("alice");
+        when(userMapper.selectById(5L)).thenReturn(author);
+        doAnswer(invocation -> {
+            TaskComment c = invocation.getArgument(0);
+            c.setId(102L);
+            return 1;
+        }).when(taskCommentMapper).insert(any(TaskComment.class));
+
+        CreateTaskCommentRequest req = new CreateTaskCommentRequest();
+        req.setBody("reply");
+        req.setParentId(99L);
+
+        TaskCommentResponse res = taskCommentService.create("ENG-1", 5L, req);
+        assertEquals(99L, res.getParentId());
+        assertEquals(99L, res.getRootId());
+        assertEquals(1, res.getDepth());
+
+        ArgumentCaptor<TaskComment> commentCaptor = ArgumentCaptor.forClass(TaskComment.class);
+        verify(taskCommentMapper).insert(commentCaptor.capture());
+        TaskComment inserted = commentCaptor.getValue();
+        assertEquals(99L, inserted.getParentId());
+        assertEquals(99L, inserted.getRootId());
+        assertEquals(1, inserted.getDepth());
+    }
+
+    @Test
+    void createReplyFallsBackToParentWhenParentRootFromAnotherTask() {
+        Task task = new Task();
+        task.setId(1L);
+        task.setProjectId(10L);
+        task.setTaskKey("ENG-1");
+        when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 5L)).thenReturn(task);
+
+        TaskComment parent = new TaskComment();
+        parent.setId(99L);
+        parent.setTaskId(1L);
+        parent.setDepth(2);
+        parent.setRootId(42L);
+        when(taskCommentMapper.selectById(99L)).thenReturn(parent);
+
+        TaskComment badRoot = new TaskComment();
+        badRoot.setId(42L);
+        badRoot.setTaskId(2L);
+        when(taskCommentMapper.selectById(42L)).thenReturn(badRoot);
+
+        User author = new User();
+        author.setId(5L);
+        author.setUsername("alice");
+        when(userMapper.selectById(5L)).thenReturn(author);
+        doAnswer(invocation -> {
+            TaskComment c = invocation.getArgument(0);
+            c.setId(104L);
+            return 1;
+        }).when(taskCommentMapper).insert(any(TaskComment.class));
+
+        CreateTaskCommentRequest req = new CreateTaskCommentRequest();
+        req.setBody("reply");
+        req.setParentId(99L);
+
+        TaskCommentResponse res = taskCommentService.create("ENG-1", 5L, req);
+        assertEquals(99L, res.getParentId());
+        assertEquals(99L, res.getRootId());
+        assertEquals(1, res.getDepth());
+    }
+
+    @Test
+    void createTopLevelCommentDefaultsDepth0AndNullRoot() {
+        Task task = new Task();
+        task.setId(1L);
+        task.setProjectId(10L);
+        task.setTaskKey("ENG-1");
+        when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 5L)).thenReturn(task);
+
+        User author = new User();
+        author.setId(5L);
+        author.setUsername("alice");
+        when(userMapper.selectById(5L)).thenReturn(author);
+        doAnswer(invocation -> {
+            TaskComment c = invocation.getArgument(0);
+            c.setId(103L);
+            return 1;
+        }).when(taskCommentMapper).insert(any(TaskComment.class));
+
+        CreateTaskCommentRequest req = new CreateTaskCommentRequest();
+        req.setBody("top-level");
+        req.setParentId(null);
+
+        TaskCommentResponse res = taskCommentService.create("ENG-1", 5L, req);
+        assertEquals(103L, res.getId());
+        assertNull(res.getParentId());
+        assertNull(res.getRootId());
+        assertEquals(0, res.getDepth());
+
+        ArgumentCaptor<TaskComment> commentCaptor = ArgumentCaptor.forClass(TaskComment.class);
+        verify(taskCommentMapper).insert(commentCaptor.capture());
+        TaskComment inserted = commentCaptor.getValue();
+        assertNull(inserted.getParentId());
+        assertNull(inserted.getRootId());
+        assertEquals(0, inserted.getDepth());
     }
 
     @Test

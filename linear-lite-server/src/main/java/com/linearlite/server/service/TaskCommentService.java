@@ -110,8 +110,15 @@ public class TaskCommentService {
             depth = 1;
             if (parent.getDepth() == 0) {
                 rootId = parent.getId();
+            } else if (parent.getRootId() != null) {
+                TaskComment root = taskCommentMapper.selectById(parent.getRootId());
+                if (root != null && Objects.equals(root.getTaskId(), task.getId())) {
+                    rootId = parent.getRootId();
+                } else {
+                    rootId = parent.getId();
+                }
             } else {
-                rootId = parent.getRootId() != null ? parent.getRootId() : parent.getId();
+                rootId = parent.getId();
             }
         }
         c.setTaskId(task.getId());
