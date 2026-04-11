@@ -8,6 +8,9 @@ public class TaskCommentResponse {
     private Long authorId;
     private String authorName;
     private String body;
+    private Long parentId;
+    private Long rootId;
+    private int depth;
     private LocalDateTime createdAt;
     private boolean deletable;
 
@@ -41,6 +44,30 @@ public class TaskCommentResponse {
 
     public void setBody(String body) {
         this.body = body;
+    }
+
+    public Long getParentId() {
+        return parentId;
+    }
+
+    public void setParentId(Long parentId) {
+        this.parentId = parentId;
+    }
+
+    public Long getRootId() {
+        return rootId;
+    }
+
+    public void setRootId(Long rootId) {
+        this.rootId = rootId;
+    }
+
+    public int getDepth() {
+        return depth;
+    }
+
+    public void setDepth(int depth) {
+        this.depth = depth;
     }
 
     public LocalDateTime getCreatedAt() {

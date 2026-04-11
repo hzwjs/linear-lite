@@ -14,6 +14,9 @@ public class TaskComment {
     private Long taskId;
     private Long authorId;
     private String body;
+    private Long parentId;
+    private Long rootId;
+    private int depth;
     private LocalDateTime createdAt;
 
     public Long getId() {
@@ -46,6 +49,30 @@ public class TaskComment {
 
     public void setBody(String body) {
         this.body = body;
+    }
+
+    public Long getParentId() {
+        return parentId;
+    }
+
+    public void setParentId(Long parentId) {
+        this.parentId = parentId;
+    }
+
+    public Long getRootId() {
+        return rootId;
+    }
+
+    public void setRootId(Long rootId) {
+        this.rootId = rootId;
+    }
+
+    public int getDepth() {
+        return depth;
+    }
+
+    public void setDepth(int depth) {
+        this.depth = depth;
     }
 
     public LocalDateTime getCreatedAt() {

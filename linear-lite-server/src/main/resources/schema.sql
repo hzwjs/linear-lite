@@ -161,10 +161,15 @@ CREATE TABLE IF NOT EXISTS task_comments (
     task_id     BIGINT       NOT NULL COMMENT '逻辑关联 tasks.id',
     author_id   BIGINT       NOT NULL COMMENT '逻辑关联 users.id',
     body        TEXT         NOT NULL COMMENT '与 tasks.description 同格式（如 Markdown）',
+    parent_id   BIGINT       DEFAULT NULL COMMENT '父评论 ID，NULL 表示顶层评论',
+    root_id     BIGINT       DEFAULT NULL COMMENT '根评论 ID，顶层评论可为 NULL',
+    depth       INT          NOT NULL DEFAULT 0 COMMENT '评论层级深度，顶层为 0',
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE INDEX idx_task_comments_task_id ON task_comments (task_id, created_at, id);
+CREATE INDEX idx_task_comments_parent_id ON task_comments (parent_id);
+CREATE INDEX idx_task_comments_root_id ON task_comments (root_id);
 
 -- 评论中的 @ 提及（逻辑关联 task_comments.id / users.id）
 CREATE TABLE IF NOT EXISTS comment_mentions (
@@ -214,3 +219,69 @@ ON DUPLICATE KEY UPDATE
 INSERT INTO project_members (project_id, user_id, role)
 SELECT id, creator_id, 'owner' FROM projects
 ON DUPLICATE KEY UPDATE role = VALUES(role);
+
+-- ========== 归档：project_task_seq 迁移与校验 SQL ==========
+-- 说明：历史库升级时，先执行 backfill，再执行三段校验查询；
+-- 若校验查询返回空结果集，则表示通过。
+
+-- Backfill project_task_seq.next_number for existing projects.
+-- Rule: next_number = current max task_key number + 1 (minimum 1).
+-- Safe to run repeatedly.
+INSERT INTO project_task_seq (project_id, next_number)
+SELECT
+  p.id AS project_id,
+  GREATEST(
+    1,
+    COALESCE(
+      (
+        SELECT MAX(CAST(SUBSTRING(t.task_key, LENGTH(p.identifier) + 2) AS UNSIGNED)) + 1
+        FROM tasks t
+        WHERE t.project_id = p.id
+          AND t.task_key LIKE CONCAT(p.identifier, '-%')
+      ),
+      1
+    )
+  ) AS next_number
+FROM projects p
+ON DUPLICATE KEY UPDATE
+  next_number = GREATEST(project_task_seq.next_number, VALUES(next_number));
+
+-- Verification queries for project_task_seq correctness.
+
+-- 1) Missing sequence rows (should return 0 rows).
+SELECT p.id AS project_id, p.identifier
+FROM projects p
+LEFT JOIN project_task_seq s ON s.project_id = p.id
+WHERE s.project_id IS NULL;
+
+-- 2) next_number too small (should return 0 rows).
+SELECT
+  p.id AS project_id,
+  p.identifier,
+  s.next_number,
+  COALESCE(
+    (
+      SELECT MAX(CAST(SUBSTRING(t.task_key, LENGTH(p.identifier) + 2) AS UNSIGNED)) + 1
+      FROM tasks t
+      WHERE t.project_id = p.id
+        AND t.task_key LIKE CONCAT(p.identifier, '-%')
+    ),
+    1
+  ) AS expected_min_next_number
+FROM projects p
+JOIN project_task_seq s ON s.project_id = p.id
+WHERE s.next_number < COALESCE(
+  (
+    SELECT MAX(CAST(SUBSTRING(t.task_key, LENGTH(p.identifier) + 2) AS UNSIGNED)) + 1
+    FROM tasks t
+    WHERE t.project_id = p.id
+      AND t.task_key LIKE CONCAT(p.identifier, '-%')
+  ),
+  1
+);
+
+-- 3) Duplicate task_key check (should return 0 rows).
+SELECT task_key, COUNT(*) AS dup_count
+FROM tasks
+GROUP BY task_key
+HAVING COUNT(*) > 1;

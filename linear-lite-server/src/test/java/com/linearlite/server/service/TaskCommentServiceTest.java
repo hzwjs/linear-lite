@@ -28,6 +28,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -225,5 +226,45 @@ class TaskCommentServiceTest {
         List<TaskCommentResponse> list = taskCommentService.listByTaskKey("ENG-1", 5L);
         assertEquals(1, list.size());
         assertTrue(list.get(0).isDeletable());
+    }
+
+    @Test
+    void commentThreadingFieldsHaveExpectedDefaults() {
+        CreateTaskCommentRequest req = new CreateTaskCommentRequest();
+        assertNull(req.getParentId());
+        assertNull(req.getRootId());
+        assertEquals(0, req.getDepth());
+
+        TaskComment comment = new TaskComment();
+        assertNull(comment.getParentId());
+        assertNull(comment.getRootId());
+        assertEquals(0, comment.getDepth());
+    }
+
+    @Test
+    void commentThreadingFieldsAreReadableAndWritable() {
+        CreateTaskCommentRequest req = new CreateTaskCommentRequest();
+        req.setParentId(11L);
+        req.setRootId(10L);
+        req.setDepth(1);
+        assertEquals(11L, req.getParentId());
+        assertEquals(10L, req.getRootId());
+        assertEquals(1, req.getDepth());
+
+        TaskComment comment = new TaskComment();
+        comment.setParentId(11L);
+        comment.setRootId(10L);
+        comment.setDepth(1);
+        assertEquals(11L, comment.getParentId());
+        assertEquals(10L, comment.getRootId());
+        assertEquals(1, comment.getDepth());
+
+        TaskCommentResponse response = new TaskCommentResponse();
+        response.setParentId(11L);
+        response.setRootId(10L);
+        response.setDepth(1);
+        assertEquals(11L, response.getParentId());
+        assertEquals(10L, response.getRootId());
+        assertEquals(1, response.getDepth());
     }
 }
