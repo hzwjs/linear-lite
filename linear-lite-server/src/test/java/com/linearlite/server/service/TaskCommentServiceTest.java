@@ -99,11 +99,21 @@ class TaskCommentServiceTest {
 
         CreateTaskCommentRequest req = new CreateTaskCommentRequest();
         req.setBody("hello **world**");
+        req.setParentId(88L);
         req.setMentionedUserIds(List.of(7L));
 
         TaskCommentResponse res = taskCommentService.create("ENG-1", 5L, req);
 
         assertEquals(100L, res.getId());
+        assertEquals(88L, res.getParentId());
+        assertEquals(88L, res.getRootId());
+        assertEquals(1, res.getDepth());
+        ArgumentCaptor<TaskComment> commentCaptor = ArgumentCaptor.forClass(TaskComment.class);
+        verify(taskCommentMapper).insert(commentCaptor.capture());
+        TaskComment inserted = commentCaptor.getValue();
+        assertEquals(88L, inserted.getParentId());
+        assertEquals(88L, inserted.getRootId());
+        assertEquals(1, inserted.getDepth());
         verify(commentMentionMapper).insert(any());
         verify(inAppNotificationMapper).insert(any());
         verify(notificationSseBroadcaster).sendToUser(eq(7L), eq("notification"), any());
@@ -216,6 +226,9 @@ class TaskCommentServiceTest {
         c.setTaskId(1L);
         c.setAuthorId(5L);
         c.setBody("x");
+        c.setParentId(8L);
+        c.setRootId(2L);
+        c.setDepth(3);
         c.setCreatedAt(LocalDateTime.now().minusSeconds(10));
         when(taskCommentMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(c));
         User u = new User();
@@ -226,6 +239,9 @@ class TaskCommentServiceTest {
         List<TaskCommentResponse> list = taskCommentService.listByTaskKey("ENG-1", 5L);
         assertEquals(1, list.size());
         assertTrue(list.get(0).isDeletable());
+        assertEquals(8L, list.get(0).getParentId());
+        assertEquals(2L, list.get(0).getRootId());
+        assertEquals(3, list.get(0).getDepth());
     }
 
     @Test

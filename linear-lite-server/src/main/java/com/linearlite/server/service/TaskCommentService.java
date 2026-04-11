@@ -99,9 +99,15 @@ public class TaskCommentService {
         }
         LocalDateTime now = LocalDateTime.now();
         TaskComment c = new TaskComment();
+        Long parentId = req.getParentId();
+        Long rootId = req.getRootId() != null ? req.getRootId() : parentId;
+        int depth = req.getDepth() > 0 ? req.getDepth() : (parentId != null ? 1 : 0);
         c.setTaskId(task.getId());
         c.setAuthorId(userId);
         c.setBody(body.trim());
+        c.setParentId(parentId);
+        c.setRootId(rootId);
+        c.setDepth(depth);
         c.setCreatedAt(now);
         taskCommentMapper.insert(c);
         for (Long mid : mentionIds) {
@@ -187,6 +193,9 @@ public class TaskCommentService {
         r.setAuthorId(c.getAuthorId());
         r.setAuthorName(authorName);
         r.setBody(c.getBody());
+        r.setParentId(c.getParentId());
+        r.setRootId(c.getRootId());
+        r.setDepth(c.getDepth());
         r.setCreatedAt(c.getCreatedAt());
         long seconds = ChronoUnit.SECONDS.between(c.getCreatedAt(), now);
         r.setDeletable(c.getAuthorId().equals(currentUserId) && seconds <= DELETE_WINDOW_SECONDS);
