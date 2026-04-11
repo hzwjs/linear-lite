@@ -30,11 +30,21 @@ function toComment(raw: TaskCommentDto): TaskCommentDto {
   }
 }
 
+function extractComments(
+  payload: TaskCommentDto[] | { taskComments?: TaskCommentDto[] } | null | undefined
+): TaskCommentDto[] {
+  if (Array.isArray(payload)) return payload
+  if (payload && Array.isArray(payload.taskComments)) return payload.taskComments
+  return []
+}
+
 export const taskCommentsApi = {
   list(taskKey: string): Promise<TaskCommentDto[]> {
     return api
-      .get<ApiResponse<TaskCommentDto[]>>(`/tasks/${encodeURIComponent(taskKey)}/comments`)
-      .then((res) => unwrap(res).map(toComment))
+      .get<ApiResponse<TaskCommentDto[] | { taskComments?: TaskCommentDto[] }>>(
+        `/tasks/${encodeURIComponent(taskKey)}/comments`
+      )
+      .then((res) => extractComments(unwrap(res)).map(toComment))
   },
 
   create(

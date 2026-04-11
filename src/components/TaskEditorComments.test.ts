@@ -415,4 +415,33 @@ describe('TaskEditor comments', () => {
       view.unmount()
     }
   })
+
+  it('shows delete button for deletable comment and triggers delete on click', async () => {
+    vi.mocked(taskCommentsApi.list).mockResolvedValue([
+      {
+        id: 10,
+        body: 'Root deletable comment',
+        authorName: 'Alice',
+        authorId: 2,
+        createdAt: '2026-04-10T00:00:00.000Z',
+        deletable: true,
+        parentId: null,
+        rootId: null,
+        depth: 0
+      }
+    ])
+
+    const view = await mountEditor(createTask())
+    try {
+      const deleteBtn = view.host.querySelector('.task-comment-delete') as HTMLButtonElement | null
+      expect(deleteBtn).toBeTruthy()
+      deleteBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await nextTick()
+      await flushPromises()
+
+      expect(taskCommentsApi.delete).toHaveBeenCalledWith('ENG-1', 10)
+    } finally {
+      view.unmount()
+    }
+  })
 })
