@@ -17,8 +17,10 @@ import com.linearlite.server.entity.Task;
 import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.service.TaskActivityService;
 import com.linearlite.server.service.TaskAttachmentService;
+import com.linearlite.server.service.TaskCommandService;
 import com.linearlite.server.service.TaskCommentService;
-import com.linearlite.server.service.TaskService;
+import com.linearlite.server.service.TaskImportService;
+import com.linearlite.server.service.TaskQueryService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,6 +34,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -43,19 +46,25 @@ import java.util.List;
 @RequestMapping("/api/tasks")
 public class TaskController {
 
-    private final TaskService taskService;
+    private final TaskQueryService taskQueryService;
+    private final TaskCommandService taskCommandService;
+    private final TaskImportService taskImportService;
     private final TaskActivityService taskActivityService;
     private final TaskAttachmentService taskAttachmentService;
     private final TaskCommentService taskCommentService;
     private final R2StorageProperties r2StorageProperties;
 
     public TaskController(
-            TaskService taskService,
+            TaskQueryService taskQueryService,
+            TaskCommandService taskCommandService,
+            TaskImportService taskImportService,
             TaskActivityService taskActivityService,
             TaskAttachmentService taskAttachmentService,
             TaskCommentService taskCommentService,
             R2StorageProperties r2StorageProperties) {
-        this.taskService = taskService;
+        this.taskQueryService = taskQueryService;
+        this.taskCommandService = taskCommandService;
+        this.taskImportService = taskImportService;
         this.taskActivityService = taskActivityService;
         this.taskAttachmentService = taskAttachmentService;
         this.taskCommentService = taskCommentService;
@@ -76,22 +85,24 @@ public class TaskController {
             @RequestParam(required = false) Boolean topLevelOnly,
             @RequestParam(required = false) Long parentId) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
-        List<Task> list = taskService.listByProjectId(projectId, topLevelOnly, parentId, userId);
+        List<Task> list = taskQueryService.listByProjectId(projectId, topLevelOnly, parentId, userId);
         return ResponseEntity.ok(ApiResponse.success(list));
     }
 
     @GetMapping("/favorites")
     public ResponseEntity<ApiResponse<List<Task>>> listFavorites(HttpServletRequest request) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
-        return ResponseEntity.ok(ApiResponse.success(taskService.listFavorites(userId)));
+        return ResponseEntity.ok(ApiResponse.success(taskQueryService.listFavorites(userId)));
     }
 
     @GetMapping("/{id}/activities")
     public ResponseEntity<ApiResponse<List<TaskActivityResponse>>> listActivities(
+            HttpServletRequest request,
             @PathVariable("id") String taskKey,
             @RequestParam(required = false, defaultValue = "50") int limit) {
         int capped = Math.min(Math.max(1, limit), 100);
-        return ResponseEntity.ok(ApiResponse.success(taskActivityService.listByTaskKey(taskKey, capped)));
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        return ResponseEntity.ok(ApiResponse.success(taskActivityService.listByTaskKey(taskKey, userId, capped)));
     }
 
     @GetMapping("/{id}/comments")
@@ -129,7 +140,7 @@ public class TaskController {
             HttpServletRequest request,
             @RequestBody CreateTaskRequest body) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
-        Task created = taskService.create(
+        Task created = taskCommandService.create(
                 body.getProjectId(),
                 userId,
                 body.getParentId(),
@@ -150,7 +161,7 @@ public class TaskController {
             HttpServletRequest request,
             @RequestBody TaskImportRequest body) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
-        return ResponseEntity.ok(ApiResponse.success(taskService.importTasks(body, userId)));
+        return ResponseEntity.ok(ApiResponse.success(taskImportService.importTasks(body, userId)));
     }
 
     /**
@@ -162,7 +173,7 @@ public class TaskController {
             @PathVariable("id") String taskKey,
             @RequestBody UpdateTaskRequest body) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
-        Task updated = taskService.update(taskKey, body, userId);
+        Task updated = taskCommandService.update(taskKey, body, userId);
         return ResponseEntity.ok(ApiResponse.success(updated));
     }
 
@@ -171,7 +182,7 @@ public class TaskController {
             HttpServletRequest request,
             @PathVariable("id") String taskKey) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
-        return ResponseEntity.ok(ApiResponse.success(taskService.addFavorite(taskKey, userId)));
+        return ResponseEntity.ok(ApiResponse.success(taskCommandService.addFavorite(taskKey, userId)));
     }
 
     @DeleteMapping("/{id}/favorite")
@@ -179,7 +190,7 @@ public class TaskController {
             HttpServletRequest request,
             @PathVariable("id") String taskKey) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
-        return ResponseEntity.ok(ApiResponse.success(taskService.removeFavorite(taskKey, userId)));
+        return ResponseEntity.ok(ApiResponse.success(taskCommandService.removeFavorite(taskKey, userId)));
     }
 
     @PostMapping("/{id}/attachments")
@@ -206,7 +217,7 @@ public class TaskController {
     }
 
     @GetMapping("/{id}/attachments/{attachmentId}/download")
-    public ResponseEntity<byte[]> downloadAttachment(
+    public ResponseEntity<StreamingResponseBody> downloadAttachment(
             HttpServletRequest request,
             @PathVariable("id") String taskKey,
             @PathVariable("attachmentId") Long attachmentId) {
@@ -219,10 +230,19 @@ public class TaskController {
                 .filename(download.fileName(), StandardCharsets.UTF_8)
                 .build()
                 .toString();
-        return ResponseEntity.ok()
+        StreamingResponseBody body = outputStream -> {
+            try (var input = download.stream()) {
+                input.transferTo(outputStream);
+            }
+        };
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
-                .contentType(MediaType.parseMediaType(download.contentTypeOrDefault()))
-                .body(download.content());
+                .contentType(MediaType.parseMediaType(download.contentTypeOrDefault()));
+        long contentLength = download.contentLengthOrDefault();
+        if (contentLength >= 0) {
+            builder.contentLength(contentLength);
+        }
+        return builder.body(body);
     }
 
     @DeleteMapping("/{id}/attachments/{attachmentId}")

@@ -29,7 +29,7 @@ import static org.mockito.Mockito.when;
 class TaskAttachmentServiceTest {
 
     @Mock
-    private TaskService taskService;
+    private TaskQueryService taskQueryService;
     @Mock
     private TaskAttachmentMapper taskAttachmentMapper;
     @Mock
@@ -44,7 +44,7 @@ class TaskAttachmentServiceTest {
     @BeforeEach
     void setUp() {
         taskAttachmentService = new TaskAttachmentService(
-                taskService, taskAttachmentMapper, objectStorageService, r2StorageProperties);
+                taskQueryService, taskAttachmentMapper, objectStorageService, r2StorageProperties, 10 * 1024 * 1024L);
     }
 
     @Test
@@ -52,7 +52,7 @@ class TaskAttachmentServiceTest {
         Task task = new Task();
         task.setId(1L);
         task.setTaskKey("ENG-1");
-        when(taskService.getByKeyOrThrow("ENG-1", 10L)).thenReturn(task);
+        when(taskQueryService.getByKeyOrThrow("ENG-1", 10L)).thenReturn(task);
         when(multipartFile.getOriginalFilename()).thenReturn("doc.pdf");
         when(multipartFile.getSize()).thenReturn(1024L);
         when(multipartFile.getContentType()).thenReturn("application/pdf");
@@ -92,7 +92,7 @@ class TaskAttachmentServiceTest {
     void listByTaskKeyReturnsMappedList() {
         Task task = new Task();
         task.setId(1L);
-        when(taskService.getByKeyOrThrow("ENG-1", 10L)).thenReturn(task);
+        when(taskQueryService.getByKeyOrThrow("ENG-1", 10L)).thenReturn(task);
         when(r2StorageProperties.getPublicBaseUrl()).thenReturn("https://r2.example.com");
         TaskAttachment att = new TaskAttachment();
         att.setId(1L);
@@ -115,7 +115,7 @@ class TaskAttachmentServiceTest {
     void deleteRemovesFromDbAndCallsStorage() {
         Task task = new Task();
         task.setId(1L);
-        when(taskService.getByKeyOrThrow("ENG-1", 10L)).thenReturn(task);
+        when(taskQueryService.getByKeyOrThrow("ENG-1", 10L)).thenReturn(task);
         TaskAttachment att = new TaskAttachment();
         att.setId(50L);
         att.setTaskId(1L);
@@ -132,7 +132,7 @@ class TaskAttachmentServiceTest {
     void deleteWhenAttachmentNotFoundThrows() {
         Task task = new Task();
         task.setId(1L);
-        when(taskService.getByKeyOrThrow("ENG-1", 10L)).thenReturn(task);
+        when(taskQueryService.getByKeyOrThrow("ENG-1", 10L)).thenReturn(task);
         when(taskAttachmentMapper.selectOne(any())).thenReturn(null);
 
         assertThrows(ResourceNotFoundException.class,
@@ -142,7 +142,7 @@ class TaskAttachmentServiceTest {
 
     @Test
     void uploadWhenNotMemberThrows() {
-        when(taskService.getByKeyOrThrow(eq("ENG-1"), eq(10L))).thenThrow(new ForbiddenOperationException("你不是该项目成员"));
+        when(taskQueryService.getByKeyOrThrow(eq("ENG-1"), eq(10L))).thenThrow(new ForbiddenOperationException("你不是该项目成员"));
 
         assertThrows(ForbiddenOperationException.class,
                 () -> taskAttachmentService.upload("ENG-1", multipartFile, 10L));

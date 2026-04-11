@@ -7,7 +7,6 @@ import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskActivity;
 import com.linearlite.server.entity.User;
 import com.linearlite.server.mapper.TaskActivityMapper;
-import com.linearlite.server.mapper.TaskMapper;
 import com.linearlite.server.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,15 +31,15 @@ class TaskActivityServiceTest {
     @Mock
     private TaskActivityMapper taskActivityMapper;
     @Mock
-    private TaskMapper taskMapper;
-    @Mock
     private UserMapper userMapper;
+    @Mock
+    private TaskPermissionGuard taskPermissionGuard;
 
     private TaskActivityService taskActivityService;
 
     @BeforeEach
     void setUp() {
-        taskActivityService = new TaskActivityService(taskActivityMapper, taskMapper, userMapper);
+        taskActivityService = new TaskActivityService(taskActivityMapper, userMapper, taskPermissionGuard);
     }
 
     @Test
@@ -82,13 +81,13 @@ class TaskActivityServiceTest {
         actor.setId(2L);
         actor.setUsername("alice");
 
-        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
+        when(taskPermissionGuard.requireTaskAccessByKey("ENG-5", 7L)).thenReturn(task);
         Page<TaskActivity> page = new Page<>(1, 50);
         page.setRecords(List.of(newer, older));
         when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(page);
         when(userMapper.selectBatchIds(List.of(2L))).thenReturn(List.of(actor));
 
-        List<TaskActivityResponse> result = taskActivityService.listByTaskKey("ENG-5", 50);
+        List<TaskActivityResponse> result = taskActivityService.listByTaskKey("ENG-5", 7L, 50);
 
         assertEquals(2, result.size());
         assertEquals("alice", result.get(0).getActorName());

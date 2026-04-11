@@ -22,10 +22,14 @@ import com.linearlite.server.mapper.TaskMapper;
 import com.linearlite.server.mapper.UserMapper;
 import com.linearlite.server.entity.User;
 import com.linearlite.server.dto.UserSummaryDto;
+import com.linearlite.server.util.EmailNormalization;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -79,10 +83,16 @@ public class ProjectService {
      */
     public List<Project> list(Long currentUserId) {
         requireMemberUserId(currentUserId);
+        List<ProjectMember> memberships = projectMemberMapper.selectList(
+                new LambdaQueryWrapper<ProjectMember>()
+                        .eq(ProjectMember::getUserId, currentUserId));
+        if (memberships.isEmpty()) {
+            return List.of();
+        }
+        List<Long> projectIds = memberships.stream().map(ProjectMember::getProjectId).distinct().toList();
         return projectMapper.selectList(
                 new LambdaQueryWrapper<Project>()
-                        .inSql(Project::getId,
-                                "SELECT project_id FROM project_members WHERE user_id = " + currentUserId)
+                        .in(Project::getId, projectIds)
                         .orderByAsc(Project::getId));
     }
 
@@ -91,11 +101,18 @@ public class ProjectService {
      */
     public List<UserSummaryDto> listMembers(Long projectId, Long currentUserId) {
         requireProjectMember(projectId, currentUserId);
-        List<User> users = userMapper.selectList(
-                new LambdaQueryWrapper<User>()
-                        .inSql(User::getId,
-                                "SELECT user_id FROM project_members WHERE project_id = " + projectId)
-                        .orderByAsc(User::getUsername));
+        List<ProjectMember> members = projectMemberMapper.selectList(
+                new LambdaQueryWrapper<ProjectMember>()
+                        .eq(ProjectMember::getProjectId, projectId));
+        if (members.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> memberIds = members.stream()
+                .map(ProjectMember::getUserId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<User> users = userMapper.selectBatchIds(memberIds).stream()
+                .sorted(java.util.Comparator.comparing(User::getUsername))
+                .toList();
         return users.stream()
                 .map(u -> new UserSummaryDto(u.getId(), u.getUsername(), u.getAvatarUrl()))
                 .collect(Collectors.toList());
@@ -169,14 +186,17 @@ public class ProjectService {
         }
         String normalizedEmail = requireEmail(email);
 
-        Long memberExists = projectMemberMapper.selectCount(
-                new LambdaQueryWrapper<ProjectMember>()
-                        .eq(ProjectMember::getProjectId, projectId)
-                        .inSql(ProjectMember::getUserId,
-                                "SELECT id FROM users WHERE email = '" + normalizedEmail + "'")
-        );
-        if (memberExists != null && memberExists > 0) {
-            throw new IllegalArgumentException("该邮箱已在项目中");
+        User existingUser = userMapper.selectOne(
+                new LambdaQueryWrapper<User>().eq(User::getEmail, normalizedEmail).last("LIMIT 1"));
+        if (existingUser != null) {
+            Long memberExists = projectMemberMapper.selectCount(
+                    new LambdaQueryWrapper<ProjectMember>()
+                            .eq(ProjectMember::getProjectId, projectId)
+                            .eq(ProjectMember::getUserId, existingUser.getId())
+            );
+            if (memberExists != null && memberExists > 0) {
+                throw new IllegalArgumentException("该邮箱已在项目中");
+            }
         }
 
         Long invitationExists = projectInvitationMapper.selectCount(
@@ -198,6 +218,7 @@ public class ProjectService {
         emailService.sendProjectInvitation(normalizedEmail, project.getName());
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id, Long currentUserId) {
         Project existing = projectMapper.selectById(id);
         if (existing == null) {
@@ -268,9 +289,9 @@ public class ProjectService {
     }
 
     private String requireEmail(String email) {
-        if (email == null || email.isBlank() || !email.contains("@")) {
-            throw new IllegalArgumentException("邮箱格式不正确");
-        }
-        return email.trim().toLowerCase();
+        return EmailNormalization.normalizeAndValidate(
+                email,
+                "邮箱格式不正确",
+                "邮箱格式不正确");
     }
 }

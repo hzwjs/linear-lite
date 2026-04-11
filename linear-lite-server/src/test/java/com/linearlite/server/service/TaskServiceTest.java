@@ -12,6 +12,7 @@ import com.linearlite.server.entity.TaskFavorite;
 import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.ProjectMapper;
+import com.linearlite.server.mapper.ProjectTaskSeqMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
 import org.junit.jupiter.api.Assertions;
@@ -48,6 +49,8 @@ class TaskServiceTest {
     @Mock
     private ProjectMemberMapper projectMemberMapper;
     @Mock
+    private ProjectTaskSeqMapper projectTaskSeqMapper;
+    @Mock
     private LabelService labelService;
 
     private TaskService taskService;
@@ -60,6 +63,7 @@ class TaskServiceTest {
                 taskFavoriteMapper,
                 taskActivityService,
                 projectMemberMapper,
+                projectTaskSeqMapper,
                 labelService
         );
     }
@@ -247,17 +251,19 @@ class TaskServiceTest {
         insertedChild.setId(102L);
         insertedChild.setTaskKey("ENG-2");
         insertedChild.setProjectId(1L);
+        com.linearlite.server.entity.ProjectTaskSeq seq = new com.linearlite.server.entity.ProjectTaskSeq();
+        seq.setProjectId(1L);
+        seq.setNextNumber(1L);
 
         when(projectMapper.selectById(1L)).thenReturn(project);
-        when(taskMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(projectTaskSeqMapper.selectByProjectIdForUpdate(1L)).thenReturn(seq);
         when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
         doAnswer(invocation -> {
             Task task = invocation.getArgument(0);
             task.setId("Parent".equals(task.getTitle()) ? 101L : 102L);
             return 1;
         }).when(taskMapper).insert(any(Task.class));
-        when(taskMapper.selectById(101L)).thenReturn(insertedParent);
-        when(taskMapper.selectById(102L)).thenReturn(insertedChild);
+        when(projectTaskSeqMapper.updateNextNumber(1L, 3L)).thenReturn(1);
 
         TaskImportResponse response = taskService.importTasks(request, 7L);
 
@@ -296,16 +302,19 @@ class TaskServiceTest {
         inserted.setId(201L);
         inserted.setTaskKey("ENG-1");
         inserted.setProjectId(1L);
+        com.linearlite.server.entity.ProjectTaskSeq seq = new com.linearlite.server.entity.ProjectTaskSeq();
+        seq.setProjectId(1L);
+        seq.setNextNumber(1L);
 
         when(projectMapper.selectById(1L)).thenReturn(project);
-        when(taskMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(projectTaskSeqMapper.selectByProjectIdForUpdate(1L)).thenReturn(seq);
         when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
         doAnswer(invocation -> {
             Task task = invocation.getArgument(0);
             task.setId(201L);
             return 1;
         }).when(taskMapper).insert(any(Task.class));
-        when(taskMapper.selectById(201L)).thenReturn(inserted);
+        when(projectTaskSeqMapper.updateNextNumber(1L, 2L)).thenReturn(1);
 
         taskService.importTasks(request, 7L);
 

@@ -5,6 +5,7 @@ import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.ProjectInvitation;
 import com.linearlite.server.entity.ProjectMember;
 import com.linearlite.server.entity.Task;
+import com.linearlite.server.entity.User;
 import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.mapper.CommentMentionMapper;
 import com.linearlite.server.mapper.InAppNotificationMapper;
@@ -113,7 +114,11 @@ class ProjectServiceTest {
         project.setId(3L);
         project.setName("Engineering");
         project.setIdentifier("ENG");
+        ProjectMember member = new ProjectMember();
+        member.setProjectId(3L);
+        member.setUserId(7L);
 
+        when(projectMemberMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(member));
         when(projectMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(project));
 
         List<Project> result = projectService.list(7L);
@@ -132,6 +137,7 @@ class ProjectServiceTest {
         when(projectMapper.selectById(3L)).thenReturn(project);
         when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L, 0L);
         when(projectInvitationMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
 
         projectService.invite(3L, 7L, "new@example.com");
 

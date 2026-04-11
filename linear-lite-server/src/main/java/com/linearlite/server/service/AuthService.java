@@ -12,21 +12,20 @@ import com.linearlite.server.mapper.EmailVerificationCodeMapper;
 import com.linearlite.server.mapper.ProjectInvitationMapper;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.UserMapper;
+import com.linearlite.server.util.EmailNormalization;
 import com.linearlite.server.util.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.function.Supplier;
-import java.util.regex.Pattern;
 
 @Service
 public class AuthService {
 
     private static final String REGISTER_PURPOSE = "register";
-    private static final Pattern EMAIL_PATTERN =
-            Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$");
 
     private final UserMapper userMapper;
     private final EmailVerificationCodeMapper emailVerificationCodeMapper;
@@ -34,6 +33,7 @@ public class AuthService {
     private final ProjectInvitationMapper projectInvitationMapper;
     private final JwtUtil jwtUtil;
     private final EmailService emailService;
+    private final PasswordEncoder passwordEncoder;
     private final Supplier<String> verificationCodeGenerator;
 
     @Autowired
@@ -43,9 +43,11 @@ public class AuthService {
             ProjectMemberMapper projectMemberMapper,
             ProjectInvitationMapper projectInvitationMapper,
             JwtUtil jwtUtil,
-            EmailService emailService
+            EmailService emailService,
+            PasswordEncoder passwordEncoder
     ) {
         this(userMapper, emailVerificationCodeMapper, projectMemberMapper, projectInvitationMapper, jwtUtil, emailService,
+                passwordEncoder,
                 () -> String.format("%06d", (int) (Math.random() * 1_000_000)));
     }
 
@@ -56,6 +58,7 @@ public class AuthService {
             ProjectInvitationMapper projectInvitationMapper,
             JwtUtil jwtUtil,
             EmailService emailService,
+            PasswordEncoder passwordEncoder,
             Supplier<String> verificationCodeGenerator
     ) {
         this.userMapper = userMapper;
@@ -64,6 +67,7 @@ public class AuthService {
         this.projectInvitationMapper = projectInvitationMapper;
         this.jwtUtil = jwtUtil;
         this.emailService = emailService;
+        this.passwordEncoder = passwordEncoder;
         this.verificationCodeGenerator = verificationCodeGenerator;
     }
 
@@ -73,7 +77,7 @@ public class AuthService {
 
         User user = findUserByIdentity(normalizedIdentity);
 
-        if (user == null || !normalizedPassword.equals(user.getPassword())) {
+        if (user == null || !matchesPassword(normalizedPassword, user)) {
             throw new UnauthorizedException("Incorrect email/username or password.");
         }
         acceptPendingInvitations(user);
@@ -141,7 +145,7 @@ public class AuthService {
         User user = new User();
         user.setUsername(username);
         user.setEmail(email);
-        user.setPassword(password);
+        user.setPassword(passwordEncoder.encode(password));
         userMapper.insert(user);
 
         verificationCode.setUsedAt(LocalDateTime.now());
@@ -170,11 +174,10 @@ public class AuthService {
     }
 
     private String normalizeEmail(String email) {
-        String normalized = requireText(email, "Email is required.").toLowerCase();
-        if (!EMAIL_PATTERN.matcher(normalized).matches()) {
-            throw new IllegalArgumentException("Email format is invalid.");
-        }
-        return normalized;
+        return EmailNormalization.normalizeAndValidate(
+                email,
+                "Email is required.",
+                "Email format is invalid.");
     }
 
     private User findUserByIdentity(String identity) {
@@ -224,5 +227,25 @@ public class AuthService {
             throw new IllegalArgumentException(message);
         }
         return value.trim();
+    }
+
+    private boolean matchesPassword(String rawPassword, User user) {
+        String stored = user.getPassword();
+        if (stored == null || stored.isBlank()) {
+            return false;
+        }
+        if (looksLikeBcrypt(stored)) {
+            return passwordEncoder.matches(rawPassword, stored);
+        }
+        if (!rawPassword.equals(stored)) {
+            return false;
+        }
+        user.setPassword(passwordEncoder.encode(rawPassword));
+        userMapper.updateById(user);
+        return true;
+    }
+
+    private static boolean looksLikeBcrypt(String value) {
+        return value.startsWith("$2a$") || value.startsWith("$2b$") || value.startsWith("$2y$");
     }
 }

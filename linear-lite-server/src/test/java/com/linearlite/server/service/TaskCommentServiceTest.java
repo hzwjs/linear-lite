@@ -3,6 +3,7 @@ package com.linearlite.server.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.linearlite.server.dto.CreateTaskCommentRequest;
 import com.linearlite.server.dto.TaskCommentResponse;
+import com.linearlite.server.entity.ProjectMember;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskComment;
 import com.linearlite.server.entity.User;
@@ -14,7 +15,6 @@ import com.linearlite.server.mapper.CommentMentionMapper;
 import com.linearlite.server.mapper.InAppNotificationMapper;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.TaskCommentMapper;
-import com.linearlite.server.mapper.TaskMapper;
 import com.linearlite.server.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,7 +33,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -42,7 +41,7 @@ import static org.mockito.Mockito.when;
 class TaskCommentServiceTest {
 
     @Mock
-    private TaskMapper taskMapper;
+    private TaskPermissionGuard taskPermissionGuard;
     @Mock
     private TaskCommentMapper taskCommentMapper;
     @Mock
@@ -54,8 +53,6 @@ class TaskCommentServiceTest {
     @Mock
     private UserMapper userMapper;
     @Mock
-    private ProjectService projectService;
-    @Mock
     private NotificationSseBroadcaster notificationSseBroadcaster;
 
     private TaskCommentService taskCommentService;
@@ -63,13 +60,12 @@ class TaskCommentServiceTest {
     @BeforeEach
     void setUp() {
         taskCommentService = new TaskCommentService(
-                taskMapper,
+                taskPermissionGuard,
                 taskCommentMapper,
                 commentMentionMapper,
                 inAppNotificationMapper,
                 projectMemberMapper,
                 userMapper,
-                projectService,
                 notificationSseBroadcaster);
     }
 
@@ -80,9 +76,11 @@ class TaskCommentServiceTest {
         task.setProjectId(10L);
         task.setTaskKey("ENG-1");
 
-        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
-        doNothing().when(projectService).requireProjectMember(10L, 5L);
-        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 5L)).thenReturn(task);
+        ProjectMember mentionMember = new ProjectMember();
+        mentionMember.setProjectId(10L);
+        mentionMember.setUserId(7L);
+        when(projectMemberMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(mentionMember));
         User author = new User();
         author.setId(5L);
         author.setUsername("alice");
@@ -116,9 +114,8 @@ class TaskCommentServiceTest {
         task.setId(1L);
         task.setProjectId(10L);
         task.setTaskKey("ENG-1");
-        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
-        doNothing().when(projectService).requireProjectMember(10L, 5L);
-        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 5L)).thenReturn(task);
+        when(projectMemberMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
 
         CreateTaskCommentRequest req = new CreateTaskCommentRequest();
         req.setBody("hi");
@@ -134,8 +131,7 @@ class TaskCommentServiceTest {
         task.setId(1L);
         task.setProjectId(10L);
         task.setTaskKey("ENG-1");
-        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
-        doNothing().when(projectService).requireProjectMember(10L, 5L);
+        when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 5L)).thenReturn(task);
 
         TaskComment c = new TaskComment();
         c.setId(50L);
@@ -157,8 +153,7 @@ class TaskCommentServiceTest {
         task.setId(1L);
         task.setProjectId(10L);
         task.setTaskKey("ENG-1");
-        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
-        doNothing().when(projectService).requireProjectMember(10L, 5L);
+        when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 5L)).thenReturn(task);
 
         TaskComment c = new TaskComment();
         c.setId(50L);
@@ -177,8 +172,7 @@ class TaskCommentServiceTest {
         task.setId(1L);
         task.setProjectId(10L);
         task.setTaskKey("ENG-1");
-        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
-        doNothing().when(projectService).requireProjectMember(10L, 5L);
+        when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 5L)).thenReturn(task);
 
         TaskComment c = new TaskComment();
         c.setId(50L);
@@ -196,8 +190,7 @@ class TaskCommentServiceTest {
         task.setId(1L);
         task.setProjectId(10L);
         task.setTaskKey("ENG-1");
-        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
-        doNothing().when(projectService).requireProjectMember(10L, 8L);
+        when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 8L)).thenReturn(task);
 
         TaskComment c = new TaskComment();
         c.setId(50L);
@@ -215,8 +208,7 @@ class TaskCommentServiceTest {
         task.setId(1L);
         task.setProjectId(10L);
         task.setTaskKey("ENG-1");
-        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
-        doNothing().when(projectService).requireProjectMember(10L, 5L);
+        when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 5L)).thenReturn(task);
 
         TaskComment c = new TaskComment();
         c.setId(1L);

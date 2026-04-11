@@ -59,6 +59,11 @@ CREATE TABLE IF NOT EXISTS project_invitations (
 
 CREATE INDEX idx_project_invitations_project_email ON project_invitations (project_id, email, created_at);
 
+CREATE TABLE IF NOT EXISTS project_task_seq (
+    project_id   BIGINT NOT NULL PRIMARY KEY COMMENT '逻辑关联 projects.id',
+    next_number  BIGINT NOT NULL COMMENT '下一个可分配任务序号（从 1 开始）'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- 任务表（task_key 为对外展示的任务 ID，格式：项目 identifier + '-' + 项目内序号，如 ENG-1, PROD-2）
 CREATE TABLE IF NOT EXISTS tasks (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -186,14 +191,14 @@ CREATE TABLE IF NOT EXISTS in_app_notifications (
 CREATE INDEX idx_in_app_notifications_user_created ON in_app_notifications (user_id, created_at DESC);
 CREATE INDEX idx_in_app_notifications_user_unread ON in_app_notifications (user_id, read_at);
 
--- ========== 种子数据（可选；密码为明文占位，正式环境需改为 BCrypt 等）==========
+-- ========== 种子数据（可选；密码字段为 BCrypt 哈希）==========
 
 INSERT INTO users (username, email, password, avatar_url) VALUES
-    ('admin',  'admin@example.com',  'admin123',  NULL),
-    ('user1',  'user1@example.com',  'user123',   NULL),
-    ('user2',  'user2@example.com',  'user123',   NULL),
-    ('alice',  'alice@example.com',  'alice123',  NULL),
-    ('bob',    'bob@example.com',    'bob123',    NULL)
+    ('admin',  'admin@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',  NULL),
+    ('user1',  'user1@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',   NULL),
+    ('user2',  'user2@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',   NULL),
+    ('alice',  'alice@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',  NULL),
+    ('bob',    'bob@example.com',    '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',    NULL)
 ON DUPLICATE KEY UPDATE
     username = VALUES(username),
     email = VALUES(email);

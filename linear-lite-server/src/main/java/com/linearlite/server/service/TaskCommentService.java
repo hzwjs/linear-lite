@@ -6,6 +6,7 @@ import com.linearlite.server.dto.NotificationCreatedEventPayload;
 import com.linearlite.server.dto.TaskCommentResponse;
 import com.linearlite.server.entity.CommentMention;
 import com.linearlite.server.entity.InAppNotification;
+import com.linearlite.server.entity.ProjectMember;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskComment;
 import com.linearlite.server.entity.User;
@@ -17,7 +18,6 @@ import com.linearlite.server.mapper.CommentMentionMapper;
 import com.linearlite.server.mapper.InAppNotificationMapper;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.TaskCommentMapper;
-import com.linearlite.server.mapper.TaskMapper;
 import com.linearlite.server.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,31 +37,28 @@ public class TaskCommentService {
 
     public static final long DELETE_WINDOW_SECONDS = 180;
 
-    private final TaskMapper taskMapper;
+    private final TaskPermissionGuard taskPermissionGuard;
     private final TaskCommentMapper taskCommentMapper;
     private final CommentMentionMapper commentMentionMapper;
     private final InAppNotificationMapper inAppNotificationMapper;
     private final ProjectMemberMapper projectMemberMapper;
     private final UserMapper userMapper;
-    private final ProjectService projectService;
     private final NotificationSseBroadcaster notificationSseBroadcaster;
 
     public TaskCommentService(
-            TaskMapper taskMapper,
+            TaskPermissionGuard taskPermissionGuard,
             TaskCommentMapper taskCommentMapper,
             CommentMentionMapper commentMentionMapper,
             InAppNotificationMapper inAppNotificationMapper,
             ProjectMemberMapper projectMemberMapper,
             UserMapper userMapper,
-            ProjectService projectService,
             NotificationSseBroadcaster notificationSseBroadcaster) {
-        this.taskMapper = taskMapper;
+        this.taskPermissionGuard = taskPermissionGuard;
         this.taskCommentMapper = taskCommentMapper;
         this.commentMentionMapper = commentMentionMapper;
         this.inAppNotificationMapper = inAppNotificationMapper;
         this.projectMemberMapper = projectMemberMapper;
         this.userMapper = userMapper;
-        this.projectService = projectService;
         this.notificationSseBroadcaster = notificationSseBroadcaster;
     }
 
@@ -94,8 +91,9 @@ public class TaskCommentService {
         List<Long> mentionIds = req.getMentionedUserIds() == null
                 ? List.of()
                 : req.getMentionedUserIds().stream().filter(Objects::nonNull).distinct().toList();
+        Set<Long> projectMemberIds = loadProjectMemberIds(task.getProjectId(), mentionIds);
         for (Long mid : mentionIds) {
-            if (!isProjectMember(task.getProjectId(), mid)) {
+            if (!projectMemberIds.contains(mid)) {
                 throw new UnprocessableEntityException("@ 的用户不是项目成员: " + mid);
             }
         }
@@ -161,20 +159,18 @@ public class TaskCommentService {
     }
 
     private Task requireTaskForMember(String taskKey, Long userId) {
-        Task task = taskMapper.selectOne(new LambdaQueryWrapper<Task>().eq(Task::getTaskKey, taskKey));
-        if (task == null) {
-            throw new ResourceNotFoundException("任务不存在: " + taskKey);
-        }
-        projectService.requireProjectMember(task.getProjectId(), userId);
-        return task;
+        return taskPermissionGuard.requireTaskAccessByKey(taskKey, userId);
     }
 
-    private boolean isProjectMember(Long projectId, Long userId) {
-        Long count = projectMemberMapper.selectCount(
-                new LambdaQueryWrapper<com.linearlite.server.entity.ProjectMember>()
-                        .eq(com.linearlite.server.entity.ProjectMember::getProjectId, projectId)
-                        .eq(com.linearlite.server.entity.ProjectMember::getUserId, userId));
-        return count != null && count > 0;
+    private Set<Long> loadProjectMemberIds(Long projectId, List<Long> targetUserIds) {
+        if (targetUserIds == null || targetUserIds.isEmpty()) {
+            return Set.of();
+        }
+        List<ProjectMember> rows = projectMemberMapper.selectList(
+                new LambdaQueryWrapper<ProjectMember>()
+                        .eq(ProjectMember::getProjectId, projectId)
+                        .in(ProjectMember::getUserId, targetUserIds));
+        return rows.stream().map(ProjectMember::getUserId).collect(Collectors.toSet());
     }
 
     private Map<Long, String> loadUsernames(Set<Long> ids) {

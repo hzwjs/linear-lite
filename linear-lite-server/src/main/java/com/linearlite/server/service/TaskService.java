@@ -9,14 +9,17 @@ import com.linearlite.server.dto.TaskLabelItemRequest;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.ProjectMember;
+import com.linearlite.server.entity.ProjectTaskSeq;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskFavorite;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.ProjectMapper;
+import com.linearlite.server.mapper.ProjectTaskSeqMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,6 +55,7 @@ public class TaskService {
     private final TaskFavoriteMapper taskFavoriteMapper;
     private final TaskActivityService taskActivityService;
     private final ProjectMemberMapper projectMemberMapper;
+    private final ProjectTaskSeqMapper projectTaskSeqMapper;
     private final LabelService labelService;
 
     public TaskService(
@@ -60,12 +64,14 @@ public class TaskService {
             TaskFavoriteMapper taskFavoriteMapper,
             TaskActivityService taskActivityService,
             ProjectMemberMapper projectMemberMapper,
+            ProjectTaskSeqMapper projectTaskSeqMapper,
             LabelService labelService) {
         this.taskMapper = taskMapper;
         this.projectMapper = projectMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
         this.taskActivityService = taskActivityService;
         this.projectMemberMapper = projectMemberMapper;
+        this.projectTaskSeqMapper = projectTaskSeqMapper;
         this.labelService = labelService;
     }
 
@@ -131,9 +137,8 @@ public class TaskService {
             }
         }
 
-        long count = taskMapper.selectCount(
-                new LambdaQueryWrapper<Task>().eq(Task::getProjectId, projectId));
-        String taskKey = project.getIdentifier() + "-" + (count + 1);
+        long taskNumber = reserveTaskNumbers(projectId, project.getIdentifier(), 1);
+        String taskKey = project.getIdentifier() + "-" + taskNumber;
 
         Task task = new Task();
         task.setTaskKey(taskKey);
@@ -214,14 +219,14 @@ public class TaskService {
         }
         validateNoImportCycles(rowByImportId);
 
-        long count = taskMapper.selectCount(new LambdaQueryWrapper<Task>().eq(Task::getProjectId, request.getProjectId()));
+        long startTaskNumber = reserveTaskNumbers(request.getProjectId(), project.getIdentifier(), rows.size());
         Map<String, Task> createdTaskByImportId = new HashMap<>();
         List<String> createdTaskKeys = new ArrayList<>();
 
         for (int index = 0; index < rows.size(); index++) {
             TaskImportRowRequest row = rows.get(index);
             Task task = new Task();
-            task.setTaskKey(project.getIdentifier() + "-" + (count + index + 1));
+            task.setTaskKey(project.getIdentifier() + "-" + (startTaskNumber + index));
             task.setTitle(row.getTitle().trim());
             task.setDescription(trimToNull(row.getDescription()));
             task.setStatus(defaultStatus(row.getStatus()));
@@ -243,14 +248,9 @@ public class TaskService {
                 task.setCompletedAt(LocalDateTime.now());
             }
             taskMapper.insert(task);
-
-            Task inserted = taskMapper.selectById(task.getId());
-            if (inserted == null) {
-                throw new IllegalStateException("创建任务失败: " + row.getImportId());
-            }
-            taskActivityService.recordAction(inserted.getId(), creatorId, "created");
-            createdTaskByImportId.put(row.getImportId().trim(), inserted);
-            createdTaskKeys.add(inserted.getTaskKey());
+            taskActivityService.recordAction(task.getId(), creatorId, "created");
+            createdTaskByImportId.put(row.getImportId().trim(), task);
+            createdTaskKeys.add(task.getTaskKey());
         }
 
         for (TaskImportRowRequest row : rows) {
@@ -308,6 +308,7 @@ public class TaskService {
         return update(taskKey, request, null);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public Task update(String taskKey, UpdateTaskRequest request, Long userId) {
         if (taskKey == null || taskKey.isBlank()) {
             throw new IllegalArgumentException("任务 ID 不能为空");
@@ -828,5 +829,34 @@ public class TaskService {
 
     private static String stringifyProgress(Integer value) {
         return String.valueOf(value != null ? value : 0);
+    }
+
+    private long reserveTaskNumbers(Long projectId, String identifier, int amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("amount 必须大于 0");
+        }
+        ProjectTaskSeq seq = projectTaskSeqMapper.selectByProjectIdForUpdate(projectId);
+        if (seq == null) {
+            long initialNext = loadInitialNextTaskNumber(projectId, identifier);
+            try {
+                projectTaskSeqMapper.insertRow(projectId, initialNext);
+            } catch (DuplicateKeyException ignored) {
+                // 并发下已有事务插入成功，重读加锁行即可
+            }
+            seq = projectTaskSeqMapper.selectByProjectIdForUpdate(projectId);
+            if (seq == null) {
+                throw new IllegalStateException("初始化项目任务序号失败: " + projectId);
+            }
+        }
+        long start = seq.getNextNumber();
+        projectTaskSeqMapper.updateNextNumber(projectId, start + amount);
+        return start;
+    }
+
+    private long loadInitialNextTaskNumber(Long projectId, String identifier) {
+        int startPos = identifier.length() + 2;
+        Long max = projectTaskSeqMapper.selectMaxTaskNumber(projectId, identifier, startPos);
+        long next = (max == null ? 0 : max) + 1;
+        return Math.max(next, 1);
     }
 }

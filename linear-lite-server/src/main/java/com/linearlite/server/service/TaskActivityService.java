@@ -6,9 +6,7 @@ import com.linearlite.server.dto.TaskActivityResponse;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskActivity;
 import com.linearlite.server.entity.User;
-import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.TaskActivityMapper;
-import com.linearlite.server.mapper.TaskMapper;
 import com.linearlite.server.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 
@@ -25,13 +23,16 @@ import java.util.stream.Stream;
 public class TaskActivityService {
 
     private final TaskActivityMapper taskActivityMapper;
-    private final TaskMapper taskMapper;
     private final UserMapper userMapper;
+    private final TaskPermissionGuard taskPermissionGuard;
 
-    public TaskActivityService(TaskActivityMapper taskActivityMapper, TaskMapper taskMapper, UserMapper userMapper) {
+    public TaskActivityService(
+            TaskActivityMapper taskActivityMapper,
+            UserMapper userMapper,
+            TaskPermissionGuard taskPermissionGuard) {
         this.taskActivityMapper = taskActivityMapper;
-        this.taskMapper = taskMapper;
         this.userMapper = userMapper;
+        this.taskPermissionGuard = taskPermissionGuard;
     }
 
     public void recordAction(Long taskId, Long userId, String actionType) {
@@ -96,12 +97,8 @@ public class TaskActivityService {
                 newAssigneeId == null ? null : namesById.getOrDefault(newAssigneeId, "Unknown"));
     }
 
-    public List<TaskActivityResponse> listByTaskKey(String taskKey, int limit) {
-        Task task = taskMapper.selectOne(
-                new LambdaQueryWrapper<Task>().eq(Task::getTaskKey, taskKey));
-        if (task == null) {
-            throw new ResourceNotFoundException("任务不存在: " + taskKey);
-        }
+    public List<TaskActivityResponse> listByTaskKey(String taskKey, Long userId, int limit) {
+        Task task = taskPermissionGuard.requireTaskAccessByKey(taskKey, userId);
         Page<TaskActivity> page = new Page<>(1, limit);
         List<TaskActivity> activities = taskActivityMapper.selectPage(page,
                 new LambdaQueryWrapper<TaskActivity>()
@@ -143,4 +140,5 @@ public class TaskActivityService {
         return userMapper.selectBatchIds(filtered).stream()
                 .collect(Collectors.toMap(User::getId, User::getUsername));
     }
+
 }

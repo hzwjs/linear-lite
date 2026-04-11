@@ -7,10 +7,9 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
-import java.io.IOException;
+import java.io.InputStream;
 
 @Component
 @ConditionalOnProperty(prefix = "app.storage.r2", name = "enabled", havingValue = "true")
@@ -33,13 +32,10 @@ public class S3R2StorageClient implements R2StorageClient {
     }
 
     @Override
-    public byte[] getObject(String bucket, String key) {
-        try (ResponseInputStream<GetObjectResponse> stream = s3Client.getObject(
-                GetObjectRequest.builder().bucket(bucket).key(key).build())) {
-            return stream.readAllBytes();
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to read object: " + key, e);
-        }
+    public InputStream openObjectStream(String bucket, String key) {
+        ResponseInputStream<?> stream = s3Client.getObject(
+                GetObjectRequest.builder().bucket(bucket).key(key).build());
+        return stream;
     }
 
     @Override

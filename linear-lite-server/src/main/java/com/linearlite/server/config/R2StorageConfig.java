@@ -52,7 +52,7 @@ public class R2StorageConfig {
             }
 
             @Override
-            public byte[] getObjectByKey(String key) {
+            public java.io.InputStream openObjectStreamByKey(String key) {
                 throwDisabled();
                 return null;
             }

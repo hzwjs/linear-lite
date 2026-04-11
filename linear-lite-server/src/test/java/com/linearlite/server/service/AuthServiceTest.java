@@ -18,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -47,6 +48,8 @@ class AuthServiceTest {
     @Mock
     private EmailService emailService;
     @Mock
+    private PasswordEncoder passwordEncoder;
+    @Mock
     private Supplier<String> verificationCodeGenerator;
 
     private AuthService authService;
@@ -60,6 +63,7 @@ class AuthServiceTest {
                 projectInvitationMapper,
                 jwtUtil,
                 emailService,
+                passwordEncoder,
                 verificationCodeGenerator
         );
     }
@@ -70,9 +74,10 @@ class AuthServiceTest {
         user.setId(9L);
         user.setUsername("alice");
         user.setEmail("alice@example.com");
-        user.setPassword("secret123");
+        user.setPassword("$2a$10$hash");
 
         when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
+        when(passwordEncoder.matches("secret123", "$2a$10$hash")).thenReturn(true);
         when(jwtUtil.generateToken(9L, "alice")).thenReturn("jwt-token");
         when(projectInvitationMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
 
@@ -89,9 +94,10 @@ class AuthServiceTest {
         user.setId(9L);
         user.setUsername("alice");
         user.setEmail("alice@example.com");
-        user.setPassword("secret123");
+        user.setPassword("$2a$10$hash");
 
         when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
+        when(passwordEncoder.matches("bad-pass", "$2a$10$hash")).thenReturn(false);
 
         UnauthorizedException error = assertThrows(
                 UnauthorizedException.class,
@@ -107,7 +113,7 @@ class AuthServiceTest {
         user.setId(9L);
         user.setUsername("alice");
         user.setEmail("alice@example.com");
-        user.setPassword("secret123");
+        user.setPassword("$2a$10$hash");
 
         ProjectInvitation invitation = new ProjectInvitation();
         invitation.setId(12L);
@@ -115,6 +121,7 @@ class AuthServiceTest {
         invitation.setEmail("alice@example.com");
 
         when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
+        when(passwordEncoder.matches("secret123", "$2a$10$hash")).thenReturn(true);
         when(jwtUtil.generateToken(9L, "alice")).thenReturn("jwt-token");
         when(projectInvitationMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(invitation));
         when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
@@ -192,6 +199,7 @@ class AuthServiceTest {
             user.setId(42L);
             return 1;
         }).when(userMapper).insert(any(User.class));
+        when(passwordEncoder.encode("secret123")).thenReturn("encoded-secret");
         when(jwtUtil.generateToken(42L, "new-user")).thenReturn("jwt-token");
         when(projectInvitationMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
 
@@ -204,7 +212,25 @@ class AuthServiceTest {
         User saved = userCaptor.getValue();
         assertEquals("new-user", saved.getUsername());
         assertEquals("new@example.com", saved.getEmail());
-        assertEquals("secret123", saved.getPassword());
+        assertEquals("encoded-secret", saved.getPassword());
         assertEquals("jwt-token", response.getToken());
+    }
+
+    @Test
+    void loginMigratesLegacyPlaintextPasswordAfterSuccessfulLogin() {
+        User user = new User();
+        user.setId(9L);
+        user.setUsername("alice");
+        user.setEmail("alice@example.com");
+        user.setPassword("secret123");
+
+        when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
+        when(passwordEncoder.encode("secret123")).thenReturn("encoded-secret");
+        when(jwtUtil.generateToken(9L, "alice")).thenReturn("jwt-token");
+        when(projectInvitationMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+
+        authService.login("alice@example.com", "secret123");
+
+        verify(userMapper).updateById(any(User.class));
     }
 }

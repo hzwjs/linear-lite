@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
@@ -64,8 +65,8 @@ public class R2ObjectStorageService implements ObjectStorageService {
     }
 
     @Override
-    public byte[] getObjectByKey(String key) {
-        return storageClient.getObject(properties.getBucket(), key);
+    public InputStream openObjectStreamByKey(String key) {
+        return storageClient.openObjectStream(properties.getBucket(), key);
     }
 
     @Override
