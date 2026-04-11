@@ -31,6 +31,7 @@ import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '
 import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import { getTaskDueState } from '../utils/taskDueState'
+import { captureTaskLoadContext, isTaskLoadStale } from '../utils/taskLoadContext'
 import TiptapEditor from './TiptapEditor.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
@@ -301,29 +302,47 @@ async function loadSubIssues() {
     subIssueRows.value = []
     return
   }
+  const ctx = captureTaskLoadContext(props.task)
+  if (ctx == null) {
+    subIssueRows.value = []
+    return
+  }
+  const rootNumericId = props.task.numericId
   subIssuesLoading.value = true
   try {
-    const direct = await store.fetchSubIssues(props.task.numericId)
+    const direct = await store.fetchSubIssues(rootNumericId)
+    if (isTaskLoadStale(ctx, props.task)) return
     const nested = viewModeStore.viewConfig.nestedSubIssues
     if (!nested) {
       subIssueRows.value = direct.map((t) => ({ task: t, depth: 0 }))
       return
     }
     const rows: { task: Task; depth: number }[] = []
-    async function appendChildren(parentNumericId: number, depth: number) {
+    async function appendChildren(parentNumericId: number, depth: number): Promise<boolean> {
       const children = await store.fetchSubIssues(parentNumericId)
+      if (isTaskLoadStale(ctx, props.task)) return false
       for (const t of children) {
         rows.push({ task: t, depth })
-        if (t.numericId != null) await appendChildren(t.numericId, depth + 1)
+        if (t.numericId != null) {
+          const ok = await appendChildren(t.numericId, depth + 1)
+          if (!ok) return false
+        }
       }
+      return true
     }
     for (const t of direct) {
       rows.push({ task: t, depth: 0 })
-      if (t.numericId != null) await appendChildren(t.numericId, 1)
+      if (t.numericId != null) {
+        const ok = await appendChildren(t.numericId, 1)
+        if (!ok) return
+      }
     }
+    if (isTaskLoadStale(ctx, props.task)) return
     subIssueRows.value = rows
   } finally {
-    subIssuesLoading.value = false
+    if (!isTaskLoadStale(ctx, props.task)) {
+      subIssuesLoading.value = false
+    }
   }
 }
 
@@ -332,12 +351,21 @@ async function loadActivities(options?: { silent?: boolean }) {
     activities.value = []
     return
   }
+  const ctx = captureTaskLoadContext(props.task)
+  if (ctx == null) {
+    activities.value = []
+    return
+  }
   const silent = options?.silent === true && activities.value.length > 0
   if (!silent) activitiesLoading.value = true
   try {
-    activities.value = await activityApi.list(props.task.id)
+    const list = await activityApi.list(ctx.taskId)
+    if (isTaskLoadStale(ctx, props.task)) return
+    activities.value = list
   } finally {
-    if (!silent) activitiesLoading.value = false
+    if (!silent && !isTaskLoadStale(ctx, props.task)) {
+      activitiesLoading.value = false
+    }
   }
 }
 
@@ -346,14 +374,25 @@ async function loadComments(options?: { silent?: boolean }) {
     comments.value = []
     return
   }
+  const ctx = captureTaskLoadContext(props.task)
+  if (ctx == null) {
+    comments.value = []
+    return
+  }
   const silent = options?.silent === true && comments.value.length > 0
   if (!silent) commentsLoading.value = true
   try {
-    comments.value = await taskCommentsApi.list(props.task.id)
+    const list = await taskCommentsApi.list(ctx.taskId)
+    if (isTaskLoadStale(ctx, props.task)) return
+    comments.value = list
   } catch {
-    comments.value = []
+    if (!isTaskLoadStale(ctx, props.task)) {
+      comments.value = []
+    }
   } finally {
-    if (!silent) commentsLoading.value = false
+    if (!silent && !isTaskLoadStale(ctx, props.task)) {
+      commentsLoading.value = false
+    }
   }
 }
 
@@ -458,15 +497,26 @@ async function loadAttachments() {
     attachments.value = []
     return
   }
+  const ctx = captureTaskLoadContext(props.task)
+  if (ctx == null) {
+    attachments.value = []
+    return
+  }
   attachmentsLoading.value = true
   attachmentUploadError.value = ''
   try {
-    attachments.value = await attachmentsApi.list(props.task.id)
+    const list = await attachmentsApi.list(ctx.taskId)
+    if (isTaskLoadStale(ctx, props.task)) return
+    attachments.value = list
   } catch (e) {
     console.error('Failed to load attachments:', e)
-    attachments.value = []
+    if (!isTaskLoadStale(ctx, props.task)) {
+      attachments.value = []
+    }
   } finally {
-    attachmentsLoading.value = false
+    if (!isTaskLoadStale(ctx, props.task)) {
+      attachmentsLoading.value = false
+    }
   }
 }
 
