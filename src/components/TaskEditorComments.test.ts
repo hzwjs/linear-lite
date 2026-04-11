@@ -281,7 +281,7 @@ describe('TaskEditor comments', () => {
     }
   })
 
-  it('submits reply with root parentId', async () => {
+  it('submits reply with root parentId and mentionedUserIds from reply editor', async () => {
     vi.mocked(taskCommentsApi.list).mockResolvedValue([
       {
         id: 10,
@@ -315,13 +315,22 @@ describe('TaskEditor comments', () => {
 
       const sendReplyBtn = view.host.querySelector('.task-comment-reply-compose .comment-send-btn')
       expect(sendReplyBtn).toBeTruthy()
+
+      const inst = view.app._instance as unknown as { setupState?: Record<string, unknown> } | null
+      const state = inst?.setupState
+      expect(state).toBeTruthy()
+      if (!state) throw new Error('TaskEditor instance not found')
+      state.inlineReplyEditorRef = {
+        getMentionedUserIdsFromDoc: () => [2]
+      }
+
       sendReplyBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       await nextTick()
       await flushPromises()
 
       expect(taskCommentsApi.create).toHaveBeenCalledWith('ENG-1', {
         body: 'Nested reply',
-        mentionedUserIds: [],
+        mentionedUserIds: [2],
         parentId: 10
       })
     } finally {

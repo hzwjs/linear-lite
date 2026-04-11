@@ -194,6 +194,7 @@ const mentionMembersForCommentEditor = computed(() =>
 )
 
 const commentEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
+const inlineReplyEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
 const commentThreads = computed(() => buildCommentThreads(comments.value))
 
 const assigneeOptions = computed<CustomSelectOption[]>(() => {
@@ -495,9 +496,11 @@ async function submitReply(rootId: number) {
   nextSubmitting.add(rootId)
   replySubmittingRootIds.value = nextSubmitting
   try {
+    const fromDoc = inlineReplyEditorRef.value?.getMentionedUserIdsFromDoc?.() ?? []
+    const ids = [...new Set(fromDoc)]
     await taskCommentsApi.create(props.task.id, {
       body,
-      mentionedUserIds: [],
+      mentionedUserIds: ids,
       parentId: rootId
     })
     replyBodyByRootId.value = { ...replyBodyByRootId.value, [rootId]: '' }
@@ -1483,6 +1486,7 @@ async function toggleFavorite() {
                 </div>
                 <div v-if="inlineReplyRootId === thread.root.id" class="task-comment-reply-compose" @keydown.capture="(e) => onInlineReplyEditorKeydown(e, thread.root.id)">
                   <TiptapEditor
+                    ref="inlineReplyEditorRef"
                     :model-value="replyBodyByRootId[thread.root.id] ?? ''"
                     :mention-members="mentionMembersForCommentEditor"
                     :placeholder="t('taskEditor.replyPlaceholder')"

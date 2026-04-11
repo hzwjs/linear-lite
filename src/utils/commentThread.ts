@@ -24,6 +24,29 @@ function isRootComment(comment: TaskCommentDto): boolean {
   return comment.depth === 0
 }
 
+function resolveThreadRootId(
+  comment: TaskCommentDto,
+  rootById: Map<number, TaskCommentDto>,
+  commentById: Map<number, TaskCommentDto>
+): number | null {
+  if (comment.rootId != null && rootById.has(comment.rootId)) return comment.rootId
+
+  const visited = new Set<number>([comment.id])
+  let parentId = comment.parentId
+  while (parentId != null) {
+    if (visited.has(parentId)) return null
+    visited.add(parentId)
+
+    const parent = commentById.get(parentId)
+    if (!parent) return null
+    if (isRootComment(parent)) return parent.id
+    if (parent.rootId != null && rootById.has(parent.rootId)) return parent.rootId
+    parentId = parent.parentId
+  }
+
+  return null
+}
+
 export function buildCommentThreads(
   comments: TaskCommentDto[],
   visibleReplyLimit = DEFAULT_VISIBLE_REPLY_LIMIT
@@ -31,13 +54,14 @@ export function buildCommentThreads(
   if (comments.length === 0) return []
 
   const sorted = [...comments].sort(byCreatedAtThenId)
+  const commentById = new Map<number, TaskCommentDto>(sorted.map((c) => [c.id, c]))
   const roots = sorted.filter(isRootComment)
   const rootById = new Map<number, TaskCommentDto>(roots.map((c) => [c.id, c]))
   const repliesByRootId = new Map<number, TaskCommentDto[]>()
 
   for (const comment of sorted) {
     if (isRootComment(comment)) continue
-    const threadRootId = comment.rootId ?? comment.parentId
+    const threadRootId = resolveThreadRootId(comment, rootById, commentById)
     if (threadRootId == null) continue
 
     const root = rootById.get(threadRootId)

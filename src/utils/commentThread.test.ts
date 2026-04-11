@@ -79,4 +79,17 @@ describe('buildCommentThreads', () => {
     expect(thread?.replies.map((r) => r.id)).toEqual([2])
     expect(thread?.hiddenReplyCount).toBe(0)
   })
+
+  it('resolves root through parent chain for deep replies when rootId is missing', () => {
+    const comments: TaskCommentDto[] = [
+      comment({ id: 10, depth: 0, parentId: null, rootId: null, createdAt: '2026-04-11T10:00:00.000Z' }),
+      comment({ id: 11, depth: 1, parentId: 10, rootId: 10, createdAt: '2026-04-11T10:01:00.000Z' }),
+      comment({ id: 12, depth: 2, parentId: 11, rootId: null, createdAt: '2026-04-11T10:02:00.000Z' })
+    ]
+
+    const [thread] = buildCommentThreads(comments)
+
+    expect(thread?.root.id).toBe(10)
+    expect(thread?.replies.map((r) => r.id)).toEqual([11, 12])
+  })
 })
