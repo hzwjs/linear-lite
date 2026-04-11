@@ -16,7 +16,14 @@ export function resolveWorkspaceSourceLabel(
 </script>
 
 <script setup lang="ts">
-import { computed, ref, watch, onUnmounted, type ComponentPublicInstance } from 'vue'
+import {
+  computed,
+  ref,
+  watch,
+  onUnmounted,
+  defineAsyncComponent,
+  type ComponentPublicInstance
+} from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useTaskStore } from '../store/taskStore'
@@ -25,15 +32,16 @@ import { useViewModeStore } from '../store/viewModeStore'
 import { useOverlayStore } from '../store/overlayStore'
 import { useIssuePanelStore } from '../store/issuePanelStore'
 import TaskCard from '../components/TaskCard.vue'
-import TaskEditor from '../components/TaskEditor.vue'
 import TaskListView from '../components/TaskListView.vue'
-import GanttChart from '../components/GanttChart.vue'
 import IssueComposer from '../components/IssueComposer.vue'
-import TaskImportModal from '../components/TaskImportModal.vue'
 import type { User } from '../types/domain'
 import type { Status } from '../types/domain'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import { buildTaskGroups, filterVisibleTaskRows, getAdjacentTaskIds } from '../utils/taskView'
+
+const TaskEditor = defineAsyncComponent(() => import('../components/TaskEditor.vue'))
+const GanttChart = defineAsyncComponent(() => import('../components/GanttChart.vue'))
+const TaskImportModal = defineAsyncComponent(() => import('../components/TaskImportModal.vue'))
 
 const props = defineProps<{
   users: User[]
