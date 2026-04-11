@@ -17,6 +17,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useLocaleStore } from './store/localeStore'
 import { useNotificationStore } from './store/notificationStore'
+import { useIssuePanelStore } from './store/issuePanelStore'
 import {
   Plus,
   LayoutGrid,
@@ -76,6 +77,7 @@ const overlayStore = useOverlayStore()
 const viewModeStore = useViewModeStore()
 const localeStore = useLocaleStore()
 useNotificationStore()
+const issuePanelStore = useIssuePanelStore()
 const { t } = useI18n()
 
 const createProjectOpen = ref(false)
@@ -217,6 +219,21 @@ function ensureProjects() {
 
 onMounted(ensureProjects)
 watch([() => route.path, () => authStore.isLoggedIn], ensureProjects, { immediate: true })
+
+/** 进入登录页时清空主布局浮层状态；Pinia/App ref 在路由切换后仍保留，否则会随重新登录再次打开。 */
+watch(
+  () => route.path,
+  (path) => {
+    if (path !== '/login') return
+    userMenuOpen.value = false
+    createProjectOpen.value = false
+    settingsProject.value = null
+    commandPaletteOpen.value = false
+    issuePanelStore.closeComposer()
+    issuePanelStore.closeWorkspace()
+    issuePanelStore.setSelectedTask(null)
+  }
+)
 
 function selectProject(id: number) {
   projectStore.setActiveProject(id)
