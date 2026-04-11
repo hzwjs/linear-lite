@@ -243,6 +243,13 @@ export const useTaskStore = defineStore('taskStore', () => {
     }
   }
 
+  function snapshotTaskRowForRollback(row: Task): Task {
+    return {
+      ...row,
+      labels: row.labels?.map((l) => ({ ...l }))
+    }
+  }
+
   async function updateTask(
     id: string,
     updates: Partial<Omit<Task, 'id' | 'createdAt' | 'labels'>> & {
@@ -253,6 +260,8 @@ export const useTaskStore = defineStore('taskStore', () => {
     }
   ) {
     const { labels: labelsPayload, ...patchForLocal } = updates
+    const index = tasks.value.findIndex((t) => t.id === id)
+    const previousSnapshot = index === -1 ? null : snapshotTaskRowForRollback(tasks.value[index]!)
     applyLocalTaskPatch(id, patchForLocal)
     error.value = null
     try {
@@ -286,6 +295,15 @@ export const useTaskStore = defineStore('taskStore', () => {
       }
       return merged
     } catch (err: unknown) {
+      if (previousSnapshot != null && index !== -1) {
+        const optimistic = tasks.value[index]
+        tasks.value[index] = previousSnapshot
+        recomputeParentSubIssueProgress(previousSnapshot.parentId)
+        recomputeParentSubIssueProgress(optimistic?.parentId)
+        if (previousSnapshot.favorited) {
+          useFavoriteStore().syncTask(tasks.value[index]!)
+        }
+      }
       error.value =
         err instanceof Error
           ? err.message

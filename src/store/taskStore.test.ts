@@ -221,4 +221,63 @@ describe('taskStore', () => {
     await first
     expect(store.tasks.map((t) => t.id)).toEqual(['P2'])
   })
+
+  it('rolls back local optimistic patch when API update fails', async () => {
+    const store = useTaskStore()
+    const task: Task = {
+      id: 'ENG-ROLL',
+      numericId: 901,
+      title: 'Before',
+      status: 'todo',
+      priority: 'medium',
+      createdAt: 1,
+      updatedAt: 1
+    }
+    store.tasks = [task]
+    vi.mocked(taskApi.update).mockRejectedValueOnce(new Error('network'))
+
+    await expect(store.updateTask('ENG-ROLL', { title: 'After' })).rejects.toThrow('network')
+
+    expect(store.tasks[0]?.title).toBe('Before')
+    expect(store.error).toMatch(/network/i)
+  })
+
+  it('rolls back parentId optimistic patch and restores parent sub-issue counts on API failure', async () => {
+    const projectStore = useProjectStore()
+    projectStore.setActiveProject(1)
+
+    const store = useTaskStore()
+    const parent = {
+      id: 'ENG-P',
+      numericId: 201,
+      title: 'Parent',
+      status: 'todo' as const,
+      priority: 'medium' as const,
+      createdAt: 1,
+      updatedAt: 1,
+      subIssueCount: 1,
+      completedSubIssueCount: 0
+    }
+    const child = {
+      id: 'ENG-C',
+      numericId: 202,
+      title: 'Child',
+      status: 'todo' as const,
+      priority: 'medium' as const,
+      createdAt: 1,
+      updatedAt: 1,
+      parentId: '201' as const
+    }
+    store.tasks = [parent, child]
+
+    vi.mocked(taskApi.update).mockRejectedValueOnce(new Error('fail'))
+
+    await expect(store.updateTask('ENG-C', { parentId: null })).rejects.toThrow('fail')
+
+    expect(store.tasks.find((t) => t.id === 'ENG-C')?.parentId).toBe('201')
+    expect(store.tasks.find((t) => t.id === 'ENG-P')).toMatchObject({
+      subIssueCount: 1,
+      completedSubIssueCount: 0
+    })
+  })
 })
