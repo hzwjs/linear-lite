@@ -37,9 +37,10 @@ export function buildCommentThreads(
 
   for (const comment of sorted) {
     if (isRootComment(comment)) continue
-    if (comment.rootId == null) continue
+    const threadRootId = comment.rootId ?? comment.parentId
+    if (threadRootId == null) continue
 
-    const root = rootById.get(comment.rootId)
+    const root = rootById.get(threadRootId)
     if (!root) continue
 
     const list = repliesByRootId.get(root.id)

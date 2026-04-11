@@ -28,6 +28,7 @@ import {
   groupTaskActivitiesForDisplay
 } from '../utils/taskActivityGroup'
 import { renderMarkdown } from '../utils/markdown'
+import { buildCommentThreads } from '../utils/commentThread'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
@@ -148,6 +149,10 @@ const commentsLoading = ref(false)
 const commentBody = ref('')
 const commentSubmitting = ref(false)
 const commentMentionIds = ref<Set<number>>(new Set())
+const inlineReplyRootId = ref<number | null>(null)
+const replyBodyByRootId = ref<Record<number, string>>({})
+const replySubmittingRootIds = ref<Set<number>>(new Set())
+const expandedReplyRootIds = ref<Set<number>>(new Set())
 const attachmentInputRef = ref<HTMLInputElement | null>(null)
 const attachments = ref<TaskAttachment[]>([])
 const attachmentsLoading = ref(false)
@@ -189,6 +194,7 @@ const mentionMembersForCommentEditor = computed(() =>
 )
 
 const commentEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
+const commentThreads = computed(() => buildCommentThreads(comments.value))
 
 const assigneeOptions = computed<CustomSelectOption[]>(() => {
   const list: CustomSelectOption[] = [{ value: '', label: t('common.unassigned'), icon: UserIcon }]
@@ -417,6 +423,43 @@ function onCommentEditorKeydown(e: KeyboardEvent) {
   void submitComment()
 }
 
+function openInlineReply(rootId: number) {
+  inlineReplyRootId.value = rootId
+  if (replyBodyByRootId.value[rootId] != null) return
+  replyBodyByRootId.value = { ...replyBodyByRootId.value, [rootId]: '' }
+}
+
+function closeInlineReply(rootId: number) {
+  if (inlineReplyRootId.value !== rootId) return
+  inlineReplyRootId.value = null
+}
+
+function updateInlineReplyBody(rootId: number, value: string) {
+  replyBodyByRootId.value = { ...replyBodyByRootId.value, [rootId]: value }
+}
+
+function toggleRepliesExpanded(rootId: number) {
+  const next = new Set(expandedReplyRootIds.value)
+  if (next.has(rootId)) next.delete(rootId)
+  else next.add(rootId)
+  expandedReplyRootIds.value = next
+}
+
+function isRepliesExpanded(rootId: number): boolean {
+  return expandedReplyRootIds.value.has(rootId)
+}
+
+function visibleRepliesForThread(thread: ReturnType<typeof buildCommentThreads>[number]) {
+  return isRepliesExpanded(thread.root.id) ? thread.replies : thread.visibleReplies
+}
+
+function onInlineReplyEditorKeydown(event: KeyboardEvent, rootId: number) {
+  if (event.isComposing) return
+  if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return
+  event.preventDefault()
+  void submitReply(rootId)
+}
+
 async function submitComment() {
   if (props.mode !== 'edit' || !props.task?.id || commentSubmitting.value) return
   const body = commentBody.value.trim()
@@ -440,6 +483,34 @@ async function submitComment() {
     alert(toApiError(e).message || t('taskEditor.commentSendFailed'))
   } finally {
     commentSubmitting.value = false
+  }
+}
+
+async function submitReply(rootId: number) {
+  if (props.mode !== 'edit' || !props.task?.id) return
+  if (replySubmittingRootIds.value.has(rootId)) return
+  const body = (replyBodyByRootId.value[rootId] ?? '').trim()
+  if (!body) return
+  const nextSubmitting = new Set(replySubmittingRootIds.value)
+  nextSubmitting.add(rootId)
+  replySubmittingRootIds.value = nextSubmitting
+  try {
+    await taskCommentsApi.create(props.task.id, {
+      body,
+      mentionedUserIds: [],
+      parentId: rootId
+    })
+    replyBodyByRootId.value = { ...replyBodyByRootId.value, [rootId]: '' }
+    inlineReplyRootId.value = null
+    await loadComments({ silent: true })
+    void notificationStore.refreshUnread()
+  } catch (e) {
+    console.error(e)
+    alert(toApiError(e).message || t('taskEditor.commentSendFailed'))
+  } finally {
+    const next = new Set(replySubmittingRootIds.value)
+    next.delete(rootId)
+    replySubmittingRootIds.value = next
   }
 }
 
@@ -1355,22 +1426,82 @@ async function toggleFavorite() {
           </div>
           <div class="linear-section-body">
             <div v-if="commentsLoading" class="activity-empty">{{ t('taskEditor.commentsLoading') }}</div>
-            <div v-else-if="comments.length" class="task-comments-list">
-              <div v-for="c in comments" :key="c.id" class="task-comment-row">
-                <div class="task-comment-meta">
-                  <strong>{{ c.authorName }}</strong>
-                  <span> · {{ commentTimeFromIso(c.createdAt) }}</span>
+            <div v-else-if="commentThreads.length" class="task-comments-list">
+              <div v-for="thread in commentThreads" :key="thread.root.id" class="task-comment-thread">
+                <div class="task-comment-row">
+                  <div class="task-comment-meta">
+                    <strong>{{ thread.root.authorName }}</strong>
+                    <span> · {{ commentTimeFromIso(thread.root.createdAt) }}</span>
+                    <button
+                      type="button"
+                      class="task-comment-reply-btn"
+                      @click="openInlineReply(thread.root.id)"
+                    >
+                      {{ t('taskEditor.reply') }}
+                    </button>
+                    <button
+                      v-if="thread.root.deletable"
+                      type="button"
+                      class="task-comment-delete"
+                      :aria-label="t('taskEditor.deleteCommentAria')"
+                      @click="deleteCommentRow(thread.root)"
+                    >
+                      <Trash2 class="icon-14" />
+                    </button>
+                  </div>
+                  <div class="task-comment-body markdown-body" v-html="renderMarkdown(thread.root.body)" />
+                </div>
+                <div v-if="thread.replies.length" class="task-comment-replies">
+                  <div v-for="reply in visibleRepliesForThread(thread)" :key="reply.id" class="task-comment-row task-comment-row--reply">
+                    <div class="task-comment-meta">
+                      <strong>{{ reply.authorName }}</strong>
+                      <span> · {{ commentTimeFromIso(reply.createdAt) }}</span>
+                      <button
+                        v-if="reply.deletable"
+                        type="button"
+                        class="task-comment-delete"
+                        :aria-label="t('taskEditor.deleteCommentAria')"
+                        @click="deleteCommentRow(reply)"
+                      >
+                        <Trash2 class="icon-14" />
+                      </button>
+                    </div>
+                    <div class="task-comment-body markdown-body" v-html="renderMarkdown(reply.body)" />
+                  </div>
                   <button
-                    v-if="c.deletable"
+                    v-if="thread.hiddenReplyCount > 0"
                     type="button"
-                    class="task-comment-delete"
-                    :aria-label="t('taskEditor.deleteCommentAria')"
-                    @click="deleteCommentRow(c)"
+                    class="task-comment-toggle-replies"
+                    @click="toggleRepliesExpanded(thread.root.id)"
                   >
-                    <Trash2 class="icon-14" />
+                    {{
+                      isRepliesExpanded(thread.root.id)
+                        ? t('taskEditor.hideReplies')
+                        : t('taskEditor.viewMoreReplies', { count: thread.hiddenReplyCount })
+                    }}
                   </button>
                 </div>
-                <div class="task-comment-body markdown-body" v-html="renderMarkdown(c.body)" />
+                <div v-if="inlineReplyRootId === thread.root.id" class="task-comment-reply-compose" @keydown.capture="(e) => onInlineReplyEditorKeydown(e, thread.root.id)">
+                  <TiptapEditor
+                    :model-value="replyBodyByRootId[thread.root.id] ?? ''"
+                    :mention-members="mentionMembersForCommentEditor"
+                    :placeholder="t('taskEditor.replyPlaceholder')"
+                    :min-height="56"
+                    @update:model-value="(value) => updateInlineReplyBody(thread.root.id, value)"
+                  />
+                  <button
+                    type="button"
+                    class="comment-send-btn"
+                    :disabled="replySubmittingRootIds.has(thread.root.id) || !(replyBodyByRootId[thread.root.id] ?? '').trim()"
+                    :aria-label="t('taskEditor.sendAria')"
+                    @click="submitReply(thread.root.id)"
+                  >
+                    <Send class="icon-14" />
+                  </button>
+                  <button type="button" class="task-comment-reply-cancel" @click="closeInlineReply(thread.root.id)">
+                    {{ t('common.cancel') }}
+                  </button>
+                </div>
               </div>
             </div>
             <div v-else class="activity-empty">{{ t('taskEditor.noComments') }}</div>
@@ -2116,11 +2247,19 @@ async function toggleFavorite() {
   gap: 12px;
   margin-bottom: 12px;
 }
+.task-comment-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .task-comment-row {
   padding: 10px 12px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
   background: var(--color-bg-base);
+}
+.task-comment-row--reply {
+  margin-left: 16px;
 }
 .task-comment-meta {
   display: flex;
@@ -2130,6 +2269,17 @@ async function toggleFavorite() {
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   margin-bottom: 6px;
+}
+.task-comment-reply-btn {
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+  padding: 0;
+}
+.task-comment-reply-btn:hover {
+  color: var(--color-text-primary);
 }
 .task-comment-delete {
   margin-left: auto;
@@ -2157,6 +2307,24 @@ async function toggleFavorite() {
 }
 .task-comment-body :deep(p:last-child) {
   margin-bottom: 0;
+}
+.task-comment-replies {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.task-comment-toggle-replies {
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+  padding: 0;
+  margin-left: 16px;
+  text-align: left;
+}
+.task-comment-toggle-replies:hover {
+  color: var(--color-text-primary);
 }
 .comment-mention-chips {
   display: flex;
@@ -2195,6 +2363,30 @@ async function toggleFavorite() {
 .comment-compose :deep(.tiptap-editor-wrap) {
   flex: 1;
   min-width: 0;
+}
+.task-comment-reply-compose {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-left: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-base);
+}
+.task-comment-reply-compose :deep(.tiptap-editor-wrap) {
+  flex: 1;
+  min-width: 0;
+}
+.task-comment-reply-cancel {
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+}
+.task-comment-reply-cancel:hover {
+  color: var(--color-text-primary);
 }
 .comment-compose-hint {
   margin-top: 6px;

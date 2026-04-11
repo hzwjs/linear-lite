@@ -63,6 +63,19 @@ describe('buildCommentThreads', () => {
     const [thread] = buildCommentThreads(comments)
 
     expect(thread?.root.id).toBe(1)
+    expect(thread?.replies.map((r) => r.id)).toEqual([2, 4])
+    expect(thread?.hiddenReplyCount).toBe(0)
+  })
+
+  it('falls back to parentId as root when rootId is missing in dirty reply data', () => {
+    const comments: TaskCommentDto[] = [
+      comment({ id: 1, depth: 0, parentId: null, rootId: null, createdAt: '2026-04-11T10:00:00.000Z' }),
+      comment({ id: 2, depth: 1, parentId: 1, rootId: null, createdAt: '2026-04-11T10:01:00.000Z' })
+    ]
+
+    const [thread] = buildCommentThreads(comments)
+
+    expect(thread?.root.id).toBe(1)
     expect(thread?.replies.map((r) => r.id)).toEqual([2])
     expect(thread?.hiddenReplyCount).toBe(0)
   })

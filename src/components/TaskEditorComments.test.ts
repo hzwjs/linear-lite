@@ -31,7 +31,7 @@ vi.mock('./TiptapEditor.vue', () => ({
       this.$emit('upload-state-change', { hasPending: false, hasFailed: false })
     },
     template:
-      "<textarea data-testid=\"tiptap-editor-stub\" :value=\"modelValue\" @input=\"$emit('update:modelValue', $event.target.value)\" />"
+      "<textarea data-testid=\"tiptap-editor-stub\" :placeholder=\"placeholder\" :value=\"modelValue\" @input=\"$emit('update:modelValue', $event.target.value)\" />"
   })
 }))
 
@@ -242,6 +242,175 @@ describe('TaskEditor comments', () => {
         mentionedUserIds: [],
         parentId: null
       })
+    } finally {
+      view.unmount()
+    }
+  })
+
+  it('shows inline reply editor after clicking reply', async () => {
+    vi.mocked(taskCommentsApi.list).mockResolvedValue([
+      {
+        id: 10,
+        body: 'Root comment',
+        authorName: 'Alice',
+        authorId: 2,
+        createdAt: '2026-04-10T00:00:00.000Z',
+        deletable: true,
+        parentId: null,
+        rootId: null,
+        depth: 0
+      }
+    ])
+    const view = await mountEditor(createTask())
+    try {
+      expect(view.host.textContent).toContain('Reply')
+      const beforeCount = view.host.querySelectorAll('[data-testid="tiptap-editor-stub"]').length
+
+      const replyBtn = [...view.host.querySelectorAll('button')].find(
+        (btn) => btn.textContent?.trim() === 'Reply'
+      )
+      expect(replyBtn).toBeTruthy()
+      replyBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await nextTick()
+
+      expect(view.host.querySelectorAll('[data-testid="tiptap-editor-stub"]')).toHaveLength(beforeCount + 1)
+      const inlineEditor = view.host.querySelector('.task-comment-reply-compose [data-testid="tiptap-editor-stub"]')
+      expect(inlineEditor?.getAttribute('placeholder')).toBe('Write a reply...')
+    } finally {
+      view.unmount()
+    }
+  })
+
+  it('submits reply with root parentId', async () => {
+    vi.mocked(taskCommentsApi.list).mockResolvedValue([
+      {
+        id: 10,
+        body: 'Root comment',
+        authorName: 'Alice',
+        authorId: 2,
+        createdAt: '2026-04-10T00:00:00.000Z',
+        deletable: true,
+        parentId: null,
+        rootId: null,
+        depth: 0
+      }
+    ])
+    const view = await mountEditor(createTask())
+    try {
+      const replyBtn = [...view.host.querySelectorAll('button')].find(
+        (btn) => btn.textContent?.trim() === 'Reply'
+      )
+      expect(replyBtn).toBeTruthy()
+      replyBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await nextTick()
+
+      const replyInput = view.host.querySelector(
+        '.task-comment-reply-compose [data-testid="tiptap-editor-stub"]'
+      ) as HTMLTextAreaElement | null
+      expect(replyInput).toBeTruthy()
+      if (!replyInput) throw new Error('Reply input not found')
+      replyInput.value = 'Nested reply'
+      replyInput.dispatchEvent(new Event('input', { bubbles: true }))
+      await nextTick()
+
+      const sendReplyBtn = view.host.querySelector('.task-comment-reply-compose .comment-send-btn')
+      expect(sendReplyBtn).toBeTruthy()
+      sendReplyBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await nextTick()
+      await flushPromises()
+
+      expect(taskCommentsApi.create).toHaveBeenCalledWith('ENG-1', {
+        body: 'Nested reply',
+        mentionedUserIds: [],
+        parentId: 10
+      })
+    } finally {
+      view.unmount()
+    }
+  })
+
+  it('shows view-more toggle when replies exceed 3 and can expand or collapse', async () => {
+    vi.mocked(taskCommentsApi.list).mockResolvedValue([
+      {
+        id: 10,
+        body: 'Root comment',
+        authorName: 'Alice',
+        authorId: 2,
+        createdAt: '2026-04-10T00:00:00.000Z',
+        deletable: true,
+        parentId: null,
+        rootId: null,
+        depth: 0
+      },
+      {
+        id: 11,
+        body: 'Reply 1',
+        authorName: 'Bob',
+        authorId: 3,
+        createdAt: '2026-04-10T00:01:00.000Z',
+        deletable: false,
+        parentId: 10,
+        rootId: 10,
+        depth: 1
+      },
+      {
+        id: 12,
+        body: 'Reply 2',
+        authorName: 'Bob',
+        authorId: 3,
+        createdAt: '2026-04-10T00:02:00.000Z',
+        deletable: false,
+        parentId: 10,
+        rootId: 10,
+        depth: 1
+      },
+      {
+        id: 13,
+        body: 'Reply 3',
+        authorName: 'Bob',
+        authorId: 3,
+        createdAt: '2026-04-10T00:03:00.000Z',
+        deletable: false,
+        parentId: 10,
+        rootId: 10,
+        depth: 1
+      },
+      {
+        id: 14,
+        body: 'Reply 4',
+        authorName: 'Bob',
+        authorId: 3,
+        createdAt: '2026-04-10T00:04:00.000Z',
+        deletable: false,
+        parentId: 10,
+        rootId: 10,
+        depth: 1
+      }
+    ])
+    const view = await mountEditor(createTask())
+    try {
+      expect(view.host.textContent).toContain('View 1 more replies')
+      expect(view.host.textContent).not.toContain('Reply 4')
+
+      const toggleBtn = [...view.host.querySelectorAll('button')].find((btn) =>
+        btn.textContent?.includes('View 1 more replies')
+      )
+      expect(toggleBtn).toBeTruthy()
+      toggleBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await nextTick()
+
+      expect(view.host.textContent).toContain('Reply 4')
+      expect(view.host.textContent).toContain('Hide replies')
+
+      const hideBtn = [...view.host.querySelectorAll('button')].find((btn) =>
+        btn.textContent?.includes('Hide replies')
+      )
+      expect(hideBtn).toBeTruthy()
+      hideBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await nextTick()
+
+      expect(view.host.textContent).toContain('View 1 more replies')
+      expect(view.host.textContent).not.toContain('Reply 4')
     } finally {
       view.unmount()
     }

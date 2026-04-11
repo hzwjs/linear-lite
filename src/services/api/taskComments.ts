@@ -14,14 +14,17 @@ export interface TaskCommentDto {
 }
 
 function toComment(raw: TaskCommentDto): TaskCommentDto {
+  const parentId = typeof raw.parentId === 'number' && Number.isFinite(raw.parentId) ? raw.parentId : null
+  const rootId = typeof raw.rootId === 'number' && Number.isFinite(raw.rootId) ? raw.rootId : null
+  const depth = typeof raw.depth === 'number' && Number.isFinite(raw.depth) ? raw.depth : 0
   return {
     id: raw.id,
     authorId: raw.authorId,
     authorName: raw.authorName,
     body: raw.body,
-    parentId: raw.parentId,
-    rootId: raw.rootId,
-    depth: raw.depth,
+    parentId,
+    rootId,
+    depth,
     createdAt: raw.createdAt,
     deletable: raw.deletable
   }
