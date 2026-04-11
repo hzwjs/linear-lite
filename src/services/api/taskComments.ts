@@ -6,6 +6,9 @@ export interface TaskCommentDto {
   authorId: number
   authorName: string
   body: string
+  parentId: number | null
+  rootId: number | null
+  depth: number
   createdAt: string
   deletable: boolean
 }
@@ -16,6 +19,9 @@ function toComment(raw: TaskCommentDto): TaskCommentDto {
     authorId: raw.authorId,
     authorName: raw.authorName,
     body: raw.body,
+    parentId: raw.parentId,
+    rootId: raw.rootId,
+    depth: raw.depth,
     createdAt: raw.createdAt,
     deletable: raw.deletable
   }
@@ -28,12 +34,12 @@ export const taskCommentsApi = {
       .then((res) => unwrap(res).map(toComment))
   },
 
-  create(taskKey: string, body: string, mentionedUserIds: number[]): Promise<TaskCommentDto> {
+  create(
+    taskKey: string,
+    payload: { body: string; mentionedUserIds: number[]; parentId: number | null }
+  ): Promise<TaskCommentDto> {
     return api
-      .post<ApiResponse<TaskCommentDto>>(`/tasks/${encodeURIComponent(taskKey)}/comments`, {
-        body,
-        mentionedUserIds
-      })
+      .post<ApiResponse<TaskCommentDto>>(`/tasks/${encodeURIComponent(taskKey)}/comments`, payload)
       .then((res) => toComment(unwrap(res)))
   },
 

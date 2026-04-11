@@ -126,6 +126,20 @@ function flushPromises() {
   return Promise.resolve()
 }
 
+function toCreatePayload(
+  secondArg: unknown,
+  thirdArg: unknown
+): { body: string; mentionedUserIds: number[]; parentId: number | null } {
+  if (typeof secondArg === 'string') {
+    return {
+      body: secondArg,
+      mentionedUserIds: Array.isArray(thirdArg) ? (thirdArg as number[]) : [],
+      parentId: null
+    }
+  }
+  return secondArg as { body: string; mentionedUserIds: number[]; parentId: number | null }
+}
+
 function createTask(overrides: Partial<Task> = {}): Task {
   return {
     id: 'ENG-1',
@@ -181,7 +195,10 @@ describe('TaskEditor comments', () => {
       authorName: 'Tester',
       authorId: 1,
       createdAt: '2026-04-10T00:00:00.000Z',
-      deletable: false
+      deletable: false,
+      parentId: null,
+      rootId: null,
+      depth: 0
     })
     vi.mocked(taskApi.list).mockResolvedValue([])
     vi.mocked(projectApi.listMembers).mockResolvedValue([{ id: 2, username: 'Alice' }])
@@ -218,7 +235,13 @@ describe('TaskEditor comments', () => {
       await nextTick()
       await flushPromises()
 
-      expect(taskCommentsApi.create).toHaveBeenCalledWith('ENG-1', 'Hello', [])
+      const firstCall = vi.mocked(taskCommentsApi.create).mock.calls[0] ?? []
+      expect(firstCall[0]).toBe('ENG-1')
+      expect(toCreatePayload(firstCall[1], firstCall[2])).toEqual({
+        body: 'Hello',
+        mentionedUserIds: [],
+        parentId: null
+      })
       expect(state.commentBody).toBe('')
 
       state.commentBody = 'World'
@@ -230,7 +253,13 @@ describe('TaskEditor comments', () => {
       await nextTick()
       await flushPromises()
 
-      expect(taskCommentsApi.create).toHaveBeenLastCalledWith('ENG-1', 'World', [])
+      const secondCall = vi.mocked(taskCommentsApi.create).mock.calls.at(-1) ?? []
+      expect(secondCall[0]).toBe('ENG-1')
+      expect(toCreatePayload(secondCall[1], secondCall[2])).toEqual({
+        body: 'World',
+        mentionedUserIds: [],
+        parentId: null
+      })
     } finally {
       view.unmount()
     }
