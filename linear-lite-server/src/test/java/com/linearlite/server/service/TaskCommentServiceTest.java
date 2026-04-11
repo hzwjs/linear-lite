@@ -28,7 +28,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -71,13 +70,19 @@ class TaskCommentServiceTest {
     }
 
     @Test
-    void createPersistsMentionsWhenMembers() {
+    void createReplyUnderRootSetsDepth1AndRootId() {
         Task task = new Task();
         task.setId(1L);
         task.setProjectId(10L);
         task.setTaskKey("ENG-1");
 
         when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 5L)).thenReturn(task);
+        TaskComment parent = new TaskComment();
+        parent.setId(88L);
+        parent.setTaskId(1L);
+        parent.setDepth(0);
+        parent.setRootId(null);
+        when(taskCommentMapper.selectById(88L)).thenReturn(parent);
         ProjectMember mentionMember = new ProjectMember();
         mentionMember.setProjectId(10L);
         mentionMember.setUserId(7L);
@@ -117,6 +122,86 @@ class TaskCommentServiceTest {
         verify(commentMentionMapper).insert(any());
         verify(inAppNotificationMapper).insert(any());
         verify(notificationSseBroadcaster).sendToUser(eq(7L), eq("notification"), any());
+    }
+
+    @Test
+    void createReplyUnderReplyStillCapsDepth1AndUsesOriginalRoot() {
+        Task task = new Task();
+        task.setId(1L);
+        task.setProjectId(10L);
+        task.setTaskKey("ENG-1");
+        when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 5L)).thenReturn(task);
+        TaskComment parent = new TaskComment();
+        parent.setId(99L);
+        parent.setTaskId(1L);
+        parent.setDepth(3);
+        parent.setRootId(42L);
+        when(taskCommentMapper.selectById(99L)).thenReturn(parent);
+        User author = new User();
+        author.setId(5L);
+        author.setUsername("alice");
+        when(userMapper.selectById(5L)).thenReturn(author);
+        doAnswer(invocation -> {
+            TaskComment c = invocation.getArgument(0);
+            c.setId(101L);
+            return 1;
+        }).when(taskCommentMapper).insert(any(TaskComment.class));
+
+        CreateTaskCommentRequest req = new CreateTaskCommentRequest();
+        req.setBody("reply");
+        req.setParentId(99L);
+
+        TaskCommentResponse res = taskCommentService.create("ENG-1", 5L, req);
+        assertEquals(99L, res.getParentId());
+        assertEquals(42L, res.getRootId());
+        assertEquals(1, res.getDepth());
+
+        ArgumentCaptor<TaskComment> commentCaptor = ArgumentCaptor.forClass(TaskComment.class);
+        verify(taskCommentMapper).insert(commentCaptor.capture());
+        TaskComment inserted = commentCaptor.getValue();
+        assertEquals(99L, inserted.getParentId());
+        assertEquals(42L, inserted.getRootId());
+        assertEquals(1, inserted.getDepth());
+    }
+
+    @Test
+    void createReplyRejectsMissingParent() {
+        Task task = new Task();
+        task.setId(1L);
+        task.setProjectId(10L);
+        task.setTaskKey("ENG-1");
+        when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 5L)).thenReturn(task);
+        when(taskCommentMapper.selectById(66L)).thenReturn(null);
+
+        CreateTaskCommentRequest req = new CreateTaskCommentRequest();
+        req.setBody("reply");
+        req.setParentId(66L);
+
+        ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class, () -> taskCommentService.create("ENG-1", 5L, req));
+        assertEquals("父评论不存在", ex.getMessage());
+        verify(taskCommentMapper, never()).insert(any());
+    }
+
+    @Test
+    void createReplyRejectsParentFromAnotherTask() {
+        Task task = new Task();
+        task.setId(1L);
+        task.setProjectId(10L);
+        task.setTaskKey("ENG-1");
+        when(taskPermissionGuard.requireTaskAccessByKey("ENG-1", 5L)).thenReturn(task);
+        TaskComment parent = new TaskComment();
+        parent.setId(66L);
+        parent.setTaskId(2L);
+        parent.setDepth(0);
+        when(taskCommentMapper.selectById(66L)).thenReturn(parent);
+
+        CreateTaskCommentRequest req = new CreateTaskCommentRequest();
+        req.setBody("reply");
+        req.setParentId(66L);
+
+        ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class, () -> taskCommentService.create("ENG-1", 5L, req));
+        assertEquals("父评论不存在", ex.getMessage());
+        verify(taskCommentMapper, never()).insert(any());
     }
 
     @Test
@@ -214,7 +299,7 @@ class TaskCommentServiceTest {
     }
 
     @Test
-    void listMarksDeletableWithinWindow() {
+    void listByTaskKeyReturnsThreadFields() {
         Task task = new Task();
         task.setId(1L);
         task.setProjectId(10L);
@@ -242,45 +327,5 @@ class TaskCommentServiceTest {
         assertEquals(8L, list.get(0).getParentId());
         assertEquals(2L, list.get(0).getRootId());
         assertEquals(3, list.get(0).getDepth());
-    }
-
-    @Test
-    void commentThreadingFieldsHaveExpectedDefaults() {
-        CreateTaskCommentRequest req = new CreateTaskCommentRequest();
-        assertNull(req.getParentId());
-        assertNull(req.getRootId());
-        assertEquals(0, req.getDepth());
-
-        TaskComment comment = new TaskComment();
-        assertNull(comment.getParentId());
-        assertNull(comment.getRootId());
-        assertEquals(0, comment.getDepth());
-    }
-
-    @Test
-    void commentThreadingFieldsAreReadableAndWritable() {
-        CreateTaskCommentRequest req = new CreateTaskCommentRequest();
-        req.setParentId(11L);
-        req.setRootId(10L);
-        req.setDepth(1);
-        assertEquals(11L, req.getParentId());
-        assertEquals(10L, req.getRootId());
-        assertEquals(1, req.getDepth());
-
-        TaskComment comment = new TaskComment();
-        comment.setParentId(11L);
-        comment.setRootId(10L);
-        comment.setDepth(1);
-        assertEquals(11L, comment.getParentId());
-        assertEquals(10L, comment.getRootId());
-        assertEquals(1, comment.getDepth());
-
-        TaskCommentResponse response = new TaskCommentResponse();
-        response.setParentId(11L);
-        response.setRootId(10L);
-        response.setDepth(1);
-        assertEquals(11L, response.getParentId());
-        assertEquals(10L, response.getRootId());
-        assertEquals(1, response.getDepth());
     }
 }

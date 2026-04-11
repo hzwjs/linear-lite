@@ -100,8 +100,20 @@ public class TaskCommentService {
         LocalDateTime now = LocalDateTime.now();
         TaskComment c = new TaskComment();
         Long parentId = req.getParentId();
-        Long rootId = req.getRootId() != null ? req.getRootId() : parentId;
-        int depth = req.getDepth() > 0 ? req.getDepth() : (parentId != null ? 1 : 0);
+        Long rootId = null;
+        int depth = 0;
+        if (parentId != null) {
+            TaskComment parent = taskCommentMapper.selectById(parentId);
+            if (parent == null || !Objects.equals(parent.getTaskId(), task.getId())) {
+                throw new ResourceNotFoundException("父评论不存在");
+            }
+            depth = 1;
+            if (parent.getDepth() == 0) {
+                rootId = parent.getId();
+            } else {
+                rootId = parent.getRootId() != null ? parent.getRootId() : parent.getId();
+            }
+        }
         c.setTaskId(task.getId());
         c.setAuthorId(userId);
         c.setBody(body.trim());
