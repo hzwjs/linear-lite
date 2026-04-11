@@ -126,20 +126,6 @@ function flushPromises() {
   return Promise.resolve()
 }
 
-function toCreatePayload(
-  secondArg: unknown,
-  thirdArg: unknown
-): { body: string; mentionedUserIds: number[]; parentId: number | null } {
-  if (typeof secondArg === 'string') {
-    return {
-      body: secondArg,
-      mentionedUserIds: Array.isArray(thirdArg) ? (thirdArg as number[]) : [],
-      parentId: null
-    }
-  }
-  return secondArg as { body: string; mentionedUserIds: number[]; parentId: number | null }
-}
-
 function createTask(overrides: Partial<Task> = {}): Task {
   return {
     id: 'ENG-1',
@@ -235,9 +221,7 @@ describe('TaskEditor comments', () => {
       await nextTick()
       await flushPromises()
 
-      const firstCall = vi.mocked(taskCommentsApi.create).mock.calls[0] ?? []
-      expect(firstCall[0]).toBe('ENG-1')
-      expect(toCreatePayload(firstCall[1], firstCall[2])).toEqual({
+      expect(taskCommentsApi.create).toHaveBeenNthCalledWith(1, 'ENG-1', {
         body: 'Hello',
         mentionedUserIds: [],
         parentId: null
@@ -253,9 +237,7 @@ describe('TaskEditor comments', () => {
       await nextTick()
       await flushPromises()
 
-      const secondCall = vi.mocked(taskCommentsApi.create).mock.calls.at(-1) ?? []
-      expect(secondCall[0]).toBe('ENG-1')
-      expect(toCreatePayload(secondCall[1], secondCall[2])).toEqual({
+      expect(taskCommentsApi.create).toHaveBeenNthCalledWith(2, 'ENG-1', {
         body: 'World',
         mentionedUserIds: [],
         parentId: null

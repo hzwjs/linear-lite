@@ -426,7 +426,11 @@ async function submitComment() {
     const fromDoc = commentEditorRef.value?.getMentionedUserIdsFromDoc?.() ?? []
     const fromChips = [...commentMentionIds.value]
     const ids = [...new Set([...fromDoc, ...fromChips])]
-    await taskCommentsApi.create(props.task.id, body, ids)
+    await taskCommentsApi.create(props.task.id, {
+      body,
+      mentionedUserIds: ids,
+      parentId: null
+    })
     commentBody.value = ''
     commentMentionIds.value = new Set()
     await loadComments({ silent: true })
