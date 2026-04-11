@@ -5,8 +5,10 @@ import com.linearlite.server.dto.CreateTaskRequest;
 import com.linearlite.server.dto.TaskImportRequest;
 import com.linearlite.server.dto.TaskImportResponse;
 import com.linearlite.server.config.R2StorageProperties;
+import com.linearlite.server.dto.CreateTaskCommentRequest;
 import com.linearlite.server.dto.TaskActivityResponse;
 import com.linearlite.server.dto.TaskAttachmentResponse;
+import com.linearlite.server.dto.TaskCommentResponse;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -15,6 +17,7 @@ import com.linearlite.server.entity.Task;
 import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.service.TaskActivityService;
 import com.linearlite.server.service.TaskAttachmentService;
+import com.linearlite.server.service.TaskCommentService;
 import com.linearlite.server.service.TaskService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
@@ -43,13 +46,19 @@ public class TaskController {
     private final TaskService taskService;
     private final TaskActivityService taskActivityService;
     private final TaskAttachmentService taskAttachmentService;
+    private final TaskCommentService taskCommentService;
     private final R2StorageProperties r2StorageProperties;
 
-    public TaskController(TaskService taskService, TaskActivityService taskActivityService,
-                         TaskAttachmentService taskAttachmentService, R2StorageProperties r2StorageProperties) {
+    public TaskController(
+            TaskService taskService,
+            TaskActivityService taskActivityService,
+            TaskAttachmentService taskAttachmentService,
+            TaskCommentService taskCommentService,
+            R2StorageProperties r2StorageProperties) {
         this.taskService = taskService;
         this.taskActivityService = taskActivityService;
         this.taskAttachmentService = taskAttachmentService;
+        this.taskCommentService = taskCommentService;
         this.r2StorageProperties = r2StorageProperties;
     }
 
@@ -83,6 +92,33 @@ public class TaskController {
             @RequestParam(required = false, defaultValue = "50") int limit) {
         int capped = Math.min(Math.max(1, limit), 100);
         return ResponseEntity.ok(ApiResponse.success(taskActivityService.listByTaskKey(taskKey, capped)));
+    }
+
+    @GetMapping("/{id}/comments")
+    public ResponseEntity<ApiResponse<List<TaskCommentResponse>>> listComments(
+            HttpServletRequest request,
+            @PathVariable("id") String taskKey) {
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        return ResponseEntity.ok(ApiResponse.success(taskCommentService.listByTaskKey(taskKey, userId)));
+    }
+
+    @PostMapping("/{id}/comments")
+    public ResponseEntity<ApiResponse<TaskCommentResponse>> createComment(
+            HttpServletRequest request,
+            @PathVariable("id") String taskKey,
+            @RequestBody CreateTaskCommentRequest body) {
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        return ResponseEntity.ok(ApiResponse.success(taskCommentService.create(taskKey, userId, body)));
+    }
+
+    @DeleteMapping("/{id}/comments/{commentId}")
+    public ResponseEntity<ApiResponse<Void>> deleteComment(
+            HttpServletRequest request,
+            @PathVariable("id") String taskKey,
+            @PathVariable("commentId") Long commentId) {
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        taskCommentService.delete(taskKey, commentId, userId);
+        return ResponseEntity.ok(ApiResponse.success());
     }
 
     /**

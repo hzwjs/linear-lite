@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance } from 'axios'
+import axios, { type AxiosInstance, isAxiosError } from 'axios'
 import type { ApiResponse } from './types'
 import { JWT_STORAGE_KEY } from './constants'
 
@@ -47,6 +47,18 @@ export function unwrap<T>(res: { data: ApiResponse<T> }): T {
     throw new Error(body.message ?? 'Request failed')
   }
   return body.data
+}
+
+/** 将 Axios 4xx/5xx 响应中的 ApiResponse.message 转为 Error，便于 alert 展示后端文案 */
+export function toApiError(e: unknown): Error {
+  if (isAxiosError(e) && e.response?.data != null && typeof e.response.data === 'object') {
+    const msg = (e.response.data as { message?: string }).message
+    if (typeof msg === 'string' && msg.length > 0) {
+      return new Error(msg)
+    }
+  }
+  if (e instanceof Error) return e
+  return new Error(String(e))
 }
 
 export { JWT_STORAGE_KEY }

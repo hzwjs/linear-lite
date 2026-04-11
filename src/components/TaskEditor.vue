@@ -14,6 +14,7 @@ import { useProjectStore } from '../store/projectStore'
 import { useViewModeStore } from '../store/viewModeStore'
 import { useIssuePanelStore } from '../store/issuePanelStore'
 import { useRouter } from 'vue-router'
+import { toApiError } from '../services/api/index'
 import { projectApi } from '../services/api/project'
 import { activityApi } from '../services/api/activity'
 import { taskCommentsApi, type TaskCommentDto } from '../services/api/taskComments'
@@ -432,7 +433,7 @@ async function submitComment() {
     void notificationStore.refreshUnread()
   } catch (e) {
     console.error(e)
-    alert(e instanceof Error ? e.message : t('taskEditor.commentSendFailed'))
+    alert(toApiError(e).message || t('taskEditor.commentSendFailed'))
   } finally {
     commentSubmitting.value = false
   }
@@ -445,7 +446,7 @@ async function deleteCommentRow(c: TaskCommentDto) {
     await loadComments({ silent: true })
   } catch (e) {
     console.error(e)
-    alert(e instanceof Error ? e.message : t('taskEditor.commentSendFailed'))
+    alert(toApiError(e).message || t('taskEditor.commentSendFailed'))
   }
 }
 

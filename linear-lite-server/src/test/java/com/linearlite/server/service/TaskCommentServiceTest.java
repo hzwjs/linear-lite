@@ -8,6 +8,7 @@ import com.linearlite.server.entity.TaskComment;
 import com.linearlite.server.entity.User;
 import com.linearlite.server.exception.ConflictOperationException;
 import com.linearlite.server.exception.ForbiddenOperationException;
+import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.exception.UnprocessableEntityException;
 import com.linearlite.server.mapper.CommentMentionMapper;
 import com.linearlite.server.mapper.InAppNotificationMapper;
@@ -125,6 +126,49 @@ class TaskCommentServiceTest {
 
         assertThrows(UnprocessableEntityException.class, () -> taskCommentService.create("ENG-1", 5L, req));
         verify(taskCommentMapper, never()).insert(any());
+    }
+
+    @Test
+    void deleteSucceedsWithinWindowAndCleansRelatedRows() {
+        Task task = new Task();
+        task.setId(1L);
+        task.setProjectId(10L);
+        task.setTaskKey("ENG-1");
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
+        doNothing().when(projectService).requireProjectMember(10L, 5L);
+
+        TaskComment c = new TaskComment();
+        c.setId(50L);
+        c.setTaskId(1L);
+        c.setAuthorId(5L);
+        c.setCreatedAt(LocalDateTime.now().minusSeconds(10));
+        when(taskCommentMapper.selectById(50L)).thenReturn(c);
+
+        taskCommentService.delete("ENG-1", 50L, 5L);
+
+        verify(inAppNotificationMapper).delete(any(LambdaQueryWrapper.class));
+        verify(commentMentionMapper).delete(any(LambdaQueryWrapper.class));
+        verify(taskCommentMapper).deleteById(50L);
+    }
+
+    @Test
+    void deleteNotFoundWhenCommentOnOtherTask() {
+        Task task = new Task();
+        task.setId(1L);
+        task.setProjectId(10L);
+        task.setTaskKey("ENG-1");
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
+        doNothing().when(projectService).requireProjectMember(10L, 5L);
+
+        TaskComment c = new TaskComment();
+        c.setId(50L);
+        c.setTaskId(99L);
+        c.setAuthorId(5L);
+        c.setCreatedAt(LocalDateTime.now());
+        when(taskCommentMapper.selectById(50L)).thenReturn(c);
+
+        assertThrows(ResourceNotFoundException.class, () -> taskCommentService.delete("ENG-1", 50L, 5L));
+        verify(taskCommentMapper, never()).deleteById(any(Long.class));
     }
 
     @Test
