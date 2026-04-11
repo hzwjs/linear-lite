@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../store/authStore'
@@ -48,6 +48,13 @@ function startResendCountdown() {
     resendCountdown.value -= 1
   }, 1000)
 }
+
+onUnmounted(() => {
+  if (resendTimer != null) {
+    window.clearInterval(resendTimer)
+    resendTimer = null
+  }
+})
 
 async function onSendCode() {
   resetError()
