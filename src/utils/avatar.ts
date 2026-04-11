@@ -22,31 +22,71 @@ export function getInitials(name: string): string {
 }
 
 /**
- * HSL 转 hex（S、L 为 0–100）
+ * 15 色固定 fallback 背景（非高纯绿/紫主导；偏棕、橙、红、青蓝、靛、中性）。
+ * 白字对比度经预检 ≥ WCAG AA（约 4.5:1）。
  */
-function hslToHex(h: number, s: number, l: number): string {
-  s /= 100
-  l /= 100
-  const a = s * Math.min(l, 1 - l)
-  const f = (n: number) => {
-    const k = (n + h / 30) % 12
-    const c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1)
-    return Math.round(c * 255)
-      .toString(16)
-      .padStart(2, '0')
+export const AVATAR_BACKGROUND_PALETTE_15: readonly string[] = Object.freeze([
+  '#422006',
+  '#78350f',
+  '#92400e',
+  '#b45309',
+  '#9a3412',
+  '#7c2d12',
+  '#991b1b',
+  '#9f1239',
+  '#881337',
+  '#134e4a',
+  '#164e63',
+  '#0c4a6e',
+  '#1e3a8a',
+  '#312e81',
+  '#44403c'
+])
+
+/** 空用户名（归一化后）固定使用槽位 0，保证稳定兜底 */
+const EMPTY_USERNAME_PALETTE_INDEX = 0
+
+/** FNV-1a 32-bit，跨运行稳定 */
+function fnv1a32(str: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
   }
-  return `#${f(0)}${f(8)}${f(4)}`
+  return h >>> 0
 }
 
 /**
- * 按 userId 生成稳定背景色和对比文字色。
- * 背景偏暗则 color 为 #fff，否则 #374151。
+ * 映射前归一化：trim → 小写 → Unicode NFKC（全角等折叠）。
+ * 与 `getAvatarColorByUsername` 共用，单测锁定行为以免后续漂移。
+ */
+export function normalizeUsernameForAvatar(username: string): string {
+  return username.trim().toLowerCase().normalize('NFKC')
+}
+
+/**
+ * 按 **username** 生成稳定 fallback 头像背景与前景色（主入口）。
+ * 同一用户名跨页面、跨会话颜色一致；改名后颜色可能变化（本期接受）。
+ */
+export function getAvatarColorByUsername(username: string): { background: string; color: string } {
+  const key = normalizeUsernameForAvatar(username)
+  if (!key) {
+    const background =
+      AVATAR_BACKGROUND_PALETTE_15[EMPTY_USERNAME_PALETTE_INDEX] ?? '#422006'
+    return { background, color: '#fff' }
+  }
+  const idx = fnv1a32(key) % AVATAR_BACKGROUND_PALETTE_15.length
+  const background = AVATAR_BACKGROUND_PALETTE_15[idx] ?? '#422006'
+  return { background, color: '#fff' }
+}
+
+/**
+ * 按 userId 的过渡兼容入口（与 username 映射独立，避免与数字用户名撞哈希）。
+ * 新代码请优先使用 `getAvatarColorByUsername`。
  */
 export function getAvatarColor(userId: number): { background: string; color: string } {
-  const hue = ((userId * 2654435761) >>> 0) % 360
-  const s = 65
-  const l = 45
-  const background = hslToHex(hue, s, l)
-  const color = l <= 50 ? '#fff' : '#374151'
-  return { background, color }
+  const id = Number.isFinite(userId) ? Math.max(0, Math.floor(userId)) : 0
+  const idx = fnv1a32(`\0legacy-uid:${id}`) % AVATAR_BACKGROUND_PALETTE_15.length
+  const background = AVATAR_BACKGROUND_PALETTE_15[idx] ?? '#422006'
+  return { background, color: '#fff' }
 }

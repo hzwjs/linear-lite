@@ -27,6 +27,7 @@ import {
   Eye,
   Loader2
 } from 'lucide-vue-next'
+import { getInitials, getAvatarColorByUsername } from '../../utils/avatar'
 
 type SubKey = 'status' | 'priority' | 'assignee' | 'labels'
 
@@ -59,12 +60,13 @@ const subMenuStyle = computed(() => {
   if (!itemEl || !menuEl) return { display: 'none' }
   const menuRect = menuEl.getBoundingClientRect()
   const itemRect = itemEl.getBoundingClientRect()
-  const subWidth = 180
+  const subWidth = activeSub.value === 'assignee' ? 268 : 180
   let left = menuRect.left - subWidth - 4
   if (left < 8) left = menuRect.right + 4
   return {
     top: `${Math.max(8, itemRect.top - 4)}px`,
-    left: `${left}px`
+    left: `${left}px`,
+    width: `${subWidth}px`
   }
 })
 
@@ -161,6 +163,27 @@ function isAssigneeChecked(val: number | 'unassigned'): boolean {
   return store.filterAssigneeList.includes(val)
 }
 
+/** 与 TaskRowAssigneePicker 一致：搜索成员 + 彩色 initials 头像 */
+const assigneeSearch = ref('')
+
+const sortedAssigneeUsers = computed(() => {
+  const list = [...props.users]
+  list.sort((a, b) => a.username.localeCompare(b.username, undefined, { sensitivity: 'base' }))
+  return list
+})
+
+const filteredAssigneeUsers = computed(() => {
+  const q = assigneeSearch.value.trim().toLowerCase()
+  if (!q) return sortedAssigneeUsers.value
+  return sortedAssigneeUsers.value.filter((u) => u.username.toLowerCase().includes(q))
+})
+
+const showAssigneeUnassignedRow = computed(() => {
+  const q = assigneeSearch.value.trim().toLowerCase()
+  if (!q) return true
+  return t('common.unassigned').toLowerCase().includes(q)
+})
+
 const labelsSearch = ref('')
 const labelsLoading = ref(false)
 const labelsError = ref<string | null>(null)
@@ -208,6 +231,9 @@ watch(activeSub, (k) => {
   if (k === 'labels') {
     labelsSearch.value = ''
     loadLabels('')
+  }
+  if (k === 'assignee') {
+    assigneeSearch.value = ''
   }
 })
 
@@ -285,6 +311,7 @@ defineExpose({
       <div
         v-if="activeSub != null"
         class="filter-submenu"
+        :class="{ 'filter-submenu--assignee-panel': activeSub === 'assignee' }"
         data-filter-submenu
         :style="subMenuStyle"
         @mouseenter="onSubEnter"
@@ -323,28 +350,57 @@ defineExpose({
         </template>
 
         <template v-else-if="activeSub === 'assignee'">
-          <ul class="filter-submenu-list">
-            <li
-              class="filter-submenu-item"
-              :class="{ selected: isAssigneeChecked('unassigned') }"
-              @click="selectAssignee('unassigned')"
-            >
-              <UserIcon class="filter-submenu-icon" />
-              <span class="filter-submenu-label">{{ t('common.unassigned') }}</span>
-              <Check v-if="isAssigneeChecked('unassigned')" class="filter-submenu-check" />
-            </li>
-            <li
-              v-for="user in users"
-              :key="user.id"
-              class="filter-submenu-item"
-              :class="{ selected: isAssigneeChecked(user.id) }"
-              @click="selectAssignee(user.id)"
-            >
-              <span class="filter-submenu-avatar">{{ user.username.charAt(0).toUpperCase() }}</span>
-              <span class="filter-submenu-label">{{ user.username }}</span>
-              <Check v-if="isAssigneeChecked(user.id)" class="filter-submenu-check" />
-            </li>
-          </ul>
+          <div class="filter-assignee-wrap">
+            <div class="filter-assignee-search">
+              <input
+                v-model="assigneeSearch"
+                type="search"
+                class="filter-assignee-search-input"
+                :placeholder="t('taskList.assigneeSearchPlaceholder')"
+                :aria-label="t('taskList.assigneeSearchPlaceholder')"
+                autocomplete="off"
+                @click.stop
+              />
+            </div>
+            <ul class="filter-assignee-list">
+              <li
+                v-if="showAssigneeUnassignedRow"
+                class="filter-assignee-row"
+                :class="{ selected: isAssigneeChecked('unassigned') }"
+                @click="selectAssignee('unassigned')"
+              >
+                <span class="filter-assignee-row-inner">
+                  <UserIcon class="filter-assignee-icon" :size="18" aria-hidden="true" />
+                  <span class="filter-assignee-label">{{ t('common.unassigned') }}</span>
+                </span>
+                <Check v-if="isAssigneeChecked('unassigned')" class="filter-assignee-check" :size="16" />
+              </li>
+              <li
+                v-for="user in filteredAssigneeUsers"
+                :key="user.id"
+                class="filter-assignee-row"
+                :class="{ selected: isAssigneeChecked(user.id) }"
+                @click="selectAssignee(user.id)"
+              >
+                <span class="filter-assignee-row-inner">
+                  <img
+                    v-if="user.avatar_url"
+                    :src="user.avatar_url"
+                    :alt="user.username"
+                    class="filter-assignee-avatar-img"
+                  />
+                  <span
+                    v-else
+                    class="filter-assignee-avatar fallback"
+                    :style="getAvatarColorByUsername(user.username)"
+                    >{{ getInitials(user.username) }}</span
+                  >
+                  <span class="filter-assignee-label">{{ user.username }}</span>
+                </span>
+                <Check v-if="isAssigneeChecked(user.id)" class="filter-assignee-check" :size="16" />
+              </li>
+            </ul>
+          </div>
         </template>
 
         <template v-else-if="activeSub === 'labels'">
@@ -463,14 +519,124 @@ defineExpose({
 
 .filter-submenu {
   position: fixed;
-  width: 180px;
-  max-height: 280px;
+  box-sizing: border-box;
+  max-height: 320px;
   overflow-y: auto;
   background: var(--color-bg-base);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
   z-index: 9999;
+}
+
+.filter-submenu--assignee-panel {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.filter-assignee-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 320px;
+}
+
+.filter-assignee-search {
+  flex-shrink: 0;
+  padding: 6px 10px 8px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-base);
+}
+
+.filter-assignee-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  outline: none;
+}
+
+.filter-assignee-search-input:focus {
+  border-color: var(--color-status-done, #6366f1);
+}
+
+.filter-assignee-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.filter-assignee-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.08s;
+}
+
+.filter-assignee-row:hover,
+.filter-assignee-row.selected {
+  background: var(--color-bg-hover);
+}
+
+.filter-assignee-row-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.filter-assignee-icon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.filter-assignee-avatar-img {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.filter-assignee-avatar.fallback {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.filter-assignee-label {
+  font-size: 13px;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-assignee-check {
+  flex-shrink: 0;
+  color: var(--color-text-primary);
+}
+
+.filter-assignee-row.selected .filter-assignee-label {
+  font-weight: 500;
 }
 
 .filter-submenu-list {

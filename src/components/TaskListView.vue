@@ -42,7 +42,7 @@ import { labelListDotColor, sortedTaskLabelsForList } from '../utils/taskLabelLi
 import { filterVisibleTaskRows, type TaskGroup, type TaskRow } from '../utils/taskView'
 import type { VisibleProperty } from '../utils/viewPreference'
 import { getSubtaskProgressDisplay } from '../utils/subtaskProgress'
-import { getInitials, getAvatarColor } from '../utils/avatar'
+import { getInitials, getAvatarColorByUsername } from '../utils/avatar'
 import {
   assigneeDisplayLabel,
   resolveAssigneeUser,
@@ -507,7 +507,7 @@ function assigneeInitial(task: Task): string {
 function assigneeFallbackStyle(task: Task): { background: string; color: string } | undefined {
   const u = resolveAssigneeUser(task, props.users)
   if (u == null) return undefined
-  return getAvatarColor(u.id)
+  return getAvatarColorByUsername(u.username)
 }
 
 function updatedText(task: Task): string {
@@ -1657,7 +1657,7 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   font-weight: var(--font-weight-medium);
   line-height: 1;
   letter-spacing: 0.02em;
-  /* assigned fallback uses inline style from getAvatarColor; unassigned not shown here */
+  /* assigned fallback uses inline style from getAvatarColorByUsername; unassigned not shown here */
   background: var(--color-border);
   color: var(--color-text-secondary);
 }

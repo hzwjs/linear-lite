@@ -3,7 +3,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { User as UserIcon, Check } from 'lucide-vue-next'
 import type { Task, User } from '../types/domain'
-import { getInitials, getAvatarColor } from '../utils/avatar'
+import { getInitials, getAvatarColorByUsername } from '../utils/avatar'
 
 const props = defineProps<{
   taskId: string
@@ -322,7 +322,7 @@ onUnmounted(() => {
             <span
               v-else
               class="assignee-option-avatar fallback"
-              :style="getAvatarColor(row.user.id)"
+              :style="getAvatarColorByUsername(row.user.username)"
               >{{ getInitials(row.user.username) }}</span
             >
             <span class="assignee-option-label">{{ row.user.username }}</span>

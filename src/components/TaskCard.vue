@@ -4,7 +4,7 @@ import { Calendar, CalendarClock } from 'lucide-vue-next'
 import type { Task, Status } from '../types/domain'
 import type { User } from '../types/domain'
 import type { VisibleProperty } from '../utils/viewPreference'
-import { getInitials, getAvatarColor } from '../utils/avatar'
+import { getInitials, getAvatarColorByUsername } from '../utils/avatar'
 import { assigneeDisplayLabel, resolveAssigneeUser } from '../utils/taskAssigneeDisplay'
 
 const props = defineProps<{
@@ -38,7 +38,7 @@ const assigneeDisplay = computed(() =>
 const assigneeInitial = computed(() => getInitials(assigneeDisplay.value))
 
 const assigneeAvatarStyle = computed(() =>
-  assigneeUser.value ? getAvatarColor(assigneeUser.value.id) : undefined
+  assigneeUser.value ? getAvatarColorByUsername(assigneeUser.value.username) : undefined
 )
 
 const dueDateText = computed(() => {

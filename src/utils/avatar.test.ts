@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { getInitials, getAvatarColor } from './avatar'
+import {
+  AVATAR_BACKGROUND_PALETTE_15,
+  getInitials,
+  getAvatarColor,
+  getAvatarColorByUsername,
+  normalizeUsernameForAvatar
+} from './avatar'
 
 describe('getInitials', () => {
   it("'John Doe' → 'JD'", () => {
@@ -41,23 +47,89 @@ describe('getInitials', () => {
   })
 })
 
-describe('getAvatarColor', () => {
-  it('same userId returns same background and color on multiple calls', () => {
+function channelToLinear(c: number): number {
+  const x = c / 255
+  return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4)
+}
+
+function relativeLuminance(hex: string): number {
+  const r = channelToLinear(parseInt(hex.slice(1, 3), 16))
+  const g = channelToLinear(parseInt(hex.slice(3, 5), 16))
+  const b = channelToLinear(parseInt(hex.slice(5, 7), 16))
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+function contrastWhiteOn(hexBg: string): number {
+  const Lbg = relativeLuminance(hexBg)
+  return (1 + 0.05) / (Lbg + 0.05)
+}
+
+describe('getAvatarColorByUsername', () => {
+  it('same username returns same colors', () => {
+    const a = getAvatarColorByUsername('黄志文')
+    const b = getAvatarColorByUsername('黄志文')
+    expect(a).toEqual(b)
+  })
+
+  it('trim and case do not change mapping', () => {
+    expect(getAvatarColorByUsername('  Alice  ')).toEqual(getAvatarColorByUsername('alice'))
+    expect(getAvatarColorByUsername('Bob')).toEqual(getAvatarColorByUsername('BOB'))
+  })
+
+  it('NFKC normalizes fullwidth Latin to halfwidth for stable hash', () => {
+    const full = getAvatarColorByUsername('\uff21lice')
+    const half = getAvatarColorByUsername('Alice')
+    expect(full).toEqual(half)
+  })
+
+  it('empty string uses fixed slot 0', () => {
+    expect(getAvatarColorByUsername('')).toEqual({
+      background: AVATAR_BACKGROUND_PALETTE_15[0],
+      color: '#fff'
+    })
+    expect(getAvatarColorByUsername('   ')).toEqual({
+      background: AVATAR_BACKGROUND_PALETTE_15[0],
+      color: '#fff'
+    })
+  })
+
+  it('foreground is white', () => {
+    expect(getAvatarColorByUsername('anyone').color).toBe('#fff')
+  })
+})
+
+describe('normalizeUsernameForAvatar', () => {
+  it('matches getAvatarColorByUsername keying', () => {
+    const u = '  TeSt  '
+    expect(normalizeUsernameForAvatar(u)).toBe('test')
+  })
+})
+
+describe('AVATAR_BACKGROUND_PALETTE_15', () => {
+  it('has 15 distinct colors with AA contrast for white text', () => {
+    expect(AVATAR_BACKGROUND_PALETTE_15.length).toBe(15)
+    expect(new Set(AVATAR_BACKGROUND_PALETTE_15).size).toBe(15)
+    for (const hex of AVATAR_BACKGROUND_PALETTE_15) {
+      expect(contrastWhiteOn(hex)).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+})
+
+describe('getAvatarColor (legacy userId)', () => {
+  it('same userId returns same colors', () => {
     const a = getAvatarColor(1)
     const b = getAvatarColor(1)
-    expect(a.background).toBe(b.background)
-    expect(a.color).toBe(b.color)
+    expect(a).toEqual(b)
   })
 
-  it('different userIds return different background', () => {
+  it('maps to palette entries', () => {
     const a = getAvatarColor(1)
     const b = getAvatarColor(2)
-    expect(a.background).not.toBe(b.background)
+    expect(AVATAR_BACKGROUND_PALETTE_15).toContain(a.background)
+    expect(AVATAR_BACKGROUND_PALETTE_15).toContain(b.background)
   })
 
-  it('color is #fff or dark gray for contrast', () => {
-    const result = getAvatarColor(42)
-    const validColors = ['#fff', '#ffffff', '#374151']
-    expect(validColors).toContain(result.color)
+  it('uses white foreground', () => {
+    expect(getAvatarColor(42).color).toBe('#fff')
   })
 })
