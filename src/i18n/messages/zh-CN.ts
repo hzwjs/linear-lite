@@ -442,6 +442,7 @@ const zhCN = {
     commentsLoading: '评论加载中…',
     noComments: '暂无评论。',
     reply: '回复',
+    react: '表情',
     replyPlaceholder: '写下回复...',
     viewMoreReplies: '查看 {count} 条回复',
     hideReplies: '收起回复',

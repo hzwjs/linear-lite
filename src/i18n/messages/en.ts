@@ -442,6 +442,7 @@ const en = {
     commentsLoading: 'Loading comments…',
     noComments: 'No comments yet.',
     reply: 'Reply',
+    react: 'React',
     replyPlaceholder: 'Write a reply...',
     viewMoreReplies: 'View {count} more replies',
     hideReplies: 'Hide replies',

@@ -32,6 +32,7 @@ import { buildCommentThreads } from '../utils/commentThread'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
+import { getAvatarColorByUsername, getInitials } from '../utils/avatar'
 import { getTaskDueState } from '../utils/taskDueState'
 import { captureTaskLoadContext, isTaskLoadStale } from '../utils/taskLoadContext'
 import TiptapEditor from './TiptapEditor.vue'
@@ -56,9 +57,7 @@ import {
   User as UserIcon,
   Star,
   Paperclip,
-  Folder,
-  Send,
-  Trash2
+  Folder
 } from 'lucide-vue-next'
 import TaskRowStatusPicker from './TaskRowStatusPicker.vue'
 
@@ -196,6 +195,7 @@ const mentionMembersForCommentEditor = computed(() =>
 const commentEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
 const inlineReplyEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
 const commentThreads = computed(() => buildCommentThreads(comments.value))
+const currentCommentUserName = computed(() => authStore.currentUser?.username?.trim() || 'Me')
 
 const assigneeOptions = computed<CustomSelectOption[]>(() => {
   const list: CustomSelectOption[] = [{ value: '', label: t('common.unassigned'), icon: UserIcon }]
@@ -408,6 +408,21 @@ function commentTimeFromIso(iso: string) {
   const ms = Date.parse(iso)
   if (Number.isNaN(ms)) return ''
   return relativeTimeFromNow(ms)
+}
+
+function commentAvatarLabel(name: string | null | undefined): string {
+  const normalized = (name ?? '').trim()
+  if (!normalized) return '?'
+  return getInitials(normalized)
+}
+
+function commentAvatarStyle(name: string | null | undefined): { backgroundColor: string; color: string } {
+  const normalized = (name ?? '').trim()
+  const palette = getAvatarColorByUsername(normalized)
+  return {
+    backgroundColor: palette.background,
+    color: palette.color
+  }
 }
 
 function toggleMentionUser(userId: number) {
@@ -1431,45 +1446,67 @@ async function toggleFavorite() {
             <div v-if="commentsLoading" class="activity-empty">{{ t('taskEditor.commentsLoading') }}</div>
             <div v-else-if="commentThreads.length" class="task-comments-list">
               <div v-for="thread in commentThreads" :key="thread.root.id" class="task-comment-thread">
-                <div class="task-comment-row">
-                  <div class="task-comment-meta">
-                    <strong>{{ thread.root.authorName }}</strong>
-                    <span> · {{ commentTimeFromIso(thread.root.createdAt) }}</span>
-                    <button
-                      type="button"
-                      class="task-comment-reply-btn"
-                      @click="openInlineReply(thread.root.id)"
-                    >
-                      {{ t('taskEditor.reply') }}
-                    </button>
-                    <button
-                      v-if="thread.root.deletable"
-                      type="button"
-                      class="task-comment-delete"
-                      :aria-label="t('taskEditor.deleteCommentAria')"
-                      @click="deleteCommentRow(thread.root)"
-                    >
-                      <Trash2 class="icon-14" />
-                    </button>
+                <div class="task-comment-row task-comment-row--root">
+                  <div class="task-comment-head">
+                    <div class="task-comment-avatar" :style="commentAvatarStyle(thread.root.authorName)">
+                      {{ commentAvatarLabel(thread.root.authorName) }}
+                    </div>
+                    <div class="task-comment-meta">
+                      <div class="task-comment-meta-line">
+                        <strong>{{ thread.root.authorName }}</strong>
+                        <span>· {{ commentTimeFromIso(thread.root.createdAt) }}</span>
+                        <button
+                          type="button"
+                          class="task-comment-reply-btn"
+                          @click="openInlineReply(thread.root.id)"
+                        >
+                          {{ t('taskEditor.reply') }}
+                        </button>
+                      </div>
+                      <div class="task-comment-actions">
+                        <button
+                          v-if="thread.root.deletable"
+                          type="button"
+                          class="task-comment-delete"
+                          :aria-label="t('taskEditor.deleteCommentAria')"
+                          @click="deleteCommentRow(thread.root)"
+                        >
+                          {{ t('taskEditor.deleteComment') }}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <div class="task-comment-body markdown-body" v-html="renderMarkdown(thread.root.body)" />
                 </div>
                 <div v-if="thread.replies.length" class="task-comment-replies">
                   <div v-for="reply in visibleRepliesForThread(thread)" :key="reply.id" class="task-comment-row task-comment-row--reply">
-                    <div class="task-comment-meta">
-                      <strong>{{ reply.authorName }}</strong>
-                      <span> · {{ commentTimeFromIso(reply.createdAt) }}</span>
-                      <button
-                        v-if="reply.deletable"
-                        type="button"
-                        class="task-comment-delete"
-                        :aria-label="t('taskEditor.deleteCommentAria')"
-                        @click="deleteCommentRow(reply)"
-                      >
-                        <Trash2 class="icon-14" />
-                      </button>
+                    <div class="task-comment-head">
+                      <div class="task-comment-avatar task-comment-avatar--reply" :style="commentAvatarStyle(reply.authorName)">
+                        {{ commentAvatarLabel(reply.authorName) }}
+                      </div>
+                      <div class="task-comment-meta">
+                        <div class="task-comment-meta-line">
+                          <strong>{{ reply.authorName }}</strong>
+                          <span>· {{ commentTimeFromIso(reply.createdAt) }}</span>
+                        </div>
+                        <div class="task-comment-actions">
+                          <button
+                            v-if="reply.deletable"
+                            type="button"
+                            class="task-comment-delete"
+                            :aria-label="t('taskEditor.deleteCommentAria')"
+                            @click="deleteCommentRow(reply)"
+                          >
+                            {{ t('taskEditor.deleteComment') }}
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    <div class="task-comment-body markdown-body" v-html="renderMarkdown(reply.body)" />
+                    <div class="task-comment-body task-comment-body--reply markdown-body">
+                      <span class="task-comment-mention">@{{ thread.root.authorName }}</span>
+                      <span class="task-comment-mention-gap"> </span>
+                      <span class="task-comment-reply-content" v-html="renderMarkdown(reply.body)" />
+                    </div>
                   </div>
                   <button
                     v-if="thread.hiddenReplyCount > 0"
@@ -1485,23 +1522,28 @@ async function toggleFavorite() {
                   </button>
                 </div>
                 <div v-if="inlineReplyRootId === thread.root.id" class="task-comment-reply-compose" @keydown.capture="(e) => onInlineReplyEditorKeydown(e, thread.root.id)">
-                  <TiptapEditor
-                    ref="inlineReplyEditorRef"
-                    :model-value="replyBodyByRootId[thread.root.id] ?? ''"
-                    :mention-members="mentionMembersForCommentEditor"
-                    :placeholder="t('taskEditor.replyPlaceholder')"
-                    :min-height="56"
-                    @update:model-value="(value) => updateInlineReplyBody(thread.root.id, value)"
-                  />
-                  <button
-                    type="button"
-                    class="comment-send-btn"
-                    :disabled="replySubmittingRootIds.has(thread.root.id) || !(replyBodyByRootId[thread.root.id] ?? '').trim()"
-                    :aria-label="t('taskEditor.sendAria')"
-                    @click="submitReply(thread.root.id)"
-                  >
-                    <Send class="icon-14" />
-                  </button>
+                  <div class="task-comment-avatar task-comment-avatar--composer" :style="commentAvatarStyle(currentCommentUserName)">
+                    {{ commentAvatarLabel(currentCommentUserName) }}
+                  </div>
+                  <div class="comment-compose-input comment-compose-input--with-send">
+                    <TiptapEditor
+                      ref="inlineReplyEditorRef"
+                      :model-value="replyBodyByRootId[thread.root.id] ?? ''"
+                      :mention-members="mentionMembersForCommentEditor"
+                      :placeholder="t('taskEditor.replyPlaceholder')"
+                      :min-height="56"
+                      @update:model-value="(value) => updateInlineReplyBody(thread.root.id, value)"
+                    />
+                    <button
+                      type="button"
+                      class="comment-send-btn comment-send-btn--corner"
+                      :disabled="replySubmittingRootIds.has(thread.root.id) || !(replyBodyByRootId[thread.root.id] ?? '').trim()"
+                      :aria-label="t('taskEditor.sendAria')"
+                      @click="submitReply(thread.root.id)"
+                    >
+                      {{ t('taskEditor.sendAria') }}
+                    </button>
+                  </div>
                   <button type="button" class="task-comment-reply-cancel" @click="closeInlineReply(thread.root.id)">
                     {{ t('common.cancel') }}
                   </button>
@@ -1523,22 +1565,27 @@ async function toggleFavorite() {
               </button>
             </div>
             <div class="comment-compose" @keydown.capture="onCommentEditorKeydown">
-              <TiptapEditor
-                ref="commentEditorRef"
-                v-model="commentBody"
-                :mention-members="mentionMembersForCommentEditor"
-                :placeholder="t('taskEditor.leaveComment')"
-                :min-height="56"
-              />
-              <button
-                type="button"
-                class="comment-send-btn"
-                :disabled="commentSubmitting || !commentBody.trim()"
-                :aria-label="t('taskEditor.sendAria')"
-                @click="submitComment"
-              >
-                <Send class="icon-14" />
-              </button>
+              <div class="task-comment-avatar task-comment-avatar--composer" :style="commentAvatarStyle(currentCommentUserName)">
+                {{ commentAvatarLabel(currentCommentUserName) }}
+              </div>
+              <div class="comment-compose-input comment-compose-input--with-send">
+                <TiptapEditor
+                  ref="commentEditorRef"
+                  v-model="commentBody"
+                  :mention-members="mentionMembersForCommentEditor"
+                  :placeholder="t('taskEditor.leaveComment')"
+                  :min-height="56"
+                />
+                <button
+                  type="button"
+                  class="comment-send-btn comment-send-btn--corner"
+                  :disabled="commentSubmitting || !commentBody.trim()"
+                  :aria-label="t('taskEditor.sendAria')"
+                  @click="submitComment"
+                >
+                  {{ t('taskEditor.sendAria') }}
+                </button>
+              </div>
             </div>
             <div class="comment-compose-hint">{{ t('taskEditor.commentShortcutHint') }}</div>
           </div>
@@ -2248,83 +2295,158 @@ async function toggleFavorite() {
 .task-comments-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 .task-comment-thread {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-.task-comment-row {
-  padding: 10px 12px;
+  gap: 2px;
+  padding: 6px 8px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
   background: var(--color-bg-base);
 }
+.task-comment-row {
+  padding: 1px 0;
+}
+.task-comment-row--root {
+  border-bottom: none;
+  padding-bottom: 1px;
+}
 .task-comment-row--reply {
-  margin-left: 16px;
+  margin-left: 0;
+}
+.task-comment-head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 6px;
+}
+.task-comment-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+}
+.task-comment-avatar--reply {
+  width: 30px;
+  height: 30px;
+  font-size: 12px;
+}
+.task-comment-avatar--composer {
+  margin-top: 2px;
 }
 .task-comment-meta {
   display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.task-comment-meta-line {
+  display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: var(--font-size-caption);
+  gap: 4px;
+  font-size: 12px;
   color: var(--color-text-muted);
-  margin-bottom: 6px;
+  line-height: 1.2;
+}
+.task-comment-meta-line strong {
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+}
+.task-comment-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 14px;
 }
 .task-comment-reply-btn {
   border: none;
   background: transparent;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  line-height: 1.2;
   cursor: pointer;
   padding: 0;
+  margin-left: 4px;
+  min-height: 0;
+  height: auto;
 }
 .task-comment-reply-btn:hover {
   color: var(--color-text-primary);
 }
 .task-comment-delete {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
   border: none;
   background: transparent;
   color: var(--color-text-muted);
-  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1;
   cursor: pointer;
+  padding: 0;
 }
 .task-comment-delete:hover {
   color: var(--color-danger, #e5484d);
-  background: var(--color-bg-hover);
 }
 .task-comment-body {
-  font-size: var(--font-size-caption);
+  margin-top: 0;
+  margin-left: 34px;
+  font-size: 13px;
   color: var(--color-text-primary);
-  line-height: 1.45;
+  line-height: 1.3;
+  min-height: 20px;
+}
+.task-comment-row--reply .task-comment-body {
+  margin-left: 34px;
+}
+.task-comment-body--reply {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
 }
 .task-comment-body :deep(p) {
-  margin: 0 0 0.5em;
+  margin: 0;
 }
 .task-comment-body :deep(p:last-child) {
   margin-bottom: 0;
 }
+.task-comment-mention {
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-medium);
+}
+.task-comment-mention-gap {
+  white-space: pre;
+}
+.task-comment-reply-content :deep(p) {
+  display: inline;
+  margin: 0;
+}
 .task-comment-replies {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
+  margin-top: 0;
+  margin-left: 0;
+  padding: 2px 0 0;
+  border-top: 1px solid var(--color-border-subtle);
+  background: transparent;
 }
 .task-comment-toggle-replies {
   border: none;
   background: transparent;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
+  font-size: 12px;
   cursor: pointer;
-  padding: 0;
-  margin-left: 16px;
+  padding: 2px 0;
+  margin-left: 36px;
   text-align: left;
 }
 .task-comment-toggle-replies:hover {
@@ -2343,6 +2465,7 @@ async function toggleFavorite() {
 }
 .comment-mention-chip {
   padding: 4px 8px;
+  border: none;
   border: 1px solid var(--color-border-subtle);
   border-radius: 999px;
   background: var(--color-bg-base);
@@ -2356,62 +2479,89 @@ async function toggleFavorite() {
   color: var(--color-accent, #5e6ad2);
 }
 .comment-compose {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
   background: var(--color-bg-base);
 }
-.comment-compose :deep(.tiptap-editor-wrap) {
-  flex: 1;
+.comment-compose-input {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.comment-compose-input :deep(.tiptap-editor-wrap) {
+  min-width: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-bg-base) 82%, var(--color-bg-subtle) 18%);
+}
+.comment-compose-input--with-send {
+  position: relative;
+}
+.comment-compose-input--with-send :deep(.tiptap-editor-wrap .tiptap) {
+  min-height: 84px;
+  padding: 8px 10px 44px;
 }
 .task-comment-reply-compose {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  margin-left: 16px;
-  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 6px;
+  margin-left: 2px;
+  padding: 6px;
   border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--color-bg-base);
-}
-.task-comment-reply-compose :deep(.tiptap-editor-wrap) {
-  flex: 1;
-  min-width: 0;
 }
 .task-comment-reply-cancel {
   border: none;
   background: transparent;
   color: var(--color-text-muted);
-  font-size: var(--font-size-caption);
+  font-size: 12px;
   cursor: pointer;
+  height: 32px;
+  align-self: end;
 }
 .task-comment-reply-cancel:hover {
   color: var(--color-text-primary);
 }
 .comment-compose-hint {
-  margin-top: 6px;
+  margin-top: 8px;
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }
 .comment-send-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 10px;
+  height: 30px;
+  min-width: 62px;
+  padding: 0 10px;
   border: none;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent, #5e6ad2);
-  color: #fff;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-bg-subtle) 62%, #9aa3ad 38%);
+  color: color-mix(in srgb, var(--color-text-secondary) 72%, #fff 28%);
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 500;
   cursor: pointer;
   flex-shrink: 0;
 }
+.comment-send-btn--corner {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+}
 .comment-send-btn:disabled {
-  opacity: 0.45;
+  opacity: 0.9;
   cursor: not-allowed;
+}
+.comment-send-btn:not(:disabled) {
+  background: var(--color-accent, #5e6ad2);
+  color: #fff;
 }
 .section-kicker {
   font-size: var(--font-size-xs);
