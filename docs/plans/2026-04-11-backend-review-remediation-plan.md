@@ -261,9 +261,8 @@ Gate A 满足后允许优先合入/发布，不必等待重构任务。
 
 ## 执行记录（2026-04-11 更新）
 
-- 任务 8（序号表门禁）已补充可审计脚本：
-  - `linear-lite-server/scripts/backfill-project-task-seq.sql`
-  - `linear-lite-server/scripts/verify-project-task-seq.sql`
+- 任务 8（序号表门禁）迁移/校验 SQL 已归档到：
+  - `linear-lite-server/src/main/resources/schema.sql`（“归档：project_task_seq 迁移与校验 SQL”段）
 - 任务 10（流式下载）补充空 `fileSize` 防御，避免空值下载路径风险。
 - 任务 11（结构债）完成第二轮收敛：
   - `TaskCommandService` 承接命令职责（create/update/favorite）。
