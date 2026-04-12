@@ -338,6 +338,62 @@ describe('TaskEditor comments', () => {
     }
   })
 
+  it('auto-mentions root author when sending reply without manual @ mention', async () => {
+    vi.mocked(taskCommentsApi.list).mockResolvedValue([
+      {
+        id: 10,
+        body: 'Root comment',
+        authorName: 'Alice',
+        authorId: 2,
+        createdAt: '2026-04-10T00:00:00.000Z',
+        deletable: true,
+        parentId: null,
+        rootId: null,
+        depth: 0
+      }
+    ])
+    const view = await mountEditor(createTask())
+    try {
+      const replyBtn = [...view.host.querySelectorAll('button')].find(
+        (btn) => btn.textContent?.trim() === 'Reply'
+      )
+      expect(replyBtn).toBeTruthy()
+      replyBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await nextTick()
+
+      const replyInput = view.host.querySelector(
+        '.task-comment-reply-compose [data-testid="tiptap-editor-stub"]'
+      ) as HTMLTextAreaElement | null
+      expect(replyInput).toBeTruthy()
+      if (!replyInput) throw new Error('Reply input not found')
+      replyInput.value = 'Nested reply without manual mention'
+      replyInput.dispatchEvent(new Event('input', { bubbles: true }))
+      await nextTick()
+
+      const inst = view.app._instance as unknown as { setupState?: Record<string, unknown> } | null
+      const state = inst?.setupState
+      expect(state).toBeTruthy()
+      if (!state) throw new Error('TaskEditor instance not found')
+      state.inlineReplyEditorRef = {
+        getMentionedUserIdsFromDoc: () => []
+      }
+
+      const sendReplyBtn = view.host.querySelector('.task-comment-reply-compose .comment-send-btn')
+      expect(sendReplyBtn).toBeTruthy()
+      sendReplyBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await nextTick()
+      await flushPromises()
+
+      expect(taskCommentsApi.create).toHaveBeenCalledWith('ENG-1', {
+        body: 'Nested reply without manual mention',
+        mentionedUserIds: [2],
+        parentId: 10
+      })
+    } finally {
+      view.unmount()
+    }
+  })
+
   it('shows view-more toggle when replies exceed 3 and can expand or collapse', async () => {
     vi.mocked(taskCommentsApi.list).mockResolvedValue([
       {

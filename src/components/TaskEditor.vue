@@ -469,6 +469,11 @@ function visibleRepliesForThread(thread: ReturnType<typeof buildCommentThreads>[
   return isRepliesExpanded(thread.root.id) ? thread.replies : thread.visibleReplies
 }
 
+function rootAuthorIdByRootId(rootId: number): number | null {
+  const thread = commentThreads.value.find((item) => item.root.id === rootId)
+  return thread?.root.authorId ?? null
+}
+
 function onInlineReplyEditorKeydown(event: KeyboardEvent, rootId: number) {
   if (event.isComposing) return
   if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return
@@ -512,7 +517,8 @@ async function submitReply(rootId: number) {
   replySubmittingRootIds.value = nextSubmitting
   try {
     const fromDoc = inlineReplyEditorRef.value?.getMentionedUserIdsFromDoc?.() ?? []
-    const ids = [...new Set(fromDoc)]
+    const targetAuthorId = rootAuthorIdByRootId(rootId)
+    const ids = [...new Set(targetAuthorId == null ? fromDoc : [...fromDoc, targetAuthorId])]
     await taskCommentsApi.create(props.task.id, {
       body,
       mentionedUserIds: ids,
@@ -1462,8 +1468,6 @@ async function toggleFavorite() {
                         >
                           {{ t('taskEditor.reply') }}
                         </button>
-                      </div>
-                      <div class="task-comment-actions">
                         <button
                           v-if="thread.root.deletable"
                           type="button"
@@ -1488,8 +1492,13 @@ async function toggleFavorite() {
                         <div class="task-comment-meta-line">
                           <strong>{{ reply.authorName }}</strong>
                           <span>· {{ commentTimeFromIso(reply.createdAt) }}</span>
-                        </div>
-                        <div class="task-comment-actions">
+                          <button
+                            type="button"
+                            class="task-comment-reply-btn"
+                            @click="openInlineReply(thread.root.id)"
+                          >
+                            {{ t('taskEditor.reply') }}
+                          </button>
                           <button
                             v-if="reply.deletable"
                             type="button"
@@ -2316,6 +2325,12 @@ async function toggleFavorite() {
 }
 .task-comment-row--reply {
   margin-left: 0;
+  padding-bottom: 1px;
+}
+.task-comment-row--reply + .task-comment-row--reply {
+  border-top: 1px solid var(--color-border-subtle);
+  margin-top: 4px;
+  padding-top: 6px;
 }
 .task-comment-head {
   display: grid;
@@ -2361,12 +2376,6 @@ async function toggleFavorite() {
   font-weight: var(--font-weight-semibold);
   line-height: 1.2;
 }
-.task-comment-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 14px;
-}
 .task-comment-reply-btn {
   border: none;
   background: transparent;
@@ -2389,9 +2398,10 @@ async function toggleFavorite() {
   background: transparent;
   color: var(--color-text-muted);
   font-size: 12px;
-  line-height: 1;
+  line-height: 1.2;
   cursor: pointer;
   padding: 0;
+  margin-left: 6px;
 }
 .task-comment-delete:hover {
   color: var(--color-danger, #e5484d);
@@ -2419,11 +2429,21 @@ async function toggleFavorite() {
   margin-bottom: 0;
 }
 .task-comment-mention {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-border-subtle) 78%, var(--color-text-secondary) 22%);
+  background: color-mix(in srgb, var(--color-bg-base) 82%, var(--color-bg-subtle) 18%);
   color: var(--color-text-secondary);
+  font-size: 12px;
   font-weight: var(--font-weight-medium);
+  line-height: 1;
 }
 .task-comment-mention-gap {
-  white-space: pre;
+  display: inline-block;
+  width: 6px;
 }
 .task-comment-reply-content :deep(p) {
   display: inline;
@@ -2432,10 +2452,10 @@ async function toggleFavorite() {
 .task-comment-replies {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 0;
+  gap: 2px;
+  margin-top: 2px;
   margin-left: 0;
-  padding: 2px 0 0;
+  padding: 6px 0 0;
   border-top: 1px solid var(--color-border-subtle);
   background: transparent;
 }
