@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 
 /**
  * 全局异常处理，将异常转换为统一 ApiResponse。
@@ -15,6 +16,16 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    /**
+     * 异步请求（含 SSE）超时。不可走 {@link #handleException} 返回 JSON：客户端 {@code Accept} 常为 {@code text/event-stream}，
+     * 会触发 {@code HttpMediaTypeNotAcceptableException}。
+     */
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    public ResponseEntity<Void> handleAsyncRequestTimeout(AsyncRequestTimeoutException e) {
+        log.debug("Async request timed out");
+        return ResponseEntity.status(HttpStatus.REQUEST_TIMEOUT).build();
+    }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {

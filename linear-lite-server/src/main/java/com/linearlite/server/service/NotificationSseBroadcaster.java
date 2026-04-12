@@ -2,10 +2,12 @@ package com.linearlite.server.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,12 +21,16 @@ public class NotificationSseBroadcaster {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationSseBroadcaster.class);
 
-    private static final long SSE_TIMEOUT_MS = 30L * 60L * 1000L;
-
+    private final long sseTimeoutMs;
     private final Map<Long, List<SseEmitter>> userEmitters = new ConcurrentHashMap<>();
 
+    public NotificationSseBroadcaster(
+            @Value("${spring.mvc.async.request-timeout}") Duration springAsyncRequestTimeout) {
+        this.sseTimeoutMs = springAsyncRequestTimeout.toMillis();
+    }
+
     public SseEmitter register(Long userId) {
-        SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
+        SseEmitter emitter = new SseEmitter(sseTimeoutMs);
         List<SseEmitter> list = userEmitters.computeIfAbsent(userId, k -> new CopyOnWriteArrayList<>());
         list.add(emitter);
         Runnable remove = () -> {
