@@ -403,6 +403,7 @@ const en = {
     issueTitlePlaceholder: 'Issue title',
     descriptionPlaceholder: 'Add description... Type / for formatting',
     attachments: 'Attachments',
+    attachmentsUploading: 'Uploading attachment…',
     deleteAttachment: 'Delete attachment',
     noAttachments: 'No attachments. Use the paperclip to add one.',
     subIssues: 'Sub-issues',

@@ -10,6 +10,7 @@ import { activityApi } from '../services/api/activity'
 import { attachmentsApi } from '../services/api/attachments'
 import { taskCommentsApi } from '../services/api/taskComments'
 import { taskApi } from '../services/api/task'
+import type { TaskAttachment } from '../services/api/types'
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({
@@ -224,6 +225,59 @@ describe('TaskEditor attachments', () => {
       await nextTick()
       await flushPromises()
       expect((section.querySelector('.linear-section-body') as HTMLElement | null)?.style.display).not.toBe('none')
+    } finally {
+      view.unmount()
+    }
+  })
+
+  it('shows uploading row and disables paperclip until upload finishes', async () => {
+    vi.mocked(attachmentsApi.list).mockResolvedValue([])
+    let resolveUpload!: (value: TaskAttachment) => void
+    const uploadPromise = new Promise<TaskAttachment>((resolve) => {
+      resolveUpload = resolve
+    })
+    vi.mocked(attachmentsApi.upload).mockImplementation(() => uploadPromise)
+
+    const view = await mountEditor(createTask())
+    try {
+      const input = view.container.querySelector('input[type="file"]') as HTMLInputElement
+      const file = new File(['x'], 'pending.txt', { type: 'text/plain' })
+      const list = {
+        0: file,
+        length: 1,
+        item: (i: number) => (i === 0 ? file : null),
+        [Symbol.iterator]: function* fileIterator() {
+          yield file
+        }
+      } as FileList
+      Object.defineProperty(input, 'files', { value: list, configurable: true })
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      await nextTick()
+      await flushPromises()
+
+      expect(view.container.querySelector('.linear-attachment-row--uploading')).toBeTruthy()
+      expect(view.container.querySelector('.linear-attachment-pending-name')?.textContent).toContain('pending.txt')
+
+      const clip = view.container.querySelector('.content-actions .content-action-btn') as HTMLButtonElement
+      expect(clip.disabled).toBe(true)
+
+      const uploaded: TaskAttachment = {
+        id: 1,
+        fileName: 'pending.txt',
+        fileSize: 1,
+        url: 'https://example.test/a',
+        createdAt: '2026-04-10T00:00:00.000Z'
+      }
+      vi.mocked(attachmentsApi.list).mockResolvedValue([uploaded])
+      resolveUpload(uploaded)
+      await uploadPromise
+      await nextTick()
+      await flushPromises()
+      await nextTick()
+
+      expect(view.container.querySelector('.linear-attachment-row--uploading')).toBeNull()
+      expect(clip.disabled).toBe(false)
+      expect(view.container.textContent).toContain('pending.txt')
     } finally {
       view.unmount()
     }

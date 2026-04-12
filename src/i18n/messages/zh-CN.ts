@@ -403,6 +403,7 @@ const zhCN = {
     issueTitlePlaceholder: '任务标题',
     descriptionPlaceholder: '添加描述... 输入 / 使用格式化',
     attachments: '附件',
+    attachmentsUploading: '正在上传附件…',
     deleteAttachment: '删除附件',
     noAttachments: '暂无附件。点击回形针添加一个。',
     subIssues: '子任务',

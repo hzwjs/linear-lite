@@ -157,6 +157,12 @@ const attachments = ref<TaskAttachment[]>([])
 const attachmentsLoading = ref(false)
 const attachmentUploadError = ref('')
 const attachmentsCollapsed = ref(false)
+/** 当前队列中正在上传的附件（顺序上传，通常仅一条） */
+const attachmentPendingUploads = ref<
+  { localId: string; fileName: string; fileSize: number; progress: number }[]
+>([])
+/** 一次选择多文件时，在「单文件完成」与「下一文件开始」之间仍为 true，避免回形针短暂可点 */
+const attachmentUploadBatchActive = ref(false)
 const dueStateNow = ref(Date.now())
 let dueStateNowTimer: ReturnType<typeof setInterval> | null = null
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024 // 10MB
@@ -231,7 +237,17 @@ const taskDueStateText = computed(() => {
   return t('taskEditor.dueInDays', { count: state.dayCount })
 })
 const showAttachmentBody = computed(
-  () => attachmentsLoading.value || attachmentUploadError.value.length > 0 || attachments.value.length > 0
+  () =>
+    attachmentsLoading.value ||
+    attachmentUploadError.value.length > 0 ||
+    attachments.value.length > 0 ||
+    attachmentPendingUploads.value.length > 0
+)
+const attachmentsCountDisplay = computed(
+  () => attachments.value.length + attachmentPendingUploads.value.length
+)
+const attachmentUploadInProgress = computed(
+  () => attachmentPendingUploads.value.length > 0 || attachmentUploadBatchActive.value
 )
 const isFavorited = computed(() => {
   if (!props.task?.id) return false
@@ -592,7 +608,8 @@ async function onSubIssueStatusPicked(task: Task, nextStatus: Status) {
   await loadSubIssues()
 }
 
-async function loadAttachments() {
+async function loadAttachments(opts?: { silent?: boolean }) {
+  const silent = opts?.silent === true
   if (props.mode !== 'edit' || !props.task?.id) {
     attachments.value = []
     return
@@ -602,8 +619,10 @@ async function loadAttachments() {
     attachments.value = []
     return
   }
-  attachmentsLoading.value = true
-  attachmentUploadError.value = ''
+  if (!silent) {
+    attachmentsLoading.value = true
+    attachmentUploadError.value = ''
+  }
   try {
     const list = await attachmentsApi.list(ctx.taskId)
     if (isTaskLoadStale(ctx, props.task)) return
@@ -614,14 +633,16 @@ async function loadAttachments() {
       attachments.value = []
     }
   } finally {
-    if (!isTaskLoadStale(ctx, props.task)) {
+    if (!silent && !isTaskLoadStale(ctx, props.task)) {
       attachmentsLoading.value = false
     }
   }
 }
 
 function openAttachmentInput() {
-  if (props.mode === 'edit' && props.task?.id) attachmentInputRef.value?.click()
+  if (props.mode === 'edit' && props.task?.id && !attachmentUploadInProgress.value) {
+    attachmentInputRef.value?.click()
+  }
 }
 
 function onAttachmentInputChange(event: Event) {
@@ -629,23 +650,43 @@ function onAttachmentInputChange(event: Event) {
   const files = input.files
   if (!files?.length || !props.task?.id) return
   attachmentUploadError.value = ''
+  attachmentsCollapsed.value = false
   const taskKey = props.task.id
   ;(async () => {
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-      if (!file) continue
-      if (file.size > MAX_ATTACHMENT_SIZE) {
-        attachmentUploadError.value = `"${file.name}" ${t('attachments.fileTooLargeSkipped', { size: '10MB' })}`
-        continue
+    attachmentUploadBatchActive.value = true
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        if (!file) continue
+        if (file.size > MAX_ATTACHMENT_SIZE) {
+          attachmentUploadError.value = `"${file.name}" ${t('attachments.fileTooLargeSkipped', { size: '10MB' })}`
+          continue
+        }
+        const localId = crypto.randomUUID()
+        attachmentPendingUploads.value = [
+          ...attachmentPendingUploads.value,
+          { localId, fileName: file.name, fileSize: file.size, progress: 0 }
+        ]
+        try {
+          await attachmentsApi.upload(taskKey, file, (pct) => {
+            const list = attachmentPendingUploads.value
+            const idx = list.findIndex((p) => p.localId === localId)
+            if (idx < 0) return
+            const next = [...list]
+            next[idx] = { ...next[idx], progress: pct }
+            attachmentPendingUploads.value = next
+          })
+          attachmentPendingUploads.value = attachmentPendingUploads.value.filter((p) => p.localId !== localId)
+          await loadAttachments({ silent: true })
+        } catch (e) {
+          attachmentPendingUploads.value = attachmentPendingUploads.value.filter((p) => p.localId !== localId)
+          attachmentUploadError.value = e instanceof Error ? e.message : t('attachments.uploadFailed')
+        }
       }
-      try {
-        await attachmentsApi.upload(taskKey, file)
-        await loadAttachments()
-      } catch (e) {
-        attachmentUploadError.value = e instanceof Error ? e.message : t('attachments.uploadFailed')
-      }
+    } finally {
+      attachmentUploadBatchActive.value = false
+      input.value = ''
     }
-    input.value = ''
   })()
 }
 
@@ -691,6 +732,8 @@ async function deleteAttachment(att: TaskAttachment) {
 watch(
   [() => props.task?.id, () => props.mode],
   () => {
+    attachmentPendingUploads.value = []
+    attachmentUploadBatchActive.value = false
     loadSubIssues()
     loadActivities()
     loadComments()
@@ -1286,11 +1329,12 @@ async function toggleFavorite() {
           <button
             type="button"
             class="content-action-btn"
-            :aria-label="t('common.attach')"
-            :disabled="mode !== 'edit' || !task"
+            :aria-label="attachmentUploadInProgress ? t('taskEditor.attachmentsUploading') : t('common.attach')"
+            :disabled="mode !== 'edit' || !task || attachmentUploadInProgress"
             @click="openAttachmentInput"
           >
-            <Paperclip class="icon-14" />
+            <Loader2 v-if="attachmentUploadInProgress" class="icon-14 linear-attachment-upload-spin" />
+            <Paperclip v-else class="icon-14" />
           </button>
         </div>
 
@@ -1305,17 +1349,40 @@ async function toggleFavorite() {
             >
               <span class="linear-section-chevron">{{ attachmentsCollapsed ? '▸' : '▾' }}</span>
               <span class="linear-section-title">{{ t('taskEditor.attachments') }}</span>
-              <span class="linear-section-count">{{ attachments.length }}</span>
+              <span class="linear-section-count">{{ attachmentsCountDisplay }}</span>
             </button>
             <div v-else class="linear-section-head linear-section-head--static">
               <span class="linear-section-title">{{ t('taskEditor.attachments') }}</span>
-              <span class="linear-section-count">{{ attachments.length }}</span>
+              <span class="linear-section-count">{{ attachmentsCountDisplay }}</span>
             </div>
           </div>
           <div v-if="showAttachmentBody" v-show="!attachmentsCollapsed" class="linear-section-body">
             <p v-if="attachmentsLoading" class="linear-placeholder">{{ t('common.loading') }}</p>
             <template v-else>
               <p v-if="attachmentUploadError" class="linear-placeholder linear-placeholder--error">{{ attachmentUploadError }}</p>
+              <ul v-if="attachmentPendingUploads.length" class="linear-sub-list">
+                <li
+                  v-for="pending in attachmentPendingUploads"
+                  :key="pending.localId"
+                  class="linear-sub-item linear-attachment-row linear-attachment-row--uploading"
+                >
+                  <Loader2 class="icon-14 linear-attachment-upload-spin" aria-hidden="true" />
+                  <div class="linear-attachment-pending-body">
+                    <span class="linear-attachment-pending-name">{{ pending.fileName }}</span>
+                    <div
+                      class="linear-attachment-progress-track"
+                      role="progressbar"
+                      :aria-valuenow="pending.progress"
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                      :aria-label="t('attachments.uploading')"
+                    >
+                      <div class="linear-attachment-progress-fill" :style="{ width: `${pending.progress}%` }" />
+                    </div>
+                  </div>
+                  <span class="linear-sub-meta">{{ formatAttachmentSize(pending.fileSize) }}</span>
+                </li>
+              </ul>
               <ul v-if="attachments.length" class="linear-sub-list">
                 <li v-for="att in attachments" :key="att.id" class="linear-sub-item linear-attachment-row">
                   <button type="button" class="linear-sub-link linear-sub-link--btn" @click="downloadAttachment(att)">{{ att.fileName }}</button>
@@ -1330,7 +1397,9 @@ async function toggleFavorite() {
                   </button>
                 </li>
               </ul>
-              <p v-else class="linear-placeholder">{{ t('taskEditor.noAttachments') }}</p>
+              <p v-if="!attachments.length && !attachmentPendingUploads.length" class="linear-placeholder">
+                {{ t('taskEditor.noAttachments') }}
+              </p>
             </template>
           </div>
         </section>
@@ -2156,6 +2225,48 @@ async function toggleFavorite() {
 .linear-attachment-row .linear-attachment-delete {
   flex-shrink: 0;
   padding: 2px 6px;
+}
+.linear-attachment-row--uploading {
+  align-items: center;
+}
+.linear-attachment-upload-spin {
+  flex-shrink: 0;
+  animation: linear-attachment-upload-spin 0.9s linear infinite;
+  color: var(--color-text-muted);
+}
+@keyframes linear-attachment-upload-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+.linear-attachment-pending-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.linear-attachment-pending-name {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.linear-attachment-progress-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+.linear-attachment-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-text-muted);
+  transition: width 0.15s ease-out;
 }
 .linear-placeholder--error {
   color: var(--color-text-error, #c00);
