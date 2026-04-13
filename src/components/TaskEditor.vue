@@ -29,6 +29,7 @@ import {
 } from '../utils/taskActivityGroup'
 import { renderMarkdown } from '../utils/markdown'
 import { buildCommentThreads } from '../utils/commentThread'
+import { randomClientId } from '../utils/clientId'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
@@ -665,7 +666,7 @@ function onAttachmentInputChange(event: Event) {
           attachmentUploadError.value = `"${file.name}" ${t('attachments.fileTooLargeSkipped', { size: '10MB' })}`
           continue
         }
-        const localId = crypto.randomUUID()
+        const localId = randomClientId()
         attachmentPendingUploads.value = [
           ...attachmentPendingUploads.value,
           { localId, fileName: file.name, fileSize: file.size, progress: 0 }

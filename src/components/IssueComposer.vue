@@ -6,6 +6,9 @@ import { useProjectStore } from '../store/projectStore'
 import type { Priority, Status, User } from '../types/domain'
 import { projectApi } from '../services/api/project'
 import { parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
+import { randomClientId } from '../utils/clientId'
+import { attachmentsApi } from '../services/api/attachments'
+import { toApiError } from '../services/api/index'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import TiptapEditor from './TiptapEditor.vue'
 import CustomSelect from './ui/CustomSelect.vue'
@@ -57,6 +60,18 @@ const createMore = ref(false)
 const isSaving = ref(false)
 const userList = ref<User[]>([])
 const descriptionEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
+const composerAttachmentInputRef = ref<HTMLInputElement | null>(null)
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024
+
+type ComposerAttachmentItem = {
+  localId: string
+  file: File
+  progress: number
+  phase: 'queued' | 'uploading' | 'done' | 'error'
+  errorMessage?: string
+}
+const composerAttachmentQueue = ref<ComposerAttachmentItem[]>([])
+const composerAttachmentPickError = ref('')
 
 function focusDescription() {
   nextTick(() => descriptionEditorRef.value?.focus())
@@ -108,6 +123,71 @@ function resetForm() {
   assigneeId.value = ''
   plannedStartDate.value = todayDateInputValue()
   dueDate.value = ''
+  composerAttachmentQueue.value = []
+  composerAttachmentPickError.value = ''
+}
+
+function openComposerAttachmentInput() {
+  if (isSaving.value) return
+  composerAttachmentInputRef.value?.click()
+}
+
+function onComposerAttachmentInputChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = input.files
+  if (!files?.length) return
+  composerAttachmentPickError.value = ''
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]
+    if (!file) continue
+    if (file.size > MAX_ATTACHMENT_SIZE) {
+      composerAttachmentPickError.value = `"${file.name}" ${t('attachments.fileTooLargeSkipped', { size: '10MB' })}`
+      continue
+    }
+    composerAttachmentQueue.value = [
+      ...composerAttachmentQueue.value,
+      { localId: randomClientId(), file, progress: 0, phase: 'queued' }
+    ]
+  }
+  input.value = ''
+}
+
+function removeComposerQueuedAttachment(localId: string) {
+  composerAttachmentQueue.value = composerAttachmentQueue.value.filter(
+    (x) => !(x.localId === localId && x.phase === 'queued')
+  )
+}
+
+function formatComposerAttachmentSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+async function uploadQueuedAttachments(taskKey: string): Promise<void> {
+  const queued = composerAttachmentQueue.value.filter((x) => x.phase === 'queued')
+  for (const item of queued) {
+    const { localId, file } = item
+    composerAttachmentQueue.value = composerAttachmentQueue.value.map((x) =>
+      x.localId === localId ? { ...x, phase: 'uploading', progress: 0 } : x
+    )
+    try {
+      await attachmentsApi.upload(taskKey, file, (pct) => {
+        composerAttachmentQueue.value = composerAttachmentQueue.value.map((x) =>
+          x.localId === localId ? { ...x, progress: pct } : x
+        )
+      })
+      composerAttachmentQueue.value = composerAttachmentQueue.value.map((x) =>
+        x.localId === localId ? { ...x, phase: 'done', progress: 100 } : x
+      )
+    } catch (e) {
+      const msg = toApiError(e).message || t('attachments.uploadFailed')
+      composerAttachmentQueue.value = composerAttachmentQueue.value.map((x) =>
+        x.localId === localId ? { ...x, phase: 'error', errorMessage: msg } : x
+      )
+      throw e
+    }
+  }
 }
 
 watch(
@@ -178,6 +258,20 @@ async function handleCreate() {
       parentId: props.parentNumericId ?? undefined
     })
 
+    let attachmentErr: string | null = null
+    try {
+      if (composerAttachmentQueue.value.some((x) => x.phase === 'queued')) {
+        await uploadQueuedAttachments(task.id)
+      }
+    } catch (e) {
+      attachmentErr = toApiError(e).message || t('attachments.uploadFailed')
+    } finally {
+      composerAttachmentQueue.value = []
+    }
+    if (attachmentErr) {
+      alert(attachmentErr)
+    }
+
     if (createMore.value) {
       resetForm()
     } else {
@@ -230,11 +324,54 @@ async function handleCreate() {
               :min-height="64"
             />
           </section>
+          <input
+            ref="composerAttachmentInputRef"
+            type="file"
+            class="composer-attachment-input"
+            multiple
+            tabindex="-1"
+            @change="onComposerAttachmentInputChange"
+          />
           <div class="content-actions">
-            <button type="button" class="content-action-btn" :aria-label="t('common.attach')">
+            <button
+              type="button"
+              class="content-action-btn"
+              :disabled="isSaving"
+              :aria-label="t('common.attach')"
+              @click="openComposerAttachmentInput"
+            >
               <Paperclip class="icon-14" />
             </button>
           </div>
+          <p v-if="composerAttachmentPickError" class="composer-attachment-banner composer-attachment-banner--error">
+            {{ composerAttachmentPickError }}
+          </p>
+          <ul v-if="composerAttachmentQueue.length" class="composer-attachment-list" :aria-label="t('taskEditor.attachments')">
+            <li
+              v-for="item in composerAttachmentQueue"
+              :key="item.localId"
+              class="composer-attachment-row"
+            >
+              <span class="composer-attachment-name" :title="item.file.name">{{ item.file.name }}</span>
+              <span class="composer-attachment-meta">{{ formatComposerAttachmentSize(item.file.size) }}</span>
+              <template v-if="item.phase === 'queued'">
+                <button
+                  type="button"
+                  class="composer-attachment-remove"
+                  :aria-label="t('common.close')"
+                  @click="removeComposerQueuedAttachment(item.localId)"
+                >
+                  ×
+                </button>
+              </template>
+              <span v-else-if="item.phase === 'uploading'" class="composer-attachment-status">
+                {{ t('attachments.uploading') }} {{ item.progress }}%
+              </span>
+              <span v-else-if="item.phase === 'error'" class="composer-attachment-status composer-attachment-status--error">
+                {{ item.errorMessage }}
+              </span>
+            </li>
+          </ul>
 
           <div class="composer-props">
             <CustomSelect
@@ -427,6 +564,80 @@ async function handleCreate() {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
+}
+
+.content-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.composer-attachment-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.composer-attachment-banner {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.composer-attachment-banner--error {
+  color: var(--color-danger, #c53030);
+}
+
+.composer-attachment-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.composer-attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.composer-attachment-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-attachment-meta {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+.composer-attachment-remove {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.composer-attachment-remove:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+.composer-attachment-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.composer-attachment-status--error {
+  color: var(--color-danger, #c53030);
 }
 
 .composer-props {

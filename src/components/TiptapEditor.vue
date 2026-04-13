@@ -25,6 +25,7 @@ import {
   serializeEditorHtmlForSave,
   validateEditorImageFile,
 } from '../utils/editorImageUpload'
+import { randomClientId } from '../utils/clientId'
 import { useI18n } from 'vue-i18n'
 import { TaskImage } from '../extensions/TaskImage'
 import Mention from '@tiptap/extension-mention'
@@ -183,11 +184,6 @@ function isSlashTriggerPosition($from: ResolvedPos): boolean {
   const lineStart = lineStartOffsetInTextblock(parent, off)
   const before = parent.textBetween(lineStart, off, '', '\ufffc')
   return /^\s*$/.test(before)
-}
-
-function randomLocalId() {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 const mentionExtension =
@@ -462,7 +458,7 @@ function removeImageByLocalId(localId: string) {
 
 function insertPreviewImage(file: File, pos?: number) {
   if (!editor.value) return { localId: '', nextPos: pos }
-  const localId = randomLocalId()
+  const localId = randomClientId()
   const objectUrl = URL.createObjectURL(file)
   uploadStateByLocalId.set(localId, { file, objectUrl })
   const chain = editor.value.chain().focus()
