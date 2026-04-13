@@ -202,10 +202,12 @@ export function filterVisibleTaskRows(
 
 const TERMINAL_STATUSES: Task['status'][] = ['done', 'canceled', 'duplicate']
 
-/** 与列表 buildTaskGroups 一致：仅未完成任务参与后续逻辑（open_only 时） */
+/** 与列表 buildTaskGroups 一致：open_only 时与命令栏「进行中」一致，排除终态与待规划（backlog） */
 export function applyCompletedVisibility(tasks: Task[], config: ViewConfig): Task[] {
   if (config.completedVisibility === 'open_only') {
-    return tasks.filter((task) => !TERMINAL_STATUSES.includes(task.status))
+    return tasks.filter(
+      (task) => !TERMINAL_STATUSES.includes(task.status) && task.status !== 'backlog'
+    )
   }
   return tasks
 }

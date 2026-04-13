@@ -139,7 +139,7 @@ describe('getGanttRows', () => {
     expect(rows.map((r) => r.id)).toEqual(['HZW-P', 'HZW-C'])
   })
 
-  it('open_only excludes terminal statuses like the list', () => {
+  it('open_only excludes terminal statuses and backlog like the list', () => {
     const rows = getGanttRows(
       [
         baseTask({
@@ -147,6 +147,13 @@ describe('getGanttRows', () => {
           title: 'Open',
           plannedStartDate: parseDateInputValue('2026-04-01'),
           dueDate: parseDateInputValue('2026-04-02')
+        }),
+        baseTask({
+          id: 'BL',
+          title: 'Backlog',
+          status: 'backlog',
+          plannedStartDate: parseDateInputValue('2026-04-05'),
+          dueDate: parseDateInputValue('2026-04-06')
         }),
         baseTask({
           id: 'DONE',

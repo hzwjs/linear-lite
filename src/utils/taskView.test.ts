@@ -94,6 +94,30 @@ describe('buildTaskGroups', () => {
     expect(groups.flatMap((group) => group.tasks.map((task) => task.id))).toEqual(['ENG-1', 'ENG-2'])
   })
 
+  it('open_only excludes backlog (待规划) as well as terminal statuses', () => {
+    const withBacklog: Task[] = [
+      ...tasks,
+      {
+        id: 'ENG-4',
+        title: 'Backlog item',
+        status: 'backlog',
+        priority: 'medium',
+        assigneeId: null,
+        projectId: 10,
+        createdAt: 4,
+        updatedAt: 40
+      }
+    ]
+    const groups = buildTaskGroups(
+      withBacklog,
+      { ...baseConfig, groupBy: 'status', completedVisibility: 'open_only' },
+      users
+    )
+
+    expect(groups.map((group) => group.key)).toEqual(['todo', 'in_progress'])
+    expect(groups.flatMap((group) => group.tasks.map((task) => task.id))).toEqual(['ENG-1', 'ENG-2'])
+  })
+
   it('can include empty status groups when configured', () => {
     const todoOnly = tasks.filter((task) => task.status === 'todo')
     const groups = buildTaskGroups(

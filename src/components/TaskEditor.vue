@@ -672,8 +672,14 @@ function onAttachmentInputChange(event: Event) {
             const list = attachmentPendingUploads.value
             const idx = list.findIndex((p) => p.localId === localId)
             if (idx < 0) return
+            const prev = list[idx]!
             const next = [...list]
-            next[idx] = { ...next[idx], progress: pct }
+            next[idx] = {
+              localId: prev.localId,
+              fileName: prev.fileName,
+              fileSize: prev.fileSize,
+              progress: pct
+            }
             attachmentPendingUploads.value = next
           })
           attachmentPendingUploads.value = attachmentPendingUploads.value.filter((p) => p.localId !== localId)
