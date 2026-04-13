@@ -311,6 +311,7 @@ const subIssueFormDescription = ref('')
 const subIssueFormStatus = ref<Status>('backlog')
 const subIssueFormPriority = ref<Priority>('medium')
 const subIssueFormAssigneeId = ref<string | number>('')
+const subIssueFormPlannedStartDate = ref('')
 const subIssueFormDueDate = ref('')
 const subIssueSaving = ref(false)
 
@@ -572,6 +573,7 @@ function openSubIssueForm() {
   subIssueFormStatus.value = props.task?.status ?? 'backlog'
   subIssueFormPriority.value = props.task?.priority ?? 'medium'
   subIssueFormAssigneeId.value = ''
+  subIssueFormPlannedStartDate.value = ''
   subIssueFormDueDate.value = ''
 }
 
@@ -591,6 +593,7 @@ async function submitSubIssue() {
       status: subIssueFormStatus.value,
       priority: subIssueFormPriority.value,
       assigneeId: subIssueFormAssigneeId.value === '' ? null : Number(subIssueFormAssigneeId.value),
+      plannedStartDate: parseDateInputValue(subIssueFormPlannedStartDate.value),
       dueDate: parseDateInputValue(subIssueFormDueDate.value),
       parentId: parentNumericId
     })
@@ -1497,9 +1500,15 @@ async function toggleFavorite() {
                     trigger-class="linear-inline-trigger"
                   />
                   <CustomDatePicker
+                    v-model="subIssueFormPlannedStartDate"
+                    :placeholder="t('common.plannedStartDate')"
+                    :aria-label="t('common.plannedStartDate')"
+                    trigger-class="linear-inline-trigger"
+                  />
+                  <CustomDatePicker
                     v-model="subIssueFormDueDate"
-                    placeholder="Due date"
-                    aria-label="Due date"
+                    :placeholder="t('common.dueDate')"
+                    :aria-label="t('common.dueDate')"
                     trigger-class="linear-inline-trigger"
                   />
                 </div>
