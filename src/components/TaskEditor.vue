@@ -1278,6 +1278,7 @@ async function toggleFavorite() {
 
     <div class="editor-body">
       <div class="editor-content">
+        <div class="editor-content-scroll">
         <section class="content-section content-section--title">
           <input
             v-model="formTitle"
@@ -1293,6 +1294,7 @@ async function toggleFavorite() {
             <BlockNoteEditorWrapper
               ref="descriptionEditorRef"
               v-model="formDescription"
+              :block-chrome="true"
               @upload-state-change="onDescriptionUploadStateChange"
               @blur="onDescriptionBlur"
               :placeholder="t('taskEditor.descriptionPlaceholder')"
@@ -1688,6 +1690,7 @@ async function toggleFavorite() {
             </div>
           </div>
         </section>
+        </div>
       </div>
 
       <div class="editor-props">
@@ -1842,6 +1845,8 @@ async function toggleFavorite() {
   box-shadow: none;
   border: none;
   border-left: 1px solid var(--color-border-subtle);
+  /* 内联布局：不裁切块左侧 chrome；纵向滚动由 .editor-content-scroll 承担 */
+  overflow: visible;
 }
 .editor-header {
   min-height: var(--header-height);
@@ -2009,6 +2014,15 @@ async function toggleFavorite() {
   display: flex;
   flex-direction: column;
   gap: 0;
+  overflow: visible;
+}
+.editor-content-scroll {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   overflow-y: auto;
 }
 .content-meta {
@@ -2032,6 +2046,7 @@ async function toggleFavorite() {
 .content-section--title {
   margin-bottom: 0;
   padding-bottom: 2px;
+  padding-inline-start: 36px;
   flex-shrink: 0;
 }
 
@@ -2042,10 +2057,17 @@ async function toggleFavorite() {
   letter-spacing: -0.035em;
 }
 .content-section.description-section {
-  margin-top: 10px;
+  position: relative;
+  margin-top: 16px;
   padding-top: 0;
   min-height: 0;
   flex-shrink: 0;
+  /* BlockNote 侧栏通过 FloatingPortal 渲染在 body 层，不受父容器 overflow 裁切。
+     padding-inline-start 预留侧栏按钮空间（两按钮共 ~50px），
+     加上 .editor-content 的 20px 左内边距，总计 56px 距面板左边框，
+     侧栏按钮不会飞出面板入侵左侧导航栏。 */
+  padding-inline-start: 36px;
+  overflow: visible;
 }
 /* 新建任务时标题与描述间距略大，更易区分 */
 .editor-panel--create .content-section--title {
@@ -2703,9 +2725,6 @@ async function toggleFavorite() {
 }
 .title-input::placeholder {
   color: var(--color-text-muted);
-}
-.description-section {
-  position: relative;
 }
 .editor-props {
   min-width: 260px;

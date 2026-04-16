@@ -254,7 +254,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="board-content" :class="{ 'board-content--list': viewType === 'list' }">
+  <main
+    class="board-content"
+    :class="{ 'board-content--list': viewType === 'list', 'board-content--inline-editor': isEditorOpen }"
+  >
     <div v-if="store.error" class="error-state">
       <p>{{ store.error }}</p>
       <button class="btn-retry" @click="store.fetchTasks()">{{ t('common.retry') }}</button>
@@ -372,6 +375,10 @@ onUnmounted(() => {
 .board-content--list {
   padding: 0;
 }
+/* 内联任务编辑器：避免多层 overflow:hidden 裁切 BlockNote 块侧栏（+ / 拖拽） */
+.board-content--inline-editor {
+  overflow: visible;
+}
 .workspace-shell {
   flex: 1;
   min-height: 0;
@@ -389,7 +396,7 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   display: flex;
-  overflow: hidden;
+  overflow: visible;
   background: var(--color-bg-base);
 }
 .workspace-primary {

@@ -68,6 +68,10 @@ function persistSidebarHidden(hidden: boolean) {
 }
 
 const route = useRoute()
+/** 深链任务页：主列需允许块编辑器左侧 chrome 溢出，不再用 overflow:hidden 裁切 */
+const isTaskWorkspaceRoute = computed(
+  () => typeof route.params.taskId === 'string' && route.params.taskId.length > 0
+)
 const router = useRouter()
 const authStore = useAuthStore()
 const projectStore = useProjectStore()
@@ -344,7 +348,7 @@ onUnmounted(() => {
   <template v-if="isLoginRoute">
     <router-view />
   </template>
-  <div v-else class="app-layout">
+  <div v-else class="app-layout" :class="{ 'app-layout--task-workspace': isTaskWorkspaceRoute }">
     <button
       v-if="sidebarHidden"
       type="button"
@@ -536,7 +540,7 @@ onUnmounted(() => {
       :commands="paletteCommands"
       @close="commandPaletteOpen = false"
     />
-    <main class="main">
+    <main class="main" :class="{ 'main--task-workspace': isTaskWorkspaceRoute }">
       <div v-if="showEmptyProjects" class="empty-projects">
         <p>{{ t('emptyState.noProjects') }}</p>
       </div>
@@ -553,6 +557,10 @@ onUnmounted(() => {
   display: flex;
   height: 100vh;
   overflow: hidden;
+}
+/* 与 main--task-workspace 配套：深链任务页允许主列内块编辑器 chrome 溢出到根壳外缘 */
+.app-layout--task-workspace {
+  overflow: visible;
 }
 .sidebar {
   width: 240px;
@@ -914,6 +922,9 @@ onUnmounted(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+.main--task-workspace {
+  overflow: visible;
 }
 .empty-projects {
   flex: 1;

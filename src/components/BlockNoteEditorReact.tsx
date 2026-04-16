@@ -1,14 +1,50 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import '@blocknote/mantine/style.css'
+import { BlockNoteView } from '@blocknote/mantine'
 import {
-  BlockNoteViewRaw,
   SuggestionMenuController,
   createReactInlineContentSpec,
   useCreateBlockNote,
 } from '@blocknote/react'
-import { BlockNoteSchema, defaultInlineContentSpecs, filterSuggestionItems } from '@blocknote/core'
+import {
+  BlockNoteSchema,
+  defaultBlockSpecs,
+  defaultInlineContentSpecs,
+  filterSuggestionItems,
+} from '@blocknote/core'
+import { createCodeBlockSpec } from '@blocknote/core/blocks'
 import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
+
+// ─── Code block with language selector ─────────────────────────────────────────
+
+const codeBlockWithLanguages = createCodeBlockSpec({
+  supportedLanguages: {
+    text:       { name: 'Plain Text' },
+    javascript: { name: 'JavaScript', aliases: ['js'] },
+    typescript: { name: 'TypeScript', aliases: ['ts'] },
+    python:     { name: 'Python',     aliases: ['py'] },
+    java:       { name: 'Java' },
+    go:         { name: 'Go',         aliases: ['golang'] },
+    rust:       { name: 'Rust' },
+    cpp:        { name: 'C++',        aliases: ['c++'] },
+    c:          { name: 'C' },
+    csharp:     { name: 'C#',         aliases: ['cs'] },
+    php:        { name: 'PHP' },
+    ruby:       { name: 'Ruby',       aliases: ['rb'] },
+    swift:      { name: 'Swift' },
+    kotlin:     { name: 'Kotlin' },
+    html:       { name: 'HTML' },
+    css:        { name: 'CSS' },
+    scss:       { name: 'SCSS' },
+    sql:        { name: 'SQL' },
+    json:       { name: 'JSON' },
+    yaml:       { name: 'YAML',       aliases: ['yml'] },
+    xml:        { name: 'XML' },
+    bash:       { name: 'Bash',       aliases: ['sh', 'shell'] },
+    markdown:   { name: 'Markdown',   aliases: ['md'] },
+  },
+})
 
 // ─── Mention inline content spec ───────────────────────────────────────────────
 
@@ -28,8 +64,13 @@ const mentionSpec = createReactInlineContentSpec(
   }
 )
 
-// Schema shared across all editor instances (includes default text/link + mention)
+// Schema shared across all editor instances (includes default text/link + mention,
+// and a code block with a language selector)
 const schema = BlockNoteSchema.create({
+  blockSpecs: {
+    ...defaultBlockSpecs,
+    codeBlock: codeBlockWithLanguages,
+  },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
     mention: mentionSpec,
@@ -86,6 +127,9 @@ export type BlockNoteEditorReactProps = {
   /** Called once when the editor is mounted, receives imperative API */
   onInit?: (api: EditorApi) => void
   'on-init'?: (api: EditorApi) => void
+  /** 任务描述：侧栏（+ / 拖拽）与 `/` slash 菜单；其它场景保持关闭以减小干扰 */
+  blockChrome?: boolean
+  'block-chrome'?: boolean
 }
 
 export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
@@ -98,7 +142,10 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     onChange,
     onBlur,
     onInit,
+    blockChrome = false,
   } = props
+
+  const blockChromeOn = blockChrome === true || props['block-chrome'] === true
 
   const uploadFileResolved =
     uploadFile ?? props['upload-file']
@@ -185,12 +232,20 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   }, [])
 
   return (
-    <BlockNoteViewRaw
+    <BlockNoteView
       editor={editor}
       editable={editable}
       onChange={handleChange}
       onBlur={handleBlur}
       theme="light"
+      slashMenu={blockChromeOn}
+      sideMenu={blockChromeOn}
+      formattingToolbar={false}
+      linkToolbar={false}
+      filePanel={false}
+      tableHandles={false}
+      emojiPicker={false}
+      comments={false}
     >
       {mentionMembers !== undefined && (
         <SuggestionMenuController
@@ -216,6 +271,6 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
           }}
         />
       )}
-    </BlockNoteViewRaw>
+    </BlockNoteView>
   )
 }

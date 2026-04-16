@@ -483,7 +483,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
 </script>
 
 <template>
-  <div class="board-view">
+  <div class="board-view" :class="{ 'board-view--inline-editor': isEditorOpen }">
     <header class="app-header">
       <div class="header-left">
         <button class="btn-create" @click="() => openCreateEditor()">{{ t('boardView.newIssue') }}</button>
@@ -806,6 +806,10 @@ function onClickOutsideDisplay(event: MouseEvent) {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+/* /tasks/:id 内联编辑器：避免再裁切描述区块级 chrome（与 board-content--inline-editor 一致） */
+.board-view--inline-editor {
+  overflow: visible;
 }
 /* 顶栏：与命令带统一为一条浅带，主操作仅保留 New issue */
 .app-header {
