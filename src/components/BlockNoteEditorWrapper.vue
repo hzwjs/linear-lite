@@ -186,9 +186,21 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
 /* ── Side menu: FloatingPortal renders at body level — BlockNote manages show/hide
       internally; just style size, colour, and layout here ── */
 .bn-side-menu {
-  display: flex;
-  align-items: center;
-  gap: 2px;
+  display: flex !important;
+  align-items: center !important;
+  /* @blocknote/mantine SideMenu 已是 Group gap=0；勿再加 gap，否则与拖拽外包 Menu 叠起来显宽 */
+  gap: 0 !important;
+  column-gap: 0 !important;
+}
+/* 拖拽在 MantineMenu 内，第二个 flex 子项（Menu 根）略向左收，避免与「+」之间空一条 */
+.bn-side-menu > * + * {
+  margin: 0 !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  width: auto !important;
+  min-width: 0 !important;
+  margin-inline-start: -2px !important;
 }
 
 /* ── Side menu button sizing and colour ──
@@ -196,10 +208,10 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
       an icon (drag handle), and MantineButton (mantine-Button-root) for the + button ── */
 .bn-side-menu .mantine-ActionIcon-root,
 .bn-side-menu .mantine-Button-root {
-  width: 24px !important;
-  height: 24px !important;
-  min-width: 24px !important;
-  min-height: 24px !important;
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  min-height: 22px !important;
   padding: 0 !important;
   display: flex !important;
   align-items: center !important;
@@ -220,8 +232,8 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
 
 .bn-side-menu .mantine-ActionIcon-root svg,
 .bn-side-menu .mantine-Button-root svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   display: block;
 }
 

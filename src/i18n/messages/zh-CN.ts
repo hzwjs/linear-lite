@@ -403,7 +403,6 @@ const zhCN = {
     enterFullscreen: '全屏',
     exitFullscreen: '退出全屏',
     issueTitlePlaceholder: '任务标题',
-    descriptionSection: '描述',
     descriptionPlaceholder: '添加描述… 输入 / 可插入标题、列表等',
     attachments: '附件',
     attachmentsUploading: '正在上传附件…',

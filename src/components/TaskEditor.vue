@@ -99,8 +99,6 @@ const formTitle = ref('')
 const formDescription = ref('')
 const descriptionUploadState = ref({ hasPending: false, hasFailed: false })
 const descriptionEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
-/** 描述区标题与 section 的 aria-labelledby 共用 */
-const descriptionSectionLabelId = 'task-editor-description-section-label'
 
 function focusDescription() {
   nextTick(() => descriptionEditorRef.value?.focus())
@@ -1320,13 +1318,7 @@ async function toggleFavorite() {
           />
         </section>
 
-          <section
-            class="content-section description-section"
-            :aria-labelledby="descriptionSectionLabelId"
-          >
-            <div :id="descriptionSectionLabelId" class="description-section__head">
-              {{ t('taskEditor.descriptionSection') }}
-            </div>
+          <section class="content-section description-section">
             <div class="description-section__surface">
               <BlockNoteEditorWrapper
                 ref="descriptionEditorRef"
@@ -2106,25 +2098,19 @@ async function toggleFavorite() {
   padding-top: 0;
   min-height: 0;
   flex-shrink: 0;
-  /* BlockNote 侧栏通过 FloatingPortal 渲染在 body 层，不受父容器 overflow 裁切。
-     padding-inline-start 预留侧栏按钮空间（两按钮共 ~50px），
-     加上 .editor-content 的 20px 左内边距，总计 56px 距面板左边框，
-     侧栏按钮不会飞出面板入侵左侧导航栏。 */
-  padding-inline-start: 36px;
+  /* 侧栏 gutter 放进 .description-section__surface 的左内边距，使边框包住 + / 拖拽 的视觉区域 */
+  padding-inline-start: 0;
   overflow: visible;
-}
-.description-section__head {
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
-  margin: 0 0 8px;
-  letter-spacing: 0.01em;
 }
 .description-section__surface {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-bg-muted);
-  padding: 10px 12px;
+  /*
+   * 侧栏 Portal 宽约 42–46px（两枚 22px + Menu 外包层）。左内边距须包住侧栏；
+   * 配合 .blocknote-editor-wrap 负边距左移整块编辑区，收紧「边框—侧栏」空白。
+   */
+  padding: 10px 12px 10px 52px;
   transition:
     border-color var(--transition-fast),
     background-color var(--transition-fast),
@@ -2142,6 +2128,10 @@ async function toggleFavorite() {
 .description-section__surface :deep(.blocknote-editor-wrap) {
   background: transparent;
   border-radius: var(--radius-sm);
+  /* 块与侧栏定位一并左移，吃回 padding 内多余留白，不减小到侧栏裁切 */
+  margin-inline-start: -6px;
+  width: calc(100% + 6px);
+  max-width: none;
 }
 /* 新建任务时标题与描述间距略大，更易区分 */
 .editor-panel--create .content-section--title {

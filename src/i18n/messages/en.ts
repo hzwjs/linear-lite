@@ -403,7 +403,6 @@ const en = {
     enterFullscreen: 'Fullscreen',
     exitFullscreen: 'Exit fullscreen',
     issueTitlePlaceholder: 'Issue title',
-    descriptionSection: 'Description',
     descriptionPlaceholder: 'Add context or notes… Type / for headings, lists, and more',
     attachments: 'Attachments',
     attachmentsUploading: 'Uploading attachment…',
