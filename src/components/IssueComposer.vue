@@ -10,7 +10,8 @@ import { randomClientId } from '../utils/clientId'
 import { attachmentsApi } from '../services/api/attachments'
 import { toApiError } from '../services/api/index'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
-import TiptapEditor from './TiptapEditor.vue'
+import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
+import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
 import type { CustomSelectOption } from './ui/CustomSelect.vue'
@@ -59,7 +60,7 @@ const dueDate = ref('')
 const createMore = ref(false)
 const isSaving = ref(false)
 const userList = ref<User[]>([])
-const descriptionEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
+const descriptionEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
 const composerAttachmentInputRef = ref<HTMLInputElement | null>(null)
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024
 
@@ -110,6 +111,16 @@ const assigneeOptions = computed<CustomSelectOption[]>(() => {
 function descriptionForSave(desc: string | undefined): string {
   const s = (desc ?? '').trim()
   if (!s) return ''
+  const blockDoc = parseBlockNoteStoredBlocks(s)
+  if (blockDoc !== undefined) {
+    const blocks = blockDoc as Array<{ content?: unknown[]; children?: unknown[] }>
+    const hasContent = blocks.some(
+      (b) =>
+        (Array.isArray(b.content) && b.content.length > 0) ||
+        (Array.isArray(b.children) && b.children.length > 0)
+    )
+    return hasContent ? s : ''
+  }
   const emptyListLine = /^\s*[-*+]\s*$|^\s*\d+\.\s*$/
   const onlyEmptyLists = s.split(/\n/).every((line) => !line.trim() || emptyListLine.test(line.trim()))
   return onlyEmptyLists ? '' : s
@@ -316,7 +327,7 @@ async function handleCreate() {
             />
           </section>
           <section class="content-section description-section">
-            <TiptapEditor
+            <BlockNoteEditorWrapper
               ref="descriptionEditorRef"
               v-model="description"
               @upload-state-change="onDescriptionUploadStateChange"

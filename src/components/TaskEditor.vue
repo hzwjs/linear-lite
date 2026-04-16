@@ -32,11 +32,12 @@ import { buildCommentThreads } from '../utils/commentThread'
 import { randomClientId } from '../utils/clientId'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
+import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import { getAvatarColorByUsername, getInitials } from '../utils/avatar'
 import { getTaskDueState } from '../utils/taskDueState'
 import { captureTaskLoadContext, isTaskLoadStale } from '../utils/taskLoadContext'
-import TiptapEditor from './TiptapEditor.vue'
+import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
 import TaskLabelCombobox from './TaskLabelCombobox.vue'
@@ -96,8 +97,7 @@ const { t } = useI18n()
 const formTitle = ref('')
 const formDescription = ref('')
 const descriptionUploadState = ref({ hasPending: false, hasFailed: false })
-const descriptionEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
-const descriptionEditorReady = ref(false)
+const descriptionEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
 
 function focusDescription() {
   nextTick(() => descriptionEditorRef.value?.focus())
@@ -199,8 +199,8 @@ const mentionMembersForCommentEditor = computed(() =>
   }))
 )
 
-const commentEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
-const inlineReplyEditorRef = ref<InstanceType<typeof TiptapEditor> | null>(null)
+const commentEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
+const inlineReplyEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
 const commentThreads = computed(() => buildCommentThreads(comments.value))
 const currentCommentUserName = computed(() => authStore.currentUser?.username?.trim() || 'Me')
 
@@ -888,6 +888,16 @@ function syncFormStatusFromProgress() {
 function descriptionForSave(desc: string | undefined): string {
   const s = (desc ?? '').trim()
   if (!s) return ''
+  const blockDoc = parseBlockNoteStoredBlocks(s)
+  if (blockDoc !== undefined) {
+    const blocks = blockDoc as Array<{ content?: unknown[]; children?: unknown[] }>
+    const hasContent = blocks.some(
+      (b) =>
+        (Array.isArray(b.content) && b.content.length > 0) ||
+        (Array.isArray(b.children) && b.children.length > 0)
+    )
+    return hasContent ? s : ''
+  }
   const emptyListLine = /^\s*[-*+]\s*$|^\s*\d+\.\s*$/
   const onlyEmptyLists = s.split(/\n/).every((line) => !line.trim() || emptyListLine.test(line.trim()))
   return onlyEmptyLists ? '' : s
@@ -1123,46 +1133,12 @@ onBeforeUnmount(() => {
 
 defineExpose({ flushPendingSave })
 
-/** 仅描述与当前任务不同且其它字段相同：不触发防抖保存，等描述失焦时再保存，避免一次编辑产生多条活动。 */
-function isOnlyDescriptionDirty(
-  payload: {
-    title: string
-    description?: string
-    status: Status
-    priority: Priority
-    assigneeId: number | null
-    plannedStartDate?: number
-    dueDate?: number
-    progressPercent: number
-  },
-  current: {
-    title: string
-    description?: string
-    status: Status
-    priority: Priority
-    assigneeId: number | null
-    plannedStartDate?: number | null
-    dueDate?: number | null
-    progressPercent?: number
-  }
-): boolean {
-  if (formLabelStableKey(formLabels.value) !== taskLabelsStableKey(props.task?.labels)) {
-    return false
-  }
-  return (
-    descriptionForSave(payload.description) !== descriptionForSave(current.description) &&
-    payload.title === current.title &&
-    payload.status === current.status &&
-    payload.priority === current.priority &&
-    (payload.assigneeId ?? null) === (current.assigneeId ?? null) &&
-    dueDateKey(payload.plannedStartDate) === dueDateKey(current.plannedStartDate ?? undefined) &&
-    (payload.dueDate ?? null) === (current.dueDate ?? null) &&
-    payload.progressPercent === clampTaskProgress(current.progressPercent ?? 0)
-  )
-}
-
 function onDescriptionBlur() {
   if (props.mode !== 'edit' || !props.task) return
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+  }
   const payload = getPayload()
   const current = {
     title: props.task.title,
@@ -1211,7 +1187,6 @@ watch(
       return
     }
     persistFormDraftIfNeeded()
-    if (isOnlyDescriptionDirty(payload, current)) return
     scheduleAutoSave()
   },
   { deep: true }
@@ -1304,9 +1279,7 @@ async function toggleFavorite() {
     <div class="editor-body">
       <div class="editor-content">
         <section class="content-section content-section--title">
-          <div v-show="!descriptionEditorReady" class="title-skeleton" aria-hidden="true" />
           <input
-            v-show="descriptionEditorReady"
             v-model="formTitle"
             type="text"
             class="title-input"
@@ -1317,10 +1290,9 @@ async function toggleFavorite() {
         </section>
 
           <section class="content-section description-section">
-            <TiptapEditor
+            <BlockNoteEditorWrapper
               ref="descriptionEditorRef"
               v-model="formDescription"
-              @ready="descriptionEditorReady = true"
               @upload-state-change="onDescriptionUploadStateChange"
               @blur="onDescriptionBlur"
               :placeholder="t('taskEditor.descriptionPlaceholder')"
@@ -1620,7 +1592,7 @@ async function toggleFavorite() {
                     {{ commentAvatarLabel(currentCommentUserName) }}
                   </div>
                   <div class="comment-compose-input comment-compose-input--with-send">
-                    <TiptapEditor
+                    <BlockNoteEditorWrapper
                       ref="inlineReplyEditorRef"
                       :model-value="replyBodyByRootId[thread.root.id] ?? ''"
                       :mention-members="mentionMembersForCommentEditor"
@@ -1663,7 +1635,7 @@ async function toggleFavorite() {
                 {{ commentAvatarLabel(currentCommentUserName) }}
               </div>
               <div class="comment-compose-input comment-compose-input--with-send">
-                <TiptapEditor
+                <BlockNoteEditorWrapper
                   ref="commentEditorRef"
                   v-model="commentBody"
                   :mention-members="mentionMembersForCommentEditor"
@@ -2061,19 +2033,6 @@ async function toggleFavorite() {
   margin-bottom: 0;
   padding-bottom: 2px;
   flex-shrink: 0;
-}
-.title-skeleton {
-  height: 2rem;
-  border-radius: 4px;
-  background: var(--color-border);
-  opacity: 0.5;
-  max-width: 80%;
-  animation: title-skeleton-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes title-skeleton-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.65; }
 }
 
 .content-section--title .title-input {
@@ -2639,7 +2598,7 @@ async function toggleFavorite() {
   display: flex;
   flex-direction: column;
 }
-.comment-compose-input :deep(.tiptap-editor-wrap) {
+.comment-compose-input :deep(.blocknote-editor-wrap) {
   min-width: 0;
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
@@ -2648,7 +2607,7 @@ async function toggleFavorite() {
 .comment-compose-input--with-send {
   position: relative;
 }
-.comment-compose-input--with-send :deep(.tiptap-editor-wrap .tiptap) {
+.comment-compose-input--with-send :deep(.blocknote-editor-wrap .bn-editor) {
   min-height: 84px;
   padding: 8px 10px 44px;
 }

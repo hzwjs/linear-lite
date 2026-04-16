@@ -35,7 +35,13 @@ linear-lite-server/
 **环境要求**：JDK 17+、Maven、MySQL 8.x。
 
 1. 在 MySQL 中执行 `schema.sql`（见下方，含种子数据）。
-2. 在项目根目录 `linear-lite-server/` 下执行：
+2. 复制本地配置模板并按需修改：
+
+```bash
+cp .env.properties.example .env.properties
+```
+
+3. 在项目根目录 `linear-lite-server/` 下执行：
 
 ```bash
 mvn spring-boot:run
@@ -50,7 +56,7 @@ mvn spring-boot:run
 | `MYSQL_HOST` | localhost | MySQL 主机 |
 | `MYSQL_PORT` | 3306 | MySQL 端口 |
 | `MYSQL_DATABASE` | linear_lite | 数据库名 |
-| `MYSQL_USERNAME` | （空） | 数据库用户 |
+| `MYSQL_USERNAME` | root | 数据库用户 |
 | `MYSQL_PASSWORD` | （空） | 数据库密码 |
 | `SERVER_PORT` | 9080 | 服务端口 |
 | `MAIL_HOST` | （空） | SMTP 主机 |
@@ -66,16 +72,15 @@ mvn spring-boot:run
 | `R2_REGION` | auto | R2 区域，通常保持 `auto` |
 | `STORAGE_MAX_DOWNLOAD_BYTES` | 10485760 | 附件下载最大字节数（默认 10MB） |
 
-示例（显式指定数据库与端口）：
+示例（推荐）：使用本地配置文件启动（无需每次 export）
 
 ```bash
-export MYSQL_DATABASE=linear_lite
-export MYSQL_USERNAME=app_user
-export MYSQL_PASSWORD=your_password
+cp .env.properties.example .env.properties
+# 按本机实际情况修改 .env.properties（例如 MYSQL_PASSWORD）
 mvn spring-boot:run
 ```
 
-如需启用任务描述图片上传，可在 `linear-lite-server/.env.properties` 中放入本地 R2 配置，Spring Boot 会在启动时自动加载：
+如需启用任务描述图片上传，可在 `.env.properties` 中填写 R2 配置，Spring Boot 会在启动时自动加载：
 
 ```bash
 cd linear-lite-server
@@ -88,9 +93,9 @@ mvn spring-boot:run
 
 - **路径**：`src/main/resources/schema.sql` — 建表（含 `task_key`、`due_date`、`completed_at`、`task_attachments` 等）与种子数据（同一文件）。
 - **已有旧库**：若表结构落后于当前 `schema.sql`，需自行 `ALTER` / 补表，或从 git 历史取已删除的增量脚本对照执行。
-- **`project_task_seq` 迁移门禁**：对历史库上线前先执行：
-  - `linear-lite-server/scripts/backfill-project-task-seq.sql`
-  - `linear-lite-server/scripts/verify-project-task-seq.sql`（三段查询均应返回空结果集）
+- **`project_task_seq` 迁移门禁**：对历史库上线前先执行 `schema.sql` 中“归档：project_task_seq 迁移与校验 SQL”段落：
+  - 先执行 backfill `INSERT ... ON DUPLICATE KEY UPDATE`
+  - 再执行 3 段校验 `SELECT`（均应返回空结果集）
 
 - **示例（本地或测试库）**：
 
