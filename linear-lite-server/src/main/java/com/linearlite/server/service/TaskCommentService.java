@@ -22,6 +22,9 @@ import com.linearlite.server.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -221,11 +224,30 @@ public class TaskCommentService {
         return r;
     }
 
+    private static final ObjectMapper SUMMARIZE_MAPPER = new ObjectMapper();
+
     private static String summarize(String body) {
         if (body == null) {
             return "";
         }
-        String s = body.replaceAll("#+\\s*", "")
+        String trimmed = body.trim();
+        // BlockNote JSON: starts with '[', try to extract plain text from blocks
+        if (trimmed.startsWith("[")) {
+            try {
+                JsonNode root = SUMMARIZE_MAPPER.readTree(trimmed);
+                if (root.isArray()) {
+                    StringBuilder sb = new StringBuilder();
+                    extractBlockNoteText(root, sb);
+                    String text = sb.toString().replaceAll("\\s+", " ").trim();
+                    if (text.length() > 200) return text.substring(0, 200) + "…";
+                    return text;
+                }
+            } catch (Exception ignored) {
+                // fall through to Markdown path
+            }
+        }
+        // Legacy Markdown
+        String s = trimmed.replaceAll("#+\\s*", "")
                 .replaceAll("[*_`]+", "")
                 .replaceAll("\\s+", " ")
                 .trim();
@@ -233,5 +255,35 @@ public class TaskCommentService {
             return s.substring(0, 200) + "…";
         }
         return s;
+    }
+
+    /** Recursively extract plain text from a BlockNote Block[] JSON node. */
+    private static void extractBlockNoteText(JsonNode blocks, StringBuilder sb) {
+        if (!blocks.isArray()) return;
+        for (JsonNode block : blocks) {
+            JsonNode content = block.get("content");
+            if (content != null && content.isArray()) {
+                for (JsonNode inline : content) {
+                    String type = inline.path("type").asText("");
+                    if ("text".equals(type)) {
+                        String text = inline.path("text").asText("");
+                        if (!text.isEmpty()) {
+                            if (sb.length() > 0) sb.append(' ');
+                            sb.append(text);
+                        }
+                    } else if ("mention".equals(type)) {
+                        String label = inline.path("props").path("label").asText("");
+                        if (!label.isEmpty()) {
+                            if (sb.length() > 0) sb.append(' ');
+                            sb.append('@').append(label);
+                        }
+                    }
+                }
+            }
+            JsonNode children = block.get("children");
+            if (children != null && children.isArray() && !children.isEmpty()) {
+                extractBlockNoteText(children, sb);
+            }
+        }
     }
 }

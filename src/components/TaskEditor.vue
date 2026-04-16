@@ -28,6 +28,7 @@ import {
   groupTaskActivitiesForDisplay
 } from '../utils/taskActivityGroup'
 import { renderMarkdown } from '../utils/markdown'
+import { renderBody } from '../utils/blockNoteHtml'
 import { buildCommentThreads } from '../utils/commentThread'
 import { randomClientId } from '../utils/clientId'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
@@ -1186,6 +1187,24 @@ watch(
       clearTaskEditDraft(props.task.id)
       return
     }
+
+    // 仅描述变更时，跳过防抖保存，等 onDescriptionBlur 触发即时保存，避免双重 API 请求
+    const labelsUnchanged = formLabelStableKey(formLabels.value) === taskLabelsStableKey(props.task.labels)
+    const onlyDescriptionDirty =
+      labelsUnchanged &&
+      payload.title === current.title &&
+      payload.status === current.status &&
+      payload.priority === current.priority &&
+      (payload.assigneeId ?? null) === (current.assigneeId ?? null) &&
+      dueDateKey(payload.plannedStartDate) === dueDateKey(current.plannedStartDate ?? undefined) &&
+      (payload.dueDate ?? null) === (current.dueDate ?? null) &&
+      payload.progressPercent === clampTaskProgress(current.progressPercent ?? 0) &&
+      descriptionForSave(payload.description) !== descriptionForSave(current.description)
+    if (onlyDescriptionDirty) {
+      persistFormDraftIfNeeded()
+      return
+    }
+
     persistFormDraftIfNeeded()
     scheduleAutoSave()
   },
@@ -1539,7 +1558,7 @@ async function toggleFavorite() {
                       </div>
                     </div>
                   </div>
-                  <div class="task-comment-body markdown-body" v-html="renderMarkdown(thread.root.body)" />
+                  <div class="task-comment-body markdown-body" v-html="renderBody(thread.root.body, renderMarkdown)" />
                 </div>
                 <div v-if="thread.replies.length" class="task-comment-replies">
                   <div v-for="reply in visibleRepliesForThread(thread)" :key="reply.id" class="task-comment-row task-comment-row--reply">
@@ -1573,7 +1592,7 @@ async function toggleFavorite() {
                     <div class="task-comment-body task-comment-body--reply markdown-body">
                       <span class="task-comment-mention">@{{ thread.root.authorName }}</span>
                       <span class="task-comment-mention-gap"> </span>
-                      <span class="task-comment-reply-content" v-html="renderMarkdown(reply.body)" />
+                      <span class="task-comment-reply-content" v-html="renderBody(reply.body, renderMarkdown)" />
                     </div>
                   </div>
                   <button

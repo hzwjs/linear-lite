@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Bell } from 'lucide-vue-next'
 import { useNotificationStore } from '../store/notificationStore'
+import { bodyToPlainText } from '../utils/blockNoteHtml'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -80,7 +81,7 @@ async function onMarkAll() {
             @click="onItemClick(n.id, n.taskKey)"
           >
             <span class="notification-item-type">{{ t('notifications.mentionInIssue', { key: n.taskKey }) }}</span>
-            <span v-if="n.summary" class="notification-item-summary">{{ n.summary }}</span>
+            <span v-if="n.summary" class="notification-item-summary">{{ bodyToPlainText(n.summary) }}</span>
           </button>
         </li>
       </ul>

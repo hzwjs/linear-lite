@@ -137,11 +137,11 @@ defineExpose({ focus, getMentionedUserIdsFromDoc })
      data attribute, so padding/side-menu rules that need to cross the bridge boundary
      are placed here instead of in the scoped block. -->
 <style>
-/* ── Text alignment: remove BlockNote's default 54px horizontal padding so
-      editor text aligns with the task title above it.
+/* ── Text alignment: only strip BlockNote's default 54px horizontal padding in the
+      block-chrome (description) editor. Comment editors keep their own padding.
       The side menu renders via FloatingPortal (body-level) and positions itself
       using getBoundingClientRect — it does NOT depend on this padding. ── */
-.bn-editor {
+.blocknote-editor-wrap--chrome .bn-editor {
   padding-inline: 0 !important;
 }
 
