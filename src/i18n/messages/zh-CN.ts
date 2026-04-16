@@ -403,7 +403,8 @@ const zhCN = {
     enterFullscreen: '全屏',
     exitFullscreen: '退出全屏',
     issueTitlePlaceholder: '任务标题',
-    descriptionPlaceholder: '添加描述... 输入 / 使用格式化',
+    descriptionSection: '描述',
+    descriptionPlaceholder: '添加描述… 输入 / 可插入标题、列表等',
     attachments: '附件',
     attachmentsUploading: '正在上传附件…',
     deleteAttachment: '删除附件',
@@ -450,6 +451,7 @@ const zhCN = {
     viewMoreReplies: '查看 {count} 条回复',
     hideReplies: '收起回复',
     notifyMembers: '提醒成员（点击切换）',
+    mentionNoMatches: '没有匹配的成员',
     commentSendFailed: '发送失败',
     deleteComment: '删除',
     deleteCommentAria: '删除该评论'

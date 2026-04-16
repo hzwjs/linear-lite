@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { User as UserIcon, Check } from 'lucide-vue-next'
 import type { Task, User } from '../types/domain'
-import { getInitials, getAvatarColorByUsername } from '../utils/avatar'
+import MemberListDropdownPanel from './MemberListDropdownPanel.vue'
 
 const props = defineProps<{
   taskId: string
@@ -21,7 +20,7 @@ const { t } = useI18n()
 
 const isOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
-const panelRef = ref<HTMLElement | null>(null)
+const panelRef = ref<{ focus: () => void; getRoot: () => HTMLElement | null } | null>(null)
 const panelStyle = ref<{ top: string; left: string }>({ top: '0', left: '0' })
 const searchQuery = ref('')
 const highlightedIndex = ref(0)
@@ -63,7 +62,7 @@ const hasAnyAssigneeDisplay = computed(
 function updatePanelPosition() {
   if (!triggerRef.value || !isOpen.value) return
   const rect = triggerRef.value.getBoundingClientRect()
-  const panelRect = panelRef.value?.getBoundingClientRect()
+  const panelRect = panelRef.value?.getRoot()?.getBoundingClientRect()
   const panelWidth = panelRect && panelRect.width > 0 ? panelRect.width : FALLBACK_PANEL_WIDTH
   const panelHeight = panelRect && panelRect.height > 0 ? panelRect.height : FALLBACK_PANEL_HEIGHT
   const viewportW = window.innerWidth
@@ -203,8 +202,8 @@ function handleClickOutside(e: MouseEvent) {
     isOpen.value &&
     triggerRef.value &&
     !triggerRef.value.contains(el) &&
-    panelRef.value &&
-    !panelRef.value.contains(el)
+    panelRef.value?.getRoot() &&
+    !panelRef.value.getRoot()!.contains(el)
   ) {
     close()
   }
@@ -263,83 +262,26 @@ onUnmounted(() => {
       <slot />
     </button>
     <Teleport to="body">
-      <div
+      <MemberListDropdownPanel
         v-show="isOpen"
-        :id="listboxId"
         ref="panelRef"
-        class="task-row-assignee-panel"
-        role="listbox"
-        tabindex="-1"
-        :style="panelStyle"
-        :aria-activedescendant="
-          optionRows[highlightedIndex] != null
-            ? `assignee-opt-${domTaskKey}-${highlightedIndex}`
-            : undefined
-        "
+        :panel-root-id="listboxId"
+        :id-prefix="domTaskKey"
+        :rows="optionRows"
+        :search-query="searchQuery"
+        :search-placeholder="t('taskList.assigneeSearchPlaceholder')"
+        :search-aria-label="t('taskList.assigneeSearchPlaceholder')"
+        :highlighted-index="highlightedIndex"
+        :position-fixed="true"
+        :floating-style="panelStyle"
+        :show-assignee-chrome="true"
+        :current-assignee-id="currentAssigneeId"
+        :has-any-assignee-display="hasAnyAssigneeDisplay"
+        @update:search-query="(v) => { searchQuery = v; onSearchInput() }"
         @keydown="onListKeydown"
-      >
-        <div class="assignee-search">
-          <input
-            v-model="searchQuery"
-            type="search"
-            class="assignee-search-input"
-            :placeholder="t('taskList.assigneeSearchPlaceholder')"
-            :aria-label="t('taskList.assigneeSearchPlaceholder')"
-            @input="onSearchInput"
-            @click.stop
-          />
-        </div>
-        <button
-          v-for="(row, i) in optionRows"
-          :id="`assignee-opt-${domTaskKey}-${i}`"
-          :key="row.type === 'unassigned' ? 'unassigned' : row.user.id"
-          type="button"
-          class="assignee-option"
-          :class="{
-            highlighted: i === highlightedIndex,
-            selected:
-              row.type === 'unassigned'
-                ? !hasAnyAssigneeDisplay
-                : row.user.id === currentAssigneeId
-          }"
-          role="option"
-          :aria-selected="
-            row.type === 'unassigned' ? !hasAnyAssigneeDisplay : row.user.id === currentAssigneeId
-          "
-          @click.stop="pickRow(row)"
-        >
-          <span v-if="row.type === 'unassigned'" class="assignee-option-inner">
-            <UserIcon class="assignee-option-icon" :size="18" aria-hidden="true" />
-            <span class="assignee-option-label">{{ t('common.unassigned') }}</span>
-          </span>
-          <span v-else class="assignee-option-inner">
-            <img
-              v-if="row.user.avatar_url"
-              :src="row.user.avatar_url"
-              :alt="row.user.username"
-              class="assignee-option-avatar"
-            />
-            <span
-              v-else
-              class="assignee-option-avatar fallback"
-              :style="getAvatarColorByUsername(row.user.username)"
-              >{{ getInitials(row.user.username) }}</span
-            >
-            <span class="assignee-option-label">{{ row.user.username }}</span>
-          </span>
-          <span
-            v-if="
-              row.type === 'unassigned'
-                ? !hasAnyAssigneeDisplay
-                : row.user.id === currentAssigneeId
-            "
-            class="option-check"
-            aria-hidden="true"
-          >
-            <Check :size="16" />
-          </span>
-        </button>
-      </div>
+        @pick-user="(u) => pickUser(u)"
+        @pick-unassigned="pickUnassigned"
+      />
     </Teleport>
   </span>
 </template>

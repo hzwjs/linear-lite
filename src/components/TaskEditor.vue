@@ -99,6 +99,8 @@ const formTitle = ref('')
 const formDescription = ref('')
 const descriptionUploadState = ref({ hasPending: false, hasFailed: false })
 const descriptionEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
+/** 描述区标题与 section 的 aria-labelledby 共用 */
+const descriptionSectionLabelId = 'task-editor-description-section-label'
 
 function focusDescription() {
   nextTick(() => descriptionEditorRef.value?.focus())
@@ -446,9 +448,18 @@ function commentAvatarStyle(name: string | null | undefined): { backgroundColor:
 
 function toggleMentionUser(userId: number) {
   const next = new Set(commentMentionIds.value)
-  if (next.has(userId)) next.delete(userId)
-  else next.add(userId)
+  const isAdding = !next.has(userId)
+  if (isAdding) next.add(userId)
+  else next.delete(userId)
   commentMentionIds.value = next
+
+  // 新增时将 @mention 节点插入编辑器，使其出现在评论内容中
+  if (isAdding) {
+    const member = mentionMembersForCommentEditor.value.find((m) => m.id === userId)
+    if (member) {
+      commentEditorRef.value?.insertMention(String(userId), member.label)
+    }
+  }
 }
 
 function onCommentEditorKeydown(e: KeyboardEvent) {
@@ -1309,16 +1320,24 @@ async function toggleFavorite() {
           />
         </section>
 
-          <section class="content-section description-section">
-            <BlockNoteEditorWrapper
-              ref="descriptionEditorRef"
-              v-model="formDescription"
-              :block-chrome="true"
-              @upload-state-change="onDescriptionUploadStateChange"
-              @blur="onDescriptionBlur"
-              :placeholder="t('taskEditor.descriptionPlaceholder')"
-              :min-height="64"
-            />
+          <section
+            class="content-section description-section"
+            :aria-labelledby="descriptionSectionLabelId"
+          >
+            <div :id="descriptionSectionLabelId" class="description-section__head">
+              {{ t('taskEditor.descriptionSection') }}
+            </div>
+            <div class="description-section__surface">
+              <BlockNoteEditorWrapper
+                ref="descriptionEditorRef"
+                v-model="formDescription"
+                :block-chrome="true"
+                @upload-state-change="onDescriptionUploadStateChange"
+                @blur="onDescriptionBlur"
+                :placeholder="t('taskEditor.descriptionPlaceholder')"
+                :min-height="96"
+              />
+            </div>
           </section>
 
         <input
@@ -1617,6 +1636,9 @@ async function toggleFavorite() {
                       ref="inlineReplyEditorRef"
                       :model-value="replyBodyByRootId[thread.root.id] ?? ''"
                       :mention-members="mentionMembersForCommentEditor"
+                      :mention-menu-search-placeholder="t('taskList.assigneeSearchPlaceholder')"
+                      :mention-menu-no-matches-text="t('taskEditor.mentionNoMatches')"
+                      :mention-menu-loading-text="t('common.loading')"
                       :placeholder="t('taskEditor.replyPlaceholder')"
                       :min-height="56"
                       @update:model-value="(value) => updateInlineReplyBody(thread.root.id, value)"
@@ -1660,6 +1682,9 @@ async function toggleFavorite() {
                   ref="commentEditorRef"
                   v-model="commentBody"
                   :mention-members="mentionMembersForCommentEditor"
+                  :mention-menu-search-placeholder="t('taskList.assigneeSearchPlaceholder')"
+                  :mention-menu-no-matches-text="t('taskEditor.mentionNoMatches')"
+                  :mention-menu-loading-text="t('common.loading')"
                   :placeholder="t('taskEditor.leaveComment')"
                   :min-height="56"
                 />
@@ -2087,6 +2112,36 @@ async function toggleFavorite() {
      侧栏按钮不会飞出面板入侵左侧导航栏。 */
   padding-inline-start: 36px;
   overflow: visible;
+}
+.description-section__head {
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  margin: 0 0 8px;
+  letter-spacing: 0.01em;
+}
+.description-section__surface {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-muted);
+  padding: 10px 12px;
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+.description-section__surface:hover {
+  border-color: var(--color-border-strong);
+  background: color-mix(in srgb, var(--color-bg-muted) 88%, var(--color-bg-hover) 12%);
+}
+.description-section__surface:focus-within {
+  border-color: var(--color-accent-muted-border);
+  box-shadow: 0 0 0 1px var(--color-accent-muted);
+  background: var(--color-bg-base);
+}
+.description-section__surface :deep(.blocknote-editor-wrap) {
+  background: transparent;
+  border-radius: var(--radius-sm);
 }
 /* 新建任务时标题与描述间距略大，更易区分 */
 .editor-panel--create .content-section--title {

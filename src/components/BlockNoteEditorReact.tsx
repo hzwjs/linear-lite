@@ -6,17 +6,19 @@ import {
   SuggestionMenuController,
   createReactInlineContentSpec,
   useCreateBlockNote,
+  type DefaultReactSuggestionItem,
+  type SuggestionMenuProps,
 } from '@blocknote/react'
 import {
   BlockNoteSchema,
   defaultBlockSpecs,
   defaultInlineContentSpecs,
   filterSuggestionItems,
-  type BlockNoteEditor,
   type PartialBlock,
 } from '@blocknote/core'
 import { createCodeBlockSpec } from '@blocknote/core/blocks'
 import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
+import { MentionMemberSuggestionMenu } from './MentionMemberSuggestionMenu'
 
 // ─── Code block with language selector ─────────────────────────────────────────
 
@@ -109,6 +111,7 @@ function extractMentionIdsFromBlocks(blocks: AnyBlock[]): number[] {
 export interface EditorApi {
   focus: () => void
   getMentionedUserIds: () => number[]
+  insertMention: (userId: string, label: string) => void
 }
 
 /** Vue/veaury 可能以 `upload-file` 传入，与 React 的 `uploadFile` 并存 */
@@ -132,6 +135,13 @@ export type BlockNoteEditorReactProps = {
   /** 任务描述：侧栏（+ / 拖拽）与 `/` slash 菜单；其它场景保持关闭以减小干扰 */
   blockChrome?: boolean
   'block-chrome'?: boolean
+  /** `@` 成员菜单顶栏占位（与清单「搜索成员」一致，由 Vue i18n 传入） */
+  mentionMenuSearchPlaceholder?: string
+  'mention-menu-search-placeholder'?: string
+  mentionMenuNoMatchesText?: string
+  'mention-menu-no-matches-text'?: string
+  mentionMenuLoadingText?: string
+  'mention-menu-loading-text'?: string
 }
 
 export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
@@ -148,6 +158,13 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   } = props
 
   const blockChromeOn = blockChrome === true || props['block-chrome'] === true
+
+  const mentionSearchPh =
+    props.mentionMenuSearchPlaceholder ?? props['mention-menu-search-placeholder'] ?? ''
+  const mentionNoMatchPh =
+    props.mentionMenuNoMatchesText ?? props['mention-menu-no-matches-text'] ?? ''
+  const mentionLoadingPh =
+    props.mentionMenuLoadingText ?? props['mention-menu-loading-text'] ?? '…'
 
   const uploadFileResolved =
     uploadFile ?? props['upload-file']
@@ -220,6 +237,14 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       focus: () => editor.focus(),
       getMentionedUserIds: () =>
         extractMentionIdsFromBlocks(editor.document as unknown as AnyBlock[]),
+      insertMention: (userId: string, label: string) => {
+        editor.focus()
+        editor.insertInlineContent(
+          [{ type: 'mention', props: { userId, label } }, ' '] as Parameters<
+            typeof editor.insertInlineContent
+          >[0]
+        )
+      },
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -232,6 +257,36 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   const handleBlur = useCallback((_e: React.FocusEvent) => {
     onBlurRef.current?.()
   }, [])
+
+  const handleMentionPickSubmit = useCallback(
+    (item: DefaultReactSuggestionItem) => {
+      const members = mentionMembersRef.current ?? []
+      const picked = members.find((m) => m.label === item.title)
+      if (!picked) return
+      const existing = extractMentionIdsFromBlocks(editor.document as unknown as AnyBlock[])
+      if (existing.includes(picked.id)) return
+      editor.insertInlineContent(
+        [
+          { type: 'mention', props: { userId: String(picked.id), label: picked.label } },
+          ' ',
+        ] as Parameters<typeof editor.insertInlineContent>[0],
+      )
+    },
+    [editor],
+  )
+
+  const renderMentionMenu = useCallback(
+    (menuProps: SuggestionMenuProps<DefaultReactSuggestionItem>) => (
+      <MentionMemberSuggestionMenu
+        {...menuProps}
+        searchPlaceholder={mentionSearchPh}
+        noMatchesText={mentionNoMatchPh}
+        loadingText={mentionLoadingPh}
+        resolveMember={(label) => (mentionMembersRef.current ?? []).find((m) => m.label === label)}
+      />
+    ),
+    [mentionSearchPh, mentionNoMatchPh, mentionLoadingPh],
+  )
 
   return (
     <BlockNoteView
@@ -252,24 +307,14 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       {mentionMembers !== undefined && (
         <SuggestionMenuController
           triggerCharacter="@"
+          suggestionMenuComponent={renderMentionMenu}
+          onItemClick={handleMentionPickSubmit}
           getItems={async (query) => {
             const members = mentionMembersRef.current ?? []
-            const items = members.map((m) => ({
+            const items: DefaultReactSuggestionItem[] = members.map((m) => ({
               title: m.label,
-              onItemClick: () => {
-                editor.insertInlineContent(
-                  [
-                    {
-                      type: 'mention',
-                      props: {
-                        userId: String(m.id),
-                        label: m.label,
-                      },
-                    },
-                    ' ',
-                  ] as Parameters<BlockNoteEditor<any, any, any>['insertInlineContent']>[0]
-                )
-              },
+              aliases: [m.label.toLowerCase()],
+              onItemClick: () => {},
             }))
             return filterSuggestionItems(items, query)
           }}

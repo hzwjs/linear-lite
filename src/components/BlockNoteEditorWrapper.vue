@@ -13,6 +13,10 @@ const props = withDefaults(
     placeholder?: string
     minHeight?: number
     mentionMembers?: Array<{ id: number; label: string }>
+    /** `@` 成员菜单：与 TaskRowAssigneePicker 一致的搜索框占位与空态文案（仅传 mentionMembers 时生效） */
+    mentionMenuSearchPlaceholder?: string
+    mentionMenuNoMatchesText?: string
+    mentionMenuLoadingText?: string
     /** 仅任务描述等场景：块侧栏 + `/` 命令菜单 */
     blockChrome?: boolean
   }>(),
@@ -21,6 +25,9 @@ const props = withDefaults(
     placeholder: '',
     minHeight: 120,
     blockChrome: false,
+    mentionMenuSearchPlaceholder: '',
+    mentionMenuNoMatchesText: '',
+    mentionMenuLoadingText: '',
   }
 )
 
@@ -83,7 +90,11 @@ function getMentionedUserIdsFromDoc(): number[] {
   return editorApi.value?.getMentionedUserIds() ?? []
 }
 
-defineExpose({ focus, getMentionedUserIdsFromDoc })
+function insertMention(userId: string, label: string) {
+  editorApi.value?.insertMention(userId, label)
+}
+
+defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
 </script>
 
 <template>
@@ -97,6 +108,9 @@ defineExpose({ focus, getMentionedUserIdsFromDoc })
       :initialContent="internalValue"
       :placeholder="placeholder"
       :mentionMembers="mentionMembers"
+      :mentionMenuSearchPlaceholder="mentionMenuSearchPlaceholder"
+      :mentionMenuNoMatchesText="mentionMenuNoMatchesText"
+      :mentionMenuLoadingText="mentionMenuLoadingText"
       :uploadFile="handleUploadFile"
       :onChange="handleChange"
       :onBlur="handleBlur"
@@ -158,11 +172,15 @@ defineExpose({ focus, getMentionedUserIdsFromDoc })
   padding-block: 2px;
 }
 
-/* ── Placeholder: italic muted, matching official demo style ── */
+/* ── Placeholder: 评论等保持弱提示；任务描述（block chrome）用次级字色提高可读性 ── */
 .bn-editor .bn-block-content[data-is-empty-and-focused]::before,
 .bn-editor .bn-block-content[data-is-placeholder-visible]::before {
   color: var(--color-text-muted, #aaa) !important;
   font-style: italic !important;
+}
+.blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-is-empty-and-focused]::before,
+.blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-is-placeholder-visible]::before {
+  color: var(--color-text-secondary, #6b6b6b) !important;
 }
 
 /* ── Side menu: FloatingPortal renders at body level — BlockNote manages show/hide
@@ -229,16 +247,80 @@ defineExpose({ focus, getMentionedUserIdsFromDoc })
   color: rgba(255, 255, 255, 0.95);
 }
 
-/* ── Slash menu: match project style ── */
-.bn-suggestion-menu {
-  border: 1px solid var(--color-border-subtle, #e8e8e8);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
-  background: var(--color-bg-base, #fff);
+/* ── Slash `/` 建议菜单：紧凑行高（`@` 与负责人共用 `MemberListDropdownPanel`，带 `.task-row-assignee-panel` 不套此规则） ── */
+.bn-suggestion-menu:not(.task-row-assignee-panel) {
+  width: min(248px, calc(100vw - 32px)) !important;
+  min-width: 248px !important;
+  max-width: min(248px, calc(100vw - 32px)) !important;
+  max-height: min(256px, 38vh) !important;
+  overflow: hidden auto !important;
+  padding: 4px !important;
+  border: 1px solid color-mix(in srgb, var(--color-border, #e8e8e8) 90%, #d6d9de 10%) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.09), 0 1px 3px rgba(15, 23, 42, 0.08) !important;
+  background: var(--color-bg-base, #fff) !important;
 }
 
-.bn-suggestion-menu-item:hover,
-.bn-suggestion-menu-item[data-hovered="true"] {
-  background: var(--color-bg-hover, rgba(0, 0, 0, 0.05));
+.bn-suggestion-menu:not(.task-row-assignee-panel)::-webkit-scrollbar {
+  width: 8px;
+}
+
+.bn-suggestion-menu:not(.task-row-assignee-panel)::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-text-muted, #999) 42%, transparent);
+  border-radius: 999px;
+}
+
+.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-suggestion-menu-item,
+.bn-suggestion-menu:not(.task-row-assignee-panel) [role="option"] {
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-suggestion-menu-item + .bn-suggestion-menu-item,
+.bn-suggestion-menu:not(.task-row-assignee-panel) [role="option"] + [role="option"] {
+  margin-top: 1px !important;
+}
+
+.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-suggestion-menu-item button,
+.bn-suggestion-menu:not(.task-row-assignee-panel) [role="option"] button,
+.bn-suggestion-menu:not(.task-row-assignee-panel) button {
+  width: 100% !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 0 10px !important;
+  border-radius: 6px !important;
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: var(--color-text-primary, #1f2328) !important;
+  font-size: 12px !important;
+  line-height: 1.2 !important;
+  font-weight: var(--font-weight-medium, 500) !important;
+  justify-content: flex-start !important;
+  text-align: left !important;
+  transition:
+    background var(--transition-fast, 120ms ease),
+    border-color var(--transition-fast, 120ms ease),
+    color var(--transition-fast, 120ms ease) !important;
+}
+
+.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-suggestion-menu-item:hover button,
+.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-suggestion-menu-item[data-hovered="true"] button,
+.bn-suggestion-menu:not(.task-row-assignee-panel) [role="option"]:hover button,
+.bn-suggestion-menu:not(.task-row-assignee-panel) [role="option"][data-hovered="true"] button,
+.bn-suggestion-menu:not(.task-row-assignee-panel) [role="option"][aria-selected="true"] button,
+.bn-suggestion-menu:not(.task-row-assignee-panel) button[data-selected="true"] {
+  background: color-mix(in srgb, var(--color-accent, #475569) 9%, var(--color-bg-base, #fff)) !important;
+  border-color: color-mix(in srgb, var(--color-accent, #475569) 16%, transparent) !important;
+  color: var(--color-text-primary, #111) !important;
+}
+
+.bn-suggestion-menu:not(.task-row-assignee-panel) button:focus,
+.bn-suggestion-menu:not(.task-row-assignee-panel) button:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
 </style>

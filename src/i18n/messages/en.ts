@@ -403,7 +403,8 @@ const en = {
     enterFullscreen: 'Fullscreen',
     exitFullscreen: 'Exit fullscreen',
     issueTitlePlaceholder: 'Issue title',
-    descriptionPlaceholder: 'Add description... Type / for formatting',
+    descriptionSection: 'Description',
+    descriptionPlaceholder: 'Add context or notes… Type / for headings, lists, and more',
     attachments: 'Attachments',
     attachmentsUploading: 'Uploading attachment…',
     deleteAttachment: 'Delete attachment',
@@ -450,6 +451,7 @@ const en = {
     viewMoreReplies: 'View {count} more replies',
     hideReplies: 'Hide replies',
     notifyMembers: 'Notify members (click to toggle)',
+    mentionNoMatches: 'No matching members',
     commentSendFailed: 'Failed to send',
     deleteComment: 'Delete',
     deleteCommentAria: 'Delete this comment'
