@@ -12,6 +12,8 @@ import {
   defaultBlockSpecs,
   defaultInlineContentSpecs,
   filterSuggestionItems,
+  type BlockNoteEditor,
+  type PartialBlock,
 } from '@blocknote/core'
 import { createCodeBlockSpec } from '@blocknote/core/blocks'
 import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
@@ -188,7 +190,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     {
       schema,
       uploadFile: blockNoteUploadFile,
-      initialContent: parsedJsonInitial,
+      initialContent: parsedJsonInitial as PartialBlock<any, any, any>[] | undefined,
       // Use deprecated placeholders until dictionary approach is confirmed stable
       placeholders: placeholder ? { default: placeholder } : undefined,
     },
@@ -255,16 +257,18 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
             const items = members.map((m) => ({
               title: m.label,
               onItemClick: () => {
-                editor.insertInlineContent([
-                  {
-                    type: 'mention' as const,
-                    props: {
-                      userId: String(m.id),
-                      label: m.label,
+                editor.insertInlineContent(
+                  [
+                    {
+                      type: 'mention',
+                      props: {
+                        userId: String(m.id),
+                        label: m.label,
+                      },
                     },
-                  },
-                  ' ',
-                ])
+                    ' ',
+                  ] as Parameters<BlockNoteEditor<any, any, any>['insertInlineContent']>[0]
+                )
               },
             }))
             return filterSuggestionItems(items, query)
