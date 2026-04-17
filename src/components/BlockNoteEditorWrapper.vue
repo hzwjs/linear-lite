@@ -86,12 +86,22 @@ function focus() {
   editorApi.value?.focus()
 }
 
+function focusAppend() {
+  editorApi.value?.focusAppend()
+}
+
 function getMentionedUserIdsFromDoc(): number[] {
   return editorApi.value?.getMentionedUserIds() ?? []
 }
 
 function insertMention(userId: string, label: string) {
   editorApi.value?.insertMention(userId, label)
+}
+
+function handleSurfaceClick() {
+  // Suppress if user just finished a drag-select
+  if (window.getSelection()?.toString()) return
+  focusAppend()
 }
 
 defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
@@ -102,7 +112,7 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
     class="blocknote-editor-wrap"
     :class="{ 'blocknote-editor-wrap--chrome': blockChrome }"
     :style="{ minHeight: `${minHeight}px` }"
-    @click.self="focus()"
+    @click.self="handleSurfaceClick()"
   >
     <BlockNoteVue
       :key="editorKey"

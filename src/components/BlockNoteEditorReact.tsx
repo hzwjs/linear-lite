@@ -110,6 +110,7 @@ function extractMentionIdsFromBlocks(blocks: AnyBlock[]): number[] {
 
 export interface EditorApi {
   focus: () => void
+  focusAppend: () => void
   getMentionedUserIds: () => number[]
   insertMention: (userId: string, label: string) => void
 }
@@ -235,6 +236,28 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     if (!fn) return
     fn({
       focus: () => editor.focus(),
+      focusAppend: () => {
+        editor.focus()
+        const doc = editor.document
+        const lastBlock = doc.length > 0 ? doc[doc.length - 1] : undefined
+        if (!lastBlock) return
+        const content = (lastBlock as unknown as Record<string, unknown>).content
+        const isEmptyParagraph =
+          lastBlock.type === 'paragraph' &&
+          (!Array.isArray(content) ||
+            content.length === 0 ||
+            (content.length === 1 &&
+              (content[0] as Record<string, unknown>).type === 'text' &&
+              !(content[0] as Record<string, unknown>).text))
+        if (isEmptyParagraph) {
+          editor.setTextCursorPosition(lastBlock.id, 'end')
+        } else {
+          editor.insertBlocks([{ type: 'paragraph', content: [] }], lastBlock.id, 'after')
+          const newDoc = editor.document
+          const newLast = newDoc.length > 0 ? newDoc[newDoc.length - 1] : undefined
+          if (newLast) editor.setTextCursorPosition(newLast.id, 'start')
+        }
+      },
       getMentionedUserIds: () =>
         extractMentionIdsFromBlocks(editor.document as unknown as AnyBlock[]),
       insertMention: (userId: string, label: string) => {
