@@ -961,7 +961,6 @@ watch(
   () => props.task,
   () => {
     if (justSavedTaskId.value !== null && props.task?.id === justSavedTaskId.value) {
-      justSavedTaskId.value = null
       return
     }
     loadForm()
@@ -1099,6 +1098,10 @@ async function performAutoSave() {
   } catch (error) {
     console.error('Auto-save failed:', error)
     saveStatus.value = 'idle'
+  } finally {
+    // 乐观更新（同步）与 API 返回（异步）分两次触发 props.task watcher；
+    // 等微任务队列清空后再解锁，确保两次触发都被 justSavedTaskId 屏蔽。
+    await nextTick()
     justSavedTaskId.value = null
   }
 }
