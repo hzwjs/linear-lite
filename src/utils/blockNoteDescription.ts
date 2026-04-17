@@ -13,7 +13,7 @@ function isBlockEmpty(block: RawBlock): boolean {
 
 function stripTrailingEmptyBlocks(blocks: RawBlock[]): RawBlock[] {
   let end = blocks.length
-  while (end > 0 && isBlockEmpty(blocks[end - 1])) end--
+  while (end > 0 && isBlockEmpty(blocks[end - 1]!)) end--
   // Always keep at least one block so the editor isn't completely empty
   return end === 0 ? blocks.slice(0, 1) : blocks.slice(0, end)
 }
