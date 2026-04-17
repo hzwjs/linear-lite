@@ -102,6 +102,7 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
     class="blocknote-editor-wrap"
     :class="{ 'blocknote-editor-wrap--chrome': blockChrome }"
     :style="{ minHeight: `${minHeight}px` }"
+    @click.self="focus()"
   >
     <BlockNoteVue
       :key="editorKey"
