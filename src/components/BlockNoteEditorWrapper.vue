@@ -343,12 +343,18 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
   color: rgba(255, 255, 255, 0.95);
 }
 
-/* ── Slash `/` 建议菜单：紧凑行高（`@` 与负责人共用 `MemberListDropdownPanel`，带 `.task-row-assignee-panel` 不套此规则） ── */
+/* ── Slash `/` 建议菜单（`@` 成员共用 MemberListDropdownPanel 带 .task-row-assignee-panel，不套此规则）
+      BlockNote 0.48 item 结构：MantineGroup[role="option"].bn-suggestion-menu-item
+        ├── .bn-mt-suggestion-menu-item-section[data-position="left"]  (icon + background)
+        ├── .bn-mt-suggestion-menu-item-body > .bn-mt-suggestion-menu-item-title
+        │                                    > .bn-mt-suggestion-menu-item-subtitle
+        └── .bn-mt-suggestion-menu-item-section[data-position="right"] (badge)
+      紧凑单行策略：隐藏 subtitle，item 高度固定 40px，直接对 MantineGroup 容器设样式 ── */
 .bn-suggestion-menu:not(.task-row-assignee-panel) {
-  width: min(248px, calc(100vw - 32px)) !important;
-  min-width: 248px !important;
-  max-width: min(248px, calc(100vw - 32px)) !important;
-  max-height: min(256px, 38vh) !important;
+  width: min(260px, calc(100vw - 32px)) !important;
+  min-width: 200px !important;
+  max-width: min(260px, calc(100vw - 32px)) !important;
+  max-height: min(320px, 42vh) !important;
   overflow: hidden auto !important;
   padding: 4px !important;
   border: 1px solid color-mix(in srgb, var(--color-border, #e8e8e8) 90%, #d6d9de 10%) !important;
@@ -366,57 +372,67 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
   border-radius: 999px;
 }
 
-.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-suggestion-menu-item,
-.bn-suggestion-menu:not(.task-row-assignee-panel) [role="option"] {
-  min-height: 0 !important;
+/* item 容器：MantineGroup[role="option"]，上游默认 52px — 覆写为紧凑 40px 单行 */
+.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-suggestion-menu-item {
+  height: 40px !important;
+  min-height: 40px !important;
+  padding: 0 6px !important;
   margin: 0 !important;
-  padding: 0 !important;
-  border: none !important;
+  border-radius: 6px !important;
+  border: 1px solid transparent !important;
   background: transparent !important;
+  cursor: pointer !important;
+  transition:
+    background var(--transition-fast, 120ms ease),
+    border-color var(--transition-fast, 120ms ease) !important;
 }
 
-.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-suggestion-menu-item + .bn-suggestion-menu-item,
-.bn-suggestion-menu:not(.task-row-assignee-panel) [role="option"] + [role="option"] {
+.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-suggestion-menu-item + .bn-suggestion-menu-item {
   margin-top: 1px !important;
 }
 
-.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-suggestion-menu-item button,
-.bn-suggestion-menu:not(.task-row-assignee-panel) [role="option"] button,
-.bn-suggestion-menu:not(.task-row-assignee-panel) button {
-  width: 100% !important;
-  height: 34px !important;
-  min-height: 34px !important;
-  padding: 0 10px !important;
-  border-radius: 6px !important;
-  border: 1px solid transparent !important;
-  box-shadow: none !important;
-  background: transparent !important;
-  color: var(--color-text-primary, #1f2328) !important;
-  font-size: 12px !important;
-  line-height: 1.2 !important;
-  font-weight: var(--font-weight-medium, 500) !important;
-  justify-content: flex-start !important;
-  text-align: left !important;
-  transition:
-    background var(--transition-fast, 120ms ease),
-    border-color var(--transition-fast, 120ms ease),
-    color var(--transition-fast, 120ms ease) !important;
-}
-
-.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-suggestion-menu-item:hover button,
-.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-suggestion-menu-item[data-hovered="true"] button,
-.bn-suggestion-menu:not(.task-row-assignee-panel) [role="option"]:hover button,
-.bn-suggestion-menu:not(.task-row-assignee-panel) [role="option"][data-hovered="true"] button,
-.bn-suggestion-menu:not(.task-row-assignee-panel) [role="option"][aria-selected="true"] button,
-.bn-suggestion-menu:not(.task-row-assignee-panel) button[data-selected="true"] {
+/* 悬停 / 选中 */
+.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-suggestion-menu-item[aria-selected="true"],
+.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-suggestion-menu-item:hover {
   background: color-mix(in srgb, var(--color-accent, #475569) 9%, var(--color-bg-base, #fff)) !important;
   border-color: color-mix(in srgb, var(--color-accent, #475569) 16%, transparent) !important;
-  color: var(--color-text-primary, #111) !important;
 }
 
-.bn-suggestion-menu:not(.task-row-assignee-panel) button:focus,
-.bn-suggestion-menu:not(.task-row-assignee-panel) button:focus-visible {
-  outline: none !important;
-  box-shadow: none !important;
+/* 图标区：缩小内边距以适应 40px 行高 */
+.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-mt-suggestion-menu-item-section[data-position="left"] {
+  padding: 5px !important;
+  border-radius: 4px !important;
+  flex-shrink: 0 !important;
+}
+
+/* 文本区：垂直居中（单行无 subtitle） */
+.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-mt-suggestion-menu-item-body {
+  justify-content: center !important;
+  padding-right: 8px !important;
+}
+
+/* 标题 */
+.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-mt-suggestion-menu-item-title {
+  font-size: 12px !important;
+  line-height: 1.3 !important;
+  font-weight: 500 !important;
+  color: var(--color-text-primary, #1f2328) !important;
+}
+
+/* 副标题：隐藏（紧凑单行） */
+.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-mt-suggestion-menu-item-subtitle {
+  display: none !important;
+}
+
+/* 徽章（快捷键） */
+.bn-suggestion-menu:not(.task-row-assignee-panel) .bn-mt-suggestion-menu-item-section[data-position="right"] {
+  flex-shrink: 0 !important;
+}
+
+.bn-suggestion-menu:not(.task-row-assignee-panel) .mantine-Badge-root {
+  font-size: 10px !important;
+  padding: 0 5px !important;
+  height: 18px !important;
+  line-height: 18px !important;
 }
 </style>
