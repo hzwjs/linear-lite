@@ -155,8 +155,61 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
       block-chrome (description) editor. Comment editors keep their own padding.
       The side menu renders via FloatingPortal (body-level) and positions itself
       using getBoundingClientRect — it does NOT depend on this padding. ── */
+/*
+ * 任务描述 chrome：去默认水平 padding + 标题比例变量（相对 TaskEditor `--task-editor-issue-title-size`）
+ * 标题覆写见下块（官方 Overriding CSS 思路）
+ * https://www.blocknotejs.org/docs/react/styling-theming/overriding-css
+ */
 .blocknote-editor-wrap--chrome .bn-editor {
   padding-inline: 0 !important;
+  --bn-desc-h1: calc(var(--task-editor-issue-title-size, 2rem) * 0.85);
+  --bn-desc-h2: calc(var(--task-editor-issue-title-size, 2rem) * 0.72);
+  --bn-desc-h3: calc(var(--task-editor-issue-title-size, 2rem) * 0.63);
+  --bn-desc-h4: calc(var(--task-editor-issue-title-size, 2rem) * 0.55);
+  --bn-desc-h5: calc(var(--task-editor-issue-title-size, 2rem) * 0.5);
+  --bn-desc-h6: calc(var(--task-editor-issue-title-size, 2rem) * 0.46);
+}
+
+/* 覆写 BlockNote 的 --level 变量（Block.css 通过 font-size: var(--level) 作用于 bn-block-content 容器），
+   使侧栏定位、光标、占位符三者共享同一字号基准，消除错位 */
+.blocknote-editor-wrap--chrome .bn-editor [data-content-type="heading"]:not([data-level]),
+.blocknote-editor-wrap--chrome .bn-editor [data-content-type="heading"][data-level="1"] { --level: var(--bn-desc-h1); }
+.blocknote-editor-wrap--chrome .bn-editor [data-content-type="heading"][data-level="2"] { --level: var(--bn-desc-h2); }
+.blocknote-editor-wrap--chrome .bn-editor [data-content-type="heading"][data-level="3"] { --level: var(--bn-desc-h3); }
+.blocknote-editor-wrap--chrome .bn-editor [data-content-type="heading"][data-level="4"] { --level: var(--bn-desc-h4); }
+.blocknote-editor-wrap--chrome .bn-editor [data-content-type="heading"][data-level="5"] { --level: var(--bn-desc-h5); }
+.blocknote-editor-wrap--chrome .bn-editor [data-content-type="heading"][data-level="6"] { --level: var(--bn-desc-h6); }
+
+/* font-weight / line-height / letter-spacing 统一设于容器，内层 h* 继承即可 */
+.blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-content-type="heading"]:not([data-level]),
+.blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-content-type="heading"][data-level="1"] {
+  font-weight: 600 !important; line-height: 1.28 !important; letter-spacing: -0.03em !important;
+}
+.blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-content-type="heading"][data-level="2"] {
+  font-weight: 600 !important; line-height: 1.3 !important; letter-spacing: -0.025em !important;
+}
+.blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-content-type="heading"][data-level="3"] {
+  font-weight: 600 !important; line-height: 1.32 !important; letter-spacing: -0.02em !important;
+}
+.blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-content-type="heading"][data-level="4"] {
+  font-weight: 600 !important; line-height: 1.35 !important; letter-spacing: -0.015em !important;
+}
+.blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-content-type="heading"][data-level="5"] {
+  font-weight: 600 !important; line-height: 1.38 !important;
+}
+.blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-content-type="heading"][data-level="6"] {
+  font-weight: 600 !important; line-height: 1.4 !important;
+}
+
+/* 重置浏览器 UA 默认的 h* 字号/间距，继承自容器 */
+.blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-content-type="heading"] :where(h1, h2, h3, h4, h5, h6),
+.blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-content-type="heading"] .bn-inline-content {
+  font-size: 1em !important;
+  font-weight: inherit !important;
+  line-height: inherit !important;
+  letter-spacing: inherit !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 /* ── Typography: inherit project font; use 15px body (matches official example density,
@@ -181,6 +234,26 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
 .blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-is-empty-and-focused]::before,
 .blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-is-placeholder-visible]::before {
   color: var(--color-text-secondary, #6b6b6b) !important;
+}
+
+/* ── 标题比例变量同步到 :root，使 FloatingPortal (body 层) 的 .bn-side-menu 也能读取 ── */
+:root {
+  --bn-desc-h1: calc(2rem * 0.85);
+  --bn-desc-h2: calc(2rem * 0.72);
+  --bn-desc-h3: calc(2rem * 0.63);
+}
+
+/* ── Side menu 高度对齐：上游 styles.css 把 h1/h2/h3 的 .bn-side-menu 按默认大尺寸硬编码
+      (78px/54px/37px)，本地把标题缩小后两套基准脱节，按钮在过高的盒子里 align-items:center
+      后视觉下移。此处覆写为实际行高 = heading-font-size × line-height + bn-block-content-padding ── */
+.bn-side-menu[data-block-type="heading"][data-level="1"] {
+  height: calc(var(--bn-desc-h1) * 1.28 + 6px) !important;
+}
+.bn-side-menu[data-block-type="heading"][data-level="2"] {
+  height: calc(var(--bn-desc-h2) * 1.3 + 6px) !important;
+}
+.bn-side-menu[data-block-type="heading"][data-level="3"] {
+  height: calc(var(--bn-desc-h3) * 1.32 + 6px) !important;
 }
 
 /* ── Side menu: FloatingPortal renders at body level — BlockNote manages show/hide

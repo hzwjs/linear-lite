@@ -2051,6 +2051,8 @@ async function toggleFavorite() {
   flex-direction: column;
   gap: 0;
   overflow: visible;
+  /* 描述区 BlockNote（chrome）继承，用于标题覆写：calc(var(--task-editor-issue-title-size) * 比例) */
+  --task-editor-issue-title-size: 2rem;
 }
 .editor-content-scroll {
   flex: 1;
@@ -2087,7 +2089,7 @@ async function toggleFavorite() {
 }
 
 .content-section--title .title-input {
-  font-size: 2rem;
+  font-size: var(--task-editor-issue-title-size);
   font-weight: 700;
   line-height: 1.18;
   letter-spacing: -0.035em;
