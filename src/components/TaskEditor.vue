@@ -1197,23 +1197,6 @@ watch(
       return
     }
 
-    // 仅描述变更时，跳过防抖保存，等 onDescriptionBlur 触发即时保存，避免双重 API 请求
-    const labelsUnchanged = formLabelStableKey(formLabels.value) === taskLabelsStableKey(props.task.labels)
-    const onlyDescriptionDirty =
-      labelsUnchanged &&
-      payload.title === current.title &&
-      payload.status === current.status &&
-      payload.priority === current.priority &&
-      (payload.assigneeId ?? null) === (current.assigneeId ?? null) &&
-      dueDateKey(payload.plannedStartDate) === dueDateKey(current.plannedStartDate ?? undefined) &&
-      (payload.dueDate ?? null) === (current.dueDate ?? null) &&
-      payload.progressPercent === clampTaskProgress(current.progressPercent ?? 0) &&
-      descriptionForSave(payload.description) !== descriptionForSave(current.description)
-    if (onlyDescriptionDirty) {
-      persistFormDraftIfNeeded()
-      return
-    }
-
     persistFormDraftIfNeeded()
     scheduleAutoSave()
   },
