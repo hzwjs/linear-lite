@@ -748,6 +748,14 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
             }}</span>
             <span class="group-title">{{ group.label }}</span>
             <span class="group-count">{{ visibleGroupRows(group).length }}</span>
+            <button
+              type="button"
+              class="group-create"
+              :aria-label="t('taskList.createIssueInGroup')"
+              @click.stop="onCreateInStatus(group.key === 'todo' || group.key === 'in_progress' || group.key === 'done' ? (group.key as Status) : undefined)"
+            >
+              +
+            </button>
           </button>
           <div
             v-if="groupHasExpandableSubtasks(group)"
@@ -784,14 +792,6 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
               />
             </button>
           </div>
-          <button
-            type="button"
-            class="group-create"
-            :aria-label="t('taskList.createIssueInGroup')"
-            @click.stop="onCreateInStatus(group.key === 'todo' || group.key === 'in_progress' || group.key === 'done' ? (group.key as Status) : undefined)"
-          >
-            +
-          </button>
         </div>
         <div v-show="!collapsed[group.key]" class="group-rows">
           <div
@@ -1156,13 +1156,17 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   padding: 0;
+  border: none;
   border-radius: var(--radius-sm);
   font-size: var(--font-size-body);
   color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
   flex-shrink: 0;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 .group-create:hover {
   background: var(--color-bg-hover);
