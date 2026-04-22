@@ -33,7 +33,7 @@ import { buildCommentThreads } from '../utils/commentThread'
 import { randomClientId } from '../utils/clientId'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
-import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
+import { blockNoteDocHasPersistableContent, parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import { getAvatarColorByUsername, getInitials } from '../utils/avatar'
 import { getTaskDueState } from '../utils/taskDueState'
@@ -900,13 +900,7 @@ function descriptionForSave(desc: string | undefined): string {
   if (!s) return ''
   const blockDoc = parseBlockNoteStoredBlocks(s)
   if (blockDoc !== undefined) {
-    const blocks = blockDoc as Array<{ content?: unknown[]; children?: unknown[] }>
-    const hasContent = blocks.some(
-      (b) =>
-        (Array.isArray(b.content) && b.content.length > 0) ||
-        (Array.isArray(b.children) && b.children.length > 0)
-    )
-    return hasContent ? s : ''
+    return blockNoteDocHasPersistableContent(blockDoc) ? s : ''
   }
   const emptyListLine = /^\s*[-*+]\s*$|^\s*\d+\.\s*$/
   const onlyEmptyLists = s.split(/\n/).every((line) => !line.trim() || emptyListLine.test(line.trim()))

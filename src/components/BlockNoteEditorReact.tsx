@@ -271,11 +271,20 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleChange = useCallback((_changedEditor?: unknown) => {
+  const emitDocumentToVue = useCallback(() => {
     const jsonString = JSON.stringify(editor.document)
     const mentionedIds = extractMentionIdsFromBlocks(editor.document as unknown as AnyBlock[])
     onChangeRef.current?.(jsonString, mentionedIds)
   }, [editor])
+
+  /** uploadFile 的 onUploadEnd 早于 updateBlock；微任务里再 emit 一次，避免漏同步图片 URL。 */
+  useEffect(() => {
+    return editor.onUploadEnd(() => {
+      queueMicrotask(() => {
+        emitDocumentToVue()
+      })
+    })
+  }, [editor, emitDocumentToVue])
 
   const handleBlur = useCallback((_e: React.FocusEvent) => {
     onBlurRef.current?.()
@@ -315,7 +324,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     <BlockNoteView
       editor={editor}
       editable={editable}
-      onChange={handleChange}
+      onChange={emitDocumentToVue}
       onBlur={handleBlur}
       theme="light"
       slashMenu={blockChromeOn}

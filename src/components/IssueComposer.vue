@@ -10,7 +10,7 @@ import { randomClientId } from '../utils/clientId'
 import { attachmentsApi } from '../services/api/attachments'
 import { toApiError } from '../services/api/index'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
-import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
+import { blockNoteDocHasPersistableContent, parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
 import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
@@ -113,13 +113,7 @@ function descriptionForSave(desc: string | undefined): string {
   if (!s) return ''
   const blockDoc = parseBlockNoteStoredBlocks(s)
   if (blockDoc !== undefined) {
-    const blocks = blockDoc as Array<{ content?: unknown[]; children?: unknown[] }>
-    const hasContent = blocks.some(
-      (b) =>
-        (Array.isArray(b.content) && b.content.length > 0) ||
-        (Array.isArray(b.children) && b.children.length > 0)
-    )
-    return hasContent ? s : ''
+    return blockNoteDocHasPersistableContent(blockDoc) ? s : ''
   }
   const emptyListLine = /^\s*[-*+]\s*$|^\s*\d+\.\s*$/
   const onlyEmptyLists = s.split(/\n/).every((line) => !line.trim() || emptyListLine.test(line.trim()))
@@ -546,6 +540,10 @@ async function handleCreate() {
 
 .description-section {
   position: relative;
+}
+/* 去掉 BlockNote 默认 54px 水平 padding，使文字与标题左对齐 */
+.description-section :deep(.bn-editor .bn-block-content) {
+  padding-inline: 0 !important;
 }
 
 .content-actions {
