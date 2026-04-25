@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, computed, watch, ref, defineAsyncComponent, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useTaskStore } from '../store/taskStore'
 import { useProjectStore } from '../store/projectStore'
 import { useViewModeStore } from '../store/viewModeStore'
@@ -31,6 +31,7 @@ import {
   writeProjectBoard,
   type ProjectBoardSnapshot
 } from '../utils/projectBoardPreferences'
+import { buildTaskRoute, getRouteProjectId, getRouteTaskId } from '../utils/taskRoute'
 
 const BoardViewContent = defineAsyncComponent(() => import('./BoardViewContent.vue'))
 
@@ -39,6 +40,7 @@ const projectStore = useProjectStore()
 const viewModeStore = useViewModeStore()
 const issuePanelStore = useIssuePanelStore()
 const route = useRoute()
+const router = useRouter()
 const { t } = useI18n()
 const users = ref<User[]>([])
 const searchInputRef = ref<HTMLInputElement | null>(null)
@@ -50,9 +52,12 @@ const filterPopoverRef = ref<HTMLElement | null>(null)
 const addIssueFilterMenuRef = ref<InstanceType<typeof AddIssueFilterMenu> | null>(null)
 const displayPopoverRef = ref<HTMLElement | null>(null)
 const isImportOpen = ref(false)
+const deepLinkResolveSeq = ref(0)
 
 // 命令栏在任务详情（右侧抽屉）打开时隐藏
-const isEditorOpen = computed(() => !!route.params.taskId)
+const routeTaskId = computed(() => getRouteTaskId(route))
+const routeProjectId = computed(() => getRouteProjectId(route))
+const isEditorOpen = computed(() => routeTaskId.value != null)
 
 // Sync store properties for v-model
 const searchQuery = computed({
@@ -275,16 +280,50 @@ const visiblePropertyOptions = computed<Array<{ value: VisibleProperty; label: s
   { value: 'updatedAt', label: t('common.updated') }
 ])
 
-// Deep link: 打开 /tasks/:id 时同步 store 与 issuePanelStore，内容区由 BoardViewContent 根据 route 渲染编辑器
-watch(() => route.params.taskId, (newId) => {
-  if (newId) {
-    store.currentTaskId = newId as string
-    issuePanelStore.openWorkspace(newId as string)
-  } else {
-    store.currentTaskId = null
-    issuePanelStore.closeWorkspace()
+async function ensureTaskProjectResolved(taskId: string, projectIdHint: number | null) {
+  const seq = ++deepLinkResolveSeq.value
+  try {
+    if (projectIdHint != null && projectStore.activeProjectId !== projectIdHint) {
+      projectStore.setActiveProject(projectIdHint)
+      await store.fetchTasks()
+    }
+
+    const task = await store.fetchTaskByKey(taskId)
+    if (deepLinkResolveSeq.value !== seq || routeTaskId.value !== taskId) return
+    if (task.projectId == null) {
+      console.error(`Task ${taskId} has no projectId`)
+      return
+    }
+    if (projectStore.activeProjectId !== task.projectId) {
+      projectStore.setActiveProject(task.projectId)
+      await store.fetchTasks()
+    }
+
+    const canonicalPath = buildTaskRoute(taskId, task.projectId)
+    if (route.path !== canonicalPath) {
+      await router.replace(canonicalPath)
+    }
+  } catch (e) {
+    console.error(`Failed to resolve deep-link task ${taskId}:`, e)
   }
-}, { immediate: true })
+}
+
+// Deep link: 任务详情由 taskKey 单点加载，项目上下文由任务本身确定，避免跨项目兜底扫描
+watch(
+  () => [routeTaskId.value, routeProjectId.value] as const,
+  async ([taskId, projectId]) => {
+    if (taskId) {
+      store.currentTaskId = taskId
+      issuePanelStore.openWorkspace(taskId)
+      await ensureTaskProjectResolved(taskId, projectId)
+    } else {
+      deepLinkResolveSeq.value += 1
+      store.currentTaskId = null
+      issuePanelStore.closeWorkspace()
+    }
+  },
+  { immediate: true }
+)
 
 async function loadProjectMembers(projectId: number | null) {
   if (projectId == null) {

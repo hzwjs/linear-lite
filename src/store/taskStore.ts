@@ -146,6 +146,17 @@ export const useTaskStore = defineStore('taskStore', () => {
     }
   }
 
+  async function fetchTaskByKey(taskKey: string): Promise<Task> {
+    const task = await taskApi.get(taskKey)
+    const index = tasks.value.findIndex((item) => item.id === task.id)
+    if (index === -1) {
+      tasks.value = [task, ...tasks.value]
+    } else {
+      tasks.value[index] = task
+    }
+    return task
+  }
+
   /** 拉取指定父任务的子任务（parentId 为父任务数据库 id） */
   async function fetchSubIssues(parentNumericId: number): Promise<Task[]> {
     const projectStore = useProjectStore()
@@ -401,6 +412,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     isEmpty,
     isFilterEmpty,
     fetchTasks,
+    fetchTaskByKey,
     fetchSubIssues,
     createTask,
     applyLocalTaskPatch,

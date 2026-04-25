@@ -38,6 +38,7 @@ import type { User } from '../types/domain'
 import type { Status } from '../types/domain'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import { buildTaskGroups, filterVisibleTaskRows, getAdjacentTaskIds } from '../utils/taskView'
+import { buildTaskRoute, getRouteTaskId } from '../utils/taskRoute'
 
 const TaskEditor = defineAsyncComponent(() => import('../components/TaskEditor.vue'))
 const GanttChart = defineAsyncComponent(() => import('../components/GanttChart.vue'))
@@ -69,8 +70,9 @@ const DRAWER_OVERLAY_ID = 'task-editor-drawer'
 const COMPOSER_OVERLAY_ID = 'issue-composer'
 const IMPORT_OVERLAY_ID = 'task-import'
 
-const isEditorOpen = computed(() => !!route.params.taskId)
-const editorMode = computed<'create' | 'edit'>(() => (route.params.taskId ? 'edit' : 'create'))
+const routeTaskId = computed(() => getRouteTaskId(route))
+const isEditorOpen = computed(() => routeTaskId.value != null)
+const editorMode = computed<'create' | 'edit'>(() => (routeTaskId.value ? 'edit' : 'create'))
 
 const viewType = computed(() => viewModeStore.viewType)
 const taskGroups = computed(() =>
@@ -145,7 +147,7 @@ function findWorkspaceSourceLabel(taskId: string) {
 
 function openEditEditor(task: { id: string }, sourceLabel?: string | null) {
   issuePanelStore.openWorkspace(task.id, sourceLabel ?? findWorkspaceSourceLabel(task.id))
-  router.push(`/tasks/${task.id}`)
+  router.push(buildTaskRoute(task.id, projectStore.activeProjectId))
 }
 
 async function closeEditor() {
@@ -161,7 +163,7 @@ function closeComposer() {
 function handleCreated(taskId: string) {
   store.fetchTasks()
   issuePanelStore.openWorkspace(taskId)
-  router.push(`/tasks/${taskId}`)
+  router.push(buildTaskRoute(taskId, projectStore.activeProjectId))
 }
 
 function handleImported() {
@@ -272,12 +274,7 @@ onUnmounted(() => {
       <button class="btn-create" @click="() => openCreateEditor()">{{ t('boardView.createFirstTask') }}</button>
     </div>
 
-    <div v-else-if="store.isFilterEmpty" class="empty-state">
-      <p>{{ emptyFilterHint }}</p>
-      <button type="button" class="btn-text" @click="clearFilters">
-        {{ t('boardView.clearFilters') }}
-      </button>
-    </div>
+    <!-- 详情路由优先于「筛选后列表为空」：currentTask 来自全量 tasks，筛选不应挡住已打开的任务 -->
     <div v-else-if="isEditorOpen" class="workspace-inline-editor">
       <TaskEditor
         ref="taskEditorRef"
@@ -291,6 +288,12 @@ onUnmounted(() => {
         @close="closeEditor"
         @navigate="navigateWorkspace"
       />
+    </div>
+    <div v-else-if="store.isFilterEmpty" class="empty-state">
+      <p>{{ emptyFilterHint }}</p>
+      <button type="button" class="btn-text" @click="clearFilters">
+        {{ t('boardView.clearFilters') }}
+      </button>
     </div>
     <div v-else class="workspace-shell" :class="{ 'workspace-shell--list': viewType === 'list' }">
       <section class="workspace-primary" tabindex="0" @keydown="onWorkspaceKeydown">

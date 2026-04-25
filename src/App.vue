@@ -18,6 +18,7 @@ import { useI18n } from 'vue-i18n'
 import { useLocaleStore } from './store/localeStore'
 import { useNotificationStore } from './store/notificationStore'
 import { useIssuePanelStore } from './store/issuePanelStore'
+import { buildTaskRoute, getRouteTaskId } from './utils/taskRoute'
 import {
   Plus,
   LayoutGrid,
@@ -70,8 +71,9 @@ function persistSidebarHidden(hidden: boolean) {
 const route = useRoute()
 /** 深链任务页：主列需允许块编辑器左侧 chrome 溢出，不再用 overflow:hidden 裁切 */
 const isTaskWorkspaceRoute = computed(
-  () => typeof route.params.taskId === 'string' && route.params.taskId.length > 0
+  () => getRouteTaskId(route) != null
 )
+const routeTaskId = computed(() => getRouteTaskId(route))
 const router = useRouter()
 const authStore = useAuthStore()
 const projectStore = useProjectStore()
@@ -252,7 +254,7 @@ async function openFavoriteTask(taskId: string, projectId?: number) {
     projectStore.setActiveProject(projectId)
     await taskStore.fetchTasks()
   }
-  router.push(`/tasks/${taskId}`)
+  router.push(buildTaskRoute(taskId, projectId ?? projectStore.activeProjectId))
 }
 
 const showEmptyProjects = computed(
@@ -439,7 +441,7 @@ onUnmounted(() => {
               :key="task.id"
               type="button"
               class="sidebar-item"
-              :class="{ active: route.params.taskId === task.id }"
+              :class="{ active: routeTaskId === task.id }"
               @click="openFavoriteTask(task.id, task.projectId)"
             >
               <Star class="sidebar-item-icon sidebar-item-icon--favorite" />

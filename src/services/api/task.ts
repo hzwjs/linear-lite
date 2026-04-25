@@ -36,6 +36,12 @@ function toTask(t: ApiTask): Task {
 }
 
 export const taskApi = {
+  get(taskKey: string): Promise<Task> {
+    return api
+      .get<ApiResponse<ApiTask>>(`/tasks/${taskKey}`)
+      .then((res) => toTask(unwrap(res)))
+  },
+
   list(projectId: number, params?: { topLevelOnly?: boolean; parentId?: number }): Promise<Task[]> {
     const query: Record<string, unknown> = { projectId }
     if (params?.topLevelOnly != null) query.topLevelOnly = params.topLevelOnly

@@ -11,8 +11,13 @@ const router = createRouter({
       component: () => import('../views/BoardView.vue')
     },
     {
-      path: '/tasks/:taskId',
+      path: '/projects/:projectId/tasks/:taskId',
       name: 'task-detail',
+      component: () => import('../views/BoardView.vue')
+    },
+    {
+      path: '/tasks/:taskId',
+      name: 'task-detail-legacy',
       component: () => import('../views/BoardView.vue')
     },
     {

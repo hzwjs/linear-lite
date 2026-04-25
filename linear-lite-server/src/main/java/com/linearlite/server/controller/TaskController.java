@@ -95,6 +95,14 @@ public class TaskController {
         return ResponseEntity.ok(ApiResponse.success(taskQueryService.listFavorites(userId)));
     }
 
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<Task>> getByKey(
+            HttpServletRequest request,
+            @PathVariable("id") String taskKey) {
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        return ResponseEntity.ok(ApiResponse.success(taskQueryService.getByKeyOrThrow(taskKey, userId)));
+    }
+
     @GetMapping("/{id}/activities")
     public ResponseEntity<ApiResponse<List<TaskActivityResponse>>> listActivities(
             HttpServletRequest request,

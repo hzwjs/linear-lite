@@ -11,9 +11,8 @@ export const taskService = {
   },
 
   async getTask(projectId: number, taskKey: string): Promise<Task> {
-    const list = await taskApi.list(projectId)
-    const task = list.find((t) => t.id === taskKey)
-    if (!task) throw new Error('Task not found')
+    const task = await taskApi.get(taskKey)
+    if (task.projectId !== projectId) throw new Error('Task not found')
     return task
   },
 

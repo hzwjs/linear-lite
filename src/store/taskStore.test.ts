@@ -7,6 +7,7 @@ import type { Task } from '../types/domain'
 
 vi.mock('../services/api/task', () => ({
   taskApi: {
+    get: vi.fn(),
     list: vi.fn(),
     create: vi.fn(),
     update: vi.fn()
@@ -18,6 +19,7 @@ describe('taskStore', () => {
     localStorage.clear()
     setActivePinia(createPinia())
     vi.mocked(taskApi.list).mockReset()
+    vi.mocked(taskApi.get).mockReset()
     vi.mocked(taskApi.create).mockReset()
     vi.mocked(taskApi.update).mockReset()
   })
@@ -279,5 +281,21 @@ describe('taskStore', () => {
       subIssueCount: 1,
       completedSubIssueCount: 0
     })
+  })
+
+  it('fetchTaskByKey upserts task by key', async () => {
+    const store = useTaskStore()
+    store.tasks = [baseTask({ id: 'ENG-1', title: 'Old' })]
+
+    vi.mocked(taskApi.get).mockResolvedValueOnce(baseTask({ id: 'ENG-1', title: 'Updated', projectId: 9 }))
+    vi.mocked(taskApi.get).mockResolvedValueOnce(baseTask({ id: 'ENG-2', title: 'New', projectId: 9 }))
+
+    const updated = await store.fetchTaskByKey('ENG-1')
+    const created = await store.fetchTaskByKey('ENG-2')
+
+    expect(updated.title).toBe('Updated')
+    expect(created.title).toBe('New')
+    expect(store.tasks.find((task) => task.id === 'ENG-1')?.title).toBe('Updated')
+    expect(store.tasks.some((task) => task.id === 'ENG-2')).toBe(true)
   })
 })
