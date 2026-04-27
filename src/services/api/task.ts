@@ -35,6 +35,10 @@ function toTask(t: ApiTask): Task {
   }
 }
 
+function asArray<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : []
+}
+
 export const taskApi = {
   get(taskKey: string): Promise<Task> {
     return api
@@ -48,7 +52,7 @@ export const taskApi = {
     if (params?.parentId != null) query.parentId = params.parentId
     return api
       .get<ApiResponse<ApiTask[]>>('/tasks', { params: query })
-      .then((res) => unwrap(res).map(toTask))
+      .then((res) => asArray(unwrap(res)).map(toTask))
   },
 
   create(body: CreateTaskRequest): Promise<Task> {
@@ -72,7 +76,7 @@ export const taskApi = {
   listFavorites(): Promise<Task[]> {
     return api
       .get<ApiResponse<ApiTask[]>>('/tasks/favorites')
-      .then((res) => unwrap(res).map(toTask))
+      .then((res) => asArray(unwrap(res)).map(toTask))
   },
 
   addFavorite(taskKey: string): Promise<Task> {

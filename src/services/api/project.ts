@@ -20,11 +20,15 @@ function toProject(p: ApiProject): Project {
   }
 }
 
+function asArray<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : []
+}
+
 export const projectApi = {
   list(): Promise<Project[]> {
     return api
       .get<ApiResponse<ApiProject[]>>('/projects')
-      .then((res) => unwrap(res).map(toProject))
+      .then((res) => asArray(unwrap(res)).map(toProject))
   },
 
   create(body: { name: string; identifier: string }) {
@@ -79,7 +83,7 @@ export const projectApi = {
         `/projects/${projectId}/members`
       )
       .then((res) =>
-        unwrap(res).map((u) => ({
+        asArray(unwrap(res)).map((u) => ({
           id: u.id,
           username: u.username,
           ...(u.avatar_url != null && { avatar_url: u.avatar_url })

@@ -80,7 +80,7 @@ export type MentionMemberSuggestionMenuProps = SuggestionMenuProps<DefaultReactS
  * 与 `MemberListDropdownPanel` 共用 UI：勾选成员立即插入 mention，取消勾选同步从正文删除。
  */
 export function MentionMemberSuggestionMenu({
-  items,
+  items = [],
   loadingState,
   selectedIndex,
   searchPlaceholder,

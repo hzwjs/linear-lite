@@ -34,12 +34,16 @@ function esc(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
+function asArr<T>(v: T[] | null | undefined): T[] {
+  return Array.isArray(v) ? v : []
+}
+
 function inlineToHtml(node: InlineContent): string {
   if (node.type === 'mention') {
     return `<span class="bn-mention">@${esc(node.props.label ?? '')}</span>`
   }
   if (node.type === 'link') {
-    const inner = node.content.map(inlineToHtml).join('')
+    const inner = asArr(node.content).map(inlineToHtml).join('')
     return `<a href="${esc(node.href)}" target="_blank" rel="noopener noreferrer">${inner}</a>`
   }
   // text node
@@ -55,29 +59,32 @@ function inlineToHtml(node: InlineContent): string {
 }
 
 function inlinesToHtml(content: InlineContent[]): string {
-  return content.map(inlineToHtml).join('')
+  return asArr(content).map(inlineToHtml).join('')
 }
 
 function listItemHtml(block: Block): string {
   const liContent = inlinesToHtml(block.content)
-  const liNested = block.children.length ? blocksToHtml(block.children) : ''
+  const children = asArr(block.children)
+  const liNested = children.length ? blocksToHtml(children) : ''
   return `<li>${liContent}${liNested}</li>`
 }
 
 function blocksToHtml(blocks: Block[]): string {
   let html = ''
   let i = 0
+  const list = asArr(blocks)
 
-  while (i < blocks.length) {
-    const block = blocks[i]!
+  while (i < list.length) {
+    const block = list[i]!
     const type = block.type
     const content = inlinesToHtml(block.content)
-    const nestedHtml = block.children.length ? blocksToHtml(block.children) : ''
+    const childList = asArr(block.children)
+    const nestedHtml = childList.length ? blocksToHtml(childList) : ''
 
     if (type === 'bulletListItem') {
       const items: string[] = []
-      while (i < blocks.length && blocks[i]!.type === 'bulletListItem') {
-        items.push(listItemHtml(blocks[i]!))
+      while (i < list.length && list[i]!.type === 'bulletListItem') {
+        items.push(listItemHtml(list[i]!))
         i++
       }
       html += `<ul>${items.join('')}</ul>`
@@ -86,8 +93,8 @@ function blocksToHtml(blocks: Block[]): string {
 
     if (type === 'numberedListItem') {
       const items: string[] = []
-      while (i < blocks.length && blocks[i]!.type === 'numberedListItem') {
-        items.push(listItemHtml(blocks[i]!))
+      while (i < list.length && list[i]!.type === 'numberedListItem') {
+        items.push(listItemHtml(list[i]!))
         i++
       }
       html += `<ol>${items.join('')}</ol>`
@@ -149,19 +156,19 @@ export function bodyToPlainText(body: string): string {
   }
 
   function extractText(b: Block): string {
-    const inline = b.content
+    const inline = asArr(b.content)
       .map((node) => {
         if (node.type === 'text') return node.text
         if (node.type === 'mention') return `@${node.props.label}`
-        if (node.type === 'link') return node.content.map((n) => (n.type === 'text' ? n.text : '')).join('')
+        if (node.type === 'link') return asArr(node.content).map((n) => (n.type === 'text' ? n.text : '')).join('')
         return ''
       })
       .join('')
-    const childText = b.children.map(extractText).join(' ')
+    const childText = asArr(b.children).map(extractText).join(' ')
     return [inline, childText].filter(Boolean).join(' ')
   }
 
-  return (blocks as Block[]).map(extractText).filter(Boolean).join(' ').trim()
+  return asArr(blocks as Block[]).map(extractText).filter(Boolean).join(' ').trim()
 }
 
 /**

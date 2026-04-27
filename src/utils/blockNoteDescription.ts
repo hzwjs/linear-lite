@@ -45,6 +45,19 @@ export function blockNoteDocHasPersistableContent(blocks: unknown[]): boolean {
   return (blocks as RawBlock[]).some((b) => blockHasPersistableContent(b))
 }
 
+/** 把 content/children 缺失或非数组的块规范成空数组，递归到 children。 */
+function normalizeBlock(block: RawBlock): RawBlock {
+  if (!Array.isArray(block.content)) block.content = []
+  if (!Array.isArray(block.children)) {
+    block.children = []
+  } else {
+    block.children = (block.children as unknown[]).map((c) =>
+      typeof c === 'object' && c !== null ? normalizeBlock(c as RawBlock) : { id: '', type: 'paragraph', content: [], children: [] }
+    )
+  }
+  return block
+}
+
 /** 解析 Block[] JSON；去掉尾部无持久化内容的块。 */
 export function parseBlockNoteStoredBlocks(raw: string): unknown[] | undefined {
   const t = raw.trim()
@@ -62,5 +75,6 @@ export function parseBlockNoteStoredBlocks(raw: string): unknown[] | undefined {
     const o = item as Record<string, unknown>
     if (typeof o.id !== 'string' || typeof o.type !== 'string') return undefined
   }
-  return stripTrailingEmptyBlocks(parsed as RawBlock[])
+  const normalized = (parsed as RawBlock[]).map(normalizeBlock)
+  return stripTrailingEmptyBlocks(normalized)
 }

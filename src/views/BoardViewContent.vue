@@ -265,18 +265,13 @@ onUnmounted(() => {
       <button class="btn-retry" @click="store.fetchTasks()">{{ t('common.retry') }}</button>
     </div>
 
-    <div v-else-if="store.isLoading && store.tasks.length === 0" class="loading-state">
-      <p>{{ t('boardView.loadingTasks') }}</p>
-    </div>
-
-    <div v-else-if="store.isEmpty" class="empty-state">
-      <p>{{ t('boardView.noTasks') }}</p>
-      <button class="btn-create" @click="() => openCreateEditor()">{{ t('boardView.createFirstTask') }}</button>
-    </div>
-
-    <!-- 详情路由优先于「筛选后列表为空」：currentTask 来自全量 tasks，筛选不应挡住已打开的任务 -->
+    <!-- 详情路由优先于 loading/empty：刷新或切项目时任务列表短暂清空，不应把已打开详情盖掉 -->
     <div v-else-if="isEditorOpen" class="workspace-inline-editor">
+      <div v-if="editorMode === 'edit' && !store.currentTask" class="loading-state">
+        <p>{{ t('boardView.loadingTasks') }}</p>
+      </div>
       <TaskEditor
+        v-else
         ref="taskEditorRef"
         variant="inline"
         :mode="editorMode"
@@ -288,6 +283,15 @@ onUnmounted(() => {
         @close="closeEditor"
         @navigate="navigateWorkspace"
       />
+    </div>
+
+    <div v-else-if="store.isLoading && store.tasks.length === 0" class="loading-state">
+      <p>{{ t('boardView.loadingTasks') }}</p>
+    </div>
+
+    <div v-else-if="store.isEmpty" class="empty-state">
+      <p>{{ t('boardView.noTasks') }}</p>
+      <button class="btn-create" @click="() => openCreateEditor()">{{ t('boardView.createFirstTask') }}</button>
     </div>
     <div v-else-if="store.isFilterEmpty" class="empty-state">
       <p>{{ emptyFilterHint }}</p>

@@ -181,6 +181,10 @@ const statusOptions = computed<CustomSelectOption[]>(() => [
   { value: 'canceled', label: getStatusLabel('canceled'), icon: CircleX, shortcut: '6' },
   { value: 'duplicate', label: getStatusLabel('duplicate'), icon: Copy, shortcut: '7' }
 ])
+
+function safeArray<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : []
+}
 const priorityOptions = computed<CustomSelectOption[]>(() => [
   { value: 'low', label: getPriorityLabel('low'), icon: PriorityLowIcon },
   { value: 'medium', label: getPriorityLabel('medium'), icon: PriorityMediumIcon },
@@ -194,7 +198,7 @@ const mentionCandidates = computed(() => {
 
 /** 评论编辑器 @ 建议数据源（与 mentionCandidates 一致，格式供 TipTap Mention 使用） */
 const mentionMembersForCommentEditor = computed(() =>
-  mentionCandidates.value.map((u) => ({
+  safeArray(mentionCandidates.value).map((u) => ({
     id: u.id,
     label: (u.username ?? '').trim() || `user-${u.id}`,
   }))
@@ -341,7 +345,7 @@ async function loadSubIssues() {
     if (isTaskLoadStale(ctx, props.task)) return
     const nested = viewModeStore.viewConfig.nestedSubIssues
     if (!nested) {
-      subIssueRows.value = direct.map((t) => ({ task: t, depth: 0 }))
+      subIssueRows.value = safeArray(direct).map((t) => ({ task: t, depth: 0 }))
       return
     }
     const rows: { task: Task; depth: number }[] = []
@@ -805,7 +809,7 @@ function toDateInputValue(ms: number | undefined | null): string {
 }
 
 function formLabelStableKey(rows: { id?: number; name: string }[]): string {
-  return [...rows]
+  return [...safeArray(rows)]
     .map((r) => {
       const n = r.name.trim()
       if (!n) return null
@@ -817,7 +821,7 @@ function formLabelStableKey(rows: { id?: number; name: string }[]): string {
 }
 
 function taskLabelsStableKey(labels: Task['labels'] | undefined): string {
-  return [...(labels ?? [])]
+  return [...safeArray(labels)]
     .map((l) => `i:${l.id}`)
     .sort()
     .join('|')
@@ -921,7 +925,7 @@ const loadForm = () => {
     formPlannedStartDate.value = toDateInputValue(props.task.plannedStartDate ?? undefined)
     formDueDate.value = toDateInputValue(props.task.dueDate ?? undefined)
     formProgressPercent.value = clampTaskProgress(props.task.progressPercent ?? 0)
-    formLabels.value = (props.task.labels ?? []).map((l) => ({ id: l.id, name: l.name }))
+    formLabels.value = safeArray(props.task.labels).map((l) => ({ id: l.id, name: l.name }))
     labelInput.value = ''
 
     const draft = readTaskEditDraft(props.task.id)
@@ -1082,7 +1086,7 @@ async function performAutoSave() {
     // 保存后故意跳过 loadForm，避免覆盖正文；服务端进度↔状态联动需从合并结果写回
     formStatus.value = merged.status
     formProgressPercent.value = clampTaskProgress(merged.progressPercent ?? 0)
-    formLabels.value = (merged.labels ?? []).map((l) => ({ id: l.id, name: l.name }))
+    formLabels.value = safeArray(merged.labels).map((l) => ({ id: l.id, name: l.name }))
     clearTaskEditDraft(props.task.id)
     await loadActivities({ silent: true })
     saveStatus.value = 'saved'

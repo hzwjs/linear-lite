@@ -298,4 +298,16 @@ describe('taskStore', () => {
     expect(store.tasks.find((task) => task.id === 'ENG-1')?.title).toBe('Updated')
     expect(store.tasks.some((task) => task.id === 'ENG-2')).toBe(true)
   })
+
+  it('keeps currentTask resolvable from cache when task list is temporarily cleared', async () => {
+    const store = useTaskStore()
+    store.currentTaskId = 'ENG-9'
+    vi.mocked(taskApi.get).mockResolvedValueOnce(baseTask({ id: 'ENG-9', title: 'Detail', projectId: 7 }))
+
+    await store.fetchTaskByKey('ENG-9')
+    expect(store.currentTask?.id).toBe('ENG-9')
+
+    store.tasks = []
+    expect(store.currentTask?.id).toBe('ENG-9')
+  })
 })

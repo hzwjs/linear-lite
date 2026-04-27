@@ -16,6 +16,7 @@ import { translate } from '../utils/i18n'
  */
 export const useTaskStore = defineStore('taskStore', () => {
   const tasks = ref<Task[]>([])
+  const taskByKeyCache = ref<Record<string, Task>>({})
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 
@@ -34,8 +35,19 @@ export const useTaskStore = defineStore('taskStore', () => {
 
   const currentTask = computed(() => {
     if (!currentTaskId.value) return null
-    return tasks.value.find((t) => t.id === currentTaskId.value) ?? null
+    return (
+      tasks.value.find((t) => t.id === currentTaskId.value) ??
+      taskByKeyCache.value[currentTaskId.value] ??
+      null
+    )
   })
+
+  function cacheTask(task: Task) {
+    taskByKeyCache.value = {
+      ...taskByKeyCache.value,
+      [task.id]: task
+    }
+  }
 
   const filteredTasks = computed(() => {
     let result = [...tasks.value].sort((a, b) => b.updatedAt - a.updatedAt)
@@ -133,6 +145,9 @@ export const useTaskStore = defineStore('taskStore', () => {
       const list = await taskApi.list(requestedProjectId, { topLevelOnly: false })
       if (useProjectStore().activeProjectId !== requestedProjectId) return
       tasks.value = list
+      for (const task of list) {
+        cacheTask(task)
+      }
     } catch (err: unknown) {
       if (useProjectStore().activeProjectId !== requestedProjectId) return
       error.value =
@@ -148,6 +163,7 @@ export const useTaskStore = defineStore('taskStore', () => {
 
   async function fetchTaskByKey(taskKey: string): Promise<Task> {
     const task = await taskApi.get(taskKey)
+    cacheTask(task)
     const index = tasks.value.findIndex((item) => item.id === task.id)
     if (index === -1) {
       tasks.value = [task, ...tasks.value]
@@ -247,6 +263,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     if (updates.creatorId !== undefined) next.creatorId = updates.creatorId
     if (updates.completedAt !== undefined) next.completedAt = updates.completedAt
     tasks.value[index] = next
+    cacheTask(next)
     recomputeParentSubIssueProgress(prev.parentId)
     recomputeParentSubIssueProgress(next.parentId)
     if (next.favorited) {
@@ -299,6 +316,7 @@ export const useTaskStore = defineStore('taskStore', () => {
         favorited: updated.favorited ?? existing?.favorited ?? false
       }
       if (index !== -1) tasks.value[index] = merged
+      cacheTask(merged)
       recomputeParentSubIssueProgress(existing?.parentId)
       recomputeParentSubIssueProgress(updated.parentId)
       if (merged.favorited) {
@@ -309,6 +327,7 @@ export const useTaskStore = defineStore('taskStore', () => {
       if (previousSnapshot != null && index !== -1) {
         const optimistic = tasks.value[index]
         tasks.value[index] = previousSnapshot
+        cacheTask(previousSnapshot)
         recomputeParentSubIssueProgress(previousSnapshot.parentId)
         recomputeParentSubIssueProgress(optimistic?.parentId)
         if (previousSnapshot.favorited) {
@@ -397,6 +416,7 @@ export const useTaskStore = defineStore('taskStore', () => {
 
   return {
     tasks,
+    taskByKeyCache,
     isLoading,
     error,
     currentTaskId,
