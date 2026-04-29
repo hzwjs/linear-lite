@@ -310,4 +310,206 @@ describe('taskStore', () => {
     store.tasks = []
     expect(store.currentTask?.id).toBe('ENG-9')
   })
+
+  it('keeps newer pending optimistic fields after older request succeeds', async () => {
+    const store = useTaskStore()
+    const task: Task = {
+      id: 'ENG-L1',
+      numericId: 1001,
+      title: 'Init',
+      status: 'todo',
+      priority: 'medium',
+      createdAt: 1,
+      updatedAt: 1
+    }
+    store.tasks = [task]
+    let resolveA!: (value: Task) => void
+    const reqA = new Promise<Task>((resolve) => {
+      resolveA = resolve
+    })
+    vi.mocked(taskApi.update).mockReturnValueOnce(reqA).mockResolvedValueOnce({
+      ...task,
+      title: 'B',
+      updatedAt: 3
+    })
+
+    const pA = store.updateTask('ENG-L1', { title: 'A' })
+    const pB = store.updateTask('ENG-L1', { title: 'B' })
+    expect(store.tasks[0]?.title).toBe('B')
+
+    resolveA({ ...task, title: 'A', updatedAt: 2 })
+    await pA
+    expect(store.tasks[0]?.title).toBe('B')
+    await pB
+    expect(store.tasks[0]?.title).toBe('B')
+  })
+
+  it('keeps pending optimistic fields after older request fails', async () => {
+    const store = useTaskStore()
+    const task: Task = {
+      id: 'ENG-L2',
+      numericId: 1002,
+      title: 'Init',
+      status: 'todo',
+      priority: 'medium',
+      createdAt: 1,
+      updatedAt: 1
+    }
+    store.tasks = [task]
+    let rejectA!: (reason?: unknown) => void
+    const reqA = new Promise<Task>((_resolve, reject) => {
+      rejectA = reject
+    })
+    vi.mocked(taskApi.update).mockReturnValueOnce(reqA).mockResolvedValueOnce({
+      ...task,
+      title: 'B',
+      updatedAt: 3
+    })
+
+    const pA = store.updateTask('ENG-L2', { title: 'A' })
+    const pB = store.updateTask('ENG-L2', { title: 'B' })
+    rejectA(new Error('fail A'))
+    await expect(pA).rejects.toThrow('fail A')
+    expect(store.tasks[0]?.title).toBe('B')
+    await pB
+    expect(store.tasks[0]?.title).toBe('B')
+  })
+
+  it('clears completedAt in optimistic overlay when status turns non-done', async () => {
+    const store = useTaskStore()
+    const doneTask: Task = {
+      id: 'ENG-DERIVE',
+      numericId: 1003,
+      title: 'T',
+      status: 'done',
+      priority: 'medium',
+      progressPercent: 100,
+      completedAt: 999,
+      createdAt: 1,
+      updatedAt: 1
+    }
+    store.tasks = [doneTask]
+    let resolveA!: (value: Task) => void
+    const reqA = new Promise<Task>((resolve) => {
+      resolveA = resolve
+    })
+    vi.mocked(taskApi.update).mockReturnValueOnce(reqA).mockResolvedValueOnce({
+      ...doneTask,
+      status: 'todo',
+      progressPercent: 0,
+      completedAt: null,
+      updatedAt: 3
+    })
+
+    const pA = store.updateTask('ENG-DERIVE', { status: 'done' })
+    const pB = store.updateTask('ENG-DERIVE', { status: 'todo', progressPercent: 0 })
+    resolveA({ ...doneTask, status: 'done', progressPercent: 100, completedAt: 1200, updatedAt: 2 })
+    await pA
+    expect(store.tasks[0]?.status).toBe('todo')
+    expect(store.tasks[0]?.completedAt).toBeFalsy()
+    await pB
+  })
+
+  it('drainTask returns save_failed only when final intent remains unsaved', async () => {
+    const store = useTaskStore()
+    const task: Task = {
+      id: 'ENG-DRAIN',
+      numericId: 1004,
+      title: 'Init',
+      status: 'todo',
+      priority: 'medium',
+      createdAt: 1,
+      updatedAt: 1
+    }
+    store.tasks = [task]
+
+    vi.mocked(taskApi.update).mockRejectedValueOnce(new Error('x'))
+    void store.updateTask('ENG-DRAIN', { title: 'X' }).catch(() => {})
+    const r1 = await store.drainTask('ENG-DRAIN', { timeoutMs: 100 })
+    expect(r1.ok).toBe(false)
+    if (!r1.ok) expect(r1.reason).toBe('save_failed')
+
+    vi.mocked(taskApi.update).mockRejectedValueOnce(new Error('a')).mockResolvedValueOnce({
+      ...task,
+      title: 'B',
+      updatedAt: 3
+    })
+    void store.updateTask('ENG-DRAIN', { title: 'A' }).catch(() => {})
+    void store.updateTask('ENG-DRAIN', { title: 'B' }).catch(() => {})
+    const r2 = await store.drainTask('ENG-DRAIN', { timeoutMs: 1000 })
+    expect(r2.ok).toBe(true)
+  })
+
+  it('prefers clearParent over parentId in update payload', async () => {
+    const store = useTaskStore()
+    const task: Task = {
+      id: 'ENG-PARENT',
+      numericId: 1005,
+      title: 'T',
+      status: 'todo',
+      priority: 'medium',
+      parentId: '200',
+      createdAt: 1,
+      updatedAt: 1
+    }
+    store.tasks = [task]
+    vi.mocked(taskApi.update).mockResolvedValueOnce({
+      ...task,
+      parentId: null,
+      updatedAt: 2
+    })
+
+    await store.updateTask('ENG-PARENT', { parentId: '300', clearParent: true })
+
+    expect(taskApi.update).toHaveBeenCalledWith(
+      'ENG-PARENT',
+      expect.objectContaining({
+        clearParent: true
+      })
+    )
+    const body = vi.mocked(taskApi.update).mock.calls.at(-1)?.[1]
+    expect(body).toBeDefined()
+    expect(body?.parentId).toBeUndefined()
+  })
+
+  it('keeps optimistic labels valid when payload mixes {id} and {name}', async () => {
+    const store = useTaskStore()
+    const task: Task = {
+      id: 'ENG-LABEL',
+      numericId: 1006,
+      title: 'T',
+      status: 'todo',
+      priority: 'medium',
+      labels: [{ id: 1, name: 'Bug' }],
+      createdAt: 1,
+      updatedAt: 1
+    }
+    store.tasks = [task]
+    let resolveApi!: (value: Task) => void
+    const deferred = new Promise<Task>((resolve) => {
+      resolveApi = resolve
+    })
+    vi.mocked(taskApi.update).mockReturnValueOnce(deferred)
+
+    const done = store.updateTask('ENG-LABEL', {
+      labels: [{ id: 1 }, { name: 'New Label' }]
+    })
+
+    const optimisticLabels = store.tasks[0]?.labels ?? []
+    expect(optimisticLabels).toHaveLength(2)
+    expect(optimisticLabels[0]).toEqual({ id: 1, name: 'Bug' })
+    expect(optimisticLabels[1]?.name).toBe('New Label')
+    expect(Number.isFinite(optimisticLabels[1]?.id)).toBe(true)
+    expect(optimisticLabels[1]?.id).toBeLessThan(0)
+
+    resolveApi({
+      ...task,
+      labels: [
+        { id: 1, name: 'Bug' },
+        { id: 2, name: 'New Label' }
+      ],
+      updatedAt: 2
+    })
+    await done
+  })
 })

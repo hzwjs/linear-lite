@@ -35,6 +35,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
   'upload-state-change': [state: { hasPending: boolean; hasFailed: boolean }]
   blur: []
+  focus: []
   ready: []
 }>()
 
@@ -56,6 +57,10 @@ function handleChange(jsonString: string) {
 
 function handleBlur() {
   emit('blur')
+}
+
+function handleFocus() {
+  emit('focus')
 }
 
 function handleInit(api: EditorApi) {
@@ -125,6 +130,7 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
       :uploadFile="handleUploadFile"
       :onChange="handleChange"
       :onBlur="handleBlur"
+      :onFocus="handleFocus"
       :onInit="handleInit"
       :blockChrome="blockChrome"
     />

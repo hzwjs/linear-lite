@@ -404,6 +404,7 @@ const en = {
     exitFullscreen: 'Exit fullscreen',
     issueTitlePlaceholder: 'Issue title',
     descriptionPlaceholder: 'Add context or notes… Type / for headings, lists, and more',
+    mermaidPreview: 'Mermaid preview',
     attachments: 'Attachments',
     attachmentsUploading: 'Uploading attachment…',
     deleteAttachment: 'Delete attachment',
@@ -453,7 +454,9 @@ const en = {
     mentionNoMatches: 'No matching members',
     commentSendFailed: 'Failed to send',
     deleteComment: 'Delete',
-    deleteCommentAria: 'Delete this comment'
+    deleteCommentAria: 'Delete this comment',
+    saveFailedBlockClose: 'Save failed. Resolve the issue and try again before leaving this task.',
+    saveTimeoutWarn: 'Save is taking longer than expected. Your latest edits may not be fully synced yet.'
   },
   notifications: {
     title: 'Notifications',

@@ -21,6 +21,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -52,6 +53,28 @@ class TaskActivityServiceTest {
         assertEquals("status", captor.getValue().getFieldName());
         assertEquals("todo", captor.getValue().getOldValue());
         assertEquals("done", captor.getValue().getNewValue());
+    }
+
+    @Test
+    void recordFieldChangeCoalescesFrequentProgressUpdates() {
+        TaskActivity recent = new TaskActivity();
+        recent.setId(66L);
+        recent.setTaskId(3L);
+        recent.setUserId(8L);
+        recent.setActionType("changed");
+        recent.setFieldName("progressPercent");
+        recent.setOldValue("20");
+        recent.setNewValue("30");
+        recent.setCreatedAt(LocalDateTime.now().minusSeconds(30));
+        Page<TaskActivity> page = new Page<>(1, 1);
+        page.setRecords(List.of(recent));
+        when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(page);
+
+        taskActivityService.recordFieldChange(3L, 8L, "progressPercent", "30", "40");
+
+        verify(taskActivityMapper).updateById(recent);
+        assertEquals("40", recent.getNewValue());
+        verify(taskActivityMapper, never()).insert(any());
     }
 
     @Test
@@ -111,6 +134,22 @@ class TaskActivityServiceTest {
         assertEquals("description", captor.getValue().getFieldName());
         assertEquals("old", captor.getValue().getOldValue());
         assertEquals("new", captor.getValue().getNewValue());
+    }
+
+    @Test
+    void recordDescriptionChangeCompactsLongValues() {
+        when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
+                .thenReturn(new Page<TaskActivity>(1, 1).setRecords(List.of()));
+        String longText = "x".repeat(400);
+
+        taskActivityService.recordDescriptionChange(1L, 2L, longText, longText + "new");
+
+        ArgumentCaptor<TaskActivity> captor = ArgumentCaptor.forClass(TaskActivity.class);
+        verify(taskActivityMapper).insert(captor.capture());
+        assertTrue(captor.getValue().getOldValue().contains("[len=400]"));
+        assertTrue(captor.getValue().getNewValue().contains("[len=403]"));
+        assertTrue(captor.getValue().getOldValue().length() < 230);
+        assertTrue(captor.getValue().getNewValue().length() < 230);
     }
 
     @Test

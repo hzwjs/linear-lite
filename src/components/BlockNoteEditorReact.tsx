@@ -47,6 +47,7 @@ const codeBlockWithLanguages = createCodeBlockSpec({
     xml:        { name: 'XML' },
     bash:       { name: 'Bash',       aliases: ['sh', 'shell'] },
     markdown:   { name: 'Markdown',   aliases: ['md'] },
+    mermaid:    { name: 'Mermaid',    aliases: ['mmd'] },
   },
 })
 
@@ -130,6 +131,8 @@ export type BlockNoteEditorReactProps = {
   'on-change'?: (jsonString: string, mentionedUserIds: number[]) => void
   onBlur?: () => void
   'on-blur'?: () => void
+  onFocus?: () => void
+  'on-focus'?: () => void
   /** Called once when the editor is mounted, receives imperative API */
   onInit?: (api: EditorApi) => void
   'on-init'?: (api: EditorApi) => void
@@ -192,6 +195,10 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   const onBlurResolved = onBlur ?? props['on-blur']
   const onBlurRef = useRef(onBlurResolved)
   onBlurRef.current = onBlurResolved
+
+  const onFocusResolved = props.onFocus ?? props['on-focus']
+  const onFocusRef = useRef(onFocusResolved)
+  onFocusRef.current = onFocusResolved
 
   const onInitResolved = onInit ?? props['on-init']
   const onInitRef = useRef(onInitResolved)
@@ -290,6 +297,10 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     onBlurRef.current?.()
   }, [])
 
+  const handleFocus = useCallback((_e: React.FocusEvent) => {
+    onFocusRef.current?.()
+  }, [])
+
   const handleMentionPickSubmit = useCallback(
     (item: DefaultReactSuggestionItem) => {
       const members = mentionMembersRef.current ?? []
@@ -326,6 +337,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       editable={editable}
       onChange={emitDocumentToVue}
       onBlur={handleBlur}
+      onFocus={handleFocus}
       theme="light"
       slashMenu={blockChromeOn}
       sideMenu={blockChromeOn}

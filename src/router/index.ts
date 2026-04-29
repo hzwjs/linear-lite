@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { Pinia } from 'pinia'
 import { useAuthStore } from '../store/authStore'
+import { tryRecoverDynamicImport } from '../utils/dynamicImportRecovery'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -34,19 +35,22 @@ const router = createRouter({
 })
 
 export function setupRouterGuards(pinia: Pinia) {
-  router.beforeEach((to, _from, next) => {
+  router.beforeEach((to) => {
     const authStore = useAuthStore(pinia)
     const loggedIn = authStore.isLoggedIn
     if (to.name === 'login') {
-      if (loggedIn) next({ path: '/' })
-      else next()
-      return
+      if (loggedIn) return { path: '/' }
+      return true
     }
     if (!loggedIn) {
-      next({ path: '/login' })
-      return
+      return { path: '/login' }
     }
-    next()
+    return true
+  })
+
+  router.onError((error) => {
+    if (tryRecoverDynamicImport(error)) return
+    console.error('Router navigation error:', error)
   })
 }
 

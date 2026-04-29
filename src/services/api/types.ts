@@ -93,7 +93,9 @@ export interface UpdateTaskRequest {
   dueDate?: string | null // ISO 8601
   /** true 时清空截止日期 */
   clearDueDate?: boolean
-  parentId?: string | null
+  parentId?: number | string | null
+  /** true 时解绑父任务 */
+  clearParent?: boolean
   plannedStartDate?: string | null // ISO 8601
   /** true 时清空计划开始日期 */
   clearPlannedStart?: boolean

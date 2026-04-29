@@ -22,6 +22,7 @@ import {
   watch,
   onUnmounted,
   defineAsyncComponent,
+  type Component,
   type ComponentPublicInstance
 } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -39,10 +40,25 @@ import type { Status } from '../types/domain'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import { buildTaskGroups, filterVisibleTaskRows, getAdjacentTaskIds } from '../utils/taskView'
 import { buildTaskRoute, getRouteTaskId } from '../utils/taskRoute'
+import { tryRecoverDynamicImport } from '../utils/dynamicImportRecovery'
 
-const TaskEditor = defineAsyncComponent(() => import('../components/TaskEditor.vue'))
-const GanttChart = defineAsyncComponent(() => import('../components/GanttChart.vue'))
-const TaskImportModal = defineAsyncComponent(() => import('../components/TaskImportModal.vue'))
+function resilientAsyncComponent<T extends Component>(loader: () => Promise<T>) {
+  return defineAsyncComponent({
+    loader,
+    onError(error, retry, fail, attempts) {
+      if (tryRecoverDynamicImport(error)) return
+      if (attempts <= 1) {
+        retry()
+        return
+      }
+      fail()
+    }
+  })
+}
+
+const TaskEditor = resilientAsyncComponent(() => import('../components/TaskEditor.vue'))
+const GanttChart = resilientAsyncComponent(() => import('../components/GanttChart.vue'))
+const TaskImportModal = resilientAsyncComponent(() => import('../components/TaskImportModal.vue'))
 
 const props = defineProps<{
   users: User[]

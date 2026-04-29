@@ -10,6 +10,7 @@ import { activityApi } from '../services/api/activity'
 import { attachmentsApi } from '../services/api/attachments'
 import { taskCommentsApi } from '../services/api/taskComments'
 import { taskApi } from '../services/api/task'
+import { useTaskStore } from '../store/taskStore'
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({
@@ -17,21 +18,25 @@ vi.mock('vue-router', () => ({
   })
 }))
 
-vi.mock('./TiptapEditor.vue', () => ({
+vi.mock('../utils/mermaidHydrate', () => ({
+  runMermaidIn: vi.fn().mockResolvedValue(undefined)
+}))
+
+vi.mock('./BlockNoteEditorWrapper.vue', () => ({
   default: defineComponent({
-    name: 'TiptapEditorStub',
+    name: 'BlockNoteEditorStub',
     props: {
       modelValue: { type: String, default: '' },
       placeholder: { type: String, default: '' },
       mentionMembers: { type: Array, default: undefined }
     },
-    emits: ['ready', 'blur', 'upload-state-change', 'update:modelValue'],
+    emits: ['ready', 'focus', 'blur', 'upload-state-change', 'update:modelValue'],
     mounted() {
       this.$emit('ready')
       this.$emit('upload-state-change', { hasPending: false, hasFailed: false })
     },
     template:
-      "<textarea data-testid=\"tiptap-editor-stub\" :placeholder=\"placeholder\" :value=\"modelValue\" @input=\"$emit('update:modelValue', $event.target.value)\" />"
+      "<textarea data-testid=\"tiptap-editor-stub\" :placeholder=\"placeholder\" :value=\"modelValue\" @focus=\"$emit('focus')\" @blur=\"$emit('blur')\" @input=\"$emit('update:modelValue', $event.target.value)\" />"
   })
 }))
 
@@ -146,6 +151,7 @@ async function mountEditor(task: Task) {
   document.body.appendChild(host)
   const pinia = createPinia()
   setActivePinia(pinia)
+  useTaskStore().tasks = [task]
   const app = createApp(TaskEditor, {
     mode: 'edit',
     task
@@ -157,6 +163,36 @@ async function mountEditor(task: Task) {
   await flushPromises()
   return {
     host,
+    app,
+    unmount() {
+      app.unmount()
+      host.remove()
+    }
+  }
+}
+
+async function mountEditorHost(task: Task) {
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  useTaskStore().tasks = [task]
+  const Host = defineComponent({
+    components: { TaskEditor },
+    data() {
+      return { currentTask: task as Task }
+    },
+    template: '<TaskEditor mode="edit" :task="currentTask" />'
+  })
+  const app = createApp(Host)
+  app.use(pinia)
+  app.use(i18n)
+  const vm = app.mount(host) as { currentTask: Task }
+  await nextTick()
+  await flushPromises()
+  return {
+    host,
+    vm,
     app,
     unmount() {
       app.unmount()
@@ -505,6 +541,32 @@ describe('TaskEditor comments', () => {
       await flushPromises()
 
       expect(taskCommentsApi.delete).toHaveBeenCalledWith('ENG-1', 10)
+    } finally {
+      view.unmount()
+    }
+  })
+
+  it('keeps description input stable during same-task prop refresh while editor is focused', async () => {
+    const view = await mountEditorHost(createTask({ description: 'server-0' }))
+    try {
+      const editor = view.host.querySelector('[data-testid="tiptap-editor-stub"]') as HTMLTextAreaElement
+      expect(editor).toBeTruthy()
+      editor.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+      editor.value = 'local-draft'
+      editor.dispatchEvent(new Event('input', { bubbles: true }))
+      await nextTick()
+      await flushPromises()
+
+      view.vm.currentTask = {
+        ...view.vm.currentTask,
+        description: 'server-1',
+        updatedAt: 2
+      }
+      await nextTick()
+      await flushPromises()
+
+      const refreshed = view.host.querySelector('[data-testid="tiptap-editor-stub"]') as HTMLTextAreaElement
+      expect(refreshed.value).toBe('local-draft')
     } finally {
       view.unmount()
     }

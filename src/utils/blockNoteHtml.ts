@@ -1,5 +1,6 @@
 import DOMPurify from 'dompurify'
 import { parseBlockNoteStoredBlocks } from './blockNoteDescription'
+import { normalizeMermaidDiagramSource } from './mermaidSource'
 
 // ─── Types (minimal subset of BlockNote's block shape) ───────────────────────
 
@@ -62,6 +63,17 @@ function inlinesToHtml(content: InlineContent[]): string {
   return asArr(content).map(inlineToHtml).join('')
 }
 
+function inlinesToPlainText(content: InlineContent[]): string {
+  return asArr(content)
+    .map((node) => {
+      if (node.type === 'mention') return `@${node.props.label ?? ''}`
+      if (node.type === 'link') return inlinesToPlainText(asArr(node.content))
+      if (node.type === 'text') return node.text ?? ''
+      return ''
+    })
+    .join('')
+}
+
 function listItemHtml(block: Block): string {
   const liContent = inlinesToHtml(block.content)
   const children = asArr(block.children)
@@ -116,8 +128,14 @@ function blocksToHtml(blocks: Block[]): string {
         break
       }
       case 'codeBlock': {
-        const lang = esc(String(block.props.language ?? ''))
-        html += `<pre><code class="language-${lang}">${content}</code></pre>`
+        const langRaw = String(block.props.language ?? '').trim().toLowerCase()
+        if (langRaw === 'mermaid') {
+          const src = normalizeMermaidDiagramSource(inlinesToPlainText(block.content))
+          html += `<div class="mermaid">${esc(src)}</div>`
+        } else {
+          const lang = esc(String(block.props.language ?? ''))
+          html += `<pre><code class="language-${lang}">${content}</code></pre>`
+        }
         break
       }
       case 'quote':
@@ -138,7 +156,7 @@ function blocksToHtml(blocks: Block[]): string {
 
 const ALLOWED_TAGS = [
   'p', 'br', 'strong', 'em', 'u', 's', 'a', 'code', 'pre',
-  'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'blockquote', 'input', 'span',
+  'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'blockquote', 'input', 'span', 'div',
 ]
 
 const ALLOWED_ATTR = ['href', 'target', 'rel', 'class', 'type', 'disabled', 'checked']
@@ -185,4 +203,40 @@ export function renderBody(body: string, renderMarkdown: (s: string) => string):
 
   const raw = blocksToHtml(blocks as Block[])
   return DOMPurify.sanitize(raw, { ALLOWED_TAGS, ALLOWED_ATTR })
+}
+
+function collectMermaidSourcesFromBlocks(blocks: Block[], out: string[]) {
+  for (const b of asArr(blocks)) {
+    if (b.type === 'codeBlock' && String(b.props.language ?? '').trim().toLowerCase() === 'mermaid') {
+      const normalized = normalizeMermaidDiagramSource(inlinesToPlainText(b.content))
+      if (normalized) out.push(normalized)
+    }
+    collectMermaidSourcesFromBlocks(asArr(b.children), out)
+  }
+}
+
+function mermaidFencesFromLegacyMarkdown(md: string): string[] {
+  const re = /```mermaid\s*\n([\s\S]*?)```/gi
+  const out: string[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(md)) !== null) {
+    const inner = normalizeMermaidDiagramSource(m[1] ?? '')
+    if (inner) out.push(inner)
+  }
+  return out
+}
+
+/**
+ * 从任务描述（BlockNote JSON 或旧 Markdown）中抽出 Mermaid 图，生成占位 HTML，供预览区 v-html + mermaid.run 使用。
+ */
+export function mermaidPreviewHtmlFromDescriptionBody(body: string): string {
+  if (!body?.trim()) return ''
+  const trimmed = body.trim()
+  const blocks = parseBlockNoteStoredBlocks(trimmed)
+  if (blocks === undefined) {
+    return mermaidFencesFromLegacyMarkdown(trimmed).map((s) => `<div class="mermaid">${esc(s)}</div>`).join('')
+  }
+  const sources: string[] = []
+  collectMermaidSourcesFromBlocks(blocks as Block[], sources)
+  return sources.map((s) => `<div class="mermaid">${esc(s)}</div>`).join('')
 }

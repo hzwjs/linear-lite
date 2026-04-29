@@ -5,7 +5,7 @@ import type { Task, Status, Priority } from '../types/domain'
 /** 处理人筛选项：'unassigned' 无负责人；number 为 assigneeId */
 export type AssigneeFilterItem = 'unassigned' | number
 import { taskApi } from '../services/api/task'
-import type { TaskLabelWriteItem } from '../services/api/types'
+import type { TaskLabelWriteItem, UpdateTaskRequest } from '../services/api/types'
 import { useProjectStore } from './projectStore'
 import { useFavoriteStore } from './favoriteStore'
 import { toApiDateTime } from '../utils/taskDate'
@@ -32,6 +32,35 @@ export const useTaskStore = defineStore('taskStore', () => {
   const filterAssigneeUsernameNormMap = ref<Map<number, string>>(new Map())
   /** 按标签 id 多选筛选，语义为 OR（至少命中其一） */
   const filterLabelIds = ref<number[]>([])
+  type TaskUpdatePatch = Partial<Omit<Task, 'id' | 'createdAt' | 'labels'>> & {
+    clearAssignee?: boolean
+    clearPlannedStart?: boolean
+    clearDueDate?: boolean
+    clearParent?: boolean
+    labels?: TaskLabelWriteItem[]
+  }
+
+  type DrainResult =
+    | { ok: true; task: Task }
+    | { ok: false; reason: 'timeout' | 'save_failed'; task: Task; lastError?: Error }
+
+  type LaneIntent = {
+    resolve: (task: Task) => void
+    reject: (error: unknown) => void
+  }
+
+  type TaskSaveLane = {
+    ackBase: Task | null
+    inFlightPatch: TaskUpdatePatch | null
+    pendingPatch: TaskUpdatePatch | null
+    inFlightIntents: LaneIntent[]
+    pendingIntents: LaneIntent[]
+    inFlightPromise: Promise<void> | null
+    lastError?: Error
+    hasUnsavedFailure: boolean
+  }
+
+  const saveLanes = new Map<string, TaskSaveLane>()
 
   const currentTask = computed(() => {
     if (!currentTaskId.value) return null
@@ -47,6 +76,162 @@ export const useTaskStore = defineStore('taskStore', () => {
       ...taskByKeyCache.value,
       [task.id]: task
     }
+  }
+
+  function cloneTask(task: Task): Task {
+    return {
+      ...task,
+      labels: task.labels?.map((l) => ({ ...l }))
+    }
+  }
+
+  function normalizePatch(patch: TaskUpdatePatch): TaskUpdatePatch {
+    const next: TaskUpdatePatch = { ...patch }
+    if (next.clearAssignee === true) delete next.assigneeId
+    if (next.clearDueDate === true) delete next.dueDate
+    if (next.clearPlannedStart === true) delete next.plannedStartDate
+    if (next.clearParent === true) delete next.parentId
+    return next
+  }
+
+  function applyPatchToTask(base: Task, patchInput: TaskUpdatePatch): Task {
+    const patch = normalizePatch(patchInput)
+    const next: Task = { ...base, updatedAt: Date.now() }
+    if (patch.title !== undefined) next.title = patch.title
+    if (patch.description !== undefined) next.description = patch.description
+    if (patch.status !== undefined) next.status = patch.status
+    if (patch.priority !== undefined) next.priority = patch.priority
+    if (patch.clearAssignee === true) {
+      next.assigneeId = undefined
+      next.assigneeDisplayName = undefined
+    } else if (patch.assigneeId !== undefined) {
+      next.assigneeId = patch.assigneeId
+      if (patch.assigneeId != null) next.assigneeDisplayName = undefined
+    }
+    if (patch.clearDueDate === true) next.dueDate = undefined
+    else if (patch.dueDate !== undefined) next.dueDate = patch.dueDate
+    if (patch.clearPlannedStart === true) next.plannedStartDate = undefined
+    else if (patch.plannedStartDate !== undefined) next.plannedStartDate = patch.plannedStartDate
+    if (patch.clearParent === true) next.parentId = null
+    else if (patch.parentId !== undefined) next.parentId = patch.parentId
+    if (patch.progressPercent !== undefined) next.progressPercent = patch.progressPercent
+    if (patch.projectId !== undefined) next.projectId = patch.projectId
+    if (patch.creatorId !== undefined) next.creatorId = patch.creatorId
+    if (patch.completedAt !== undefined) next.completedAt = patch.completedAt
+    if (patch.labels !== undefined) {
+      next.labels = patch.labels.flatMap((l) => {
+        if ('id' in l) {
+          const numericId = Number(l.id)
+          const existingName = base.labels?.find((label) => label.id === numericId)?.name
+          const fallbackName =
+            typeof (l as { name?: unknown }).name === 'string' &&
+            (l as { name?: string }).name?.trim()
+              ? (l as { name?: string }).name!.trim()
+              : String(numericId)
+          return [{ id: numericId, name: existingName ?? fallbackName }]
+        }
+        const trimmed = l.name.trim()
+        if (!trimmed) return []
+        // name-only 标签在服务端返回前没有真实 id，按名称生成稳定负数占位。
+        return [{ id: toOptimisticLabelId(trimmed), name: trimmed }]
+      })
+    }
+    const completionGroupTouched = patch.status !== undefined || patch.progressPercent !== undefined
+    if (completionGroupTouched && next.status !== 'done') {
+      next.completedAt = null
+    }
+    return next
+  }
+
+  function mergePatches(
+    current: TaskUpdatePatch | null,
+    incoming: TaskUpdatePatch
+  ): TaskUpdatePatch {
+    return normalizePatch({ ...(current ?? {}), ...incoming })
+  }
+
+  function toOptimisticLabelId(name: string): number {
+    let hash = 0
+    for (let i = 0; i < name.length; i++) {
+      hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0
+    }
+    const normalized = Math.abs(hash) || 1
+    return -normalized
+  }
+
+  function getTaskIndexById(id: string): number {
+    return tasks.value.findIndex((t) => t.id === id)
+  }
+
+  function upsertTaskRow(id: string, next: Task) {
+    const index = getTaskIndexById(id)
+    if (index === -1) return
+    const prev = tasks.value[index]
+    if (prev == null) return
+    tasks.value[index] = next
+    cacheTask(next)
+    recomputeParentSubIssueProgress(prev.parentId)
+    recomputeParentSubIssueProgress(next.parentId)
+    if (next.favorited) useFavoriteStore().syncTask(next)
+  }
+
+  function getOrCreateLane(id: string): TaskSaveLane {
+    let lane = saveLanes.get(id)
+    if (lane) return lane
+    const index = getTaskIndexById(id)
+    lane = {
+      ackBase: index === -1 ? null : cloneTask(tasks.value[index]!),
+      inFlightPatch: null,
+      pendingPatch: null,
+      inFlightIntents: [],
+      pendingIntents: [],
+      inFlightPromise: null,
+      hasUnsavedFailure: false
+    }
+    saveLanes.set(id, lane)
+    return lane
+  }
+
+  function syncLaneRow(id: string) {
+    const lane = saveLanes.get(id)
+    if (!lane || lane.ackBase == null) return
+    let next = cloneTask(lane.ackBase)
+    if (lane.inFlightPatch != null) next = applyPatchToTask(next, lane.inFlightPatch)
+    if (lane.pendingPatch != null) next = applyPatchToTask(next, lane.pendingPatch)
+    upsertTaskRow(id, next)
+  }
+
+  function toParentId(value: TaskUpdatePatch['parentId']): number | null | undefined {
+    if (value === undefined) return undefined
+    if (value === null) return null
+    const n = Number(value)
+    return Number.isFinite(n) ? n : undefined
+  }
+
+  function toUpdateRequest(patchInput: TaskUpdatePatch): UpdateTaskRequest {
+    const patch = normalizePatch(patchInput)
+    const parentId = toParentId(patch.parentId)
+    const body: UpdateTaskRequest = {
+      title: patch.title,
+      description: patch.description,
+      status: patch.status,
+      priority: patch.priority,
+      assigneeId: patch.assigneeId,
+      clearAssignee: patch.clearAssignee,
+      dueDate: toApiDateTime(patch.dueDate),
+      clearDueDate: patch.clearDueDate,
+      clearParent: patch.clearParent,
+      plannedStartDate: toApiDateTime(patch.plannedStartDate),
+      clearPlannedStart: patch.clearPlannedStart,
+      progressPercent: patch.progressPercent,
+      ...(patch.labels !== undefined ? { labels: patch.labels } : {})
+    }
+    if (patch.clearParent === true) {
+      delete body.parentId
+    } else if (parentId !== undefined) {
+      body.parentId = parentId
+    }
+    return body
   }
 
   const filteredTasks = computed(() => {
@@ -131,6 +316,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     const projectStore = useProjectStore()
     const projectId = projectStore.activeProjectId
     if (projectId == null) {
+      saveLanes.clear()
       tasks.value = []
       error.value = null
       isLoading.value = false
@@ -141,12 +327,15 @@ export const useTaskStore = defineStore('taskStore', () => {
     isLoading.value = true
     error.value = null
     tasks.value = []
+    saveLanes.clear()
     try {
       const list = await taskApi.list(requestedProjectId, { topLevelOnly: false })
       if (useProjectStore().activeProjectId !== requestedProjectId) return
       tasks.value = list
       for (const task of list) {
         cacheTask(task)
+        const lane = saveLanes.get(task.id)
+        if (lane) lane.ackBase = cloneTask(task)
       }
     } catch (err: unknown) {
       if (useProjectStore().activeProjectId !== requestedProjectId) return
@@ -169,6 +358,11 @@ export const useTaskStore = defineStore('taskStore', () => {
       tasks.value = [task, ...tasks.value]
     } else {
       tasks.value[index] = task
+    }
+    const lane = saveLanes.get(task.id)
+    if (lane != null && lane.inFlightPatch == null && lane.pendingPatch == null) {
+      lane.ackBase = cloneTask(task)
+      lane.hasUnsavedFailure = false
     }
     return task
   }
@@ -219,126 +413,146 @@ export const useTaskStore = defineStore('taskStore', () => {
   }
 
   /**
-   * 同步合并到内存任务列表（不请求网络）。updateTask 会先调用此方法再 PUT，避免防抖未触发时关抽屉已丢变更。
+   * 同步合并到内存任务列表（不请求网络）。
    */
-  function applyLocalTaskPatch(
-    id: string,
-    updates: Partial<Omit<Task, 'id' | 'createdAt'>> & {
-      clearAssignee?: boolean
-      clearPlannedStart?: boolean
-      clearDueDate?: boolean
-    }
-  ) {
-    const index = tasks.value.findIndex((t) => t.id === id)
+  function applyLocalTaskPatch(id: string, updates: TaskUpdatePatch) {
+    const index = getTaskIndexById(id)
     if (index === -1) return
-    const prev = tasks.value[index]
-    if (prev === undefined) return
-    const next: Task = { ...prev, updatedAt: Date.now() }
-    if (updates.title !== undefined) next.title = updates.title
-    if (updates.description !== undefined) next.description = updates.description
-    if (updates.status !== undefined) next.status = updates.status
-    if (updates.priority !== undefined) next.priority = updates.priority
-    if (updates.clearAssignee === true) {
-      next.assigneeId = undefined
-      next.assigneeDisplayName = undefined
-    } else if (updates.assigneeId !== undefined) {
-      next.assigneeId = updates.assigneeId
-      if (updates.assigneeId != null) {
-        next.assigneeDisplayName = undefined
-      }
-    }
-    if (updates.clearDueDate === true) {
-      next.dueDate = undefined
-    } else if (updates.dueDate !== undefined) {
-      next.dueDate = updates.dueDate
-    }
-    if (updates.clearPlannedStart === true) {
-      next.plannedStartDate = undefined
-    } else if (updates.plannedStartDate !== undefined) {
-      next.plannedStartDate = updates.plannedStartDate
-    }
-    if (updates.parentId !== undefined) next.parentId = updates.parentId
-    if (updates.progressPercent !== undefined) next.progressPercent = updates.progressPercent
-    if (updates.projectId !== undefined) next.projectId = updates.projectId
-    if (updates.creatorId !== undefined) next.creatorId = updates.creatorId
-    if (updates.completedAt !== undefined) next.completedAt = updates.completedAt
-    tasks.value[index] = next
-    cacheTask(next)
-    recomputeParentSubIssueProgress(prev.parentId)
-    recomputeParentSubIssueProgress(next.parentId)
-    if (next.favorited) {
-      useFavoriteStore().syncTask(next)
-    }
+    const current = tasks.value[index]
+    if (current == null) return
+    const next = applyPatchToTask(current, updates)
+    upsertTaskRow(id, next)
   }
 
-  function snapshotTaskRowForRollback(row: Task): Task {
-    return {
-      ...row,
-      labels: row.labels?.map((l) => ({ ...l }))
-    }
-  }
+  async function pumpTaskLane(id: string): Promise<void> {
+    const lane = getOrCreateLane(id)
+    if (lane.inFlightPromise != null || lane.pendingPatch == null || lane.ackBase == null) return
 
-  async function updateTask(
-    id: string,
-    updates: Partial<Omit<Task, 'id' | 'createdAt' | 'labels'>> & {
-      clearAssignee?: boolean
-      clearPlannedStart?: boolean
-      clearDueDate?: boolean
-      labels?: TaskLabelWriteItem[]
-    }
-  ) {
-    const { labels: labelsPayload, ...patchForLocal } = updates
-    const index = tasks.value.findIndex((t) => t.id === id)
-    const previousSnapshot = index === -1 ? null : snapshotTaskRowForRollback(tasks.value[index]!)
-    applyLocalTaskPatch(id, patchForLocal)
+    lane.inFlightPatch = lane.pendingPatch
+    lane.pendingPatch = null
+    lane.inFlightIntents = lane.pendingIntents
+    lane.pendingIntents = []
+    syncLaneRow(id)
+    const requestBody = toUpdateRequest(lane.inFlightPatch)
     error.value = null
-    try {
-      const existing = tasks.value.find((t) => t.id === id) ?? null
-      const updated = await taskApi.update(id, {
-        title: updates.title,
-        description: updates.description,
-        status: updates.status,
-        priority: updates.priority,
-        assigneeId: updates.assigneeId,
-        clearAssignee: updates.clearAssignee,
-        dueDate: toApiDateTime(updates.dueDate),
-        clearDueDate: updates.clearDueDate,
-        parentId: updates.parentId,
-        plannedStartDate: toApiDateTime(updates.plannedStartDate),
-        clearPlannedStart: updates.clearPlannedStart,
-        progressPercent: updates.progressPercent,
-        ...(labelsPayload !== undefined ? { labels: labelsPayload } : {})
+
+    lane.inFlightPromise = taskApi
+      .update(id, requestBody)
+      .then((updated) => {
+        lane.ackBase = cloneTask(updated)
+        lane.hasUnsavedFailure = false
+        lane.lastError = undefined
+        const favorite = updated.favorited ?? tasks.value[getTaskIndexById(id)]?.favorited ?? false
+        lane.ackBase.favorited = favorite
+        syncLaneRow(id)
+        const index = getTaskIndexById(id)
+        const row = index === -1 ? lane.ackBase : tasks.value[index]!
+        const intents = lane.inFlightIntents.splice(0)
+        intents.forEach((intent) => intent.resolve(row))
       })
-      const index = tasks.value.findIndex((t) => t.id === id)
-      const merged = {
-        ...existing,
-        ...updated,
-        favorited: updated.favorited ?? existing?.favorited ?? false
+      .catch((err: unknown) => {
+        const resolvedError =
+          err instanceof Error
+            ? err
+            : new Error(translate('taskStore.errors.updateFailed', undefined, 'Failed to update task.'))
+        lane.lastError = resolvedError
+        lane.hasUnsavedFailure = true
+        error.value = resolvedError.message
+        const intents = lane.inFlightIntents.splice(0)
+        intents.forEach((intent) => intent.reject(resolvedError))
+      })
+      .finally(() => {
+        lane.inFlightPatch = null
+        lane.inFlightPromise = null
+        syncLaneRow(id)
+      })
+
+    await lane.inFlightPromise
+    if (lane.pendingPatch != null) {
+      await pumpTaskLane(id)
+    }
+  }
+
+  function enqueueTaskUpdate(
+    id: string,
+    updates: TaskUpdatePatch
+  ): Promise<Task> {
+    const lane = getOrCreateLane(id)
+    if (lane.ackBase == null) {
+      const index = getTaskIndexById(id)
+      if (index === -1) {
+        const cached = taskByKeyCache.value[id]
+        if (cached == null) {
+          return Promise.reject(new Error(`Task not found: ${id}`))
+        }
+        lane.ackBase = cloneTask(cached)
+      } else {
+        lane.ackBase = cloneTask(tasks.value[index]!)
       }
-      if (index !== -1) tasks.value[index] = merged
-      cacheTask(merged)
-      recomputeParentSubIssueProgress(existing?.parentId)
-      recomputeParentSubIssueProgress(updated.parentId)
-      if (merged.favorited) {
-        useFavoriteStore().syncTask(merged)
+    }
+    lane.pendingPatch = mergePatches(lane.pendingPatch, updates)
+    const p = new Promise<Task>((resolve, reject) => {
+      lane.pendingIntents.push({ resolve, reject })
+    })
+    syncLaneRow(id)
+    void pumpTaskLane(id)
+    return p
+  }
+
+  async function updateTask(id: string, updates: TaskUpdatePatch) {
+    return enqueueTaskUpdate(id, updates)
+  }
+
+  function flushTask(id: string): void {
+    void pumpTaskLane(id)
+  }
+
+  async function drainTask(id: string, opts?: { timeoutMs?: number }): Promise<DrainResult> {
+    const lane = saveLanes.get(id)
+    const index = getTaskIndexById(id)
+    if (!lane || index === -1) {
+      const fallback = index === -1 ? taskByKeyCache.value[id] : tasks.value[index]
+      if (fallback == null) {
+        throw new Error(`Task not found: ${id}`)
       }
-      return merged
-    } catch (err: unknown) {
-      if (previousSnapshot != null && index !== -1) {
-        const optimistic = tasks.value[index]
-        tasks.value[index] = previousSnapshot
-        cacheTask(previousSnapshot)
-        recomputeParentSubIssueProgress(previousSnapshot.parentId)
-        recomputeParentSubIssueProgress(optimistic?.parentId)
-        if (previousSnapshot.favorited) {
-          useFavoriteStore().syncTask(tasks.value[index]!)
+      return { ok: true, task: fallback }
+    }
+    const timeoutMs = opts?.timeoutMs ?? 5000
+    const startedAt = Date.now()
+    while (true) {
+      const idle = lane.inFlightPatch == null && lane.pendingPatch == null && lane.inFlightPromise == null
+      const currentIndex = getTaskIndexById(id)
+      const currentTask = currentIndex === -1 ? lane.ackBase : tasks.value[currentIndex] ?? lane.ackBase
+      if (idle) {
+        if (currentTask == null) {
+          throw new Error(`Task not found: ${id}`)
+        }
+        if (lane.hasUnsavedFailure) {
+          return {
+            ok: false,
+            reason: 'save_failed',
+            task: currentTask,
+            lastError: lane.lastError
+          }
+        }
+        return { ok: true, task: currentTask }
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        if (currentTask == null) {
+          throw new Error(`Task not found: ${id}`)
+        }
+        return {
+          ok: false,
+          reason: 'timeout',
+          task: currentTask,
+          lastError: lane.lastError
         }
       }
-      error.value =
-        err instanceof Error
-          ? err.message
-          : translate('taskStore.errors.updateFailed', undefined, 'Failed to update task.')
-      throw err
+      if (lane.inFlightPromise != null) {
+        await lane.inFlightPromise
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
     }
   }
 
@@ -436,7 +650,10 @@ export const useTaskStore = defineStore('taskStore', () => {
     fetchSubIssues,
     createTask,
     applyLocalTaskPatch,
+    enqueueTaskUpdate,
     updateTask,
+    flushTask,
+    drainTask,
     transitionTask,
     stripProjectLabelFromTasks,
     toggleFilterStatus,

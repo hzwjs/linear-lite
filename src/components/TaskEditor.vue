@@ -28,7 +28,8 @@ import {
   groupTaskActivitiesForDisplay
 } from '../utils/taskActivityGroup'
 import { renderMarkdown } from '../utils/markdown'
-import { renderBody } from '../utils/blockNoteHtml'
+import { renderBody, mermaidPreviewHtmlFromDescriptionBody } from '../utils/blockNoteHtml'
+import { runMermaidIn } from '../utils/mermaidHydrate'
 import { buildCommentThreads } from '../utils/commentThread'
 import { randomClientId } from '../utils/clientId'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
@@ -98,6 +99,7 @@ const { t } = useI18n()
 const formTitle = ref('')
 const formDescription = ref('')
 const descriptionUploadState = ref({ hasPending: false, hasFailed: false })
+const isDescriptionEditing = ref(false)
 const descriptionEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
 
 function focusDescription() {
@@ -147,6 +149,27 @@ function activityDisplayRowTime(item: TaskActivityDisplayItem): number {
 
 const comments = ref<TaskCommentDto[]>([])
 const commentsLoading = ref(false)
+const commentsMermaidHostRef = ref<HTMLElement | null>(null)
+const descriptionMermaidPreviewRef = ref<HTMLElement | null>(null)
+let descriptionMermaidDebounce: ReturnType<typeof setTimeout> | null = null
+
+const descriptionMermaidPreviewHtml = computed(() =>
+  mermaidPreviewHtmlFromDescriptionBody(formDescription.value)
+)
+
+async function hydrateCommentsMermaid() {
+  await nextTick()
+  await runMermaidIn(commentsMermaidHostRef.value)
+}
+
+function scheduleDescriptionMermaidHydrate() {
+  if (descriptionMermaidDebounce != null) clearTimeout(descriptionMermaidDebounce)
+  descriptionMermaidDebounce = setTimeout(async () => {
+    descriptionMermaidDebounce = null
+    await nextTick()
+    await runMermaidIn(descriptionMermaidPreviewRef.value)
+  }, 400)
+}
 const commentBody = ref('')
 const commentSubmitting = ref(false)
 const commentMentionIds = ref<Set<number>>(new Set())
@@ -770,6 +793,19 @@ watch(
   () => loadSubIssues()
 )
 
+watch(
+  [comments, commentsLoading, expandedReplyRootIds],
+  () => {
+    if (commentsLoading.value) return
+    void hydrateCommentsMermaid()
+  },
+  { deep: true }
+)
+
+watch(descriptionMermaidPreviewHtml, () => {
+  scheduleDescriptionMermaidHydrate()
+})
+
 async function loadProjectMembers(projectId: number | null) {
   if (projectId == null) {
     userList.value = []
@@ -791,6 +827,8 @@ onMounted(() => {
   dueStateNowTimer = setInterval(() => {
     dueStateNow.value = Date.now()
   }, 60_000)
+  void hydrateCommentsMermaid()
+  scheduleDescriptionMermaidHydrate()
 })
 
 watch(effectiveProjectId, (id) => {
@@ -801,6 +839,10 @@ onBeforeUnmount(() => {
   if (dueStateNowTimer != null) {
     clearInterval(dueStateNowTimer)
     dueStateNowTimer = null
+  }
+  if (descriptionMermaidDebounce != null) {
+    clearTimeout(descriptionMermaidDebounce)
+    descriptionMermaidDebounce = null
   }
 })
 
@@ -911,14 +953,17 @@ function descriptionForSave(desc: string | undefined): string {
   return onlyEmptyLists ? '' : s
 }
 
-const loadForm = () => {
+function loadForm(options?: { preserveDescription?: boolean }) {
+  const preserveDescription = options?.preserveDescription === true
   /** currentTask 短暂为 null（列表刷新、项目切换等）时不要走下方 else 整表重置 */
   if (props.mode === 'edit' && !props.task) {
     return
   }
   if (props.mode === 'edit' && props.task) {
     formTitle.value = props.task.title
-    formDescription.value = props.task.description || ''
+    if (!preserveDescription) {
+      formDescription.value = props.task.description || ''
+    }
     formStatus.value = props.task.status
     formPriority.value = props.task.priority
     formAssigneeId.value = props.task.assigneeId ?? ''
@@ -931,7 +976,9 @@ const loadForm = () => {
     const draft = readTaskEditDraft(props.task.id)
     if (draft && draft.savedAt > props.task.updatedAt) {
       formTitle.value = draft.title
-      formDescription.value = draft.description
+      if (!preserveDescription) {
+        formDescription.value = draft.description
+      }
       formStatus.value = draft.status
       formPriority.value = draft.priority
       formAssigneeId.value = draft.assigneeId == null ? '' : draft.assigneeId
@@ -957,15 +1004,20 @@ const loadForm = () => {
 
 watch(
   () => props.task,
-  () => {
+  (nextTask, prevTask) => {
+    const taskChanged = nextTask?.id !== prevTask?.id
     if (justSavedTaskId.value !== null && props.task?.id === justSavedTaskId.value) {
+      return
+    }
+    if (!taskChanged && isDescriptionEditing.value) {
+      loadForm({ preserveDescription: true })
       return
     }
     loadForm()
   },
   { immediate: true }
 )
-watch(() => props.mode, loadForm)
+watch(() => props.mode, () => loadForm())
 watch(() => props.defaultStatus, () => {
   if (props.mode === 'create') formStatus.value = props.defaultStatus ?? 'todo'
 })
@@ -1067,6 +1119,8 @@ async function performAutoSave() {
   saveStatus.value = 'saving'
   justSavedTaskId.value = props.task.id
   try {
+    const labelsDirty =
+      formLabelStableKey(formLabels.value) !== taskLabelsStableKey(props.task.labels)
     const merged = await store.updateTask(props.task.id, {
       title: payload.title,
       description: payload.description,
@@ -1081,7 +1135,7 @@ async function performAutoSave() {
       dueDate: payload.dueDate,
       clearDueDate,
       progressPercent: payload.progressPercent,
-      labels: toLabelWriteItems(formLabels.value)
+      ...(labelsDirty ? { labels: toLabelWriteItems(formLabels.value) } : {})
     })
     // 保存后故意跳过 loadForm，避免覆盖正文；服务端进度↔状态联动需从合并结果写回
     formStatus.value = merged.status
@@ -1128,8 +1182,8 @@ function scheduleAutoSave() {
   }, AUTO_SAVE_DEBOUNCE_MS)
 }
 
-/** 关抽屉 / 切换任务前调用：取消防抖并立刻走一遍保存（先本地合并与 localStorage，再 PUT） */
-async function flushPendingSave() {
+/** 展示层草稿 flush：取消本地 debounce 并将最新表单提交到 store lane */
+async function flushEditorDraft() {
   if (props.mode !== 'edit' || !props.task) return
   if (autoSaveTimer) {
     clearTimeout(autoSaveTimer)
@@ -1138,13 +1192,41 @@ async function flushPendingSave() {
   await performAutoSave()
 }
 
+/** 关抽屉 / 切换任务前调用：flushEditorDraft -> flushTask -> drainTask */
+async function flushPendingSave() {
+  if (props.mode !== 'edit' || !props.task) return
+  await flushEditorDraft()
+  store.flushTask(props.task.id)
+  const drained = await store.drainTask(props.task.id)
+  if (!drained.ok) {
+    if (drained.reason === 'save_failed') {
+      notifySaveState(t('taskEditor.saveFailedBlockClose'))
+      throw drained.lastError ?? new Error('save_failed')
+    }
+    notifySaveState(t('taskEditor.saveTimeoutWarn'))
+  }
+}
+
+function notifySaveState(message: string) {
+  try {
+    window.alert(message)
+  } catch {
+    console.warn(message)
+  }
+}
+
 onBeforeUnmount(() => {
-  void flushPendingSave()
+  if (props.mode !== 'edit' || !props.task) return
+  void flushEditorDraft().catch((e) => {
+    console.warn('Flush editor draft on unmount failed:', e)
+  })
+  store.flushTask(props.task.id)
 })
 
 defineExpose({ flushPendingSave })
 
 function onDescriptionBlur() {
+  isDescriptionEditing.value = false
   if (props.mode !== 'edit' || !props.task) return
   if (autoSaveTimer) {
     clearTimeout(autoSaveTimer)
@@ -1163,6 +1245,10 @@ function onDescriptionBlur() {
   }
   if (isPayloadEqual(payload, current)) return
   void performAutoSave()
+}
+
+function onDescriptionFocus() {
+  isDescriptionEditing.value = true
 }
 
 watch(
@@ -1309,9 +1395,21 @@ async function toggleFavorite() {
                 v-model="formDescription"
                 :block-chrome="true"
                 @upload-state-change="onDescriptionUploadStateChange"
+                @focus="onDescriptionFocus"
                 @blur="onDescriptionBlur"
                 :placeholder="t('taskEditor.descriptionPlaceholder')"
                 :min-height="96"
+              />
+            </div>
+            <div
+              v-if="descriptionMermaidPreviewHtml"
+              ref="descriptionMermaidPreviewRef"
+              class="description-mermaid-preview"
+            >
+              <div class="description-mermaid-preview__head">{{ t('taskEditor.mermaidPreview') }}</div>
+              <div
+                class="description-mermaid-preview__canvas markdown-body"
+                v-html="descriptionMermaidPreviewHtml"
               />
             </div>
           </section>
@@ -1523,7 +1621,11 @@ async function toggleFavorite() {
           </div>
           <div class="linear-section-body">
             <div v-if="commentsLoading" class="activity-empty">{{ t('taskEditor.commentsLoading') }}</div>
-            <div v-else-if="commentThreads.length" class="task-comments-list">
+            <div
+              v-else-if="commentThreads.length"
+              ref="commentsMermaidHostRef"
+              class="task-comments-list"
+            >
               <div v-for="thread in commentThreads" :key="thread.root.id" class="task-comment-thread">
                 <div class="task-comment-row task-comment-row--root">
                   <div class="task-comment-head">
@@ -2119,6 +2221,29 @@ async function toggleFavorite() {
   width: calc(100% + 6px);
   max-width: none;
 }
+.description-mermaid-preview {
+  margin-top: 10px;
+  margin-inline-start: 36px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-base);
+}
+.description-mermaid-preview__head {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+  letter-spacing: 0.02em;
+}
+.description-mermaid-preview__canvas {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.description-mermaid-preview__canvas :deep(.mermaid) {
+  display: flex;
+  justify-content: flex-start;
+}
 /* 新建任务时标题与描述间距略大，更易区分 */
 .editor-panel--create .content-section--title {
   margin-bottom: 16px;
@@ -2464,6 +2589,11 @@ async function toggleFavorite() {
   flex-direction: column;
   gap: 6px;
   margin-bottom: 8px;
+}
+.task-comments-list :deep(.mermaid) {
+  margin: 8px 0;
+  max-width: 100%;
+  overflow-x: auto;
 }
 .task-comment-thread {
   display: flex;

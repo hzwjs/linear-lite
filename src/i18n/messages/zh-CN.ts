@@ -404,6 +404,7 @@ const zhCN = {
     exitFullscreen: '退出全屏',
     issueTitlePlaceholder: '任务标题',
     descriptionPlaceholder: '添加描述… 输入 / 可插入标题、列表等',
+    mermaidPreview: 'Mermaid 预览',
     attachments: '附件',
     attachmentsUploading: '正在上传附件…',
     deleteAttachment: '删除附件',
@@ -453,7 +454,9 @@ const zhCN = {
     mentionNoMatches: '没有匹配的成员',
     commentSendFailed: '发送失败',
     deleteComment: '删除',
-    deleteCommentAria: '删除该评论'
+    deleteCommentAria: '删除该评论',
+    saveFailedBlockClose: '保存失败。请先处理问题并重试，当前不允许离开该任务。',
+    saveTimeoutWarn: '保存时间较长，最新修改可能尚未完全同步。'
   },
   notifications: {
     title: '通知',

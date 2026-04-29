@@ -118,7 +118,11 @@ public class TaskCommandService {
         return inserted;
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    /**
+     * 不使用整方法事务：对 {@code tasks} 行的排他锁仅在单条 UPDATE 语句期间持有。
+     * 标签替换、活动记录在各自调用中提交（{@link LabelService#replaceTaskLabels} 自带事务），
+     * 避免「先 UPDATE 再跑大量附属 SQL」拉长同一条事务对行的持锁时间，降低锁等待超时。
+     */
     public Task update(String taskKey, UpdateTaskRequest request, Long userId) {
         if (taskKey == null || taskKey.isBlank()) {
             throw new IllegalArgumentException("任务 ID 不能为空");

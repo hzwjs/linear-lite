@@ -12,4 +12,11 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('![](javascript:alert(1))')
     expect(html).not.toContain('javascript:')
   })
+
+  it('将 mermaid 代码块输出为 div.mermaid 占位', () => {
+    const html = renderMarkdown('```mermaid\ngraph TD\n  A-->B\n```')
+    expect(html).toContain('class="mermaid"')
+    expect(html).toContain('graph TD')
+    expect(html).toContain('A--&gt;B')
+  })
 })

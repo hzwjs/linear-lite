@@ -32,8 +32,19 @@ import {
   type ProjectBoardSnapshot
 } from '../utils/projectBoardPreferences'
 import { buildTaskRoute, getRouteProjectId, getRouteTaskId } from '../utils/taskRoute'
+import { tryRecoverDynamicImport } from '../utils/dynamicImportRecovery'
 
-const BoardViewContent = defineAsyncComponent(() => import('./BoardViewContent.vue'))
+const BoardViewContent = defineAsyncComponent({
+  loader: () => import('./BoardViewContent.vue'),
+  onError(error, retry, fail, attempts) {
+    if (tryRecoverDynamicImport(error)) return
+    if (attempts <= 1) {
+      retry()
+      return
+    }
+    fail()
+  }
+})
 
 const store = useTaskStore()
 const projectStore = useProjectStore()
