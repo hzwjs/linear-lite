@@ -175,6 +175,27 @@ class TaskActivityServiceTest {
     }
 
     @Test
+    void recordDescriptionChangeStillCoalescesAfterTenMinutes() {
+        TaskActivity recent = new TaskActivity();
+        recent.setId(199L);
+        recent.setTaskId(1L);
+        recent.setUserId(2L);
+        recent.setActionType("changed");
+        recent.setFieldName("description");
+        recent.setOldValue("old");
+        recent.setNewValue("mid");
+        recent.setCreatedAt(LocalDateTime.now().minusMinutes(10));
+        Page<TaskActivity> page = new Page<>(1, 1);
+        page.setRecords(List.of(recent));
+        when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(page);
+
+        taskActivityService.recordDescriptionChange(1L, 2L, "mid", "new");
+
+        verify(taskActivityMapper).updateById(recent);
+        verify(taskActivityMapper, never()).insert(any());
+    }
+
+    @Test
     void recordAssigneeChangeStoresUsernamesInsteadOfIds() {
         User oldAssignee = new User();
         oldAssignee.setId(4L);
