@@ -4,6 +4,7 @@ import type { Project } from '../types/domain'
 import { useProjectStore } from '../store/projectStore'
 import { useAuthStore } from '../store/authStore'
 import { useI18n } from 'vue-i18n'
+import ProjectSettingsDialog from './ProjectSettingsDialog.vue'
 
 const props = defineProps<{
   open: boolean
@@ -116,234 +117,22 @@ function close() {
 </script>
 
 <template>
-  <div v-if="open && project" class="modal-overlay" @click.self="close">
-    <div class="modal">
-      <div class="modal-header">
-        <h3>{{ t('projectSettingsModal.title') }}</h3>
-        <button type="button" class="close-btn" @click="close">×</button>
-      </div>
-      <form class="modal-body" @submit.prevent="submit">
-        <div class="form-group">
-          <label>{{ t('projectModal.form.nameLabel') }}</label>
-          <input v-model="name" type="text" class="input" />
-        </div>
-        <div class="form-group">
-          <label>{{ t('projectModal.form.identifierLabel') }}</label>
-          <input
-            v-model="identifier"
-            type="text"
-            class="input"
-            maxlength="16"
-          />
-        </div>
-        <p v-if="error" class="error-msg">{{ error }}</p>
-        <div class="invite-zone">
-          <div>
-            <p class="invite-zone-title">{{ t('projectSettingsModal.inviteTitle') }}</p>
-            <p class="invite-zone-text">{{ t('projectSettingsModal.inviteDescription') }}</p>
-          </div>
-          <div class="invite-controls">
-            <input
-              v-model="inviteEmail"
-              type="email"
-              class="input"
-              :placeholder="t('projectSettingsModal.invitePlaceholder')"
-              :disabled="isInviting || isSubmitting"
-            />
-            <button
-              type="button"
-              class="btn-primary"
-              :disabled="isInviting || isSubmitting"
-              @click="inviteMember"
-            >
-              {{ isInviting ? t('projectSettingsModal.inviting') : t('projectSettingsModal.inviteButton') }}
-            </button>
-          </div>
-          <p v-if="inviteMessage" class="invite-success">{{ inviteMessage }}</p>
-        </div>
-        <div v-if="canDelete" class="danger-zone">
-          <div>
-            <p class="danger-zone-title">{{ t('projectSettingsModal.deleteTitle') }}</p>
-            <p class="danger-zone-text">{{ t('projectSettingsModal.deleteDescription') }}</p>
-          </div>
-          <button
-            type="button"
-            class="btn-danger"
-            :disabled="isSubmitting"
-            @click="removeProject"
-          >
-            {{ isSubmitting ? t('projectSettingsModal.deleting') : t('projectSettingsModal.deleteButton') }}
-          </button>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn-cancel" @click="close">{{ t('common.cancel') }}</button>
-          <button type="submit" class="btn-primary" :disabled="isSubmitting">
-            {{ isSubmitting ? t('projectSettingsModal.buttons.saving') : t('projectSettingsModal.buttons.save') }}
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
+  <ProjectSettingsDialog
+    :open="open && project != null"
+    :name="name"
+    :identifier="identifier"
+    :invite-email="inviteEmail"
+    :error="error"
+    :invite-message="inviteMessage"
+    :is-submitting="isSubmitting"
+    :is-inviting="isInviting"
+    :can-delete="canDelete"
+    @update:name="name = $event"
+    @update:identifier="identifier = $event"
+    @update:invite-email="inviteEmail = $event"
+    @submit="submit"
+    @invite="inviteMember"
+    @delete="removeProject"
+    @close="close"
+  />
 </template>
-
-<style scoped>
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.2);
-  z-index: 200;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-/* P4-9.1: 减轻浮层感 */
-.modal {
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--border-radius-sm);
-  min-width: 360px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--color-border);
-}
-.modal-header h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 500;
-}
-.close-btn {
-  font-size: 24px;
-  line-height: 1;
-  color: var(--color-text-secondary);
-  background: none;
-  border: none;
-  cursor: pointer;
-}
-.close-btn:hover {
-  color: var(--color-text-primary);
-}
-.modal-body {
-  padding: 20px;
-}
-.form-group {
-  margin-bottom: 16px;
-}
-.form-group label {
-  display: block;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  margin-bottom: 6px;
-}
-.input {
-  width: 100%;
-  padding: 8px 12px;
-  font-size: 14px;
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--border-radius-sm);
-  color: var(--color-text-primary);
-}
-.error-msg {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: #e5484d;
-}
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 16px;
-}
-.invite-zone {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--color-border);
-}
-.invite-zone-title {
-  margin: 0 0 4px;
-  font-size: 13px;
-  font-weight: 600;
-}
-.invite-zone-text {
-  margin: 0 0 12px;
-  font-size: 12px;
-  color: var(--color-text-secondary);
-}
-.invite-controls {
-  display: flex;
-  gap: 8px;
-}
-.invite-success {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: #2f7d32;
-}
-.danger-zone {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--color-border);
-}
-.danger-zone-title {
-  margin: 0 0 4px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #c23b3f;
-}
-.danger-zone-text {
-  margin: 0;
-  font-size: 12px;
-  color: var(--color-text-secondary);
-}
-.btn-cancel {
-  padding: 8px 16px;
-  border-radius: var(--border-radius-sm);
-  color: var(--color-text-primary);
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  cursor: pointer;
-}
-.btn-cancel:hover {
-  background: var(--color-bg-hover);
-}
-.btn-primary {
-  padding: 8px 16px;
-  border-radius: var(--border-radius-sm);
-  background: var(--color-accent);
-  color: white;
-  border: none;
-  cursor: pointer;
-}
-.btn-primary:hover:not(:disabled) {
-  background: var(--color-accent-hover);
-}
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.btn-danger {
-  padding: 8px 16px;
-  border-radius: var(--border-radius-sm);
-  background: #d64545;
-  color: white;
-  border: none;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.btn-danger:hover:not(:disabled) {
-  background: #bd3737;
-}
-.btn-danger:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-</style>

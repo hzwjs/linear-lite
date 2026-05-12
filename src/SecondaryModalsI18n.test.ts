@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { i18n } from './i18n'
 import createProjectModalSource from './components/CreateProjectModal.vue?raw'
 import projectSettingsModalSource from './components/ProjectSettingsModal.vue?raw'
+import projectSettingsDialogSource from './components/ProjectSettingsDialog.vue?raw'
 import taskImportModalSource from './components/TaskImportModal.vue?raw'
 import taskImageNodeViewSource from './components/TaskImageNodeView.vue?raw'
 import tiptapEditorSource from './components/TiptapEditor.vue?raw'
@@ -16,8 +17,9 @@ describe('secondary modals use i18n helpers', () => {
     expect(createProjectModalSource).toContain("{{ t('projectModal.title') }}")
     expect(createProjectModalSource).toContain(":placeholder=\"t('projectModal.form.namePlaceholder')\"")
     expect(projectSettingsModalSource).toContain("const { t } = useI18n()")
-    expect(projectSettingsModalSource).toContain("{{ t('projectSettingsModal.title') }}")
-    expect(projectSettingsModalSource).toContain("{{ t('projectSettingsModal.inviteTitle') }}")
+    expect(projectSettingsModalSource).toContain('<ProjectSettingsDialog')
+    expect(projectSettingsDialogSource).toContain("{{ t('projectSettingsModal.title') }}")
+    expect(projectSettingsDialogSource).toContain("{{ t('projectSettingsModal.inviteTitle') }}")
   })
 
   it('routes the task import modal through translation keys', () => {
