@@ -9,6 +9,7 @@ import com.linearlite.server.dto.CreateTaskCommentRequest;
 import com.linearlite.server.dto.TaskActivityResponse;
 import com.linearlite.server.dto.TaskAttachmentResponse;
 import com.linearlite.server.dto.TaskCommentResponse;
+import com.linearlite.server.dto.TaskListItemResponse;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -79,13 +80,13 @@ public class TaskController {
      * @param parentId     非空时仅返回该父任务下的直接子任务
      */
     @GetMapping
-    public ResponseEntity<ApiResponse<List<Task>>> list(
+    public ResponseEntity<ApiResponse<List<TaskListItemResponse>>> list(
             HttpServletRequest request,
             @RequestParam Long projectId,
             @RequestParam(required = false) Boolean topLevelOnly,
             @RequestParam(required = false) Long parentId) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
-        List<Task> list = taskQueryService.listByProjectId(projectId, topLevelOnly, parentId, userId);
+        List<TaskListItemResponse> list = taskQueryService.listItemsByProjectId(projectId, topLevelOnly, parentId, userId);
         return ResponseEntity.ok(ApiResponse.success(list));
     }
 

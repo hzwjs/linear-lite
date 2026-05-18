@@ -2,6 +2,7 @@ package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.linearlite.server.dto.TaskLabelItemRequest;
+import com.linearlite.server.dto.TaskLabelAssignment;
 import com.linearlite.server.dto.TaskLabelResponse;
 import com.linearlite.server.entity.Label;
 import com.linearlite.server.entity.ProjectMember;
@@ -157,6 +158,10 @@ public class LabelService {
     }
 
     public void fillLabelsForTasks(List<Task> tasks) {
+        fillLabelsForTasks(tasks, null);
+    }
+
+    public void fillLabelsForTasks(List<Task> tasks, Long projectIdForFullProjectList) {
         if (tasks == null || tasks.isEmpty()) {
             return;
         }
@@ -164,28 +169,56 @@ public class LabelService {
         if (taskIds.isEmpty()) {
             return;
         }
-        List<TaskLabel> links = taskLabelMapper.selectList(
-                new LambdaQueryWrapper<TaskLabel>().in(TaskLabel::getTaskId, taskIds));
-        if (links.isEmpty()) {
+        List<TaskLabelAssignment> assignments = projectIdForFullProjectList == null
+                ? taskLabelMapper.selectLabelsForTaskIds(taskIds)
+                : taskLabelMapper.selectLabelsForProject(projectIdForFullProjectList);
+        if (assignments.isEmpty()) {
             for (Task t : tasks) {
                 t.setLabels(Collections.emptyList());
             }
             return;
         }
-        Set<Long> labelIds = links.stream().map(TaskLabel::getLabelId).collect(Collectors.toSet());
-        List<Label> labels = labelMapper.selectList(
-                new LambdaQueryWrapper<Label>().in(Label::getId, labelIds));
-        Map<Long, Label> byId = labels.stream().collect(Collectors.toMap(Label::getId, l -> l));
         Map<Long, List<TaskLabelResponse>> byTask = new HashMap<>();
-        for (TaskLabel link : links) {
-            Label lab = byId.get(link.getLabelId());
-            if (lab == null) {
+        for (TaskLabelAssignment assignment : assignments) {
+            if (assignment.getId() == null) {
                 continue;
             }
-            TaskLabelResponse resp = new TaskLabelResponse(lab.getId(), lab.getName());
-            byTask.computeIfAbsent(link.getTaskId(), k -> new ArrayList<>()).add(resp);
+            TaskLabelResponse resp = new TaskLabelResponse(assignment.getId(), assignment.getName());
+            byTask.computeIfAbsent(assignment.getTaskId(), k -> new ArrayList<>()).add(resp);
         }
         for (Task t : tasks) {
+            List<TaskLabelResponse> list = new ArrayList<>(byTask.getOrDefault(t.getId(), List.of()));
+            list.sort(Comparator.comparing(TaskLabelResponse::getName, Comparator.naturalOrder()));
+            t.setLabels(list);
+        }
+    }
+
+    public void fillLabelsForTaskListItems(List<com.linearlite.server.dto.TaskListItemResponse> tasks, Long projectIdForFullProjectList) {
+        if (tasks == null || tasks.isEmpty()) {
+            return;
+        }
+        List<Long> taskIds = tasks.stream().map(com.linearlite.server.dto.TaskListItemResponse::getId).filter(Objects::nonNull).distinct().toList();
+        if (taskIds.isEmpty()) {
+            return;
+        }
+        List<TaskLabelAssignment> assignments = projectIdForFullProjectList == null
+                ? taskLabelMapper.selectLabelsForTaskIds(taskIds)
+                : taskLabelMapper.selectLabelsForProject(projectIdForFullProjectList);
+        if (assignments.isEmpty()) {
+            for (com.linearlite.server.dto.TaskListItemResponse t : tasks) {
+                t.setLabels(Collections.emptyList());
+            }
+            return;
+        }
+        Map<Long, List<TaskLabelResponse>> byTask = new HashMap<>();
+        for (TaskLabelAssignment assignment : assignments) {
+            if (assignment.getId() == null) {
+                continue;
+            }
+            TaskLabelResponse resp = new TaskLabelResponse(assignment.getId(), assignment.getName());
+            byTask.computeIfAbsent(assignment.getTaskId(), k -> new ArrayList<>()).add(resp);
+        }
+        for (com.linearlite.server.dto.TaskListItemResponse t : tasks) {
             List<TaskLabelResponse> list = new ArrayList<>(byTask.getOrDefault(t.getId(), List.of()));
             list.sort(Comparator.comparing(TaskLabelResponse::getName, Comparator.naturalOrder()));
             t.setLabels(list);
