@@ -11,12 +11,43 @@ import { useFavoriteStore } from './favoriteStore'
 import { toApiDateTime } from '../utils/taskDate'
 import { translate } from '../utils/i18n'
 
+const TASK_SNAPSHOT_PREFIX = 'linear-lite:tasks:v1:'
+
+function taskSnapshotKey(projectId: number): string {
+  return `${TASK_SNAPSHOT_PREFIX}${projectId}`
+}
+
+function readTaskSnapshot(projectId: number): Task[] | null {
+  try {
+    const raw = localStorage.getItem(taskSnapshotKey(projectId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return null
+    return parsed as Task[]
+  } catch {
+    return null
+  }
+}
+
+function writeTaskSnapshot(projectId: number, list: Task[]): void {
+  try {
+    localStorage.setItem(taskSnapshotKey(projectId), JSON.stringify(list))
+  } catch {
+    // Cache persistence is best-effort. The network response remains source of truth.
+  }
+}
+
+function createOptimisticTaskId(projectId: number): string {
+  return `optimistic-${projectId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
 /**
- * 任务状态。数据源为后端 API（按 activeProjectId 过滤），不再使用 localStorage。
+ * 任务状态。后端 API 仍是最终来源；项目任务快照只用于刷新期间先渲染本地可用数据。
  */
 export const useTaskStore = defineStore('taskStore', () => {
   const tasks = ref<Task[]>([])
   const taskByKeyCache = ref<Record<string, Task>>({})
+  const taskListSnapshots = new Map<number, Task[]>()
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 
@@ -76,6 +107,27 @@ export const useTaskStore = defineStore('taskStore', () => {
       ...taskByKeyCache.value,
       [task.id]: task
     }
+  }
+
+  function rememberProjectTasks(projectId: number, list: Task[]) {
+    const cloned = list.map(cloneTask)
+    taskListSnapshots.set(projectId, cloned)
+    writeTaskSnapshot(projectId, cloned)
+  }
+
+  function getProjectSnapshot(projectId: number): Task[] | null {
+    const cached = taskListSnapshots.get(projectId)
+    if (cached != null) return cached.map(cloneTask)
+    const persisted = readTaskSnapshot(projectId)
+    if (persisted == null) return null
+    taskListSnapshots.set(projectId, persisted.map(cloneTask))
+    return persisted.map(cloneTask)
+  }
+
+  function syncCurrentProjectSnapshot() {
+    const projectId = useProjectStore().activeProjectId
+    if (projectId == null) return
+    rememberProjectTasks(projectId, tasks.value)
   }
 
   function cloneTask(task: Task): Task {
@@ -173,6 +225,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     recomputeParentSubIssueProgress(prev.parentId)
     recomputeParentSubIssueProgress(next.parentId)
     if (next.favorited) useFavoriteStore().syncTask(next)
+    syncCurrentProjectSnapshot()
   }
 
   function getOrCreateLane(id: string): TaskSaveLane {
@@ -326,12 +379,19 @@ export const useTaskStore = defineStore('taskStore', () => {
     const requestedProjectId = projectId
     isLoading.value = true
     error.value = null
-    tasks.value = []
     saveLanes.clear()
+    const snapshot = getProjectSnapshot(requestedProjectId)
+    if (snapshot != null) {
+      tasks.value = snapshot
+      for (const task of snapshot) cacheTask(task)
+    } else {
+      tasks.value = []
+    }
     try {
       const list = await taskApi.list(requestedProjectId, { topLevelOnly: false })
       if (useProjectStore().activeProjectId !== requestedProjectId) return
       tasks.value = list
+      rememberProjectTasks(requestedProjectId, list)
       for (const task of list) {
         cacheTask(task)
         const lane = saveLanes.get(task.id)
@@ -388,6 +448,29 @@ export const useTaskStore = defineStore('taskStore', () => {
       throw e
     }
     error.value = null
+    const createdAt = Date.now()
+    const optimisticTask: Task = {
+      id: createOptimisticTaskId(projectId),
+      title: data.title,
+      description: data.description,
+      status: data.status,
+      priority: data.priority,
+      projectId,
+      creatorId: data.creatorId,
+      assigneeId: data.assigneeId ?? null,
+      dueDate: data.dueDate,
+      plannedStartDate: data.plannedStartDate,
+      parentId: data.parentId != null ? String(data.parentId) : undefined,
+      progressPercent: data.progressPercent ?? 0,
+      completedAt: data.completedAt,
+      createdAt,
+      updatedAt: createdAt,
+      favorited: false,
+      labels: data.labels?.map((l) => ({ ...l }))
+    }
+    tasks.value = [optimisticTask, ...tasks.value]
+    cacheTask(optimisticTask)
+    syncCurrentProjectSnapshot()
     try {
       const newTask = await taskApi.create({
         projectId,
@@ -401,9 +484,18 @@ export const useTaskStore = defineStore('taskStore', () => {
         parentId: data.parentId ?? undefined,
         progressPercent: data.progressPercent ?? 0
       })
-      tasks.value = [newTask, ...tasks.value]
+      const optimisticIndex = tasks.value.findIndex((task) => task.id === optimisticTask.id)
+      if (optimisticIndex === -1) {
+        tasks.value = [newTask, ...tasks.value]
+      } else {
+        tasks.value[optimisticIndex] = newTask
+      }
+      cacheTask(newTask)
+      syncCurrentProjectSnapshot()
       return newTask
     } catch (err: unknown) {
+      tasks.value = tasks.value.filter((task) => task.id !== optimisticTask.id)
+      syncCurrentProjectSnapshot()
       error.value =
         err instanceof Error
           ? err.message

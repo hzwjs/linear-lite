@@ -224,6 +224,86 @@ describe('taskStore', () => {
     expect(store.tasks.map((t) => t.id)).toEqual(['P2'])
   })
 
+  it('fetchTasks keeps cached tasks for the active project while refreshing', async () => {
+    const projectStore = useProjectStore()
+    projectStore.setActiveProject(1)
+
+    const store = useTaskStore()
+    const cached = baseTask({ id: 'CACHED', projectId: 1, updatedAt: 10 })
+    vi.mocked(taskApi.list).mockResolvedValueOnce([cached])
+    await store.fetchTasks()
+
+    let resolveRefresh!: (v: Task[]) => void
+    const refresh = new Promise<Task[]>((resolve) => {
+      resolveRefresh = resolve
+    })
+    vi.mocked(taskApi.list).mockReturnValueOnce(refresh)
+
+    const pending = store.fetchTasks()
+    expect(store.tasks.map((t) => t.id)).toEqual(['CACHED'])
+    expect(store.isLoading).toBe(true)
+
+    resolveRefresh([baseTask({ id: 'FRESH', projectId: 1, updatedAt: 11 })])
+    await pending
+    expect(store.tasks.map((t) => t.id)).toEqual(['FRESH'])
+    expect(store.isLoading).toBe(false)
+  })
+
+  it('createTask inserts an optimistic row before API resolves and reconciles it', async () => {
+    const projectStore = useProjectStore()
+    projectStore.setActiveProject(1)
+
+    const store = useTaskStore()
+    let resolveCreate!: (v: Task) => void
+    const create = new Promise<Task>((resolve) => {
+      resolveCreate = resolve
+    })
+    vi.mocked(taskApi.create).mockReturnValueOnce(create)
+
+    const done = store.createTask({
+      title: 'New task',
+      description: '',
+      status: 'todo',
+      priority: 'medium',
+      progressPercent: 0
+    })
+
+    expect(store.tasks).toHaveLength(1)
+    expect(store.tasks[0]).toMatchObject({
+      title: 'New task',
+      projectId: 1,
+      status: 'todo',
+      priority: 'medium'
+    })
+    expect(store.tasks[0]?.id).toMatch(/^optimistic-/)
+
+    resolveCreate(baseTask({ id: 'ENG-NEW', title: 'New task', projectId: 1, updatedAt: 2 }))
+    await done
+
+    expect(store.tasks.map((t) => t.id)).toEqual(['ENG-NEW'])
+  })
+
+  it('createTask rolls back the optimistic row when API fails', async () => {
+    const projectStore = useProjectStore()
+    projectStore.setActiveProject(1)
+
+    const store = useTaskStore()
+    store.tasks = [baseTask({ id: 'EXISTING', projectId: 1 })]
+    vi.mocked(taskApi.create).mockRejectedValueOnce(new Error('create failed'))
+
+    await expect(
+      store.createTask({
+        title: 'New task',
+        description: '',
+        status: 'todo',
+        priority: 'medium',
+        progressPercent: 0
+      })
+    ).rejects.toThrow('create failed')
+
+    expect(store.tasks.map((t) => t.id)).toEqual(['EXISTING'])
+  })
+
   it('rolls back local optimistic patch when API update fails', async () => {
     const store = useTaskStore()
     const task: Task = {
