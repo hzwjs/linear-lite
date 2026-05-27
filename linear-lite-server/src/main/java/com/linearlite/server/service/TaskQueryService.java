@@ -5,7 +5,6 @@ import com.linearlite.server.dto.TaskListItemResponse;
 import com.linearlite.server.dto.TaskSubIssueCount;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskFavorite;
-import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
@@ -66,11 +65,13 @@ public class TaskQueryService {
         if (userId == null) {
             throw new IllegalArgumentException("当前用户未登录");
         }
-        List<TaskListItemResponse> response = taskMapper.selectListItemResponses(projectId, topLevelOnly, parentId, userId);
+        List<TaskListItemResponse> response = taskMapper.selectListItemResponses(projectId, topLevelOnly, parentId, userId).stream()
+                .filter(item -> item != null && item.getId() != null)
+                .toList();
         if (response.isEmpty()) {
-            throw new ForbiddenOperationException("你不是该项目成员");
+            taskPermissionGuard.requireProjectMember(projectId, userId);
+            return response;
         }
-        response = response.stream().filter(item -> item.getId() != null).toList();
         enrichListItems(response, projectId, userId, topLevelOnly, parentId);
         return response;
     }

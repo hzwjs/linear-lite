@@ -32,7 +32,7 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.created_at,
               t.updated_at
             FROM project_members pm
-            LEFT JOIN tasks t
+            JOIN tasks t
               ON t.project_id = pm.project_id
             <if test="parentId != null">
               AND t.parent_id = #{parentId}
@@ -71,7 +71,7 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.created_at,
               t.updated_at
             FROM project_members pm
-            LEFT JOIN tasks t
+            JOIN tasks t
               ON t.project_id = pm.project_id
             <if test="parentId != null">
               AND t.parent_id = #{parentId}

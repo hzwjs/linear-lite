@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.dto.TaskListItemResponse;
 import com.linearlite.server.entity.Task;
+import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.mapper.LabelMapper;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
@@ -21,6 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class TaskQueryServiceTest {
 
@@ -106,6 +108,75 @@ class TaskQueryServiceTest {
         assertEquals(1, taskListItemCalls.get());
         assertEquals(1, favoriteTaskIdCalls.get());
         assertEquals(1, projectLabelCalls.get());
+    }
+
+    @Test
+    void listItemsReturnsEmptyForProjectMemberWhenProjectHasNoTasks() {
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), Task.class);
+        AtomicInteger memberChecks = new AtomicInteger();
+
+        TaskMapper taskMapper = proxy(TaskMapper.class, invocation -> {
+            if ("selectListItemResponses".equals(invocation.getMethod().getName())) {
+                return Collections.singletonList(null);
+            }
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
+        ProjectMemberMapper projectMemberMapper = proxy(ProjectMemberMapper.class, invocation -> {
+            if ("selectCount".equals(invocation.getMethod().getName())) {
+                memberChecks.incrementAndGet();
+                return 1L;
+            }
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
+        TaskFavoriteMapper taskFavoriteMapper = proxy(TaskFavoriteMapper.class, invocation -> {
+            throw new AssertionError("empty task lists should not load favorites");
+        });
+        TaskLabelMapper taskLabelMapper = proxy(TaskLabelMapper.class, invocation -> {
+            throw new AssertionError("empty task lists should not load labels");
+        });
+        LabelMapper labelMapper = proxy(LabelMapper.class, invocation -> defaultValue(invocation.getMethod().getReturnType()));
+        LabelService labelService = new LabelService(labelMapper, taskLabelMapper, projectMemberMapper);
+        TaskPermissionGuard permissionGuard = new TaskPermissionGuard(taskMapper, projectMemberMapper);
+        TaskQueryService service = new TaskQueryService(
+                taskMapper,
+                taskFavoriteMapper,
+                labelService,
+                permissionGuard);
+
+        List<TaskListItemResponse> list = service.listItemsByProjectId(7L, false, null, 9L);
+
+        assertEquals(Collections.emptyList(), list);
+        assertEquals(1, memberChecks.get());
+    }
+
+    @Test
+    void listItemsThrowsForbiddenForNonMemberWhenNoRowsAreVisible() {
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), Task.class);
+
+        TaskMapper taskMapper = proxy(TaskMapper.class, invocation -> {
+            if ("selectListItemResponses".equals(invocation.getMethod().getName())) {
+                return Collections.emptyList();
+            }
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
+        ProjectMemberMapper projectMemberMapper = proxy(ProjectMemberMapper.class, invocation -> {
+            if ("selectCount".equals(invocation.getMethod().getName())) {
+                return 0L;
+            }
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
+        TaskFavoriteMapper taskFavoriteMapper = proxy(TaskFavoriteMapper.class, invocation -> defaultValue(invocation.getMethod().getReturnType()));
+        TaskLabelMapper taskLabelMapper = proxy(TaskLabelMapper.class, invocation -> defaultValue(invocation.getMethod().getReturnType()));
+        LabelMapper labelMapper = proxy(LabelMapper.class, invocation -> defaultValue(invocation.getMethod().getReturnType()));
+        LabelService labelService = new LabelService(labelMapper, taskLabelMapper, projectMemberMapper);
+        TaskPermissionGuard permissionGuard = new TaskPermissionGuard(taskMapper, projectMemberMapper);
+        TaskQueryService service = new TaskQueryService(
+                taskMapper,
+                taskFavoriteMapper,
+                labelService,
+                permissionGuard);
+
+        assertThrows(ForbiddenOperationException.class, () -> service.listItemsByProjectId(7L, false, null, 9L));
     }
 
     private static TaskListItemResponse task(Long id, String key, Long parentId, String status) {
