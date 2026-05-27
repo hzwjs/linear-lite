@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Linear Lite Logo Preview</title>
+    <style>
+      :root {
+        color: #111827;
+        background: #f8f8f8;
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 48px 24px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+      }
+
+      p {
+        margin: 0 0 28px;
+        color: #6b7280;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 16px;
+      }
+
+      .panel {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 24px;
+      }
+
+      .panel--dark {
+        border-color: #23252a;
+        background: #010102;
+      }
+
+      .label {
+        display: block;
+        margin-bottom: 18px;
+        color: #6b7280;
+        font-size: 12px;
+      }
+
+      .panel--dark .label {
+        color: #8a8f98;
+      }
+
+      .sizes {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .mark-16 {
+        width: 16px;
+        height: 16px;
+      }
+
+      .mark-32 {
+        width: 32px;
+        height: 32px;
+      }
+
+      .mark-64 {
+        width: 64px;
+        height: 64px;
+      }
+
+      .lockup {
+        width: min(100%, 248px);
+        height: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Linear Lite Logo</h1>
+      <p>几何 L 标记，表达轻量任务路径；浅色版本用于当前产品界面，深色版本用于文档或营销深色画布。</p>
+
+      <div class="grid">
+        <section class="panel">
+          <span class="label">Light lockup</span>
+          <img class="lockup" src="./linear-lite-logo.svg" alt="Linear Lite logo" />
+        </section>
+
+        <section class="panel panel--dark">
+          <span class="label">Dark lockup</span>
+          <img class="lockup" src="./linear-lite-logo-dark.svg" alt="Linear Lite logo on dark background" />
+        </section>
+
+        <section class="panel">
+          <span class="label">Responsive mark</span>
+          <div class="sizes">
+            <img class="mark-16" src="../../public/logo-mark.svg" alt="16px Linear Lite mark" />
+            <img class="mark-32" src="../../public/logo-mark.svg" alt="32px Linear Lite mark" />
+            <img class="mark-64" src="../../public/logo-mark.svg" alt="64px Linear Lite mark" />
+          </div>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>
