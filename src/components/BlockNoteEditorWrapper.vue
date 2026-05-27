@@ -370,6 +370,22 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
   margin: 4px 0;
 }
 
+.blocknote-editor-wrap--chrome
+  .bn-block-outer:not(.bn-mermaid-block--source)
+  .bn-block-content[data-content-type="codeBlock"][data-language="mermaid"] {
+  height: var(--bn-mermaid-preview-height, clamp(180px, 34vw, 520px));
+  overflow: hidden;
+  visibility: hidden;
+}
+
+.blocknote-editor-wrap--chrome
+  .bn-block-outer.bn-mermaid-block--source
+  .bn-block-content[data-content-type="codeBlock"][data-language="mermaid"] {
+  height: auto;
+  overflow: visible;
+  visibility: visible;
+}
+
 .blocknote-editor-wrap--chrome .bn-mermaid-editor-root {
   position: relative;
 }
@@ -394,6 +410,10 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
   cursor: pointer;
   pointer-events: auto;
   text-align: left;
+}
+
+.blocknote-editor-wrap--chrome .bn-mermaid-preview--source {
+  display: none;
 }
 
 .blocknote-editor-wrap--chrome .bn-mermaid-preview svg {

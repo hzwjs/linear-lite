@@ -90,6 +90,19 @@ function collectMermaidBlocks(blocks: readonly any[]): MermaidBlockRef[] {
   return refs
 }
 
+function collectMermaidBlocksFromDom(root: HTMLElement): MermaidBlockRef[] {
+  const refs: MermaidBlockRef[] = []
+  for (const content of root.querySelectorAll<HTMLElement>(
+    '.bn-block-content[data-content-type="codeBlock"][data-language="mermaid"]'
+  )) {
+    const host = content.closest<HTMLElement>('.bn-block-outer[data-id]')
+    const id = host?.dataset.id
+    if (!id) continue
+    refs.push({ id, source: content.querySelector('pre')?.textContent ?? '' })
+  }
+  return refs
+}
+
 function findMermaidBlockHost(root: HTMLElement, blockId: string): HTMLElement | null {
   const selector = `.bn-block-outer[data-id="${blockId}"]`
   const blockOuter =
@@ -127,7 +140,19 @@ function positionMermaidPreview(root: HTMLElement, host: HTMLElement, preview: H
   preview.style.left = `${hostRect.left - rootRect.left}px`
   preview.style.top = `${hostRect.top - rootRect.top}px`
   preview.style.width = `${hostRect.width}px`
-  preview.style.minHeight = `${hostRect.height}px`
+}
+
+function syncMermaidPreviewHeight(root: HTMLElement, preview: HTMLElement) {
+  const blockId = preview.dataset.blockId
+  if (!blockId) return
+  const host = findMermaidBlockHost(root, blockId)
+  if (!host || host.classList.contains('bn-mermaid-block--source')) return
+  const height = Math.max(96, Math.ceil(preview.getBoundingClientRect().height))
+  root.style.setProperty('--bn-mermaid-preview-height', `${height}px`)
+  const content = host.querySelector<HTMLElement>(
+    '.bn-block-content[data-content-type="codeBlock"][data-language="mermaid"]'
+  )
+  content?.style.setProperty('--bn-mermaid-preview-height', `${height}px`)
 }
 
 function ensureMermaidPreview(
@@ -154,13 +179,14 @@ function ensureMermaidPreview(
   return preview
 }
 
-async function renderMermaidPreview(preview: HTMLElement, sourceText: string) {
+async function renderMermaidPreview(root: HTMLElement, preview: HTMLElement, sourceText: string) {
   const lastSource = preview.dataset.lastSource
 
   if (!sourceText.trim()) {
     preview.dataset.renderState = 'waiting'
     preview.classList.add('bn-mermaid-preview--loading')
     preview.textContent = 'Rendering Mermaid diagram...'
+    syncMermaidPreviewHeight(root, preview)
     return
   }
   if (preview.dataset.renderState === 'rendering') return
@@ -181,6 +207,7 @@ async function renderMermaidPreview(preview: HTMLElement, sourceText: string) {
     preview.classList.remove('bn-mermaid-preview--loading', 'bn-mermaid-preview--error')
     preview.innerHTML = svg
     bindFunctions?.(preview)
+    window.requestAnimationFrame(() => syncMermaidPreviewHeight(root, preview))
   } catch (error) {
     if (!preview.isConnected || preview.dataset.lastSource !== sourceText) return
     preview.dataset.renderState = 'rejected'
@@ -188,11 +215,15 @@ async function renderMermaidPreview(preview: HTMLElement, sourceText: string) {
     preview.classList.remove('bn-mermaid-preview--loading')
     preview.classList.add('bn-mermaid-preview--error')
     preview.textContent = normalizeMermaidRenderError(error)
+    syncMermaidPreviewHeight(root, preview)
   }
 }
 
 function hydrateMermaidPreviewBlocks(root: HTMLElement, layer: HTMLElement, blocks: readonly any[]) {
-  const mermaidBlocks = collectMermaidBlocks(blocks)
+  const byId = new Map<string, MermaidBlockRef>()
+  for (const block of collectMermaidBlocks(blocks)) byId.set(block.id, block)
+  for (const block of collectMermaidBlocksFromDom(root)) byId.set(block.id, block)
+  const mermaidBlocks = Array.from(byId.values())
   const activeIds = new Set(mermaidBlocks.map((block) => block.id))
   removeStaleMermaidOverlays(root, layer, activeIds)
 
@@ -201,6 +232,7 @@ function hydrateMermaidPreviewBlocks(root: HTMLElement, layer: HTMLElement, bloc
     if (!host) continue
     const preview = ensureMermaidPreview(root, layer, host, block.id, block.source)
     positionMermaidPreview(root, host, preview)
+    syncMermaidPreviewHeight(root, preview)
     const lastSource = preview.dataset.lastSource
 
     if (!block.source.trim()) {
@@ -214,7 +246,7 @@ function hydrateMermaidPreviewBlocks(root: HTMLElement, layer: HTMLElement, bloc
     if (preview.dataset.renderState === 'rendering') continue
     if (lastSource === block.source && preview.querySelector('svg')) continue
 
-    void renderMermaidPreview(preview, block.source)
+    void renderMermaidPreview(root, preview, block.source)
   }
 }
 
@@ -461,6 +493,14 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     const layer = mermaidLayerRef.current
     if (!root || !layer) return
     const hydrate = () => hydrateMermaidPreviewBlocks(root, layer, editor.document)
+    let hydrationTimer: ReturnType<typeof window.setTimeout> | undefined
+    const queueHydrate = () => {
+      if (hydrationTimer != null) window.clearTimeout(hydrationTimer)
+      hydrationTimer = window.setTimeout(() => {
+        hydrationTimer = undefined
+        hydrate()
+      }, 80)
+    }
     hydrate()
     const timers = [
       window.setTimeout(hydrate, 0),
@@ -468,8 +508,21 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       window.setTimeout(hydrate, 500),
       window.setTimeout(hydrate, 1500),
       window.setTimeout(hydrate, 3000),
+      window.setTimeout(hydrate, 5000),
+      window.setTimeout(hydrate, 8000),
     ]
+    const observer = new MutationObserver(queueHydrate)
+    observer.observe(root, { childList: true, subtree: true })
+    let intervalTicks = 0
+    const interval = window.setInterval(() => {
+      intervalTicks += 1
+      hydrate()
+      if (intervalTicks >= 24) window.clearInterval(interval)
+    }, 500)
     return () => {
+      if (hydrationTimer != null) window.clearTimeout(hydrationTimer)
+      observer.disconnect()
+      window.clearInterval(interval)
       for (const timer of timers) window.clearTimeout(timer)
     }
   }, [editor])
@@ -493,6 +546,9 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
         if (!blockId) continue
         const host = findMermaidBlockHost(root, blockId)
         if (!host) {
+          document
+            .querySelector<HTMLElement>(`.bn-block-outer[data-id="${blockId}"]`)
+            ?.classList.remove('bn-mermaid-block--source')
           preview.classList.remove('bn-mermaid-preview--source')
           continue
         }
@@ -505,6 +561,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
         if (!inside) {
           host.classList.remove('bn-mermaid-block--source')
           preview.classList.remove('bn-mermaid-preview--source')
+          syncMermaidPreviewHeight(root, preview)
         }
       }
     }
