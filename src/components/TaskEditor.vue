@@ -28,7 +28,7 @@ import {
   groupTaskActivitiesForDisplay
 } from '../utils/taskActivityGroup'
 import { renderMarkdown } from '../utils/markdown'
-import { renderBody, mermaidPreviewHtmlFromDescriptionBody } from '../utils/blockNoteHtml'
+import { renderBody } from '../utils/blockNoteHtml'
 import { runMermaidIn } from '../utils/mermaidHydrate'
 import { buildCommentThreads } from '../utils/commentThread'
 import { randomClientId } from '../utils/clientId'
@@ -150,25 +150,10 @@ function activityDisplayRowTime(item: TaskActivityDisplayItem): number {
 const comments = ref<TaskCommentDto[]>([])
 const commentsLoading = ref(false)
 const commentsMermaidHostRef = ref<HTMLElement | null>(null)
-const descriptionMermaidPreviewRef = ref<HTMLElement | null>(null)
-let descriptionMermaidDebounce: ReturnType<typeof setTimeout> | null = null
-
-const descriptionMermaidPreviewHtml = computed(() =>
-  mermaidPreviewHtmlFromDescriptionBody(formDescription.value)
-)
 
 async function hydrateCommentsMermaid() {
   await nextTick()
   await runMermaidIn(commentsMermaidHostRef.value)
-}
-
-function scheduleDescriptionMermaidHydrate() {
-  if (descriptionMermaidDebounce != null) clearTimeout(descriptionMermaidDebounce)
-  descriptionMermaidDebounce = setTimeout(async () => {
-    descriptionMermaidDebounce = null
-    await nextTick()
-    await runMermaidIn(descriptionMermaidPreviewRef.value)
-  }, 400)
 }
 const commentBody = ref('')
 const commentSubmitting = ref(false)
@@ -802,10 +787,6 @@ watch(
   { deep: true }
 )
 
-watch(descriptionMermaidPreviewHtml, () => {
-  scheduleDescriptionMermaidHydrate()
-})
-
 async function loadProjectMembers(projectId: number | null) {
   if (projectId == null) {
     userList.value = []
@@ -828,7 +809,6 @@ onMounted(() => {
     dueStateNow.value = Date.now()
   }, 60_000)
   void hydrateCommentsMermaid()
-  scheduleDescriptionMermaidHydrate()
 })
 
 watch(effectiveProjectId, (id) => {
@@ -839,10 +819,6 @@ onBeforeUnmount(() => {
   if (dueStateNowTimer != null) {
     clearInterval(dueStateNowTimer)
     dueStateNowTimer = null
-  }
-  if (descriptionMermaidDebounce != null) {
-    clearTimeout(descriptionMermaidDebounce)
-    descriptionMermaidDebounce = null
   }
 })
 
@@ -1399,17 +1375,6 @@ async function toggleFavorite() {
                 @blur="onDescriptionBlur"
                 :placeholder="t('taskEditor.descriptionPlaceholder')"
                 :min-height="96"
-              />
-            </div>
-            <div
-              v-if="descriptionMermaidPreviewHtml"
-              ref="descriptionMermaidPreviewRef"
-              class="description-mermaid-preview"
-            >
-              <div class="description-mermaid-preview__head">{{ t('taskEditor.mermaidPreview') }}</div>
-              <div
-                class="description-mermaid-preview__canvas markdown-body"
-                v-html="descriptionMermaidPreviewHtml"
               />
             </div>
           </section>
@@ -2220,29 +2185,6 @@ async function toggleFavorite() {
   margin-inline-start: -6px;
   width: calc(100% + 6px);
   max-width: none;
-}
-.description-mermaid-preview {
-  margin-top: 10px;
-  margin-inline-start: 36px;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-base);
-}
-.description-mermaid-preview__head {
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-muted);
-  margin-bottom: 8px;
-  letter-spacing: 0.02em;
-}
-.description-mermaid-preview__canvas {
-  max-width: 100%;
-  overflow-x: auto;
-}
-.description-mermaid-preview__canvas :deep(.mermaid) {
-  display: flex;
-  justify-content: flex-start;
 }
 /* 新建任务时标题与描述间距略大，更易区分 */
 .editor-panel--create .content-section--title {

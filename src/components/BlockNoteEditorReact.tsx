@@ -18,11 +18,12 @@ import {
 } from '@blocknote/core'
 import { createCodeBlockSpec } from '@blocknote/core/blocks'
 import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
+import { normalizeMermaidRenderError, renderMermaidSvg } from '../utils/mermaidRenderer'
 import { MentionMemberSuggestionMenu } from './MentionMemberSuggestionMenu'
 
 // ─── Code block with language selector ─────────────────────────────────────────
 
-const codeBlockWithLanguages = createCodeBlockSpec({
+const codeBlockOptions = {
   supportedLanguages: {
     text:       { name: 'Plain Text' },
     javascript: { name: 'JavaScript', aliases: ['js'] },
@@ -49,7 +50,173 @@ const codeBlockWithLanguages = createCodeBlockSpec({
     markdown:   { name: 'Markdown',   aliases: ['md'] },
     mermaid:    { name: 'Mermaid',    aliases: ['mmd'] },
   },
-})
+}
+
+const codeBlockWithLanguages = createCodeBlockSpec(codeBlockOptions)
+
+function getBlockContentText(block: any): string {
+  const content = block?.content
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((item) => {
+      if (typeof item === 'string') return item
+      if (item && typeof item === 'object' && typeof item.text === 'string') return item.text
+      return ''
+    })
+    .join('')
+}
+
+let mermaidHydrationSeq = 0
+
+type MermaidBlockRef = {
+  id: string
+  source: string
+}
+
+function collectMermaidBlocks(blocks: readonly any[]): MermaidBlockRef[] {
+  const refs: MermaidBlockRef[] = []
+  for (const block of blocks) {
+    if (block?.type === 'codeBlock') {
+      const language = String(block.props?.language ?? '').trim().toLowerCase()
+      if (language === 'mermaid') {
+        refs.push({ id: String(block.id), source: getBlockContentText(block) })
+      }
+    }
+    if (Array.isArray(block?.children) && block.children.length > 0) {
+      refs.push(...collectMermaidBlocks(block.children))
+    }
+  }
+  return refs
+}
+
+function findMermaidBlockHost(root: HTMLElement, blockId: string): HTMLElement | null {
+  const selector = `.bn-block-outer[data-id="${blockId}"]`
+  const blockOuter =
+    root.querySelector<HTMLElement>(selector) ??
+    document.querySelector<HTMLElement>(selector)
+  if (!blockOuter) return null
+  const content = blockOuter.querySelector<HTMLElement>(
+    '.bn-block-content[data-content-type="codeBlock"]'
+  )
+  if (!content) return null
+  blockOuter.classList.add('bn-mermaid-block')
+  return blockOuter
+}
+
+function removeStaleMermaidOverlays(
+  root: HTMLElement,
+  layer: HTMLElement,
+  activeBlockIds: Set<string>
+) {
+  for (const outer of root.querySelectorAll<HTMLElement>('.bn-mermaid-block')) {
+    const blockId = outer.dataset.id
+    if (blockId && activeBlockIds.has(blockId)) continue
+    outer.classList.remove('bn-mermaid-block', 'bn-mermaid-block--source')
+  }
+  for (const overlay of layer.querySelectorAll<HTMLElement>('.bn-mermaid-preview')) {
+    const blockId = overlay.dataset.blockId
+    if (blockId && activeBlockIds.has(blockId)) continue
+    overlay.remove()
+  }
+}
+
+function positionMermaidPreview(root: HTMLElement, host: HTMLElement, preview: HTMLElement) {
+  const rootRect = root.getBoundingClientRect()
+  const hostRect = host.getBoundingClientRect()
+  preview.style.left = `${hostRect.left - rootRect.left}px`
+  preview.style.top = `${hostRect.top - rootRect.top}px`
+  preview.style.width = `${hostRect.width}px`
+  preview.style.minHeight = `${hostRect.height}px`
+}
+
+function ensureMermaidPreview(
+  root: HTMLElement,
+  layer: HTMLElement,
+  host: HTMLElement,
+  blockId: string,
+  sourceText: string
+): HTMLButtonElement {
+  let preview = layer.querySelector<HTMLButtonElement>(
+    `.bn-mermaid-preview[data-block-id="${blockId}"]`
+  )
+  if (preview) return preview
+
+  preview = document.createElement('button')
+  preview.type = 'button'
+  preview.className = 'bn-mermaid-preview'
+  preview.contentEditable = 'false'
+  preview.setAttribute('aria-label', 'Edit Mermaid source')
+  preview.dataset.blockId = blockId
+  layer.appendChild(preview)
+  preview.dataset.initialSource = sourceText
+  positionMermaidPreview(root, host, preview)
+  return preview
+}
+
+async function renderMermaidPreview(preview: HTMLElement, sourceText: string) {
+  const lastSource = preview.dataset.lastSource
+
+  if (!sourceText.trim()) {
+    preview.dataset.renderState = 'waiting'
+    preview.classList.add('bn-mermaid-preview--loading')
+    preview.textContent = 'Rendering Mermaid diagram...'
+    return
+  }
+  if (preview.dataset.renderState === 'rendering') return
+  if (lastSource === sourceText && preview.querySelector('svg')) return
+
+  preview.dataset.lastSource = sourceText
+  preview.dataset.renderState = 'rendering'
+  preview.classList.remove('bn-mermaid-preview--error')
+  preview.classList.add('bn-mermaid-preview--loading')
+  preview.textContent = 'Rendering Mermaid diagram...'
+
+  try {
+    const { svg, bindFunctions } = await renderMermaidSvg(sourceText, {
+      id: `mermaid-${++mermaidHydrationSeq}`,
+    })
+    if (!preview.isConnected || preview.dataset.lastSource !== sourceText) return
+    preview.dataset.renderState = 'resolved'
+    preview.classList.remove('bn-mermaid-preview--loading', 'bn-mermaid-preview--error')
+    preview.innerHTML = svg
+    bindFunctions?.(preview)
+  } catch (error) {
+    if (!preview.isConnected || preview.dataset.lastSource !== sourceText) return
+    preview.dataset.renderState = 'rejected'
+    preview.dataset.renderError = normalizeMermaidRenderError(error)
+    preview.classList.remove('bn-mermaid-preview--loading')
+    preview.classList.add('bn-mermaid-preview--error')
+    preview.textContent = normalizeMermaidRenderError(error)
+  }
+}
+
+function hydrateMermaidPreviewBlocks(root: HTMLElement, layer: HTMLElement, blocks: readonly any[]) {
+  const mermaidBlocks = collectMermaidBlocks(blocks)
+  const activeIds = new Set(mermaidBlocks.map((block) => block.id))
+  removeStaleMermaidOverlays(root, layer, activeIds)
+
+  for (const block of mermaidBlocks) {
+    const host = findMermaidBlockHost(root, block.id)
+    if (!host) continue
+    const preview = ensureMermaidPreview(root, layer, host, block.id, block.source)
+    positionMermaidPreview(root, host, preview)
+    const lastSource = preview.dataset.lastSource
+
+    if (!block.source.trim()) {
+      if (preview.dataset.renderState !== 'waiting') {
+        preview.dataset.renderState = 'waiting'
+        preview.classList.add('bn-mermaid-preview--loading')
+        preview.textContent = 'Rendering Mermaid diagram...'
+      }
+      continue
+    }
+    if (preview.dataset.renderState === 'rendering') continue
+    if (lastSource === block.source && preview.querySelector('svg')) continue
+
+    void renderMermaidPreview(preview, block.source)
+  }
+}
 
 // ─── Mention inline content spec ───────────────────────────────────────────────
 
@@ -173,6 +340,8 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   const uploadFileResolved =
     uploadFile ?? props['upload-file']
 
+  const editorRootRef = useRef<HTMLDivElement | null>(null)
+  const mermaidLayerRef = useRef<HTMLDivElement | null>(null)
   const uploadFileRef = useRef(uploadFileResolved)
   uploadFileRef.current = uploadFileResolved
 
@@ -279,10 +448,82 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const emitDocumentToVue = useCallback(() => {
+    if (editorRootRef.current && mermaidLayerRef.current) {
+      hydrateMermaidPreviewBlocks(editorRootRef.current, mermaidLayerRef.current, editor.document)
+    }
     const jsonString = JSON.stringify(editor.document)
     const mentionedIds = extractMentionIdsFromBlocks(editor.document as unknown as AnyBlock[])
     onChangeRef.current?.(jsonString, mentionedIds)
   }, [editor])
+
+  useEffect(() => {
+    const root = editorRootRef.current
+    const layer = mermaidLayerRef.current
+    if (!root || !layer) return
+    const hydrate = () => hydrateMermaidPreviewBlocks(root, layer, editor.document)
+    hydrate()
+    const timers = [
+      window.setTimeout(hydrate, 0),
+      window.setTimeout(hydrate, 120),
+      window.setTimeout(hydrate, 500),
+      window.setTimeout(hydrate, 1500),
+      window.setTimeout(hydrate, 3000),
+    ]
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer)
+    }
+  }, [editor])
+
+  useEffect(() => {
+    const root = editorRootRef.current
+    if (!root) return
+
+    const showSource = (preview: HTMLElement) => {
+      const blockId = preview.dataset.blockId
+      if (!blockId) return
+      const host = findMermaidBlockHost(root, blockId)
+      host?.classList.add('bn-mermaid-block--source')
+      preview.classList.add('bn-mermaid-preview--source')
+      host?.querySelector<HTMLElement>('[contenteditable="true"]')?.focus()
+    }
+
+    const restorePreviewIfPointerLeft = (event: MouseEvent) => {
+      for (const preview of root.querySelectorAll<HTMLElement>('.bn-mermaid-preview--source')) {
+        const blockId = preview.dataset.blockId
+        if (!blockId) continue
+        const host = findMermaidBlockHost(root, blockId)
+        if (!host) {
+          preview.classList.remove('bn-mermaid-preview--source')
+          continue
+        }
+        const rect = host.getBoundingClientRect()
+        const inside =
+          event.clientX >= rect.left &&
+          event.clientX <= rect.right &&
+          event.clientY >= rect.top &&
+          event.clientY <= rect.bottom
+        if (!inside) {
+          host.classList.remove('bn-mermaid-block--source')
+          preview.classList.remove('bn-mermaid-preview--source')
+        }
+      }
+    }
+
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : null
+      const preview = target?.closest<HTMLElement>('.bn-mermaid-preview')
+      if (!preview || !root.contains(preview)) return
+      event.preventDefault()
+      showSource(preview)
+    }
+
+    root.addEventListener('click', handleClick, true)
+    document.addEventListener('mousemove', restorePreviewIfPointerLeft, true)
+    return () => {
+      root.removeEventListener('click', handleClick, true)
+      document.removeEventListener('mousemove', restorePreviewIfPointerLeft, true)
+    }
+  }, [])
 
   /** uploadFile 的 onUploadEnd 早于 updateBlock；微任务里再 emit 一次，避免漏同步图片 URL。 */
   useEffect(() => {
@@ -332,38 +573,41 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   )
 
   return (
-    <BlockNoteView
-      editor={editor}
-      editable={editable}
-      onChange={emitDocumentToVue}
-      onBlur={handleBlur}
-      onFocus={handleFocus}
-      theme="light"
-      slashMenu={blockChromeOn}
-      sideMenu={blockChromeOn}
-      formattingToolbar={false}
-      linkToolbar={false}
-      filePanel={false}
-      tableHandles={blockChromeOn}
-      emojiPicker={false}
-      comments={false}
-    >
-      {mentionMembers !== undefined && (
-        <SuggestionMenuController
-          triggerCharacter="@"
-          suggestionMenuComponent={renderMentionMenu}
-          onItemClick={handleMentionPickSubmit}
-          getItems={async (query) => {
-            const members = mentionMembersRef.current ?? []
-            const items: DefaultReactSuggestionItem[] = members.map((m) => ({
-              title: m.label,
-              aliases: [m.label.toLowerCase()],
-              onItemClick: () => {},
-            }))
-            return filterSuggestionItems(items, query)
-          }}
-        />
-      )}
-    </BlockNoteView>
+    <div ref={editorRootRef} className="bn-mermaid-editor-root">
+      <BlockNoteView
+        editor={editor}
+        editable={editable}
+        onChange={emitDocumentToVue}
+        onBlur={handleBlur}
+        onFocus={handleFocus}
+        theme="light"
+        slashMenu={blockChromeOn}
+        sideMenu={blockChromeOn}
+        formattingToolbar={false}
+        linkToolbar={false}
+        filePanel={false}
+        tableHandles={blockChromeOn}
+        emojiPicker={false}
+        comments={false}
+      >
+        {mentionMembers !== undefined && (
+          <SuggestionMenuController
+            triggerCharacter="@"
+            suggestionMenuComponent={renderMentionMenu}
+            onItemClick={handleMentionPickSubmit}
+            getItems={async (query) => {
+              const members = mentionMembersRef.current ?? []
+              const items: DefaultReactSuggestionItem[] = members.map((m) => ({
+                title: m.label,
+                aliases: [m.label.toLowerCase()],
+                onItemClick: () => {},
+              }))
+              return filterSuggestionItems(items, query)
+            }}
+          />
+        )}
+      </BlockNoteView>
+      <div ref={mermaidLayerRef} className="bn-mermaid-preview-layer" aria-hidden="false" />
+    </div>
   )
 }

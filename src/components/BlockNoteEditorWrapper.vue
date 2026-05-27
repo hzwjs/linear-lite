@@ -364,6 +364,63 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
   z-index: 90 !important;
 }
 
+/* ── Mermaid code blocks: render diagrams in-place by default, and reveal the
+      editable source only when the block is activated. ── */
+.blocknote-editor-wrap--chrome .bn-mermaid-block {
+  margin: 4px 0;
+}
+
+.blocknote-editor-wrap--chrome .bn-mermaid-editor-root {
+  position: relative;
+}
+
+.blocknote-editor-wrap--chrome .bn-mermaid-preview-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.blocknote-editor-wrap--chrome .bn-mermaid-preview {
+  position: absolute;
+  display: block;
+  min-height: 96px;
+  overflow-x: auto;
+  padding: 12px;
+  border: 1px solid var(--color-border-subtle, #e4e4e7);
+  border-radius: 8px;
+  background: var(--color-bg-base, #fff);
+  color: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  text-align: left;
+}
+
+.blocknote-editor-wrap--chrome .bn-mermaid-preview svg {
+  display: block;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.blocknote-editor-wrap--chrome .bn-mermaid-preview--loading,
+.blocknote-editor-wrap--chrome .bn-mermaid-preview--error {
+  display: flex;
+  align-items: center;
+  color: var(--color-text-muted, #777);
+  font-size: var(--font-size-sm, 13px);
+}
+
+.blocknote-editor-wrap--chrome .bn-mermaid-preview--error {
+  color: var(--color-danger, #b42318);
+  background: color-mix(in srgb, var(--color-danger, #b42318) 7%, var(--color-bg-base, #fff));
+  border-color: color-mix(in srgb, var(--color-danger, #b42318) 35%, var(--color-border-subtle, #e4e4e7));
+  white-space: pre-wrap;
+}
+
+.blocknote-editor-wrap--chrome .bn-mermaid-preview--source {
+  display: none;
+}
+
 /* ── Code block language selector (native <select> rendered by BlockNote) ── */
 .bn-editor [data-content-type="codeBlock"] select {
   appearance: none;
