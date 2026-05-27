@@ -112,7 +112,6 @@ onUnmounted(() => {
         </button>
         <div class="sidebar-nav__brand">
           <span class="sidebar-nav__brand-name">{{ t('app.name') }}</span>
-          <span class="sidebar-nav__brand-meta">{{ t('common.workspace') }}</span>
         </div>
       </div>
 
@@ -333,7 +332,8 @@ onUnmounted(() => {
 
 .sidebar-nav__header {
   position: relative;
-  padding: 14px 12px 10px;
+  min-height: 43px;
+  padding: 0 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -374,8 +374,7 @@ onUnmounted(() => {
 .sidebar-nav__brand {
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
 }
 
 .sidebar-nav__brand-name {
@@ -383,12 +382,6 @@ onUnmounted(() => {
   font-weight: 600;
   line-height: 1.2;
   color: var(--sidebar-text);
-}
-
-.sidebar-nav__brand-meta {
-  font-size: 11px;
-  line-height: 1.2;
-  color: var(--sidebar-muted);
 }
 
 .sidebar-nav__header-actions {

@@ -127,4 +127,33 @@ describe('SidebarNavigation', () => {
     app.unmount()
     host.remove()
   })
+
+  it('renders the brand header without the workspace subtitle', async () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+
+    const app = createApp(SidebarNavigation, {
+      hidden: false,
+      userName: 'Alice',
+      userInitial: 'A',
+      locale: 'en',
+      favoritesCollapsed: false,
+      projectsCollapsed: false,
+      favorites: [],
+      projects: [],
+      routePath: '/',
+      routeTaskId: null,
+      activeProjectId: null
+    })
+    app.use(i18n)
+    app.mount(host)
+    await nextTick()
+
+    expect(host.querySelector('.sidebar-nav__brand-name')?.textContent).toBe('Linear Lite')
+    expect(host.querySelector('.sidebar-nav__brand-meta')).toBeNull()
+    expect(host.querySelector('.sidebar-nav__header')?.textContent).not.toContain('Workspace')
+
+    app.unmount()
+    host.remove()
+  })
 })
