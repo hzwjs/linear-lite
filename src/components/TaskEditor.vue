@@ -60,6 +60,8 @@ import {
   Eye,
   User as UserIcon,
   Star,
+  Maximize2,
+  Minimize2,
   Paperclip,
   Folder
 } from 'lucide-vue-next'
@@ -129,6 +131,8 @@ const taskLabelComboboxRef = ref<{
   removeFromSuggestions: (labelId: number) => void
 } | null>(null)
 const editorPanelRef = ref<HTMLElement | null>(null)
+const descriptionSectionRef = ref<HTMLElement | null>(null)
+const isDescriptionFullscreen = ref(false)
 
 const userList = ref<User[]>([])
 const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
@@ -267,6 +271,9 @@ const isFavorited = computed(() => {
   if (!props.task?.id) return false
   return favoriteStore.isFavorite(props.task.id) || props.task.favorited === true
 })
+const descriptionFullscreenAriaLabel = computed(() =>
+  isDescriptionFullscreen.value ? t('taskEditor.exitFullscreen') : t('taskEditor.enterFullscreen')
+)
 
 const creatorName = computed(() => {
   if (props.mode !== 'edit' || !props.task?.creatorId) return null
@@ -1192,6 +1199,7 @@ function notifySaveState(message: string) {
 }
 
 onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', syncDescriptionFullscreenState)
   if (props.mode !== 'edit' || !props.task) return
   void flushEditorDraft().catch((e) => {
     console.warn('Flush editor draft on unmount failed:', e)
@@ -1291,10 +1299,36 @@ async function toggleFavorite() {
   await favoriteStore.toggleFavorite(props.task)
   await loadActivities({ silent: true })
 }
+
+function syncDescriptionFullscreenState() {
+  isDescriptionFullscreen.value = document.fullscreenElement === descriptionSectionRef.value
+}
+
+onMounted(() => {
+  document.addEventListener('fullscreenchange', syncDescriptionFullscreenState)
+})
+
+async function toggleDescriptionFullscreen() {
+  const target = descriptionSectionRef.value
+  if (!target) return
+  if (document.fullscreenElement === target) {
+    await document.exitFullscreen()
+    return
+  }
+  await target.requestFullscreen()
+}
 </script>
 
 <template>
-  <aside ref="editorPanelRef" class="editor-panel" :class="{ 'editor-panel--inline': props.variant === 'inline', 'editor-panel--create': props.mode === 'create' }" :aria-label="t('taskEditor.workspaceAria')">
+  <aside
+    ref="editorPanelRef"
+    class="editor-panel"
+    :class="{
+      'editor-panel--inline': props.variant === 'inline',
+      'editor-panel--create': props.mode === 'create'
+    }"
+    :aria-label="t('taskEditor.workspaceAria')"
+  >
     <div class="editor-header">
       <div class="editor-header-meta">
         <nav v-if="showBreadcrumb" class="editor-breadcrumb" :aria-label="t('taskEditor.breadcrumbAria')">
@@ -1364,7 +1398,23 @@ async function toggleFavorite() {
           />
         </section>
 
-          <section class="content-section description-section">
+          <section
+            ref="descriptionSectionRef"
+            class="content-section description-section"
+            :class="{ 'description-section--fullscreen': isDescriptionFullscreen }"
+          >
+            <div class="description-section__toolbar">
+              <button
+                type="button"
+                class="content-action-btn"
+                :aria-label="descriptionFullscreenAriaLabel"
+                :title="descriptionFullscreenAriaLabel"
+                @click="toggleDescriptionFullscreen"
+              >
+                <Minimize2 v-if="isDescriptionFullscreen" class="icon-14" />
+                <Maximize2 v-else class="icon-14" />
+              </button>
+            </div>
             <div class="description-section__surface">
               <BlockNoteEditorWrapper
                 ref="descriptionEditorRef"
@@ -1374,7 +1424,7 @@ async function toggleFavorite() {
                 @focus="onDescriptionFocus"
                 @blur="onDescriptionBlur"
                 :placeholder="t('taskEditor.descriptionPlaceholder')"
-                :min-height="96"
+                :min-height="isDescriptionFullscreen ? 520 : 96"
               />
             </div>
           </section>
@@ -2155,6 +2205,15 @@ async function toggleFavorite() {
   padding-inline-start: 0;
   overflow: visible;
 }
+.description-section__toolbar {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
 .description-section__surface {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -2185,6 +2244,33 @@ async function toggleFavorite() {
   margin-inline-start: -6px;
   width: calc(100% + 6px);
   max-width: none;
+}
+.description-section--fullscreen,
+.description-section:fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  margin: 0;
+  padding: 18px;
+  background: var(--color-bg-base);
+  overflow: hidden;
+}
+.description-section--fullscreen .description-section__toolbar,
+.description-section:fullscreen .description-section__toolbar {
+  top: 26px;
+  right: 30px;
+}
+.description-section--fullscreen .description-section__surface,
+.description-section:fullscreen .description-section__surface {
+  height: 100%;
+  padding: 42px 52px 24px;
+  background: var(--color-bg-base);
+  border-radius: var(--radius-lg);
+  overflow-y: auto;
+}
+.description-section--fullscreen .description-section__surface :deep(.blocknote-editor-wrap),
+.description-section:fullscreen .description-section__surface :deep(.blocknote-editor-wrap) {
+  min-height: 100%;
 }
 /* 新建任务时标题与描述间距略大，更易区分 */
 .editor-panel--create .content-section--title {
