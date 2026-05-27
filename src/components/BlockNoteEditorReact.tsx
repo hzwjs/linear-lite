@@ -231,6 +231,10 @@ function hydrateMermaidPreviewBlocks(root: HTMLElement, layer: HTMLElement, bloc
     const host = findMermaidBlockHost(root, block.id)
     if (!host) continue
     const preview = ensureMermaidPreview(root, layer, host, block.id, block.source)
+    host.classList.toggle(
+      'bn-mermaid-block--source',
+      preview.classList.contains('bn-mermaid-preview--source')
+    )
     positionMermaidPreview(root, host, preview)
     syncMermaidPreviewHeight(root, preview)
     const lastSource = preview.dataset.lastSource

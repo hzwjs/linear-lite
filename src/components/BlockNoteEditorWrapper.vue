@@ -386,6 +386,14 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
   visibility: visible;
 }
 
+.blocknote-editor-wrap--chrome
+  .bn-mermaid-editor-root:has(.bn-mermaid-preview--source)
+  .bn-block-content[data-content-type="codeBlock"][data-language="mermaid"] {
+  height: auto;
+  overflow: visible;
+  visibility: visible;
+}
+
 .blocknote-editor-wrap--chrome .bn-mermaid-editor-root {
   position: relative;
 }
