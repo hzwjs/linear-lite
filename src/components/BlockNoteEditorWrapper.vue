@@ -327,6 +327,43 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
   display: block;
 }
 
+/* ── Table controls: task descriptions enable BlockNote table handles. Make the
+      right/bottom extend buttons read as explicit add controls instead of thin
+      resize strips, while keeping comment editors untouched. ── */
+.bn-extend-button.bn-extend-button-add-remove-columns,
+.bn-extend-button.bn-extend-button-add-remove-rows {
+  z-index: 80 !important;
+  color: var(--color-text-muted, #888) !important;
+  background: var(--color-bg-base, #fff) !important;
+  border: 1px solid var(--color-border, #ddd) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12) !important;
+}
+
+.bn-extend-button.bn-extend-button-add-remove-columns {
+  width: 24px !important;
+  min-width: 24px !important;
+  margin-left: 6px !important;
+}
+
+.bn-extend-button.bn-extend-button-add-remove-rows {
+  height: 24px !important;
+  min-height: 24px !important;
+  margin-top: 6px !important;
+}
+
+.bn-extend-button.bn-extend-button-add-remove-columns:hover,
+.bn-extend-button.bn-extend-button-add-remove-rows:hover,
+.bn-extend-button.bn-extend-button-editing {
+  color: var(--color-text-primary, #222) !important;
+  background: var(--color-bg-hover, #f4f4f5) !important;
+  border-color: var(--color-accent, #5e6ad2) !important;
+}
+
+.bn-table-handle-menu {
+  z-index: 90 !important;
+}
+
 /* ── Code block language selector (native <select> rendered by BlockNote) ── */
 .bn-editor [data-content-type="codeBlock"] select {
   appearance: none;

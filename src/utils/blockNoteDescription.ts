@@ -22,6 +22,11 @@ function stripTrailingEmptyBlocks(blocks: RawBlock[]): RawBlock[] {
 function blockHasPersistableContent(block: RawBlock): boolean {
   const type = typeof block.type === 'string' ? block.type : ''
 
+  if (type === 'table') {
+    const rows = (block.content as { rows?: unknown[] } | undefined)?.rows
+    return Array.isArray(rows) && rows.length > 0
+  }
+
   if (type === 'image' || type === 'video' || type === 'audio' || type === 'file') {
     const props = block.props as Record<string, unknown> | undefined
     const url = props?.url
@@ -47,7 +52,7 @@ export function blockNoteDocHasPersistableContent(blocks: unknown[]): boolean {
 
 /** 把 content/children 缺失或非数组的块规范成空数组，递归到 children。 */
 function normalizeBlock(block: RawBlock): RawBlock {
-  if (!Array.isArray(block.content)) block.content = []
+  if (!Array.isArray(block.content) && block.type !== 'table') block.content = []
   if (!Array.isArray(block.children)) {
     block.children = []
   } else {

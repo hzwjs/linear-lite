@@ -72,4 +72,31 @@ describe('blockNoteDocHasPersistableContent', () => {
     expect(doc).toBeDefined()
     expect(blockNoteDocHasPersistableContent(doc!)).toBe(true)
   })
+
+  it('preserves table content objects and treats table structure as persistable', () => {
+    const raw = JSON.stringify([
+      {
+        id: 'tbl',
+        type: 'table',
+        props: { backgroundColor: 'default', textColor: 'default' },
+        content: {
+          type: 'tableContent',
+          rows: [
+            { cells: ['A1', 'B1'] },
+            { cells: ['A2', 'B2'] },
+          ],
+        },
+        children: [],
+      },
+    ])
+    const doc = parseBlockNoteStoredBlocks(raw) as Array<{
+      type: string
+      content: { rows: Array<{ cells: string[] }> }
+    }>
+
+    expect(doc).toBeDefined()
+    expect(doc[0]?.type).toBe('table')
+    expect(doc[0]?.content.rows[0]?.cells).toEqual(['A1', 'B1'])
+    expect(blockNoteDocHasPersistableContent(doc)).toBe(true)
+  })
 })

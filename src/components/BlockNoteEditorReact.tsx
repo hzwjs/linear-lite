@@ -344,7 +344,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       formattingToolbar={false}
       linkToolbar={false}
       filePanel={false}
-      tableHandles={false}
+      tableHandles={blockChromeOn}
       emojiPicker={false}
       comments={false}
     >
