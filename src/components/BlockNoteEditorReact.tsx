@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import '@blocknote/mantine/style.css'
+import PhotoSwipe from 'photoswipe'
 import { BlockNoteView } from '@blocknote/mantine'
 import {
   SuggestionMenuController,
@@ -74,6 +75,150 @@ type MermaidBlockRef = {
   source: string
 }
 
+type ImagePreviewItem = {
+  src: string
+  width: number
+  height: number
+  alt?: string
+  element: HTMLImageElement
+}
+
+function getPreviewImageSize(img: HTMLImageElement): { width: number; height: number } {
+  const width = img.naturalWidth || Math.round(img.getBoundingClientRect().width) || 1600
+  const height = img.naturalHeight || Math.round(img.getBoundingClientRect().height) || 1000
+  return { width, height }
+}
+
+function collectImagePreviewItems(root: HTMLElement): ImagePreviewItem[] {
+  return Array.from(root.querySelectorAll<HTMLImageElement>('img'))
+    .filter((img) => {
+      if (!img.currentSrc && !img.src) return false
+      if (img.closest('.pswp')) return false
+      return true
+    })
+    .map((img) => {
+      const { width, height } = getPreviewImageSize(img)
+      return {
+        src: img.currentSrc || img.src,
+        width,
+        height,
+        alt: img.alt || undefined,
+        element: img,
+      }
+    })
+}
+
+function ensureImagePreviewButtons(root: HTMLElement) {
+  const items = collectImagePreviewItems(root)
+  const activeImages = new Set(items.map((item) => item.element))
+  for (const image of root.querySelectorAll<HTMLImageElement>('.bn-image-preview-target')) {
+    if (!activeImages.has(image)) image.classList.remove('bn-image-preview-target')
+  }
+  for (const button of root.querySelectorAll<HTMLButtonElement>('.bn-image-preview-button')) {
+    const host = button.parentElement
+    const img = host?.querySelector<HTMLImageElement>('img')
+    if (!img || !activeImages.has(img)) {
+      button.remove()
+      host?.classList.remove('bn-image-preview-host')
+    }
+  }
+  items.forEach((item, index) => {
+    const host =
+      item.element.closest<HTMLElement>('.bn-block-content') ??
+      item.element.parentElement
+    if (!host) return
+    item.element.classList.add('bn-image-preview-target')
+    host.classList.add('bn-image-preview-host')
+    let button = host.querySelector<HTMLButtonElement>(':scope > .bn-image-preview-button')
+    if (!button) {
+      button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'bn-image-preview-button'
+      button.textContent = '预览'
+      button.setAttribute('aria-label', 'Preview image')
+      button.contentEditable = 'false'
+      host.appendChild(button)
+    }
+    button.setAttribute('data-preview-index', String(index))
+  })
+}
+
+function openImagePreview(root: HTMLElement, index: number) {
+  const items = collectImagePreviewItems(root)
+  const item = items[index]
+  if (!item) return
+  const pswp = new PhotoSwipe({
+    dataSource: items.map((candidate) => ({
+      src: candidate.src,
+      width: candidate.width,
+      height: candidate.height,
+      alt: candidate.alt,
+      element: candidate.element,
+    })),
+    index,
+    bgOpacity: 0.92,
+    wheelToZoom: true,
+    maxZoomLevel: 8,
+    showHideAnimationType: 'fade',
+  })
+  pswp.init()
+}
+
+function getMermaidSvgSize(svg: SVGSVGElement): { width: number; height: number } {
+  const viewBox = svg.viewBox.baseVal
+  if (viewBox?.width && viewBox?.height) {
+    return { width: Math.ceil(viewBox.width), height: Math.ceil(viewBox.height) }
+  }
+  const rect = svg.getBoundingClientRect()
+  return {
+    width: Math.max(800, Math.ceil(rect.width) || 1600),
+    height: Math.max(500, Math.ceil(rect.height) || 1000),
+  }
+}
+
+function getMermaidSvgDataUrl(svg: SVGSVGElement): string {
+  const clone = svg.cloneNode(true) as SVGSVGElement
+  if (!clone.getAttribute('xmlns')) {
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+  }
+  const { width, height } = getMermaidSvgSize(svg)
+  const background = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+  background.setAttribute('class', 'bn-mermaid-preview-background')
+  background.setAttribute('x', '0')
+  background.setAttribute('y', '0')
+  background.setAttribute('width', String(width))
+  background.setAttribute('height', String(height))
+  background.setAttribute('fill', '#fff')
+  clone.insertBefore(background, clone.firstChild)
+  const source = new XMLSerializer().serializeToString(clone)
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(source)}`
+}
+
+function openMermaidPreview(layer: HTMLElement, blockId: string) {
+  const preview = layer.querySelector<HTMLElement>(
+    `.bn-mermaid-preview[data-block-id="${blockId}"]`
+  )
+  const svg = preview?.querySelector<SVGSVGElement>('svg')
+  if (!svg) return
+  const { width, height } = getMermaidSvgSize(svg)
+  const pswp = new PhotoSwipe({
+    dataSource: [
+      {
+        src: getMermaidSvgDataUrl(svg),
+        width,
+        height,
+        alt: 'Mermaid diagram',
+      },
+    ],
+    index: 0,
+    bgOpacity: 0.92,
+    wheelToZoom: true,
+    maxZoomLevel: 8,
+    showHideAnimationType: 'fade',
+  })
+  pswp.init()
+}
+
 function collectMermaidBlocks(blocks: readonly any[]): MermaidBlockRef[] {
   const refs: MermaidBlockRef[] = []
   for (const block of blocks) {
@@ -132,6 +277,11 @@ function removeStaleMermaidOverlays(
     if (blockId && activeBlockIds.has(blockId)) continue
     overlay.remove()
   }
+  for (const button of layer.querySelectorAll<HTMLButtonElement>('.bn-mermaid-preview-zoom')) {
+    const blockId = button.dataset.blockId
+    if (blockId && activeBlockIds.has(blockId)) continue
+    button.remove()
+  }
 }
 
 function positionMermaidPreview(root: HTMLElement, host: HTMLElement, preview: HTMLElement) {
@@ -140,6 +290,13 @@ function positionMermaidPreview(root: HTMLElement, host: HTMLElement, preview: H
   preview.style.left = `${hostRect.left - rootRect.left}px`
   preview.style.top = `${hostRect.top - rootRect.top}px`
   preview.style.width = `${hostRect.width}px`
+}
+
+function positionMermaidPreviewZoomButton(root: HTMLElement, host: HTMLElement, button: HTMLElement) {
+  const rootRect = root.getBoundingClientRect()
+  const hostRect = host.getBoundingClientRect()
+  button.style.left = `${hostRect.right - rootRect.left - 54}px`
+  button.style.top = `${hostRect.top - rootRect.top + 8}px`
 }
 
 function syncMermaidPreviewHeight(root: HTMLElement, preview: HTMLElement) {
@@ -179,6 +336,30 @@ function ensureMermaidPreview(
   return preview
 }
 
+function ensureMermaidPreviewZoomButton(
+  root: HTMLElement,
+  layer: HTMLElement,
+  host: HTMLElement,
+  blockId: string
+): HTMLButtonElement {
+  let button = layer.querySelector<HTMLButtonElement>(
+    `.bn-mermaid-preview-zoom[data-block-id="${blockId}"]`
+  )
+  if (!button) {
+    button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'bn-mermaid-preview-zoom'
+    button.textContent = '预览'
+    button.setAttribute('aria-label', 'Preview Mermaid diagram')
+    button.contentEditable = 'false'
+    button.dataset.blockId = blockId
+    button.hidden = true
+    layer.appendChild(button)
+  }
+  positionMermaidPreviewZoomButton(root, host, button)
+  return button
+}
+
 async function renderMermaidPreview(root: HTMLElement, preview: HTMLElement, sourceText: string) {
   const lastSource = preview.dataset.lastSource
 
@@ -207,6 +388,10 @@ async function renderMermaidPreview(root: HTMLElement, preview: HTMLElement, sou
     preview.classList.remove('bn-mermaid-preview--loading', 'bn-mermaid-preview--error')
     preview.innerHTML = svg
     bindFunctions?.(preview)
+    const zoomButton = preview.parentElement?.querySelector<HTMLButtonElement>(
+      `.bn-mermaid-preview-zoom[data-block-id="${preview.dataset.blockId ?? ''}"]`
+    )
+    if (zoomButton) zoomButton.hidden = false
     window.requestAnimationFrame(() => syncMermaidPreviewHeight(root, preview))
   } catch (error) {
     if (!preview.isConnected || preview.dataset.lastSource !== sourceText) return
@@ -231,11 +416,15 @@ function hydrateMermaidPreviewBlocks(root: HTMLElement, layer: HTMLElement, bloc
     const host = findMermaidBlockHost(root, block.id)
     if (!host) continue
     const preview = ensureMermaidPreview(root, layer, host, block.id, block.source)
+    const zoomButton = ensureMermaidPreviewZoomButton(root, layer, host, block.id)
     host.classList.toggle(
       'bn-mermaid-block--source',
       preview.classList.contains('bn-mermaid-preview--source')
     )
     positionMermaidPreview(root, host, preview)
+    positionMermaidPreviewZoomButton(root, host, zoomButton)
+    zoomButton.hidden =
+      preview.classList.contains('bn-mermaid-preview--source') || !preview.querySelector('svg')
     syncMermaidPreviewHeight(root, preview)
     const lastSource = preview.dataset.lastSource
 
@@ -532,6 +721,49 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   }, [editor])
 
   useEffect(() => {
+    if (!blockChromeOn) return
+    const root = editorRootRef.current
+    if (!root) return
+    const hydrate = () => ensureImagePreviewButtons(root)
+    let hydrationTimer: ReturnType<typeof window.setTimeout> | undefined
+    const queueHydrate = () => {
+      if (hydrationTimer != null) window.clearTimeout(hydrationTimer)
+      hydrationTimer = window.setTimeout(() => {
+        hydrationTimer = undefined
+        hydrate()
+      }, 80)
+    }
+    hydrate()
+    const timers = [
+      window.setTimeout(hydrate, 0),
+      window.setTimeout(hydrate, 160),
+      window.setTimeout(hydrate, 600),
+      window.setTimeout(hydrate, 1600),
+    ]
+    const observer = new MutationObserver(queueHydrate)
+    observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] })
+
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : null
+      const button = target?.closest<HTMLButtonElement>('.bn-image-preview-button')
+      if (!button || !root.contains(button)) return
+      event.preventDefault()
+      event.stopPropagation()
+      const index = Number.parseInt(button.dataset.previewIndex ?? '', 10)
+      if (!Number.isFinite(index)) return
+      openImagePreview(root, index)
+    }
+
+    root.addEventListener('click', handleClick, true)
+    return () => {
+      if (hydrationTimer != null) window.clearTimeout(hydrationTimer)
+      observer.disconnect()
+      root.removeEventListener('click', handleClick, true)
+      for (const timer of timers) window.clearTimeout(timer)
+    }
+  }, [blockChromeOn])
+
+  useEffect(() => {
     const root = editorRootRef.current
     if (!root) return
 
@@ -572,6 +804,14 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
 
     const handleClick = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null
+      const zoomButton = target?.closest<HTMLButtonElement>('.bn-mermaid-preview-zoom')
+      if (zoomButton && root.contains(zoomButton)) {
+        event.preventDefault()
+        event.stopPropagation()
+        const blockId = zoomButton.dataset.blockId
+        if (blockId && mermaidLayerRef.current) openMermaidPreview(mermaidLayerRef.current, blockId)
+        return
+      }
       const preview = target?.closest<HTMLElement>('.bn-mermaid-preview')
       if (!preview || !root.contains(preview)) return
       event.preventDefault()

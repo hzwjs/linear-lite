@@ -27,6 +27,9 @@ public class WebConfig implements WebMvcConfigurer {
     @Value("${cors.allowed-origins:http://localhost:5173,http://127.0.0.1:5173}")
     private String allowedOrigins;
 
+    @Value("${cors.allowed-origin-patterns:http://localhost:*,http://127.0.0.1:*,http://[::1]:*}")
+    private String allowedOriginPatterns;
+
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         registry.addResourceHandler("/**")
@@ -54,6 +57,8 @@ public class WebConfig implements WebMvcConfigurer {
             CorsConfiguration config = new CorsConfiguration();
             List<String> origins = new ArrayList<>(List.of(allowedOrigins.trim().split(",\\s*")));
             origins.removeIf(String::isBlank);
+            List<String> originPatterns = new ArrayList<>(List.of(allowedOriginPatterns.trim().split(",\\s*")));
+            originPatterns.removeIf(String::isBlank);
             // 单 JAR 同机部署：请求的 Origin 与当前服务同 host+port 时自动放行
             String origin = request.getHeader("Origin");
             if (origin != null && !origin.isEmpty()) {
@@ -68,6 +73,7 @@ public class WebConfig implements WebMvcConfigurer {
                 } catch (Exception ignored) { }
             }
             config.setAllowedOrigins(origins);
+            config.setAllowedOriginPatterns(originPatterns);
             config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
             config.setAllowedHeaders(List.of("*"));
             config.setAllowCredentials(true);

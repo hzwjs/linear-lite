@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, shallowRef } from 'vue'
 import { applyReactInVue } from 'veaury'
+import 'photoswipe/style.css'
 import BlockNoteEditorReact from './BlockNoteEditorReact'
 import type { EditorApi } from './BlockNoteEditorReact'
 import { uploadApi } from '../services/api/upload'
@@ -229,6 +230,48 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
   padding: 0 !important;
 }
 
+.blocknote-editor-wrap--chrome .bn-image-preview-host {
+  position: relative;
+}
+
+.blocknote-editor-wrap--chrome .bn-image-preview-target {
+  cursor: zoom-in;
+}
+
+.blocknote-editor-wrap--chrome .bn-image-preview-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  color: rgba(15, 23, 42, 0.78);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 28px;
+  cursor: zoom-in;
+  opacity: 0.88;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.16);
+}
+
+.blocknote-editor-wrap--chrome .bn-image-preview-host:hover > .bn-image-preview-button,
+.blocknote-editor-wrap--chrome .bn-image-preview-button:focus-visible {
+  opacity: 1;
+}
+
+.blocknote-editor-wrap--chrome .bn-image-preview-button:hover {
+  background: #fff;
+  color: rgba(15, 23, 42, 0.95);
+}
+
 /* ── Typography: inherit project font; use 15px body (matches official example density,
       13px is too tight for a block editor content area) ── */
 .bn-default-styles {
@@ -418,6 +461,33 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
   cursor: pointer;
   pointer-events: auto;
   text-align: left;
+}
+
+.blocknote-editor-wrap--chrome .bn-mermaid-preview-zoom {
+  position: absolute;
+  z-index: 4;
+  min-width: 44px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  color: rgba(15, 23, 42, 0.78);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 28px;
+  cursor: zoom-in;
+  opacity: 0.88;
+  pointer-events: auto;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.16);
+}
+
+.blocknote-editor-wrap--chrome .bn-mermaid-preview-zoom:hover,
+.blocknote-editor-wrap--chrome .bn-mermaid-preview-zoom:focus-visible {
+  background: #fff;
+  color: rgba(15, 23, 42, 0.95);
+  opacity: 1;
 }
 
 .blocknote-editor-wrap--chrome .bn-mermaid-preview--source {
