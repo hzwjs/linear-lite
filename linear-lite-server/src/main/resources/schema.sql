@@ -123,6 +123,8 @@ CREATE TABLE IF NOT EXISTS task_activities (
 
 CREATE INDEX idx_task_activities_task_id ON task_activities (task_id);
 CREATE INDEX idx_task_activities_user_id ON task_activities (user_id);
+CREATE INDEX idx_task_activities_task_created_id ON task_activities (task_id, created_at, id);
+CREATE INDEX idx_task_activities_coalesce ON task_activities (task_id, user_id, action_type, field_name, created_at, id);
 
 CREATE TABLE IF NOT EXISTS task_attachments (
     id           BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,

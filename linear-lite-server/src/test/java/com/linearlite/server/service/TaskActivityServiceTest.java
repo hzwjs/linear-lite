@@ -175,7 +175,7 @@ class TaskActivityServiceTest {
     }
 
     @Test
-    void recordDescriptionChangeStillCoalescesAfterTenMinutes() {
+    void recordDescriptionChangeStillCoalescesAfterEightHours() {
         TaskActivity recent = new TaskActivity();
         recent.setId(199L);
         recent.setTaskId(1L);
@@ -184,7 +184,7 @@ class TaskActivityServiceTest {
         recent.setFieldName("description");
         recent.setOldValue("old");
         recent.setNewValue("mid");
-        recent.setCreatedAt(LocalDateTime.now().minusMinutes(10));
+        recent.setCreatedAt(LocalDateTime.now().minusHours(8));
         Page<TaskActivity> page = new Page<>(1, 1);
         page.setRecords(List.of(recent));
         when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(page);
@@ -193,6 +193,41 @@ class TaskActivityServiceTest {
 
         verify(taskActivityMapper).updateById(recent);
         verify(taskActivityMapper, never()).insert(any());
+    }
+
+    @Test
+    void recordDescriptionChangeDeletesDuplicateActivitiesInCoalesceWindow() {
+        TaskActivity newest = new TaskActivity();
+        newest.setId(201L);
+        newest.setTaskId(1L);
+        newest.setUserId(2L);
+        newest.setActionType("changed");
+        newest.setFieldName("description");
+        newest.setOldValue("mid");
+        newest.setNewValue("newer");
+        newest.setCreatedAt(LocalDateTime.now().minusMinutes(1));
+
+        TaskActivity oldest = new TaskActivity();
+        oldest.setId(200L);
+        oldest.setTaskId(1L);
+        oldest.setUserId(2L);
+        oldest.setActionType("changed");
+        oldest.setFieldName("description");
+        oldest.setOldValue("old");
+        oldest.setNewValue("mid");
+        oldest.setCreatedAt(LocalDateTime.now().minusMinutes(2));
+
+        Page<TaskActivity> page = new Page<>(1, 200);
+        page.setRecords(List.of(newest, oldest));
+        when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(page);
+
+        taskActivityService.recordDescriptionChange(1L, 2L, "newer", "final");
+
+        verify(taskActivityMapper).updateById(newest);
+        verify(taskActivityMapper).delete(any(LambdaQueryWrapper.class));
+        verify(taskActivityMapper, never()).insert(any());
+        assertEquals("old", newest.getOldValue());
+        assertEquals("final", newest.getNewValue());
     }
 
     @Test

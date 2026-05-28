@@ -46,12 +46,13 @@ public class TaskActivityService {
 
     private static final int CHANGED_FIELD_COALESCE_MINUTES = 2;
     /**
-     * description 采用更长窗口，近似“打开详情到离开详情只记一条”。
+     * description 采用更长窗口，近似“同一天反复编辑只记一条”。
      * 普通字段仍使用短窗口，避免跨较长时间误合并。
      */
-    private static final int DESCRIPTION_COALESCE_MINUTES = 180;
+    private static final int DESCRIPTION_COALESCE_MINUTES = 24 * 60;
     private static final int DESCRIPTION_PREVIEW_CHARS = 160;
     private static final int GENERAL_VALUE_MAX_CHARS = 256;
+    private static final int COALESCE_LOOKBACK_LIMIT = 200;
     private static final Set<String> COALESCE_FIELDS = Set.of(
             "description", "title", "progressPercent", "dueDate", "plannedStartDate", "labels");
 
@@ -71,23 +72,25 @@ public class TaskActivityService {
         if (shouldCoalesce(fieldName)) {
             LocalDateTime now = LocalDateTime.now();
             LocalDateTime cutoff = now.minusMinutes(coalesceMinutesFor(fieldName));
-            Page<TaskActivity> page = new Page<>(1, 1);
+            Page<TaskActivity> page = new Page<>(1, COALESCE_LOOKBACK_LIMIT);
             List<TaskActivity> last = taskActivityMapper.selectPage(page,
                     new LambdaQueryWrapper<TaskActivity>()
                             .eq(TaskActivity::getTaskId, taskId)
                             .eq(TaskActivity::getUserId, userId)
                             .eq(TaskActivity::getActionType, "changed")
                             .eq(TaskActivity::getFieldName, fieldName)
-                            .orderByDesc(TaskActivity::getCreatedAt))
+                            .ge(TaskActivity::getCreatedAt, cutoff)
+                            .orderByDesc(TaskActivity::getCreatedAt, TaskActivity::getId))
                     .getRecords();
             if (!last.isEmpty()) {
                 TaskActivity act = last.get(0);
-                if (!act.getCreatedAt().isBefore(cutoff)) {
-                    act.setNewValue(compactNew);
-                    act.setCreatedAt(now);
-                    taskActivityMapper.updateById(act);
-                    return;
-                }
+                TaskActivity oldest = last.get(last.size() - 1);
+                act.setOldValue(oldest.getOldValue());
+                act.setNewValue(compactNew);
+                act.setCreatedAt(now);
+                taskActivityMapper.updateById(act);
+                deleteDuplicateActivities(last, act.getId());
+                return;
             }
         }
         TaskActivity activity = new TaskActivity();
@@ -153,6 +156,17 @@ public class TaskActivityService {
         }
         return userMapper.selectBatchIds(filtered).stream()
                 .collect(Collectors.toMap(User::getId, User::getUsername));
+    }
+
+    private void deleteDuplicateActivities(List<TaskActivity> activities, Long keepId) {
+        List<Long> duplicateIds = activities.stream()
+                .map(TaskActivity::getId)
+                .filter(id -> id != null && !id.equals(keepId))
+                .toList();
+        if (duplicateIds.isEmpty()) {
+            return;
+        }
+        taskActivityMapper.delete(new LambdaQueryWrapper<TaskActivity>().in(TaskActivity::getId, duplicateIds));
     }
 
     private static boolean shouldCoalesce(String fieldName) {
