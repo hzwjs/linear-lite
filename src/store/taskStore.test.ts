@@ -391,6 +391,41 @@ describe('taskStore', () => {
     expect(store.currentTask?.id).toBe('ENG-9')
   })
 
+  it('keeps cached task description when a lightweight list refresh arrives after detail', async () => {
+    const projectStore = useProjectStore()
+    projectStore.setActiveProject(7)
+    const store = useTaskStore()
+    store.currentTaskId = 'ENG-9'
+    const detail = baseTask({
+      id: 'ENG-9',
+      title: 'Detail title',
+      description: 'Large detail body',
+      projectId: 7,
+      updatedAt: 10
+    })
+    vi.mocked(taskApi.get).mockResolvedValueOnce(detail)
+    vi.mocked(taskApi.list).mockResolvedValueOnce([
+      baseTask({
+        id: 'ENG-9',
+        title: 'List title',
+        description: undefined,
+        projectId: 7,
+        updatedAt: 11
+      })
+    ])
+
+    await store.fetchTaskByKey('ENG-9')
+    await store.fetchTasks()
+
+    expect(store.currentTask).toMatchObject({
+      id: 'ENG-9',
+      title: 'List title',
+      description: 'Large detail body',
+      updatedAt: 11
+    })
+    expect(store.tasks[0]?.description).toBe('Large detail body')
+  })
+
   it('keeps newer pending optimistic fields after older request succeeds', async () => {
     const store = useTaskStore()
     const task: Task = {

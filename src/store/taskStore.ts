@@ -93,19 +93,25 @@ export const useTaskStore = defineStore('taskStore', () => {
 
   const saveLanes = new Map<string, TaskSaveLane>()
 
+  function mergeTaskWithCachedDetail(task: Task): Task {
+    const cached = taskByKeyCache.value[task.id]
+    if (!cached) return task
+    if (task.description !== undefined || cached.description === undefined) return task
+    return { ...cached, ...task, description: cached.description }
+  }
+
   const currentTask = computed(() => {
     if (!currentTaskId.value) return null
-    return (
-      tasks.value.find((t) => t.id === currentTaskId.value) ??
-      taskByKeyCache.value[currentTaskId.value] ??
-      null
-    )
+    const row = tasks.value.find((t) => t.id === currentTaskId.value)
+    if (row) return mergeTaskWithCachedDetail(row)
+    return taskByKeyCache.value[currentTaskId.value] ?? null
   })
 
   function cacheTask(task: Task) {
+    const next = mergeTaskWithCachedDetail(task)
     taskByKeyCache.value = {
       ...taskByKeyCache.value,
-      [task.id]: task
+      [next.id]: next
     }
   }
 
@@ -390,9 +396,10 @@ export const useTaskStore = defineStore('taskStore', () => {
     try {
       const list = await taskApi.list(requestedProjectId, { topLevelOnly: false })
       if (useProjectStore().activeProjectId !== requestedProjectId) return
-      tasks.value = list
-      rememberProjectTasks(requestedProjectId, list)
-      for (const task of list) {
+      const mergedList = list.map(mergeTaskWithCachedDetail)
+      tasks.value = mergedList
+      rememberProjectTasks(requestedProjectId, mergedList)
+      for (const task of mergedList) {
         cacheTask(task)
         const lane = saveLanes.get(task.id)
         if (lane) lane.ackBase = cloneTask(task)
