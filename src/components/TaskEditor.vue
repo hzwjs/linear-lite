@@ -19,7 +19,7 @@ import { projectApi } from '../services/api/project'
 import { activityApi } from '../services/api/activity'
 import { taskCommentsApi, type TaskCommentDto } from '../services/api/taskComments'
 import { attachmentsApi } from '../services/api/attachments'
-import type { TaskLabelWriteItem } from '../services/api/types'
+import { toLabelWriteItems } from '../utils/taskLabelWrite'
 import type { TaskAttachment } from '../services/api/types'
 import { getActivityAvatarLabel } from '../utils/taskActivity'
 import {
@@ -850,17 +850,6 @@ function taskLabelsStableKey(labels: Task['labels'] | undefined): string {
     .map((l) => `i:${l.id}`)
     .sort()
     .join('|')
-}
-
-function toLabelWriteItems(rows: { id?: number; name: string }[]): TaskLabelWriteItem[] {
-  const out: TaskLabelWriteItem[] = []
-  for (const r of rows) {
-    const n = r.name.trim()
-    if (!n) continue
-    if (r.id != null) out.push({ id: r.id })
-    else out.push({ name: n })
-  }
-  return out
 }
 
 function labelNameTaken(name: string): boolean {

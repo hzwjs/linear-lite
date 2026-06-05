@@ -32,6 +32,7 @@ import CommandPalette, { type CommandItem } from './CommandPalette.vue'
 import type { Task, Status, Priority } from '../types/domain'
 import type { User } from '../types/domain'
 import type { TaskLabelWriteItem } from '../services/api/types'
+import { toLabelWriteItem } from '../utils/taskLabelWrite'
 import { useTaskStore } from '../store/taskStore'
 import { useProjectStore } from '../store/projectStore'
 import { useAuthStore } from '../store/authStore'
@@ -158,10 +159,14 @@ function endOfLocalWeekMs(): number {
 
 function toLabelWriteItemsMerge(task: Task, addedLabelId: number): TaskLabelWriteItem[] {
   const existing = task.labels ?? []
-  if (existing.some((l) => l.id === addedLabelId)) {
-    return existing.map((l) => ({ id: l.id }))
+  const existingItems = existing.flatMap((l) => {
+    const item = toLabelWriteItem(l)
+    return item ? [item] : []
+  })
+  if (existing.some((l) => l.id === addedLabelId && addedLabelId > 0)) {
+    return existingItems
   }
-  return [...existing.map((l) => ({ id: l.id })), { id: addedLabelId }]
+  return [...existingItems, { id: addedLabelId }]
 }
 
 async function bulkUpdateAll(updater: (taskKey: string) => Promise<unknown>): Promise<void> {
