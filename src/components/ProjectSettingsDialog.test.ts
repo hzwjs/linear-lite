@@ -40,6 +40,7 @@ describe('ProjectSettingsDialog', () => {
     const onUpdateInviteEmail = vi.fn()
     const onSubmit = vi.fn()
     const onInvite = vi.fn()
+    const onImport = vi.fn()
     const onDelete = vi.fn()
     const onClose = vi.fn()
 
@@ -63,6 +64,7 @@ describe('ProjectSettingsDialog', () => {
           'onUpdate:inviteEmail': onUpdateInviteEmail,
           onSubmit,
           onInvite,
+          onImport,
           onDelete,
           onClose
         })
@@ -87,6 +89,7 @@ describe('ProjectSettingsDialog', () => {
 
     ;(host.querySelector('[data-testid="project-settings-submit"]') as HTMLButtonElement).click()
     ;(host.querySelector('[data-testid="project-settings-invite"]') as HTMLButtonElement).click()
+    ;(host.querySelector('[data-testid="project-settings-import"]') as HTMLButtonElement).click()
     ;(host.querySelector('[data-testid="project-settings-delete"]') as HTMLButtonElement).click()
     ;(host.querySelector('[data-testid="project-settings-close"]') as HTMLButtonElement).click()
     await nextTick()
@@ -96,6 +99,7 @@ describe('ProjectSettingsDialog', () => {
     expect(onUpdateInviteEmail).toHaveBeenCalledWith('a@b.com')
     expect(onSubmit).toHaveBeenCalledTimes(1)
     expect(onInvite).toHaveBeenCalledTimes(1)
+    expect(onImport).toHaveBeenCalledTimes(1)
     expect(onDelete).toHaveBeenCalledTimes(1)
     expect(onClose).toHaveBeenCalledTimes(1)
 

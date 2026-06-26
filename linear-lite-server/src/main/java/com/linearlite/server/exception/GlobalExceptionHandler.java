@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * 全局异常处理，将异常转换为统一 ApiResponse。
@@ -25,6 +26,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Void> handleAsyncRequestTimeout(AsyncRequestTimeoutException e) {
         log.debug("Async request timed out");
         return ResponseEntity.status(HttpStatus.REQUEST_TIMEOUT).build();
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(NoResourceFoundException e) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(HttpStatus.NOT_FOUND.value(), e.getMessage()));
     }
 
     @ExceptionHandler(Exception.class)

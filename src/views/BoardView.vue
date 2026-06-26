@@ -20,7 +20,6 @@ import {
   X,
   LayoutList,
   Plus,
-  Download,
   Tag,
   User as UserIcon
 } from 'lucide-vue-next'
@@ -62,7 +61,6 @@ const displayTriggerRef = ref<HTMLElement | null>(null)
 const filterPopoverRef = ref<HTMLElement | null>(null)
 const addIssueFilterMenuRef = ref<InstanceType<typeof AddIssueFilterMenu> | null>(null)
 const displayPopoverRef = ref<HTMLElement | null>(null)
-const isImportOpen = ref(false)
 const deepLinkResolveSeq = ref(0)
 
 // 命令栏在任务详情（右侧抽屉）打开时隐藏
@@ -430,12 +428,6 @@ function openCreateEditor(defaultStatus?: import('../types/domain').Status, pare
   })
 }
 
-function openImportModal() {
-  isImportOpen.value = true
-}
-
-// 浮层（Drawer / Composer / Import）由 BoardViewContent 注册
-
 const viewType = computed(() => viewModeStore.viewType)
 
 function setView(v: ViewType) {
@@ -534,51 +526,12 @@ function onClickOutsideDisplay(event: MouseEvent) {
 
 <template>
   <div class="board-view" :class="{ 'board-view--inline-editor': isEditorOpen }">
-    <header class="app-header">
-      <div class="header-left">
-        <button class="btn-create" @click="() => openCreateEditor()">{{ t('boardView.newIssue') }}</button>
-        <button class="btn-import" @click="openImportModal">
-          <Download class="icon-14" />
-          <span>{{ t('common.import') }}</span>
-        </button>
-        <div class="view-toggle">
-          <button
-            type="button"
-            class="toggle-btn"
-            :class="{ active: viewType === 'board' }"
-            @click="setView('board')"
-          >
-            {{ t('common.board') }}
-          </button>
-          <button
-            type="button"
-            class="toggle-btn"
-            :class="{ active: viewType === 'list' }"
-            @click="setView('list')"
-          >
-            {{ t('common.list') }}
-          </button>
-          <button
-            type="button"
-            class="toggle-btn"
-            :class="{ active: viewType === 'gantt' }"
-            @click="setView('gantt')"
-          >
-            {{ t('common.gantt') }}
-          </button>
-        </div>
-        <input
-          ref="searchInputRef"
-          v-model="searchQuery"
-          :placeholder="t('boardView.searchIssues')"
-          class="search-input"
-          :aria-label="t('boardView.searchIssues')"
-        />
-      </div>
-    </header>
-
-    <div v-if="!isEditorOpen" class="command-bar">
-      <div class="command-bar-left">
+    <div
+      v-if="!isEditorOpen"
+      class="board-toolbar"
+      :class="{ 'board-toolbar--list': viewType === 'list' }"
+    >
+      <div class="toolbar-scope">
         <div class="scope-tabs">
           <button
             type="button"
@@ -605,16 +558,21 @@ function onClickOutsideDisplay(event: MouseEvent) {
             {{ t('boardView.backlog') }}
           </button>
         </div>
-        <button
-          type="button"
-          class="command-bar-add"
-          :aria-label="t('boardView.newIssue')"
-          @click="() => openCreateEditor()"
-        >
-          <Plus class="icon-14" />
-        </button>
       </div>
-      <div class="command-bar-right">
+      <div class="toolbar-actions">
+        <button class="btn-create" @click="() => openCreateEditor()">{{ t('boardView.newIssue') }}</button>
+      </div>
+      <div class="toolbar-spacer" aria-hidden="true" />
+      <div class="toolbar-search">
+        <input
+          ref="searchInputRef"
+          v-model="searchQuery"
+          :placeholder="t('boardView.searchIssues')"
+          class="search-input"
+          :aria-label="t('boardView.searchIssues')"
+        />
+      </div>
+      <div class="toolbar-options">
         <div ref="filterTriggerRef" class="popover-anchor popover-anchor-right">
           <button
             type="button"
@@ -774,9 +732,37 @@ function onClickOutsideDisplay(event: MouseEvent) {
           </div>
         </div>
       </div>
+      <div class="toolbar-view">
+        <div class="view-toggle">
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ active: viewType === 'board' }"
+            @click="setView('board')"
+          >
+            {{ t('common.board') }}
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ active: viewType === 'list' }"
+            @click="setView('list')"
+          >
+            {{ t('common.list') }}
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            :class="{ active: viewType === 'gantt' }"
+            @click="setView('gantt')"
+          >
+            {{ t('common.gantt') }}
+          </button>
+        </div>
+      </div>
     </div>
 
-    <div v-if="hasActiveFilters" class="filter-bar">
+    <div v-if="!isEditorOpen && hasActiveFilters" class="filter-bar">
       <div class="filter-bar-conditions">
         <div v-if="store.filterStatusList.length > 0" class="filter-condition">
           <Circle class="filter-condition-icon" />
@@ -834,11 +820,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
     </div>
 
     <Suspense>
-      <BoardViewContent
-        :users="users"
-        :import-open="isImportOpen"
-        @close-import="isImportOpen = false"
-      />
+      <BoardViewContent :users="users" />
       <template #fallback>
         <div class="board-content board-content--loading">
           <p class="loading-placeholder">{{ t('boardView.loadingTasks') }}</p>
@@ -861,24 +843,66 @@ function onClickOutsideDisplay(event: MouseEvent) {
 .board-view--inline-editor {
   overflow: visible;
 }
-/* 顶栏：与命令带统一为一条浅带，主操作仅保留 New issue */
-.app-header {
-  min-height: 40px;
-  border-bottom: 1px solid var(--color-border-subtle);
-  display: flex;
-  justify-content: space-between;
+/* 顶部工具栏：默认保留两行节奏，列表态压成单行。 */
+.board-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "scope search view"
+    "actions options view";
   align-items: center;
-  gap: 10px;
+  gap: 8px 12px;
+  min-height: 72px;
   padding: 6px 12px;
-  flex-wrap: wrap;
   background: var(--color-bg-subtle);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
-.header-left {
+.board-toolbar--list {
+  grid-template-columns: auto auto minmax(12px, 1fr) minmax(180px, 240px) auto auto;
+  grid-template-areas: "scope actions spacer search options view";
+  gap: 8px;
+  min-height: 40px;
+}
+.toolbar-actions {
+  grid-area: actions;
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  flex: 1;
+  min-width: 0;
+}
+.toolbar-scope {
+  grid-area: scope;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.toolbar-spacer {
+  grid-area: spacer;
+  display: none;
+  min-width: 0;
+}
+.board-toolbar--list .toolbar-spacer {
+  display: block;
+}
+.toolbar-search {
+  grid-area: search;
+  justify-self: end;
+  min-width: 0;
+}
+.toolbar-options {
+  grid-area: options;
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: 4px;
+  min-width: 0;
+}
+.toolbar-view {
+  grid-area: view;
+  display: flex;
+  justify-self: end;
   min-width: 0;
 }
 .btn-create {
@@ -894,28 +918,10 @@ function onClickOutsideDisplay(event: MouseEvent) {
 .btn-create:hover {
   background: var(--color-accent-hover);
 }
-.btn-import {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 26px;
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border-subtle);
-  background: var(--color-bg-base);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-caption);
-  transition: border-color var(--transition-fast), background var(--transition-fast);
-}
-.btn-import:hover {
-  background: var(--color-bg-hover);
-  border-color: var(--color-border);
-}
-
 .search-input {
-  margin-left: auto;
   min-width: 180px;
-  max-width: 240px;
+  width: 240px;
+  max-width: 100%;
   height: 26px;
   box-sizing: border-box;
   background: var(--color-bg-muted);
@@ -935,21 +941,6 @@ function onClickOutsideDisplay(event: MouseEvent) {
   background: var(--color-bg-base);
 }
 
-/* 命令带：与顶栏同背景，Tab 弱化 */
-.command-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 4px 12px 6px;
-  border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-bg-subtle);
-  min-height: 32px;
-}
-.command-bar-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
 .scope-tabs {
   display: flex;
   border: 1px solid var(--color-border-subtle);
@@ -975,34 +966,10 @@ function onClickOutsideDisplay(event: MouseEvent) {
   background: var(--color-bg-muted);
   font-weight: var(--font-weight-medium);
 }
-.command-bar-add {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-  background: transparent;
-  cursor: pointer;
-  transition: color var(--transition-fast), background var(--transition-fast);
-}
-.command-bar-add:hover {
-  color: var(--color-text-primary);
-  background: var(--color-bg-hover);
-}
 .icon-14 {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
-}
-.command-bar-right {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
 }
 
 .filter-bar {
@@ -1563,6 +1530,40 @@ function onClickOutsideDisplay(event: MouseEvent) {
 }
 
 @media (max-width: 1100px) {
+  .board-toolbar,
+  .board-toolbar--list {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "scope"
+      "actions"
+      "search"
+      "options"
+      "view";
+    min-height: auto;
+    align-items: stretch;
+  }
+
+  .toolbar-actions,
+  .toolbar-scope,
+  .toolbar-view {
+    flex-wrap: wrap;
+  }
+
+  .toolbar-search,
+  .toolbar-options,
+  .toolbar-view {
+    justify-self: stretch;
+  }
+
+  .toolbar-options,
+  .toolbar-view {
+    justify-content: flex-start;
+  }
+
+  .search-input {
+    width: 100%;
+  }
+
   .display-bar {
     padding: 6px 16px 8px;
     align-items: flex-start;

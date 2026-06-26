@@ -58,14 +58,9 @@ function resilientAsyncComponent<T extends Component>(loader: () => Promise<T>) 
 
 const TaskEditor = resilientAsyncComponent(() => import('../components/TaskEditor.vue'))
 const GanttChart = resilientAsyncComponent(() => import('../components/GanttChart.vue'))
-const TaskImportModal = resilientAsyncComponent(() => import('../components/TaskImportModal.vue'))
 
 const props = defineProps<{
   users: User[]
-  importOpen: boolean
-}>()
-const emit = defineEmits<{
-  closeImport: []
 }>()
 
 const store = useTaskStore()
@@ -84,7 +79,6 @@ const taskEditorRef = ref<
 
 const DRAWER_OVERLAY_ID = 'task-editor-drawer'
 const COMPOSER_OVERLAY_ID = 'issue-composer'
-const IMPORT_OVERLAY_ID = 'task-import'
 
 const routeTaskId = computed(() => getRouteTaskId(route))
 const isEditorOpen = computed(() => routeTaskId.value != null)
@@ -182,10 +176,6 @@ function handleCreated(taskId: string) {
   router.push(buildTaskRoute(taskId, projectStore.activeProjectId))
 }
 
-function handleImported() {
-  store.fetchTasks()
-}
-
 function createStatusDefault(groupKey: string): Status | undefined {
   if (viewModeStore.viewConfig.groupBy !== 'status') return undefined
   if (groupKey === 'todo' || groupKey === 'in_progress' || groupKey === 'done') {
@@ -240,17 +230,6 @@ watch(
   { immediate: true }
 )
 watch(
-  () => props.importOpen,
-  (open) => {
-    if (open) {
-      overlayStore.push(IMPORT_OVERLAY_ID, () => emit('closeImport'))
-    } else {
-      overlayStore.remove(IMPORT_OVERLAY_ID)
-    }
-  },
-  { immediate: true }
-)
-watch(
   flatTaskIds,
   (taskIds) => {
     issuePanelStore.syncSelection(taskIds)
@@ -267,7 +246,6 @@ function clearFilters() {
 onUnmounted(() => {
   overlayStore.remove(DRAWER_OVERLAY_ID)
   overlayStore.remove(COMPOSER_OVERLAY_ID)
-  overlayStore.remove(IMPORT_OVERLAY_ID)
 })
 </script>
 
@@ -375,13 +353,6 @@ onUnmounted(() => {
     :parent-numeric-id="issuePanelStore.composerDefaults.parentNumericId"
     @close="closeComposer"
     @created="handleCreated"
-  />
-  <TaskImportModal
-    :open="importOpen"
-    :project-id="projectStore.activeProjectId"
-    :users="users"
-    @close="emit('closeImport')"
-    @imported="handleImported"
   />
 </template>
 

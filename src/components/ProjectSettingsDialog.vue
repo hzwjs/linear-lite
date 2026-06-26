@@ -17,6 +17,7 @@ const emit = defineEmits<{
   close: []
   submit: []
   invite: []
+  import: []
   delete: []
   'update:name': [value: string]
   'update:identifier': [value: string]
@@ -43,6 +44,10 @@ function onSubmit() {
 
 function onInvite() {
   emit('invite')
+}
+
+function onImport() {
+  emit('import')
 }
 
 function onDelete() {
@@ -122,6 +127,21 @@ function onClose() {
             </button>
           </div>
           <p v-if="inviteMessage" class="invite-success">{{ inviteMessage }}</p>
+        </div>
+        <div class="section-panel import-zone">
+          <div class="section-header">
+            <p class="section-title">{{ t('projectSettingsModal.importTitle') }}</p>
+            <p class="section-text">{{ t('projectSettingsModal.importDescription') }}</p>
+          </div>
+          <button
+            type="button"
+            class="btn-secondary"
+            data-testid="project-settings-import"
+            :disabled="isInviting || isSubmitting"
+            @click="onImport"
+          >
+            {{ t('projectSettingsModal.importButton') }}
+          </button>
         </div>
         <div v-if="canDelete" class="section-panel danger-zone">
           <div class="section-header">
@@ -272,6 +292,13 @@ function onClose() {
 .invite-zone {
   margin-top: 12px;
 }
+.import-zone {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+}
 .invite-controls {
   display: flex;
   gap: 8px;
@@ -316,6 +343,23 @@ function onClose() {
 .btn-cancel:hover {
   background: var(--color-bg-hover);
   border-color: var(--project-settings-border);
+}
+.btn-secondary {
+  padding: 8px 14px;
+  border-radius: 7px;
+  color: var(--project-settings-text);
+  background: #ffffff;
+  border: 1px solid var(--project-settings-border-strong);
+  white-space: nowrap;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--project-settings-border);
+}
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .btn-primary {
   padding: 8px 14px;

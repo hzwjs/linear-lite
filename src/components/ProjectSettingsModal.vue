@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import type { Project } from '../types/domain'
+import { computed, onUnmounted, ref, watch } from 'vue'
+import type { Project, User } from '../types/domain'
 import { useProjectStore } from '../store/projectStore'
 import { useAuthStore } from '../store/authStore'
+import { useTaskStore } from '../store/taskStore'
+import { useOverlayStore } from '../store/overlayStore'
 import { useI18n } from 'vue-i18n'
+import { projectApi } from '../services/api/project'
 import ProjectSettingsDialog from './ProjectSettingsDialog.vue'
+import TaskImportModal from './TaskImportModal.vue'
 
 const props = defineProps<{
   open: boolean
@@ -19,10 +23,14 @@ const emit = defineEmits<{
 
 const projectStore = useProjectStore()
 const authStore = useAuthStore()
+const taskStore = useTaskStore()
+const overlayStore = useOverlayStore()
 const { t } = useI18n()
 const name = ref('')
 const identifier = ref('')
 const inviteEmail = ref('')
+const importOpen = ref(false)
+const importUsers = ref<User[]>([])
 const isSubmitting = ref(false)
 const isInviting = ref(false)
 const error = ref('')
@@ -38,11 +46,26 @@ watch(
       name.value = project.name
       identifier.value = project.identifier
       inviteEmail.value = ''
+      importUsers.value = []
       error.value = ''
       inviteMessage.value = ''
     }
+    if (!open) {
+      importOpen.value = false
+      importUsers.value = []
+    }
   }
 )
+
+watch(importOpen, (open) => {
+  if (open) {
+    overlayStore.push('task-import-modal', () => {
+      importOpen.value = false
+    })
+  } else {
+    overlayStore.remove('task-import-modal')
+  }
+})
 
 async function submit() {
   if (!props.project) return
@@ -111,9 +134,33 @@ async function inviteMember() {
   }
 }
 
+async function openTaskImport() {
+  if (!props.project || isSubmitting.value || isInviting.value) return
+  importOpen.value = true
+  try {
+    importUsers.value = await projectApi.listMembers(props.project.id)
+  } catch (e) {
+    console.error('Failed to load project members:', e)
+    importUsers.value = []
+  }
+}
+
+function closeTaskImport() {
+  importOpen.value = false
+}
+
+function handleImported() {
+  if (!props.project || projectStore.activeProjectId !== props.project.id) return
+  taskStore.fetchTasks()
+}
+
 function close() {
   if (!isSubmitting.value && !isInviting.value) emit('close')
 }
+
+onUnmounted(() => {
+  overlayStore.remove('task-import-modal')
+})
 </script>
 
 <template>
@@ -132,7 +179,15 @@ function close() {
     @update:invite-email="inviteEmail = $event"
     @submit="submit"
     @invite="inviteMember"
+    @import="openTaskImport"
     @delete="removeProject"
     @close="close"
+  />
+  <TaskImportModal
+    :open="importOpen"
+    :project-id="project?.id ?? null"
+    :users="importUsers"
+    @close="closeTaskImport"
+    @imported="handleImported"
   />
 </template>

@@ -9,10 +9,26 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.filter.CorsFilter;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WebConfigTest {
+
+    @Test
+    void staticResourcesIncludeBuiltFrontendDistForSpringBootRun() throws Exception {
+        Method method = WebConfig.class.getDeclaredMethod("staticResourceLocations");
+        method.setAccessible(true);
+
+        String[] locations = (String[]) method.invoke(null);
+
+        assertTrue(
+                Arrays.asList(locations).contains("file:../dist/"),
+                "spring-boot:run should serve the built frontend from the repository dist directory"
+        );
+    }
 
     @Test
     void corsAllowsViteFallbackLocalhostPorts() throws ServletException, IOException {

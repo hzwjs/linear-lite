@@ -33,7 +33,7 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         registry.addResourceHandler("/**")
-                .addResourceLocations("classpath:/static/")
+                .addResourceLocations(staticResourceLocations())
                 .resourceChain(true)
                 .addResolver(new PathResourceResolver() {
                     @Override
@@ -46,6 +46,14 @@ public class WebConfig implements WebMvcConfigurer {
                         return resource;
                     }
                 });
+    }
+
+    static String[] staticResourceLocations() {
+        return new String[] {
+                "classpath:/static/",
+                "file:../dist/",
+                "file:dist/"
+        };
     }
 
     @Bean
