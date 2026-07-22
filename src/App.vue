@@ -222,6 +222,14 @@ function selectProject(id: number) {
   }
 }
 
+async function reorderProjects(projectIds: number[]) {
+  try {
+    await projectStore.reorderProjects(projectIds)
+  } catch (error) {
+    console.error('Failed to reorder projects:', error)
+  }
+}
+
 async function openFavoriteTask(taskId: string, projectId?: number) {
   if (projectId != null && projectStore.activeProjectId !== projectId) {
     projectStore.setActiveProject(projectId)
@@ -343,6 +351,7 @@ onUnmounted(() => {
       @open-favorite-task="openFavoriteTask"
       @open-analytics="router.push('/analytics')"
       @toggle-projects-collapsed="toggleProjectsCollapsed"
+      @reorder-projects="reorderProjects"
       @create-project="createProjectOpen = true"
       @select-project="selectProject"
       @open-project-settings="openProjectSettings"

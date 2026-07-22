@@ -46,6 +46,7 @@ const emit = defineEmits<{
   'open-favorite-task': [taskId: string, projectId?: number]
   'open-analytics': []
   'toggle-projects-collapsed': []
+  'reorder-projects': [projectIds: number[]]
   'create-project': []
   'select-project': [projectId: number]
   'open-project-settings': [projectId: number]
@@ -56,6 +57,9 @@ const userMenuOpen = ref(false)
 const userMenuRef = ref<HTMLElement | null>(null)
 
 const hasFavorites = computed(() => props.favorites.length > 0)
+const draggedProjectId = ref<number | null>(null)
+const dragOverProjectId = ref<number | null>(null)
+const dragOverPlacement = ref<'before' | 'after'>('before')
 
 const statusIcons: Record<Task['status'], typeof Circle> = {
   backlog: CircleDashed,
@@ -84,6 +88,50 @@ function onClickOutsideUserMenu(event: MouseEvent) {
 function handleOpenProjectSettings(event: Event, projectId: number) {
   event.stopPropagation()
   emit('open-project-settings', projectId)
+}
+
+function resetProjectDragState() {
+  draggedProjectId.value = null
+  dragOverProjectId.value = null
+  dragOverPlacement.value = 'before'
+}
+
+function onProjectDragStart(event: DragEvent, projectId: number) {
+  draggedProjectId.value = projectId
+  dragOverProjectId.value = null
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(projectId))
+  }
+}
+
+function onProjectDragOver(event: DragEvent, projectId: number) {
+  if (draggedProjectId.value == null || draggedProjectId.value === projectId) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  dragOverProjectId.value = projectId
+  const target = event.currentTarget as HTMLElement | null
+  const bounds = target?.getBoundingClientRect()
+  dragOverPlacement.value = bounds && event.clientY > bounds.top + bounds.height / 2 ? 'after' : 'before'
+}
+
+function onProjectDrop(event: DragEvent, targetProjectId: number) {
+  event.preventDefault()
+  const sourceProjectId = draggedProjectId.value
+  const placement = dragOverPlacement.value
+  resetProjectDragState()
+  if (sourceProjectId == null || sourceProjectId === targetProjectId) return
+
+  const sourceIndex = props.projects.findIndex((project) => project.id === sourceProjectId)
+  const targetIndex = props.projects.findIndex((project) => project.id === targetProjectId)
+  if (sourceIndex < 0 || targetIndex < 0) return
+
+  const nextProjects = [...props.projects]
+  const [movedProject] = nextProjects.splice(sourceIndex, 1)
+  const rawInsertionIndex = placement === 'after' ? targetIndex + 1 : targetIndex
+  const insertionIndex = sourceIndex < rawInsertionIndex ? rawInsertionIndex - 1 : rawInsertionIndex
+  nextProjects.splice(insertionIndex, 0, movedProject!)
+  emit('reorder-projects', nextProjects.map((project) => project.id))
 }
 
 watch(
@@ -289,9 +337,23 @@ onUnmounted(() => {
             v-for="project in projects"
             :key="project.id"
             class="sidebar-nav__item sidebar-nav__item--project"
-            :class="{ 'sidebar-nav__item--active': activeProjectId === project.id }"
+            :class="{
+              'sidebar-nav__item--active': activeProjectId === project.id,
+              'sidebar-nav__item--dragging': draggedProjectId === project.id,
+              'sidebar-nav__item--drag-over': dragOverProjectId === project.id,
+              'sidebar-nav__item--drag-over-after':
+                dragOverProjectId === project.id && dragOverPlacement === 'after'
+            }"
+            :data-testid="`sidebar-project-${project.id}`"
             data-item-kind="project"
             :title="project.identifier"
+            draggable="true"
+            :aria-grabbed="draggedProjectId === project.id"
+            @dragstart="onProjectDragStart($event, project.id)"
+            @dragover="onProjectDragOver($event, project.id)"
+            @dragleave="dragOverProjectId === project.id && (dragOverProjectId = null)"
+            @drop="onProjectDrop($event, project.id)"
+            @dragend="resetProjectDragState"
           >
             <button
               type="button"
@@ -633,7 +695,34 @@ onUnmounted(() => {
 }
 
 .sidebar-nav__item--project {
+  position: relative;
   padding-right: 4px;
+  cursor: grab;
+}
+
+.sidebar-nav__item--project:active {
+  cursor: grabbing;
+}
+
+.sidebar-nav__item--dragging {
+  opacity: 0.45;
+}
+
+.sidebar-nav__item--drag-over::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: 8px;
+  left: 8px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--sidebar-accent);
+  pointer-events: none;
+}
+
+.sidebar-nav__item--drag-over-after::before {
+  top: auto;
+  bottom: -2px;
 }
 
 .sidebar-nav__item-main {

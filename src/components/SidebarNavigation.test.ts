@@ -73,6 +73,7 @@ describe('SidebarNavigation', () => {
     const onOpenFavoriteTask = vi.fn()
     const onOpenAnalytics = vi.fn()
     const onToggleProjectsCollapsed = vi.fn()
+    const onReorderProjects = vi.fn()
     const onCreateProject = vi.fn()
     const onSelectProject = vi.fn()
     const onOpenProjectSettings = vi.fn()
@@ -88,7 +89,7 @@ describe('SidebarNavigation', () => {
       favoritesCollapsed: false,
       projectsCollapsed: false,
       favorites: [buildFavorite()],
-      projects: [buildProject()],
+      projects: [buildProject(), buildProject({ id: 2, name: 'Design', identifier: 'DES' })],
       routePath: '/analytics',
       routeTaskId: 'ENG-1',
       activeProjectId: 1,
@@ -96,6 +97,7 @@ describe('SidebarNavigation', () => {
       onOpenFavoriteTask,
       onOpenAnalytics,
       onToggleProjectsCollapsed,
+      onReorderProjects,
       onCreateProject,
       onSelectProject,
       onOpenProjectSettings
@@ -113,6 +115,32 @@ describe('SidebarNavigation', () => {
     expect(host.querySelector('.sidebar-nav__item--active[data-item-kind="analytics"]')).toBeTruthy()
     expect(host.querySelector('.sidebar-nav__item--active[data-item-kind="project"]')).toBeTruthy()
 
+    const dragStart = new Event('dragstart', { bubbles: true }) as DragEvent
+    Object.defineProperty(dragStart, 'dataTransfer', {
+      value: { effectAllowed: '', setData: vi.fn() }
+    })
+    const dragOver = new Event('dragover', { bubbles: true, cancelable: true }) as DragEvent
+    Object.defineProperty(dragOver, 'dataTransfer', {
+      value: { dropEffect: '' }
+    })
+    Object.defineProperty(dragOver, 'clientY', { value: 10 })
+    const drop = new Event('drop', { bubbles: true, cancelable: true }) as DragEvent
+    const targetProject = host.querySelector('[data-testid="sidebar-project-2"]') as HTMLElement
+    targetProject.getBoundingClientRect = () => ({
+      top: 0,
+      height: 10,
+      bottom: 10,
+      left: 0,
+      right: 100,
+      width: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    }) as DOMRect
+    ;(host.querySelector('[data-testid="sidebar-project-1"]') as HTMLElement).dispatchEvent(dragStart)
+    targetProject.dispatchEvent(dragOver)
+    targetProject.dispatchEvent(drop)
+
     ;(host.querySelector('[data-testid="sidebar-favorites-toggle"]') as HTMLButtonElement).click()
     ;(host.querySelector('[data-testid="sidebar-favorite-ENG-1"]') as HTMLButtonElement).click()
     ;(host.querySelector('[data-testid="sidebar-analytics"]') as HTMLButtonElement).click()
@@ -125,6 +153,7 @@ describe('SidebarNavigation', () => {
     expect(onOpenFavoriteTask).toHaveBeenCalledWith('ENG-1', 1)
     expect(onOpenAnalytics).toHaveBeenCalledTimes(1)
     expect(onToggleProjectsCollapsed).toHaveBeenCalledTimes(1)
+    expect(onReorderProjects).toHaveBeenCalledWith([2, 1])
     expect(onCreateProject).toHaveBeenCalledTimes(1)
     expect(onOpenProjectSettings).toHaveBeenCalledWith(1)
     expect(onSelectProject).not.toHaveBeenCalled()

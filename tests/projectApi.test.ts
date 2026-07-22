@@ -34,4 +34,12 @@ describe('projectApi', () => {
       email: 'new@example.com'
     })
   })
+
+  it('persists the complete project order', async () => {
+    vi.mocked(api.put).mockResolvedValue(mockApiResponse(undefined))
+
+    await projectApi.reorder([2, 1])
+
+    expect(api.put).toHaveBeenCalledWith('/projects/order', { projectIds: [2, 1] })
+  })
 })

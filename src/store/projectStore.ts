@@ -53,6 +53,28 @@ export const useProjectStore = defineStore('projectStore', () => {
     return project
   }
 
+  async function reorderProjects(projectIds: number[]) {
+    const currentProjects = projects.value
+    const currentIds = currentProjects.map((project) => project.id)
+    const requestedIds = new Set(projectIds)
+    if (
+      requestedIds.size !== projectIds.length ||
+      requestedIds.size !== currentIds.length ||
+      currentIds.some((id) => !requestedIds.has(id))
+    ) {
+      throw new Error('项目顺序与当前项目列表不一致')
+    }
+
+    const previousProjects = currentProjects
+    projects.value = projectIds.map((id) => currentProjects.find((project) => project.id === id)!)
+    try {
+      await projectApi.reorder(projectIds)
+    } catch (error) {
+      projects.value = previousProjects
+      throw error
+    }
+  }
+
   async function updateProject(
     id: number,
     body: { name?: string; identifier?: string }
@@ -82,6 +104,7 @@ export const useProjectStore = defineStore('projectStore', () => {
     fetchProjects,
     setActiveProject,
     createProject,
+    reorderProjects,
     updateProject,
     deleteProject,
     inviteToProject

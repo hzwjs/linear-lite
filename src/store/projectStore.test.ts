@@ -9,7 +9,8 @@ vi.mock('../services/api/project', () => ({
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
-    invite: vi.fn()
+    invite: vi.fn(),
+    reorder: vi.fn()
   }
 }))
 
@@ -21,6 +22,7 @@ describe('projectStore', () => {
     vi.mocked(projectApi.update).mockReset()
     vi.mocked(projectApi.delete).mockReset()
     vi.mocked(projectApi.invite).mockReset()
+    vi.mocked(projectApi.reorder).mockReset()
   })
 
   it('selects the first visible project after fetching filtered list', async () => {
@@ -75,5 +77,31 @@ describe('projectStore', () => {
     await store.inviteToProject(3, 'new@example.com')
 
     expect(projectApi.invite).toHaveBeenCalledWith(3, { email: 'new@example.com' })
+  })
+
+  it('optimistically reorders projects and persists the complete project id list', async () => {
+    const store = useProjectStore()
+    store.projects = [
+      { id: 1, name: 'Engineering', identifier: 'ENG', creatorId: 7, createdAt: '2026-03-14T00:00:00' },
+      { id: 2, name: 'Design', identifier: 'DES', creatorId: 8, createdAt: '2026-03-14T00:00:00' }
+    ]
+    vi.mocked(projectApi.reorder).mockResolvedValue(undefined)
+
+    await store.reorderProjects([2, 1])
+
+    expect(store.projects.map((project) => project.id)).toEqual([2, 1])
+    expect(projectApi.reorder).toHaveBeenCalledWith([2, 1])
+  })
+
+  it('rolls back the optimistic order when persistence fails', async () => {
+    const store = useProjectStore()
+    store.projects = [
+      { id: 1, name: 'Engineering', identifier: 'ENG', creatorId: 7, createdAt: '2026-03-14T00:00:00' },
+      { id: 2, name: 'Design', identifier: 'DES', creatorId: 8, createdAt: '2026-03-14T00:00:00' }
+    ]
+    vi.mocked(projectApi.reorder).mockRejectedValue(new Error('network'))
+
+    await expect(store.reorderProjects([2, 1])).rejects.toThrow('network')
+    expect(store.projects.map((project) => project.id)).toEqual([1, 2])
   })
 })

@@ -214,12 +214,22 @@ public class AuthService {
                 member.setProjectId(invitation.getProjectId());
                 member.setUserId(user.getId());
                 member.setRole("member");
+                member.setSortOrder(nextSortOrder(user.getId()));
                 member.setCreatedAt(LocalDateTime.now());
                 projectMemberMapper.insert(member);
             }
             invitation.setAcceptedAt(LocalDateTime.now());
             projectInvitationMapper.updateById(invitation);
         }
+    }
+
+    private int nextSortOrder(Long userId) {
+        return projectMemberMapper.selectList(
+                        new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getUserId, userId))
+                .stream()
+                .map(ProjectMember::getSortOrder)
+                .max(Integer::compareTo)
+                .orElse(-1) + 1;
     }
 
     private String requireText(String value, String message) {

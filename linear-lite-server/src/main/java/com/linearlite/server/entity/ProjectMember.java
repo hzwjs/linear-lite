@@ -14,6 +14,7 @@ public class ProjectMember {
     private Long projectId;
     private Long userId;
     private String role;
+    private Integer sortOrder;
     private LocalDateTime createdAt;
 
     public Long getId() {
@@ -46,6 +47,14 @@ public class ProjectMember {
 
     public void setRole(String role) {
         this.role = role;
+    }
+
+    public Integer getSortOrder() {
+        return sortOrder;
+    }
+
+    public void setSortOrder(Integer sortOrder) {
+        this.sortOrder = sortOrder;
     }
 
     public LocalDateTime getCreatedAt() {

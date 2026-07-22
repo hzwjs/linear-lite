@@ -42,11 +42,13 @@ CREATE TABLE IF NOT EXISTS project_members (
     project_id  BIGINT       NOT NULL,
     user_id     BIGINT       NOT NULL,
     role        VARCHAR(32)  NOT NULL DEFAULT 'member',
+    sort_order  INT          NOT NULL DEFAULT 0 COMMENT '当前用户侧栏中的项目顺序',
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_project_members_project_user (project_id, user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE INDEX idx_project_members_user_id ON project_members (user_id);
+CREATE INDEX idx_project_members_user_sort ON project_members (user_id, sort_order, id);
 
 CREATE TABLE IF NOT EXISTS project_invitations (
     id           BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,

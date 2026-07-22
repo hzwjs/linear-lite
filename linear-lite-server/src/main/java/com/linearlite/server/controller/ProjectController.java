@@ -3,6 +3,7 @@ package com.linearlite.server.controller;
 import com.linearlite.server.common.ApiResponse;
 import com.linearlite.server.dto.CreateProjectInvitationRequest;
 import com.linearlite.server.dto.CreateProjectRequest;
+import com.linearlite.server.dto.ReorderProjectsRequest;
 import com.linearlite.server.dto.TaskLabelResponse;
 import com.linearlite.server.dto.UpdateProjectRequest;
 import com.linearlite.server.dto.UserSummaryDto;
@@ -100,6 +101,15 @@ public class ProjectController {
                 request.getIdentifier(),
                 userId);
         return ResponseEntity.ok(ApiResponse.success(created));
+    }
+
+    @PutMapping("/order")
+    public ResponseEntity<ApiResponse<Void>> reorder(
+            HttpServletRequest httpRequest,
+            @RequestBody ReorderProjectsRequest request) {
+        Long userId = (Long) httpRequest.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        projectService.reorder(request.getProjectIds(), userId);
+        return ResponseEntity.ok(ApiResponse.success());
     }
 
     /**

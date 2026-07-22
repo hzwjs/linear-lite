@@ -37,6 +37,14 @@ export const projectApi = {
       .then((res) => toProject(unwrap(res)))
   },
 
+  reorder(projectIds: number[]): Promise<void> {
+    return api
+      .put<ApiResponse<null>>('/projects/order', { projectIds })
+      .then((res) => {
+        unwrap(res)
+      })
+  },
+
   update(id: number, body: { name?: string; identifier?: string }) {
     return api
       .put<ApiResponse<ApiProject>>(`/projects/${id}`, body)

@@ -119,12 +119,59 @@ class ProjectServiceTest {
         member.setUserId(7L);
 
         when(projectMemberMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(member));
-        when(projectMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(project));
+        when(projectMapper.selectBatchIds(List.of(3L))).thenReturn(List.of(project));
 
         List<Project> result = projectService.list(7L);
 
         assertEquals(1, result.size());
         assertEquals(3L, result.get(0).getId());
+    }
+
+    @Test
+    void listPreservesCurrentUserProjectSortOrder() {
+        Project firstProject = new Project();
+        firstProject.setId(1L);
+        Project secondProject = new Project();
+        secondProject.setId(2L);
+        ProjectMember firstMembership = new ProjectMember();
+        firstMembership.setId(11L);
+        firstMembership.setProjectId(1L);
+        firstMembership.setUserId(7L);
+        firstMembership.setSortOrder(1);
+        ProjectMember secondMembership = new ProjectMember();
+        secondMembership.setId(12L);
+        secondMembership.setProjectId(2L);
+        secondMembership.setUserId(7L);
+        secondMembership.setSortOrder(0);
+
+        when(projectMemberMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(List.of(secondMembership, firstMembership));
+        when(projectMapper.selectBatchIds(List.of(2L, 1L)))
+                .thenReturn(List.of(firstProject, secondProject));
+
+        List<Project> result = projectService.list(7L);
+
+        assertEquals(List.of(2L, 1L), result.stream().map(Project::getId).toList());
+    }
+
+    @Test
+    void reorderUpdatesEachMemberSortOrderInRequestedOrder() {
+        ProjectMember first = new ProjectMember();
+        first.setId(11L);
+        first.setProjectId(1L);
+        first.setUserId(7L);
+        ProjectMember second = new ProjectMember();
+        second.setId(12L);
+        second.setProjectId(2L);
+        second.setUserId(7L);
+        when(projectMemberMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(first, second));
+
+        projectService.reorder(List.of(2L, 1L), 7L);
+
+        assertEquals(0, second.getSortOrder());
+        assertEquals(1, first.getSortOrder());
+        verify(projectMemberMapper).updateById(second);
+        verify(projectMemberMapper).updateById(first);
     }
 
     @Test

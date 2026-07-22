@@ -27,8 +27,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -85,15 +89,61 @@ public class ProjectService {
         requireMemberUserId(currentUserId);
         List<ProjectMember> memberships = projectMemberMapper.selectList(
                 new LambdaQueryWrapper<ProjectMember>()
-                        .eq(ProjectMember::getUserId, currentUserId));
+                        .eq(ProjectMember::getUserId, currentUserId)
+                        .orderByAsc(ProjectMember::getSortOrder)
+                        .orderByAsc(ProjectMember::getId));
         if (memberships.isEmpty()) {
             return List.of();
         }
         List<Long> projectIds = memberships.stream().map(ProjectMember::getProjectId).distinct().toList();
-        return projectMapper.selectList(
-                new LambdaQueryWrapper<Project>()
-                        .in(Project::getId, projectIds)
-                        .orderByAsc(Project::getId));
+        Map<Long, Project> projectsById = projectMapper.selectBatchIds(projectIds).stream()
+                .collect(Collectors.toMap(Project::getId, project -> project));
+        return projectIds.stream()
+                .map(projectId -> {
+                    Project project = projectsById.get(projectId);
+                    if (project == null) {
+                        throw new ResourceNotFoundException("项目不存在: " + projectId);
+                    }
+                    return project;
+                })
+                .toList();
+    }
+
+    /**
+     * 保存当前用户的项目顺序。请求必须包含该用户全部项目且每个项目只能出现一次。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void reorder(List<Long> projectIds, Long currentUserId) {
+        requireMemberUserId(currentUserId);
+        List<ProjectMember> memberships = projectMemberMapper.selectList(
+                new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getUserId, currentUserId));
+        if (memberships.isEmpty()) {
+            if (projectIds == null || projectIds.isEmpty()) {
+                return;
+            }
+            throw new IllegalArgumentException("项目顺序与当前用户项目不一致");
+        }
+        if (projectIds == null || projectIds.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalArgumentException("项目顺序不能为空");
+        }
+        Set<Long> memberProjectIds = memberships.stream()
+                .map(ProjectMember::getProjectId)
+                .collect(Collectors.toSet());
+        Set<Long> requestedProjectIds = new HashSet<>(projectIds);
+        if (requestedProjectIds.size() != projectIds.size()
+                || requestedProjectIds.size() != memberProjectIds.size()
+                || !requestedProjectIds.equals(memberProjectIds)) {
+            throw new IllegalArgumentException("项目顺序与当前用户项目不一致");
+        }
+        Map<Long, ProjectMember> membershipsByProjectId = new HashMap<>();
+        for (ProjectMember membership : memberships) {
+            membershipsByProjectId.put(membership.getProjectId(), membership);
+        }
+        for (int index = 0; index < projectIds.size(); index++) {
+            ProjectMember membership = membershipsByProjectId.get(projectIds.get(index));
+            membership.setSortOrder(index);
+            projectMemberMapper.updateById(membership);
+        }
     }
 
     /**
@@ -278,8 +328,18 @@ public class ProjectService {
         member.setProjectId(projectId);
         member.setUserId(userId);
         member.setRole(role);
+        member.setSortOrder(nextSortOrder(userId));
         member.setCreatedAt(LocalDateTime.now());
         projectMemberMapper.insert(member);
+    }
+
+    private int nextSortOrder(Long userId) {
+        return projectMemberMapper.selectList(
+                        new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getUserId, userId))
+                .stream()
+                .map(ProjectMember::getSortOrder)
+                .max(Integer::compareTo)
+                .orElse(-1) + 1;
     }
 
     private void requireMemberUserId(Long currentUserId) {
