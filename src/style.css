@@ -39,20 +39,20 @@
 
   /* Sidebar semantic tokens: keep the light workspace baseline, but move navigation
      onto a clearer panel / hierarchy system so future migrations have a stable entrypoint. */
-  --sidebar-bg: #f8f8f8;
+  --sidebar-bg: #f7f7f8;
   --sidebar-panel: #ffffff;
   --sidebar-popover-bg: #ffffff;
-  --sidebar-border-muted: #efefef;
-  --sidebar-border: #e4e4e7;
-  --sidebar-text: #111111;
-  --sidebar-subtle-text: #4b5563;
-  --sidebar-muted: #7a7a7a;
+  --sidebar-border-muted: #eeeeef;
+  --sidebar-border: #e5e5e7;
+  --sidebar-text: #18181b;
+  --sidebar-subtle-text: #52525b;
+  --sidebar-muted: #71717a;
   --sidebar-accent: #475569;
   --sidebar-accent-border: rgba(71, 85, 105, 0.2);
-  --sidebar-item-hover: #f1f1f1;
-  --sidebar-item-hover-strong: #ebebeb;
-  --sidebar-item-active-bg: rgba(71, 85, 105, 0.08);
-  --sidebar-item-active-border: rgba(71, 85, 105, 0.16);
+  --sidebar-item-hover: rgba(24, 24, 27, 0.05);
+  --sidebar-item-hover-strong: rgba(24, 24, 27, 0.08);
+  --sidebar-item-active-bg: rgba(24, 24, 27, 0.075);
+  --sidebar-item-active-border: transparent;
 
   /* Project settings modal semantic tokens */
   --project-settings-overlay: rgba(15, 23, 42, 0.22);

@@ -105,6 +105,11 @@ describe('SidebarNavigation', () => {
     await nextTick()
 
     expect(host.querySelector('.sidebar-nav__item--active[data-item-kind="favorite"]')).toBeTruthy()
+    expect(
+      host
+        .querySelector('[data-testid="sidebar-favorite-ENG-1"] .sidebar-nav__item-icon')
+        ?.classList.contains('sidebar-nav__item-icon--status-todo')
+    ).toBe(true)
     expect(host.querySelector('.sidebar-nav__item--active[data-item-kind="analytics"]')).toBeTruthy()
     expect(host.querySelector('.sidebar-nav__item--active[data-item-kind="project"]')).toBeTruthy()
 
@@ -152,6 +157,13 @@ describe('SidebarNavigation', () => {
     expect(host.querySelector('.sidebar-nav__brand-name')?.textContent).toBe('Linear Lite')
     expect(host.querySelector('.sidebar-nav__brand-meta')).toBeNull()
     expect(host.querySelector('.sidebar-nav__header')?.textContent).not.toContain('Workspace')
+
+    const identity = host.querySelector('.sidebar-nav__identity') as HTMLButtonElement
+    expect(identity.getAttribute('aria-expanded')).toBe('false')
+    identity.click()
+    await nextTick()
+    expect(identity.getAttribute('aria-expanded')).toBe('true')
+    expect((host.querySelector('.sidebar-nav__menu') as HTMLElement).style.display).not.toBe('none')
 
     app.unmount()
     host.remove()

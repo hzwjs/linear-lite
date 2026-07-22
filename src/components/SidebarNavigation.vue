@@ -4,16 +4,22 @@ import { useI18n } from 'vue-i18n'
 import type { Project, Task } from '../types/domain'
 import {
   BarChart3,
+  CheckCircle,
   ChevronDown,
   ChevronRight,
+  Circle,
+  CircleDashed,
+  CircleX,
+  Copy,
+  Eye,
   Folder,
+  Loader2,
   LogOut,
   MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
-  Search,
-  Star
+  Search
 } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -50,6 +56,16 @@ const userMenuOpen = ref(false)
 const userMenuRef = ref<HTMLElement | null>(null)
 
 const hasFavorites = computed(() => props.favorites.length > 0)
+
+const statusIcons: Record<Task['status'], typeof Circle> = {
+  backlog: CircleDashed,
+  todo: Circle,
+  in_progress: Loader2,
+  in_review: Eye,
+  done: CheckCircle,
+  canceled: CircleX,
+  duplicate: Copy
+}
 
 function toggleUserMenu() {
   userMenuOpen.value = !userMenuOpen.value
@@ -100,20 +116,20 @@ onUnmounted(() => {
 
   <aside v-else class="sidebar-nav" aria-label="Workspace navigation">
     <div ref="userMenuRef" class="sidebar-nav__header">
-      <div class="sidebar-nav__identity">
-        <button
-          type="button"
-          class="sidebar-nav__avatar"
-          :class="{ 'sidebar-nav__avatar--active': userMenuOpen }"
-          :title="userName ?? undefined"
-          @click="toggleUserMenu"
-        >
-          {{ userInitial }}
-        </button>
-        <div class="sidebar-nav__brand">
+      <button
+        type="button"
+        class="sidebar-nav__identity"
+        :class="{ 'sidebar-nav__identity--active': userMenuOpen }"
+        :title="userName ?? undefined"
+        :aria-expanded="userMenuOpen"
+        @click="toggleUserMenu"
+      >
+        <span class="sidebar-nav__avatar">{{ userInitial }}</span>
+        <span class="sidebar-nav__brand">
           <span class="sidebar-nav__brand-name">{{ t('app.name') }}</span>
-        </div>
-      </div>
+          <ChevronDown class="sidebar-nav__identity-chevron" />
+        </span>
+      </button>
 
       <div class="sidebar-nav__header-actions">
         <slot name="notification" />
@@ -173,22 +189,25 @@ onUnmounted(() => {
 
     <div class="sidebar-nav__content">
       <section v-if="hasFavorites" class="sidebar-nav__section">
-        <button
-          type="button"
-          class="sidebar-nav__section-trigger"
-          data-testid="sidebar-favorites-toggle"
-          @click="emit('toggle-favorites-collapsed')"
-        >
-          <ChevronDown
-            v-if="!favoritesCollapsed"
-            class="sidebar-nav__icon sidebar-nav__icon--xs sidebar-nav__chevron"
-          />
-          <ChevronRight
-            v-else
-            class="sidebar-nav__icon sidebar-nav__icon--xs sidebar-nav__chevron"
-          />
-          <span class="sidebar-nav__section-label">{{ t('sidebar.favorites') }}</span>
-        </button>
+        <div class="sidebar-nav__section-header">
+          <button
+            type="button"
+            class="sidebar-nav__section-trigger"
+            :aria-expanded="!favoritesCollapsed"
+            data-testid="sidebar-favorites-toggle"
+            @click="emit('toggle-favorites-collapsed')"
+          >
+            <span class="sidebar-nav__section-label">{{ t('sidebar.favorites') }}</span>
+            <ChevronDown
+              v-if="!favoritesCollapsed"
+              class="sidebar-nav__icon sidebar-nav__chevron"
+            />
+            <ChevronRight
+              v-else
+              class="sidebar-nav__icon sidebar-nav__chevron"
+            />
+          </button>
+        </div>
 
         <nav v-show="!favoritesCollapsed" class="sidebar-nav__list">
           <button
@@ -201,7 +220,13 @@ onUnmounted(() => {
             :data-testid="`sidebar-favorite-${task.id}`"
             @click="emit('open-favorite-task', task.id, task.projectId)"
           >
-            <Star class="sidebar-nav__icon sidebar-nav__item-icon sidebar-nav__item-icon--favorite" />
+            <component
+              :is="statusIcons[task.status]"
+              class="sidebar-nav__icon sidebar-nav__item-icon sidebar-nav__item-icon--favorite"
+              :class="`sidebar-nav__item-icon--status-${task.status}`"
+              :title="t(`status.${task.status}`)"
+              aria-hidden="true"
+            />
             <span class="sidebar-nav__item-label">{{ task.title }}</span>
           </button>
         </nav>
@@ -231,19 +256,20 @@ onUnmounted(() => {
         <div class="sidebar-nav__section-header">
           <button
             type="button"
-            class="sidebar-nav__section-trigger sidebar-nav__section-trigger--inline"
+            class="sidebar-nav__section-trigger"
+            :aria-expanded="!projectsCollapsed"
             data-testid="sidebar-projects-toggle"
             @click="emit('toggle-projects-collapsed')"
           >
+            <span class="sidebar-nav__section-label">{{ t('sidebar.projects') }}</span>
             <ChevronDown
               v-if="!projectsCollapsed"
-              class="sidebar-nav__icon sidebar-nav__icon--xs sidebar-nav__chevron"
+              class="sidebar-nav__icon sidebar-nav__chevron"
             />
             <ChevronRight
               v-else
-              class="sidebar-nav__icon sidebar-nav__icon--xs sidebar-nav__chevron"
+              class="sidebar-nav__icon sidebar-nav__chevron"
             />
-            <span class="sidebar-nav__section-label">{{ t('sidebar.projects') }}</span>
           </button>
 
           <button
@@ -295,7 +321,8 @@ onUnmounted(() => {
 
 <style scoped>
 .sidebar-nav {
-  width: 248px;
+  --sidebar-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  width: 240px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -306,10 +333,10 @@ onUnmounted(() => {
 .sidebar-nav__reopen {
   flex-shrink: 0;
   align-self: stretch;
-  width: 44px;
+  width: 40px;
   min-height: 100%;
   margin: 0;
-  padding: 16px 0 0;
+  padding: 15px 0 0;
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -320,9 +347,8 @@ onUnmounted(() => {
   transition: color var(--transition-fast), background var(--transition-fast);
 }
 
-.sidebar-nav__reopen:hover {
-  color: var(--sidebar-text);
-  background: var(--sidebar-item-hover);
+.sidebar-nav__reopen:active {
+  background: var(--sidebar-item-hover-strong);
 }
 
 .sidebar-nav__reopen-icon {
@@ -332,67 +358,84 @@ onUnmounted(() => {
 
 .sidebar-nav__header {
   position: relative;
-  min-height: 43px;
-  padding: 0 12px;
+  min-height: 48px;
+  padding: 0 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid var(--sidebar-border-muted);
+  gap: 8px;
 }
 
 .sidebar-nav__identity {
   min-width: 0;
+  min-height: 32px;
+  padding: 0 4px;
+  flex: 1;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  color: var(--sidebar-text);
+  border-radius: 6px;
+  text-align: left;
+  transition: background 120ms ease, transform 120ms var(--sidebar-ease-out);
 }
 
 .sidebar-nav__avatar {
-  width: 30px;
-  height: 30px;
-  padding: 0;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  color: var(--sidebar-text);
-  background: var(--sidebar-panel);
-  border: 1px solid var(--sidebar-border);
-  border-radius: 8px;
-  transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  color: #ffffff;
+  background: var(--sidebar-accent);
+  border-radius: 7px;
 }
 
-.sidebar-nav__avatar:hover,
-.sidebar-nav__avatar--active {
+.sidebar-nav__identity:active {
+  transform: scale(0.98);
+}
+
+.sidebar-nav__identity--active {
   background: var(--sidebar-item-hover);
-  border-color: var(--sidebar-accent-border);
 }
 
 .sidebar-nav__brand {
   min-width: 0;
   display: flex;
   align-items: center;
+  gap: 4px;
 }
 
 .sidebar-nav__brand-name {
-  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.2;
   color: var(--sidebar-text);
 }
 
+.sidebar-nav__identity-chevron {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--sidebar-muted);
+  stroke-width: 2;
+}
+
 .sidebar-nav__header-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 .sidebar-nav__icon-button {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -400,13 +443,12 @@ onUnmounted(() => {
   flex-shrink: 0;
   color: var(--sidebar-muted);
   background: transparent;
-  border-radius: 8px;
-  transition: color var(--transition-fast), background var(--transition-fast);
+  border-radius: 6px;
+  transition: color var(--transition-fast), background var(--transition-fast), transform 120ms var(--sidebar-ease-out);
 }
 
-.sidebar-nav__icon-button:hover {
-  color: var(--sidebar-text);
-  background: var(--sidebar-item-hover);
+.sidebar-nav__icon-button:active {
+  transform: scale(0.94);
 }
 
 .sidebar-nav__icon-button--ghost {
@@ -417,13 +459,13 @@ onUnmounted(() => {
 
 .sidebar-nav__menu {
   position: absolute;
-  left: 12px;
-  top: 50px;
-  width: 208px;
+  left: 10px;
+  top: 44px;
+  width: 204px;
   padding: 6px;
   background: var(--sidebar-popover-bg);
   border: 1px solid var(--sidebar-border);
-  border-radius: 10px;
+  border-radius: 8px;
   box-shadow: var(--shadow-popover);
   z-index: 100;
 }
@@ -506,16 +548,22 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 10px 8px 12px;
+  padding: 10px 8px 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.sidebar-nav__content:hover {
+  scrollbar-color: var(--sidebar-border) transparent;
 }
 
 .sidebar-nav__section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .sidebar-nav__section--fill {
@@ -524,8 +572,8 @@ onUnmounted(() => {
 }
 
 .sidebar-nav__section-header {
-  min-height: 28px;
-  padding: 0 4px 0 6px;
+  min-height: 24px;
+  padding: 0 4px 0 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -534,47 +582,32 @@ onUnmounted(() => {
 
 .sidebar-nav__section-header--static {
   padding-right: 6px;
+  color: var(--sidebar-muted);
 }
 
 .sidebar-nav__section-trigger {
-  width: 100%;
-  min-height: 28px;
-  padding: 0 6px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 8px;
-  color: var(--sidebar-muted);
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.sidebar-nav__section-trigger:hover {
-  color: var(--sidebar-text);
-  background: var(--sidebar-item-hover);
-}
-
-.sidebar-nav__section-trigger--inline {
+  width: auto;
   min-height: 24px;
   padding: 0;
-  border-radius: 0;
-}
-
-.sidebar-nav__section-trigger--inline:hover {
-  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 4px;
+  color: var(--sidebar-muted);
+  transition: color var(--transition-fast);
 }
 
 .sidebar-nav__section-label {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   line-height: 1.2;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: -0.01em;
 }
 
 .sidebar-nav__list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .sidebar-nav__list--projects {
@@ -583,26 +616,20 @@ onUnmounted(() => {
 
 .sidebar-nav__item {
   width: 100%;
-  min-height: 32px;
+  min-height: 30px;
   padding: 0 8px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   color: var(--sidebar-subtle-text);
-  border: 1px solid transparent;
-  border-radius: 8px;
-  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
-}
-
-.sidebar-nav__item:hover {
-  color: var(--sidebar-text);
-  background: var(--sidebar-item-hover);
+  border-radius: 6px;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .sidebar-nav__item--active {
   color: var(--sidebar-text);
   background: var(--sidebar-item-active-bg);
-  border-color: var(--sidebar-item-active-border);
+  font-weight: 500;
 }
 
 .sidebar-nav__item--project {
@@ -612,19 +639,19 @@ onUnmounted(() => {
 .sidebar-nav__item-main {
   min-width: 0;
   flex: 1;
-  min-height: 30px;
+  min-height: 28px;
   padding: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   color: inherit;
   background: transparent;
   text-align: left;
 }
 
 .sidebar-nav__item-action {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -633,7 +660,7 @@ onUnmounted(() => {
   color: var(--sidebar-muted);
   border-radius: 6px;
   opacity: 0;
-  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast), transform 120ms var(--sidebar-ease-out);
 }
 
 .sidebar-nav__item:hover .sidebar-nav__item-action,
@@ -646,13 +673,17 @@ onUnmounted(() => {
   background: var(--sidebar-item-hover-strong);
 }
 
+.sidebar-nav__item-action:active {
+  transform: scale(0.92);
+}
+
 .sidebar-nav__item-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  line-height: 1.3;
+  line-height: 1.25;
 }
 
 .sidebar-nav__icon {
@@ -670,18 +701,96 @@ onUnmounted(() => {
 }
 
 .sidebar-nav__item-icon {
+  width: 16px;
+  height: 16px;
   color: var(--sidebar-muted);
+  stroke-width: 1.8;
 }
 
 .sidebar-nav__item--active .sidebar-nav__item-icon {
-  color: var(--sidebar-accent);
+  color: var(--sidebar-text);
 }
 
 .sidebar-nav__item-icon--favorite {
-  color: var(--sidebar-accent);
+  width: 15px;
+  height: 15px;
+  stroke-width: 2;
+}
+
+.sidebar-nav__item-icon--status-backlog,
+.sidebar-nav__item-icon--status-todo {
+  color: var(--color-text-secondary);
+}
+
+.sidebar-nav__item-icon--status-in_progress,
+.sidebar-nav__item-icon--status-in_review {
+  color: var(--color-status-in-progress);
+}
+
+.sidebar-nav__item-icon--status-done {
+  color: var(--color-status-done);
+}
+
+.sidebar-nav__item-icon--status-canceled,
+.sidebar-nav__item-icon--status-duplicate {
+  color: var(--color-text-muted);
 }
 
 .sidebar-nav__chevron {
+  width: 12px;
+  height: 12px;
   color: var(--sidebar-muted);
+}
+
+.sidebar-nav__identity:focus-visible,
+.sidebar-nav__icon-button:focus-visible,
+.sidebar-nav__section-trigger:focus-visible,
+.sidebar-nav__item:focus-visible,
+.sidebar-nav__item-main:focus-visible,
+.sidebar-nav__item-action:focus-visible,
+.sidebar-nav__reopen:focus-visible {
+  outline: 2px solid var(--sidebar-accent-border);
+  outline-offset: 1px;
+}
+
+:deep(.notification-bell) {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--sidebar-muted);
+  transition: color var(--transition-fast), background var(--transition-fast), transform 120ms var(--sidebar-ease-out);
+}
+
+:deep(.notification-bell-icon) {
+  width: 16px;
+  height: 16px;
+}
+
+:deep(.notification-bell:active) {
+  transform: scale(0.94);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .sidebar-nav__reopen:hover,
+  .sidebar-nav__identity:hover,
+  .sidebar-nav__icon-button:hover,
+  .sidebar-nav__menu-item:hover,
+  .sidebar-nav__item:hover {
+    color: var(--sidebar-text);
+    background: var(--sidebar-item-hover);
+  }
+
+  .sidebar-nav__section-trigger:hover {
+    color: var(--sidebar-text);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-nav__identity,
+  .sidebar-nav__icon-button,
+  .sidebar-nav__item-action,
+  :deep(.notification-bell) {
+    transition-duration: 0ms;
+  }
 }
 </style>
