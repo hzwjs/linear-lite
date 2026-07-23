@@ -528,8 +528,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
   <div class="board-view" :class="{ 'board-view--inline-editor': isEditorOpen }">
     <div
       v-if="!isEditorOpen"
-      class="board-toolbar"
-      :class="{ 'board-toolbar--list': viewType === 'list' }"
+      class="board-toolbar board-toolbar--single-row"
     >
       <div class="toolbar-scope">
         <div class="scope-tabs">
@@ -843,7 +842,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
 .board-view--inline-editor {
   overflow: visible;
 }
-/* 顶部工具栏：默认保留两行节奏，列表态压成单行。 */
+/* 顶部工具栏：所有视图保持与列表态一致的单行布局。 */
 .board-toolbar {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -857,7 +856,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
   background: var(--color-bg-subtle);
   border-bottom: 1px solid var(--color-border-subtle);
 }
-.board-toolbar--list {
+.board-toolbar--single-row {
   grid-template-columns: auto auto minmax(12px, 1fr) minmax(180px, 240px) auto auto;
   grid-template-areas: "scope actions spacer search options view";
   gap: 8px;
@@ -883,7 +882,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
   display: none;
   min-width: 0;
 }
-.board-toolbar--list .toolbar-spacer {
+.board-toolbar--single-row .toolbar-spacer {
   display: block;
 }
 .toolbar-search {
@@ -1531,7 +1530,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
 
 @media (max-width: 1100px) {
   .board-toolbar,
-  .board-toolbar--list {
+  .board-toolbar--single-row {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "scope"

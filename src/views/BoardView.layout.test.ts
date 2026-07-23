@@ -4,12 +4,12 @@ import boardViewSource from './BoardView.vue?raw'
 describe('BoardView toolbar layout', () => {
   it('only renders the toolbar outside task detail routes', () => {
     expect(boardViewSource).toMatch(
-      /<div\s+v-if="!isEditorOpen"\s+class="board-toolbar"[\s\S]*?>/
+      /<div\s+v-if="!isEditorOpen"\s+class="board-toolbar board-toolbar--single-row"[\s\S]*?>/
     )
   })
 
-  it('merges list controls into one toolbar row', () => {
-    expect(boardViewSource).toContain("'board-toolbar--list': viewType === 'list'")
+  it('keeps every task view in one toolbar row', () => {
+    expect(boardViewSource).toContain('class="board-toolbar board-toolbar--single-row"')
     expect(boardViewSource).toContain('grid-template-areas: "scope actions spacer search options view"')
     expect(boardViewSource).toContain('class="toolbar-actions"')
     expect(boardViewSource).toContain('class="toolbar-scope"')
