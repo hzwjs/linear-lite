@@ -2,7 +2,7 @@
   "name": "linear-lite-codex-runner",
   "private": true,
   "type": "module",
-  "scripts": { "build": "tsc -p tsconfig.json", "test": "vitest run", "start": "node dist/cli.js" },
-  "dependencies": { "@openai/codex-sdk": "^0.95.0" },
+  "scripts": { "build": "tsc -p tsconfig.json && node scripts/copy-desktop-driver.mjs", "test": "vitest run", "start": "node dist/cli.js" },
+  "dependencies": {},
   "devDependencies": { "@types/node": "^24.10.1", "typescript": "~5.9.3", "vitest": "^4.0.18" }
 }

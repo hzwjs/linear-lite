@@ -14,8 +14,7 @@ public final class CodexDtos {
     public record BindingRequest(Long runnerId, Long repositoryId, String baseBranch) {}
     public record DispatchRequest(String clientRequestId, String instruction) {}
     public record MessageRequest(String content) {}
-    public record ThreadRequest(String codexThreadId) {}
     public record EventRequest(Long sequenceNo, String eventType, String eventPayload) {}
-    public record CompleteRequest(String status, String resultSummary, String resultPayload, String errorCode, String errorMessage) {}
+    public record CompleteRequest(String status, String codexThreadId, String resultSummary, String resultPayload, String errorCode, String errorMessage) {}
     public record RunnerMessageResponse(Long id, String content) {}
 }

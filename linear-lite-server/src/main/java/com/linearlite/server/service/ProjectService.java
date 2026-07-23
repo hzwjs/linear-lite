@@ -164,7 +164,7 @@ public class ProjectService {
                 .sorted(java.util.Comparator.comparing(User::getUsername))
                 .toList();
         return users.stream()
-                .map(u -> new UserSummaryDto(u.getId(), u.getUsername(), u.getAvatarUrl()))
+                .map(u -> new UserSummaryDto(u.getId(), u.getUsername(), u.getAvatarUrl(), u.getUserType()))
                 .collect(Collectors.toList());
     }
 

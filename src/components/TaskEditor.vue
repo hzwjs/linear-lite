@@ -19,10 +19,8 @@ import { projectApi } from '../services/api/project'
 import { activityApi } from '../services/api/activity'
 import { taskCommentsApi, type TaskCommentDto } from '../services/api/taskComments'
 import { attachmentsApi } from '../services/api/attachments'
-import { codexApi, type CodexRun } from '../services/api/codex'
 import { toLabelWriteItems } from '../utils/taskLabelWrite'
 import type { TaskAttachment } from '../services/api/types'
-import { getActivityAvatarLabel } from '../utils/taskActivity'
 import {
   type TaskActivityDisplayItem,
   formatTaskActivityDisplayItem,
@@ -37,7 +35,6 @@ import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '
 import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
 import { blockNoteDocHasPersistableContent, parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
-import { getAvatarColorByUsername, getInitials } from '../utils/avatar'
 import { getTaskDueState } from '../utils/taskDueState'
 import { captureTaskLoadContext, isTaskLoadStale } from '../utils/taskLoadContext'
 import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
@@ -134,13 +131,9 @@ const taskLabelComboboxRef = ref<{
 const editorPanelRef = ref<HTMLElement | null>(null)
 const descriptionSectionRef = ref<HTMLElement | null>(null)
 const isDescriptionFullscreen = ref(false)
-const codexRuns = ref<CodexRun[]>([])
-const codexLoading = ref(false)
-const codexInstruction = ref('')
-const isDispatchingCodex = ref(false)
-
 const userList = ref<User[]>([])
 const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
+let codexTaskRefreshTimer: ReturnType<typeof setInterval> | null = null
 const activities = ref<TaskActivity[]>([])
 const activitiesLoading = ref(false)
 const activityDisplayItems = computed(() => groupTaskActivitiesForDisplay(activities.value))
@@ -224,7 +217,6 @@ const mentionMembersForCommentEditor = computed(() =>
 const commentEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
 const inlineReplyEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
 const commentThreads = computed(() => buildCommentThreads(comments.value))
-const currentCommentUserName = computed(() => authStore.currentUser?.username?.trim() || 'Me')
 
 const assigneeOptions = computed<CustomSelectOption[]>(() => {
   const list: CustomSelectOption[] = [{ value: '', label: t('common.unassigned'), icon: UserIcon }]
@@ -314,23 +306,6 @@ const effectiveProjectId = computed((): number | null => {
   if (props.mode === 'edit' && props.task?.projectId != null) return props.task.projectId
   return projectStore.activeProjectId
 })
-const canDispatchCodex = computed(() => {
-  const project = projectStore.projects.find((item) => item.id === props.task?.projectId)
-  return props.mode === 'edit' && !!props.task && project?.creatorId === authStore.currentUser?.id && !codexRuns.value.some((run) => ['queued', 'claimed', 'running', 'needs_input'].includes(run.status))
-})
-const activeCodexRun = computed(() => codexRuns.value[0] ?? null)
-
-async function loadCodexRuns() {
-  if (props.mode !== 'edit' || !props.task?.id) { codexRuns.value = []; return }
-  codexLoading.value = true
-  try { codexRuns.value = await codexApi.list(props.task.id) } catch { codexRuns.value = [] } finally { codexLoading.value = false }
-}
-async function dispatchToCodex() {
-  if (!props.task?.id || !canDispatchCodex.value || isDispatchingCodex.value) return
-  isDispatchingCodex.value = true
-  try { await codexApi.dispatch(props.task.id, { clientRequestId: randomClientId(), instruction: codexInstruction.value.trim() }); codexInstruction.value = ''; await loadCodexRuns() } catch (error) { notifySaveState(toApiError(error).message) } finally { isDispatchingCodex.value = false }
-}
-
 const showPropRowLabels = computed(
   () => effectiveProjectId.value != null || (props.mode === 'edit' && formLabels.value.length > 0)
 )
@@ -467,21 +442,6 @@ function commentTimeFromIso(iso: string) {
   const ms = Date.parse(iso)
   if (Number.isNaN(ms)) return ''
   return relativeTimeFromNow(ms)
-}
-
-function commentAvatarLabel(name: string | null | undefined): string {
-  const normalized = (name ?? '').trim()
-  if (!normalized) return '?'
-  return getInitials(normalized)
-}
-
-function commentAvatarStyle(name: string | null | undefined): { backgroundColor: string; color: string } {
-  const normalized = (name ?? '').trim()
-  const palette = getAvatarColorByUsername(normalized)
-  return {
-    backgroundColor: palette.background,
-    color: palette.color
-  }
 }
 
 function toggleMentionUser(userId: number) {
@@ -828,6 +788,25 @@ async function loadProjectMembers(projectId: number | null) {
   }
 }
 
+function syncCodexTaskRefresh() {
+  if (codexTaskRefreshTimer != null) {
+    clearInterval(codexTaskRefreshTimer)
+    codexTaskRefreshTimer = null
+  }
+  if (props.mode !== 'edit' || !props.task) return
+  const assignee = userList.value.find((user) => user.id === props.task?.assigneeId)
+  if (assignee?.userType !== 'codex' || props.task.status === 'done' || props.task.status === 'canceled') return
+  codexTaskRefreshTimer = setInterval(() => {
+    if (!props.task || saveStatus.value === 'saving' || autoSaveTimer != null || isDescriptionEditing.value) return
+    const previousProgress = props.task.progressPercent ?? 0
+    void store.fetchTaskByKey(props.task.id).then((task) => {
+      if ((task.progressPercent ?? 0) === previousProgress) return
+      void loadActivities({ silent: true })
+      if (task.status === 'done') void loadComments({ silent: true })
+    }).catch(() => undefined)
+  }, 2_000)
+}
+
 onMounted(async () => {
   await loadProjectMembers(effectiveProjectId.value)
 })
@@ -843,7 +822,17 @@ watch(effectiveProjectId, (id) => {
   loadProjectMembers(id)
 })
 
+watch(
+  [() => props.task?.id, () => props.task?.assigneeId, () => props.task?.status, () => props.task?.progressPercent, userList],
+  syncCodexTaskRefresh,
+  { immediate: true }
+)
+
 onBeforeUnmount(() => {
+  if (codexTaskRefreshTimer != null) {
+    clearInterval(codexTaskRefreshTimer)
+    codexTaskRefreshTimer = null
+  }
   if (dueStateNowTimer != null) {
     clearInterval(dueStateNowTimer)
     dueStateNowTimer = null
@@ -1010,7 +999,6 @@ watch(
   },
   { immediate: true }
 )
-watch(() => props.task?.id, () => { void loadCodexRuns() }, { immediate: true })
 watch(() => props.mode, () => loadForm())
 watch(() => props.defaultStatus, () => {
   if (props.mode === 'create') formStatus.value = props.defaultStatus ?? 'todo'
@@ -1371,9 +1359,6 @@ async function toggleDescriptionFullscreen() {
         </button>
       </div>
       <div class="editor-header-actions">
-        <button v-if="canDispatchCodex" type="button" class="nav-btn" :disabled="isDispatchingCodex" @click="dispatchToCodex">
-          {{ isDispatchingCodex ? '派发中…' : '交给 Codex' }}
-        </button>
         <span v-if="saveStatus === 'saved'" class="save-indicator save-indicator--saved">{{ t('taskEditor.saved') }}</span>
         <span v-else-if="saveStatus === 'saving'" class="save-indicator save-indicator--saving">{{ t('taskEditor.saving') }}</span>
         <div v-if="workspaceSourceLabel" class="issue-source">{{ workspaceSourceLabel }}</div>
@@ -1397,19 +1382,6 @@ async function toggleDescriptionFullscreen() {
         <button class="close-btn" @click="closeEditor" :aria-label="t('common.close')">×</button>
       </div>
     </div>
-    <section v-if="props.mode === 'edit' && (canDispatchCodex || activeCodexRun)" class="codex-run-panel">
-      <strong>Codex 执行</strong>
-      <template v-if="activeCodexRun">
-        <span>状态：{{ activeCodexRun.status }}</span><span>分支：{{ activeCodexRun.branchName }}</span>
-        <p v-if="activeCodexRun.resultSummary">{{ activeCodexRun.resultSummary }}</p>
-        <p v-if="activeCodexRun.errorMessage" class="error-msg">{{ activeCodexRun.errorMessage }}</p>
-      </template>
-      <template v-else-if="canDispatchCodex">
-        <input v-model="codexInstruction" class="input" placeholder="可选补充指令" :disabled="isDispatchingCodex" />
-        <span v-if="codexLoading">正在读取执行记录…</span>
-      </template>
-    </section>
-
     <div class="editor-body">
       <div class="editor-content">
         <div class="editor-content-scroll">
@@ -1670,9 +1642,6 @@ async function toggleDescriptionFullscreen() {
               <div v-for="thread in commentThreads" :key="thread.root.id" class="task-comment-thread">
                 <div class="task-comment-row task-comment-row--root">
                   <div class="task-comment-head">
-                    <div class="task-comment-avatar" :style="commentAvatarStyle(thread.root.authorName)">
-                      {{ commentAvatarLabel(thread.root.authorName) }}
-                    </div>
                     <div class="task-comment-meta">
                       <div class="task-comment-meta-line">
                         <strong>{{ thread.root.authorName }}</strong>
@@ -1701,9 +1670,6 @@ async function toggleDescriptionFullscreen() {
                 <div v-if="thread.replies.length" class="task-comment-replies">
                   <div v-for="reply in visibleRepliesForThread(thread)" :key="reply.id" class="task-comment-row task-comment-row--reply">
                     <div class="task-comment-head">
-                      <div class="task-comment-avatar task-comment-avatar--reply" :style="commentAvatarStyle(reply.authorName)">
-                        {{ commentAvatarLabel(reply.authorName) }}
-                      </div>
                       <div class="task-comment-meta">
                         <div class="task-comment-meta-line">
                           <strong>{{ reply.authorName }}</strong>
@@ -1747,9 +1713,6 @@ async function toggleDescriptionFullscreen() {
                   </button>
                 </div>
                 <div v-if="inlineReplyRootId === thread.root.id" class="task-comment-reply-compose" @keydown.capture="(e) => onInlineReplyEditorKeydown(e, thread.root.id)">
-                  <div class="task-comment-avatar task-comment-avatar--composer" :style="commentAvatarStyle(currentCommentUserName)">
-                    {{ commentAvatarLabel(currentCommentUserName) }}
-                  </div>
                   <div class="comment-compose-input comment-compose-input--with-send">
                     <BlockNoteEditorWrapper
                       ref="inlineReplyEditorRef"
@@ -1793,9 +1756,6 @@ async function toggleDescriptionFullscreen() {
               </button>
             </div>
             <div class="comment-compose" @keydown.capture="onCommentEditorKeydown">
-              <div class="task-comment-avatar task-comment-avatar--composer" :style="commentAvatarStyle(currentCommentUserName)">
-                {{ commentAvatarLabel(currentCommentUserName) }}
-              </div>
               <div class="comment-compose-input comment-compose-input--with-send">
                 <BlockNoteEditorWrapper
                   ref="commentEditorRef"
@@ -1836,7 +1796,6 @@ async function toggleDescriptionFullscreen() {
                   :key="activityDisplayRowKey(item)"
                   class="activity-item"
                 >
-                  <div class="activity-avatar">{{ getActivityAvatarLabel(item.actorName) }}</div>
                   <div class="activity-text">
                     {{ formatTaskActivityDisplayItem(item) }} ·
                     {{ relativeTimeFromNow(activityDisplayRowTime(item)) }}
@@ -1844,7 +1803,6 @@ async function toggleDescriptionFullscreen() {
                 </div>
               </template>
               <div v-else-if="creatorName && createdAgoText" class="activity-item">
-                <div class="activity-avatar">{{ getActivityAvatarLabel(creatorName) }}</div>
                 <div class="activity-text">
                   <strong>{{ creatorName }}</strong> {{ t('taskEditor.createdIssueSuffix') }} · {{ createdAgoText }}
                 </div>
@@ -1984,17 +1942,6 @@ async function toggleDescriptionFullscreen() {
 </template>
 
 <style scoped>
-.codex-run-panel {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0 20px 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--task-editor-border, #e5e7eb);
-  border-radius: 8px;
-  font-size: 13px;
-}
-.codex-run-panel p { margin: 0; }
 /* P6-5: Issue workspace — 工作上下文感，弱化表单 */
 .editor-panel {
   width: min(1040px, calc(100vw - 320px));
@@ -2607,20 +2554,6 @@ async function toggleDescriptionFullscreen() {
   margin-bottom: 12px;
   min-height: 24px;
 }
-.activity-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--color-bg-muted);
-  flex-shrink: 0;
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
-  line-height: 1;
-}
 .activity-text {
   font-size: var(--font-size-caption);
   color: var(--color-text-secondary);
@@ -2685,31 +2618,6 @@ async function toggleDescriptionFullscreen() {
   margin-top: 4px;
   padding-top: 6px;
 }
-.task-comment-head {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: start;
-  gap: 6px;
-}
-.task-comment-avatar {
-  width: 30px;
-  height: 30px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: var(--font-weight-semibold);
-  line-height: 1;
-}
-.task-comment-avatar--reply {
-  width: 30px;
-  height: 30px;
-  font-size: 12px;
-}
-.task-comment-avatar--composer {
-  margin-top: 2px;
-}
 .task-comment-meta {
   display: flex;
   flex-direction: column;
@@ -2761,15 +2669,12 @@ async function toggleDescriptionFullscreen() {
 }
 .task-comment-body {
   margin-top: 0;
-  margin-left: 34px;
   font-size: 13px;
   color: var(--color-text-primary);
   line-height: 1.3;
   min-height: 20px;
 }
-.task-comment-row--reply .task-comment-body {
-  margin-left: 34px;
-}
+
 .task-comment-body--reply {
   display: flex;
   align-items: baseline;
@@ -2819,7 +2724,6 @@ async function toggleDescriptionFullscreen() {
   font-size: 12px;
   cursor: pointer;
   padding: 2px 0;
-  margin-left: 36px;
   text-align: left;
 }
 .task-comment-toggle-replies:hover {
@@ -2853,8 +2757,7 @@ async function toggleDescriptionFullscreen() {
 }
 .comment-compose {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
   padding: 10px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
@@ -2880,7 +2783,7 @@ async function toggleDescriptionFullscreen() {
 }
 .task-comment-reply-compose {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 6px;
   margin-left: 2px;

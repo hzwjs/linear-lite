@@ -7,10 +7,12 @@ import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskFavorite;
+import com.linearlite.server.entity.User;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
+import com.linearlite.server.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +38,8 @@ public class TaskCommandService {
     private final TaskSequenceService taskSequenceService;
     private final LabelService labelService;
     private final TaskQueryService taskQueryService;
+    private final UserMapper userMapper;
+    private final CodexDispatchService codexDispatchService;
 
     public TaskCommandService(
             TaskMapper taskMapper,
@@ -45,7 +49,9 @@ public class TaskCommandService {
             TaskPermissionGuard taskPermissionGuard,
             TaskSequenceService taskSequenceService,
             LabelService labelService,
-            TaskQueryService taskQueryService) {
+            TaskQueryService taskQueryService,
+            UserMapper userMapper,
+            CodexDispatchService codexDispatchService) {
         this.taskMapper = taskMapper;
         this.projectMapper = projectMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
@@ -54,6 +60,8 @@ public class TaskCommandService {
         this.taskSequenceService = taskSequenceService;
         this.labelService = labelService;
         this.taskQueryService = taskQueryService;
+        this.userMapper = userMapper;
+        this.codexDispatchService = codexDispatchService;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -114,22 +122,21 @@ public class TaskCommandService {
             labelService.replaceTaskLabels(inserted.getId(), projectId, labels);
             recordLabelsChange(inserted.getId(), creatorId, "", labelService.sortedNamesJoined(inserted.getId()));
         }
+        if (isCodexAssignee(assigneeId)) {
+            codexDispatchService.dispatchAssignedTask(inserted, creatorId);
+        }
         taskQueryService.enrichForUser(Collections.singletonList(inserted), creatorId);
         return inserted;
     }
 
-    /**
-     * 不使用整方法事务：对 {@code tasks} 行的排他锁仅在单条 UPDATE 语句期间持有。
-     * 标签替换、活动记录在各自调用中提交（{@link LabelService#replaceTaskLabels} 自带事务），
-     * 避免「先 UPDATE 再跑大量附属 SQL」拉长同一条事务对行的持锁时间，降低锁等待超时。
-     */
+    @Transactional(rollbackFor = Exception.class)
     public Task update(String taskKey, UpdateTaskRequest request, Long userId) {
         if (taskKey == null || taskKey.isBlank()) {
             throw new IllegalArgumentException("任务 ID 不能为空");
         }
 
         Task existing = taskMapper.selectOne(
-                new LambdaQueryWrapper<Task>().eq(Task::getTaskKey, taskKey));
+                new LambdaQueryWrapper<Task>().eq(Task::getTaskKey, taskKey).last("FOR UPDATE"));
         if (existing == null) {
             throw new ResourceNotFoundException("任务不存在: " + taskKey);
         }
@@ -269,6 +276,10 @@ public class TaskCommandService {
             labelService.replaceTaskLabels(existing.getId(), existing.getProjectId(), request.getLabels());
         }
         Task updated = taskMapper.selectById(existing.getId());
+        if (!Objects.equals(existing.getAssigneeId(), updated.getAssigneeId())
+                && isCodexAssignee(updated.getAssigneeId())) {
+            codexDispatchService.dispatchAssignedTask(updated, userId);
+        }
         recordActivityForTaskChanges(existing, updated, userId);
         if (request.getLabels() != null) {
             recordLabelsChange(
@@ -334,6 +345,17 @@ public class TaskCommandService {
 
     private static boolean isTerminalStatus(String status) {
         return status != null && TERMINAL_STATUSES.contains(status.toLowerCase());
+    }
+
+    private boolean isCodexAssignee(Long assigneeId) {
+        if (assigneeId == null) {
+            return false;
+        }
+        User assignee = userMapper.selectById(assigneeId);
+        if (assignee == null) {
+            throw new ResourceNotFoundException("负责人不存在: " + assigneeId);
+        }
+        return User.TYPE_CODEX.equals(assignee.getUserType());
     }
 
     private static boolean isOpenForProgressLinkage(String status) {

@@ -47,6 +47,7 @@ public class TaskCommentService {
     private final ProjectMemberMapper projectMemberMapper;
     private final UserMapper userMapper;
     private final NotificationSseBroadcaster notificationSseBroadcaster;
+    private final WeComNotificationService weComNotificationService;
 
     public TaskCommentService(
             TaskPermissionGuard taskPermissionGuard,
@@ -55,7 +56,8 @@ public class TaskCommentService {
             InAppNotificationMapper inAppNotificationMapper,
             ProjectMemberMapper projectMemberMapper,
             UserMapper userMapper,
-            NotificationSseBroadcaster notificationSseBroadcaster) {
+            NotificationSseBroadcaster notificationSseBroadcaster,
+            WeComNotificationService weComNotificationService) {
         this.taskPermissionGuard = taskPermissionGuard;
         this.taskCommentMapper = taskCommentMapper;
         this.commentMentionMapper = commentMentionMapper;
@@ -63,6 +65,7 @@ public class TaskCommentService {
         this.projectMemberMapper = projectMemberMapper;
         this.userMapper = userMapper;
         this.notificationSseBroadcaster = notificationSseBroadcaster;
+        this.weComNotificationService = weComNotificationService;
     }
 
     public List<TaskCommentResponse> listByTaskKey(String taskKey, Long currentUserId) {
@@ -161,6 +164,7 @@ public class TaskCommentService {
             p.setCommentId(c.getId());
             p.setCreatedAt(now);
             notificationSseBroadcaster.sendToUser(mid, "notification", p);
+            weComNotificationService.requestMentionNotification(mid, tk, summary);
         }
         return toResponse(c, userId, authorName, now);
     }

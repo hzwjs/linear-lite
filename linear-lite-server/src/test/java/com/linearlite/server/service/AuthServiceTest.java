@@ -108,6 +108,22 @@ class AuthServiceTest {
     }
 
     @Test
+    void loginRejectsCodexSystemUserWithoutCheckingPassword() {
+        User user = new User();
+        user.setId(99L);
+        user.setUsername("Codex");
+        user.setEmail("codex-system@linear-lite.invalid");
+        user.setPassword("LOGIN_DISABLED");
+        user.setUserType(User.TYPE_CODEX);
+        when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
+
+        assertThrows(UnauthorizedException.class, () -> authService.login("Codex", "anything"));
+
+        verify(passwordEncoder, never()).matches(any(), any());
+        verify(jwtUtil, never()).generateToken(any(), any());
+    }
+
+    @Test
     void loginAcceptsPendingProjectInvitations() {
         User user = new User();
         user.setId(9L);
@@ -213,6 +229,7 @@ class AuthServiceTest {
         assertEquals("new-user", saved.getUsername());
         assertEquals("new@example.com", saved.getEmail());
         assertEquals("encoded-secret", saved.getPassword());
+        assertEquals(User.TYPE_HUMAN, saved.getUserType());
         assertEquals("jwt-token", response.getToken());
     }
 

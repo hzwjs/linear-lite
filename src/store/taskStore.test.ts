@@ -304,7 +304,7 @@ describe('taskStore', () => {
     expect(store.tasks.map((t) => t.id)).toEqual(['EXISTING'])
   })
 
-  it('rolls back local optimistic patch when API update fails', async () => {
+  it('rolls back local optimistic patch without turning a save failure into a board load error', async () => {
     const store = useTaskStore()
     const task: Task = {
       id: 'ENG-ROLL',
@@ -321,7 +321,7 @@ describe('taskStore', () => {
     await expect(store.updateTask('ENG-ROLL', { title: 'After' })).rejects.toThrow('network')
 
     expect(store.tasks[0]?.title).toBe('Before')
-    expect(store.error).toMatch(/network/i)
+    expect(store.error).toBeNull()
   })
 
   it('rolls back parentId optimistic patch and restores parent sub-issue counts on API failure', async () => {

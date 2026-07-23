@@ -9,7 +9,7 @@ export class ServerClient {
   heartbeat(repositories: unknown[]) { return this.request<void>('/api/codex-runner/heartbeat', 'PUT', { version: '1.0.0', repositories }) }
   claim() { return this.request<Run | null>('/api/codex-runner/runs/claim', 'POST') }
   lease(id: string) { return this.request<void>(`/api/codex-runner/runs/${encodeURIComponent(id)}/lease`, 'PUT') }
-  thread(id: string, codexThreadId: string) { return this.request<void>(`/api/codex-runner/runs/${encodeURIComponent(id)}/thread`, 'PUT', { codexThreadId }) }
+  started(id: string) { return this.request<void>(`/api/codex-runner/runs/${encodeURIComponent(id)}/started`, 'PUT') }
   event(id: string, sequenceNo: number, eventType: string, eventPayload: string) { return this.request<void>(`/api/codex-runner/runs/${encodeURIComponent(id)}/events`, 'POST', { sequenceNo, eventType, eventPayload }) }
   needsInput(id: string, question: string) { return this.request<void>(`/api/codex-runner/runs/${encodeURIComponent(id)}/needs-input`, 'POST', { content: question }) }
   claimMessage(id: string) { return this.request<{ id: number; content: string } | null>(`/api/codex-runner/runs/${encodeURIComponent(id)}/messages/claim`, 'POST') }

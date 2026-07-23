@@ -533,7 +533,6 @@ export const useTaskStore = defineStore('taskStore', () => {
     lane.pendingIntents = []
     syncLaneRow(id)
     const requestBody = toUpdateRequest(lane.inFlightPatch)
-    error.value = null
 
     lane.inFlightPromise = taskApi
       .update(id, requestBody)
@@ -556,7 +555,6 @@ export const useTaskStore = defineStore('taskStore', () => {
             : new Error(translate('taskStore.errors.updateFailed', undefined, 'Failed to update task.'))
         lane.lastError = resolvedError
         lane.hasUnsavedFailure = true
-        error.value = resolvedError.message
         const intents = lane.inFlightIntents.splice(0)
         intents.forEach((intent) => intent.reject(resolvedError))
       })

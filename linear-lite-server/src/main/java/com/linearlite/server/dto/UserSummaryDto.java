@@ -11,14 +11,16 @@ public class UserSummaryDto {
     private String username;
     @JsonProperty("avatar_url")
     private String avatarUrl;
+    private String userType;
 
     public UserSummaryDto() {
     }
 
-    public UserSummaryDto(Long id, String username, String avatarUrl) {
+    public UserSummaryDto(Long id, String username, String avatarUrl, String userType) {
         this.id = id;
         this.username = username;
         this.avatarUrl = avatarUrl;
+        this.userType = userType;
     }
 
     public Long getId() {
@@ -43,5 +45,13 @@ public class UserSummaryDto {
 
     public void setAvatarUrl(String avatarUrl) {
         this.avatarUrl = avatarUrl;
+    }
+
+    public String getUserType() {
+        return userType;
+    }
+
+    public void setUserType(String userType) {
+        this.userType = userType;
     }
 }

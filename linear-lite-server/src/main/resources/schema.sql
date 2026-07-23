@@ -10,8 +10,37 @@ CREATE TABLE IF NOT EXISTS users (
     email       VARCHAR(255) NOT NULL UNIQUE,
     password    VARCHAR(255) NOT NULL,
     avatar_url  VARCHAR(512) DEFAULT NULL,
+    user_type   VARCHAR(16)  NOT NULL DEFAULT 'human' COMMENT '用户领域类型：human/codex',
+    wecom_user_id VARCHAR(128) DEFAULT NULL COMMENT '企业微信成员 UserID',
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 已有库增量：user_type 是 Codex 系统负责人的唯一领域识别字段。
+SET @users_user_type_exists = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'user_type'
+);
+SET @users_user_type_ddl = IF(
+    @users_user_type_exists = 0,
+    'ALTER TABLE users ADD COLUMN user_type VARCHAR(16) NOT NULL DEFAULT ''human'' COMMENT ''用户领域类型：human/codex'' AFTER avatar_url',
+    'SELECT 1'
+);
+PREPARE users_user_type_stmt FROM @users_user_type_ddl;
+EXECUTE users_user_type_stmt;
+DEALLOCATE PREPARE users_user_type_stmt;
+
+SET @users_wecom_user_id_exists = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'wecom_user_id'
+);
+SET @users_wecom_user_id_ddl = IF(
+    @users_wecom_user_id_exists = 0,
+    'ALTER TABLE users ADD COLUMN wecom_user_id VARCHAR(128) DEFAULT NULL COMMENT ''企业微信成员 UserID'' AFTER user_type',
+    'SELECT 1'
+);
+PREPARE users_wecom_user_id_stmt FROM @users_wecom_user_id_ddl;
+EXECUTE users_wecom_user_id_stmt;
+DEALLOCATE PREPARE users_wecom_user_id_stmt;
 
 CREATE TABLE IF NOT EXISTS email_verification_codes (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -302,15 +331,30 @@ CREATE TABLE IF NOT EXISTS codex_run_messages (
 
 -- ========== 种子数据（可选；密码字段为 BCrypt 哈希）==========
 
-INSERT INTO users (username, email, password, avatar_url) VALUES
-    ('admin',  'admin@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',  NULL),
-    ('user1',  'user1@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',   NULL),
-    ('user2',  'user2@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',   NULL),
-    ('alice',  'alice@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',  NULL),
-    ('bob',    'bob@example.com',    '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',    NULL)
+INSERT INTO users (username, email, password, avatar_url, user_type) VALUES
+    ('admin',  'admin@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',  NULL, 'human'),
+    ('user1',  'user1@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',   NULL, 'human'),
+    ('user2',  'user2@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',   NULL, 'human'),
+    ('alice',  'alice@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',  NULL, 'human'),
+    ('bob',    'bob@example.com',    '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',    NULL, 'human'),
+    ('Codex',  'codex-system@linear-lite.invalid', 'LOGIN_DISABLED', NULL, 'codex')
 ON DUPLICATE KEY UPDATE
     username = VALUES(username),
-    email = VALUES(email);
+    email = VALUES(email),
+    user_type = VALUES(user_type);
+
+-- 已有 binding 回填：只有系统中恰好一个 Codex 身份时才建立真实项目成员关系。
+INSERT INTO project_members (project_id, user_id, role, sort_order)
+SELECT binding.project_id, codex.id, 'member', 0
+FROM project_codex_bindings binding
+CROSS JOIN (
+    SELECT MAX(id) AS id
+    FROM users
+    WHERE user_type = 'codex'
+    HAVING COUNT(*) = 1
+) codex
+WHERE 1 = 1
+ON DUPLICATE KEY UPDATE role = VALUES(role);
 
 INSERT INTO projects (name, identifier, creator_id)
 SELECT 'Engineering', 'ENG', id FROM users WHERE username = 'admin'

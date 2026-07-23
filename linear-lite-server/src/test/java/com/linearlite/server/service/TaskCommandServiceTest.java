@@ -6,9 +6,11 @@ import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskFavorite;
+import com.linearlite.server.entity.User;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
+import com.linearlite.server.mapper.UserMapper;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +30,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @ExtendWith(MockitoExtension.class)
 class TaskCommandServiceTest {
@@ -48,6 +51,10 @@ class TaskCommandServiceTest {
     private LabelService labelService;
     @Mock
     private TaskQueryService taskQueryService;
+    @Mock
+    private UserMapper userMapper;
+    @Mock
+    private CodexDispatchService codexDispatchService;
 
     private TaskCommandService taskCommandService;
 
@@ -61,7 +68,9 @@ class TaskCommandServiceTest {
                 taskPermissionGuard,
                 taskSequenceService,
                 labelService,
-                taskQueryService
+                taskQueryService,
+                userMapper,
+                codexDispatchService
         );
     }
 
@@ -82,6 +91,7 @@ class TaskCommandServiceTest {
         inserted.setTaskKey("ENG-9");
         inserted.setProjectId(1L);
         when(taskMapper.selectById(99L)).thenReturn(inserted);
+        when(userMapper.selectById(2L)).thenReturn(user(2L, User.TYPE_HUMAN));
 
         Task result = taskCommandService.create(
                 1L, 7L, null, "Title", "Desc", "todo", "high", 2L,
@@ -91,6 +101,29 @@ class TaskCommandServiceTest {
         verify(taskPermissionGuard).requireProjectMember(1L, 7L);
         verify(taskActivityService).recordAction(99L, 7L, "created");
         verify(taskQueryService).enrichForUser(Collections.singletonList(inserted), 7L);
+    }
+
+    @Test
+    void createAssignedToCodexDispatchesAfterTaskPersistence() {
+        Project project = new Project();
+        project.setId(1L);
+        project.setIdentifier("ENG");
+        when(projectMapper.selectById(1L)).thenReturn(project);
+        when(taskSequenceService.reserveTaskNumbers(1L, "ENG", 1)).thenReturn(10L);
+        doAnswer(invocation -> {
+            Task task = invocation.getArgument(0);
+            task.setId(100L);
+            return 1;
+        }).when(taskMapper).insert(any(Task.class));
+        Task inserted = task(100L, "ENG-10", 99L);
+        when(taskMapper.selectById(100L)).thenReturn(inserted);
+        when(userMapper.selectById(99L)).thenReturn(user(99L, User.TYPE_CODEX));
+
+        taskCommandService.create(
+                1L, 7L, null, "Codex task", null, "todo", "medium", 99L,
+                null, null, 0, Collections.emptyList());
+
+        verify(codexDispatchService).dispatchAssignedTask(inserted, 7L);
     }
 
     @Test
@@ -164,6 +197,7 @@ class TaskCommandServiceTest {
 
         when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
         when(taskMapper.selectById(21L)).thenReturn(updated);
+        when(userMapper.selectById(2L)).thenReturn(user(2L, User.TYPE_HUMAN));
 
         taskCommandService.update("ENG-21", request, 7L);
 
@@ -173,6 +207,55 @@ class TaskCommandServiceTest {
         verify(taskActivityService).recordFieldChange(21L, 7L, "status", "todo", "in_progress");
         verify(taskActivityService).recordFieldChange(21L, 7L, "priority", "medium", "high");
         verify(taskActivityService).recordAssigneeChange(21L, 7L, 1L, 2L);
+    }
+
+    @Test
+    void updateFirstAssignmentToCodexDispatchesExactlyOnce() {
+        Task existing = task(40L, "ENG-40", null);
+        Task updated = task(40L, "ENG-40", 99L);
+        UpdateTaskRequest request = new UpdateTaskRequest();
+        request.setAssigneeId(99L);
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
+        when(taskMapper.selectById(40L)).thenReturn(updated);
+        when(userMapper.selectById(99L)).thenReturn(user(99L, User.TYPE_CODEX));
+
+        taskCommandService.update("ENG-40", request, 7L);
+
+        verify(codexDispatchService).dispatchAssignedTask(updated, 7L);
+    }
+
+    @Test
+    void updateWhileCodexAlreadyAssignedDoesNotDispatchAgain() {
+        Task existing = task(41L, "ENG-41", 99L);
+        Task updated = task(41L, "ENG-41", 99L);
+        updated.setTitle("Changed");
+        UpdateTaskRequest request = new UpdateTaskRequest();
+        request.setTitle("Changed");
+        request.setAssigneeId(99L);
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
+        when(taskMapper.selectById(41L)).thenReturn(updated);
+
+        taskCommandService.update("ENG-41", request, 7L);
+
+        verify(codexDispatchService, never()).dispatchAssignedTask(any(), anyLong());
+    }
+
+    @Test
+    void dispatchFailurePropagatesFromTransactionalAssigneeChange() throws Exception {
+        Task existing = task(42L, "ENG-42", null);
+        Task updated = task(42L, "ENG-42", 99L);
+        UpdateTaskRequest request = new UpdateTaskRequest();
+        request.setAssigneeId(99L);
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
+        when(taskMapper.selectById(42L)).thenReturn(updated);
+        when(userMapper.selectById(99L)).thenReturn(user(99L, User.TYPE_CODEX));
+        org.mockito.Mockito.doThrow(new IllegalStateException("runner offline"))
+                .when(codexDispatchService).dispatchAssignedTask(updated, 7L);
+
+        assertThrows(IllegalStateException.class, () -> taskCommandService.update("ENG-42", request, 7L));
+        Assertions.assertNotNull(TaskCommandService.class.getMethod(
+                "update", String.class, UpdateTaskRequest.class, Long.class)
+                .getAnnotation(org.springframework.transaction.annotation.Transactional.class));
     }
 
     @Test
@@ -258,5 +341,24 @@ class TaskCommandServiceTest {
         Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> taskCommandService.update("ENG-31", request, 7L));
+    }
+
+    private static User user(Long id, String userType) {
+        User user = new User();
+        user.setId(id);
+        user.setUserType(userType);
+        return user;
+    }
+
+    private static Task task(Long id, String taskKey, Long assigneeId) {
+        Task task = new Task();
+        task.setId(id);
+        task.setTaskKey(taskKey);
+        task.setTitle("Title");
+        task.setStatus("todo");
+        task.setPriority("medium");
+        task.setProjectId(1L);
+        task.setAssigneeId(assigneeId);
+        return task;
     }
 }

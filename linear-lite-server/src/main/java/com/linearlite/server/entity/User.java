@@ -9,12 +9,17 @@ import java.time.LocalDateTime;
 @TableName("users")
 public class User {
 
+    public static final String TYPE_HUMAN = "human";
+    public static final String TYPE_CODEX = "codex";
+
     @TableId(type = IdType.AUTO)
     private Long id;
     private String username;
     private String email;
     private String password;
     private String avatarUrl;
+    private String userType;
+    private String wecomUserId;
     private LocalDateTime createdAt;
 
     public Long getId() {
@@ -55,6 +60,22 @@ public class User {
 
     public void setAvatarUrl(String avatarUrl) {
         this.avatarUrl = avatarUrl;
+    }
+
+    public String getUserType() {
+        return userType;
+    }
+
+    public void setUserType(String userType) {
+        this.userType = userType;
+    }
+
+    public String getWecomUserId() {
+        return wecomUserId;
+    }
+
+    public void setWecomUserId(String wecomUserId) {
+        this.wecomUserId = wecomUserId;
     }
 
     public LocalDateTime getCreatedAt() {
