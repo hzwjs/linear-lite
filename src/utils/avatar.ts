@@ -22,26 +22,31 @@ export function getInitials(name: string): string {
 }
 
 /**
- * 15 色固定 fallback 背景（非高纯绿/紫主导；偏棕、橙、红、青蓝、靛、中性）。
- * 白字对比度经预检 ≥ WCAG AA（约 4.5:1）。
+ * 15 组固定头像配色（参考 Linear 的柔和色面与高可读文字组合）。
+ * 背景降低纯度，文字使用对应深色，避免头像像高亮标签或带白描边。
  */
-export const AVATAR_BACKGROUND_PALETTE_15: readonly string[] = Object.freeze([
-  '#422006',
-  '#78350f',
-  '#92400e',
-  '#b45309',
-  '#9a3412',
-  '#7c2d12',
-  '#991b1b',
-  '#9f1239',
-  '#881337',
-  '#134e4a',
-  '#164e63',
-  '#0c4a6e',
-  '#1e3a8a',
-  '#312e81',
-  '#44403c'
+export const AVATAR_PALETTE_15 = Object.freeze([
+  { background: '#dedcff', color: '#4338a0' },
+  { background: '#eadcff', color: '#6b21a8' },
+  { background: '#fbd5ea', color: '#9d174d' },
+  { background: '#dbeafe', color: '#1d4ed8' },
+  { background: '#cffafe', color: '#0e7490' },
+  { background: '#ccfbf1', color: '#0f766e' },
+  { background: '#dcfce7', color: '#166534' },
+  { background: '#fef3c7', color: '#92400e' },
+  { background: '#ffedd5', color: '#9a3412' },
+  { background: '#fee2e2', color: '#b91c1c' },
+  { background: '#ffe4e6', color: '#9f1239' },
+  { background: '#fce7f3', color: '#9d174d' },
+  { background: '#ede9fe', color: '#5b21b6' },
+  { background: '#e0e7ff', color: '#3730a3' },
+  { background: '#fae8ff', color: '#86198f' }
 ])
+
+/** 保留背景色表供现有展示与测试使用。 */
+export const AVATAR_BACKGROUND_PALETTE_15: readonly string[] = Object.freeze(
+  AVATAR_PALETTE_15.map(({ background }) => background)
+)
 
 /** 空用户名（归一化后）固定使用槽位 0，保证稳定兜底 */
 const EMPTY_USERNAME_PALETTE_INDEX = 0
@@ -71,13 +76,10 @@ export function normalizeUsernameForAvatar(username: string): string {
 export function getAvatarColorByUsername(username: string): { background: string; color: string } {
   const key = normalizeUsernameForAvatar(username)
   if (!key) {
-    const background =
-      AVATAR_BACKGROUND_PALETTE_15[EMPTY_USERNAME_PALETTE_INDEX] ?? '#422006'
-    return { background, color: '#fff' }
+    return AVATAR_PALETTE_15[EMPTY_USERNAME_PALETTE_INDEX] ?? AVATAR_PALETTE_15[0]!
   }
   const idx = fnv1a32(key) % AVATAR_BACKGROUND_PALETTE_15.length
-  const background = AVATAR_BACKGROUND_PALETTE_15[idx] ?? '#422006'
-  return { background, color: '#fff' }
+  return AVATAR_PALETTE_15[idx] ?? AVATAR_PALETTE_15[0]!
 }
 
 /**
@@ -87,6 +89,5 @@ export function getAvatarColorByUsername(username: string): { background: string
 export function getAvatarColor(userId: number): { background: string; color: string } {
   const id = Number.isFinite(userId) ? Math.max(0, Math.floor(userId)) : 0
   const idx = fnv1a32(`\0legacy-uid:${id}`) % AVATAR_BACKGROUND_PALETTE_15.length
-  const background = AVATAR_BACKGROUND_PALETTE_15[idx] ?? '#422006'
-  return { background, color: '#fff' }
+  return AVATAR_PALETTE_15[idx] ?? AVATAR_PALETTE_15[0]!
 }

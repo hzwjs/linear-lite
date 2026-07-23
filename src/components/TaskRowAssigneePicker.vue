@@ -303,10 +303,18 @@ onUnmounted(() => {
   cursor: pointer;
   color: inherit;
   position: relative;
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   border-radius: 999px;
   outline: none;
+  transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
+    background-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.task-row-assignee-picker-trigger:hover {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+.task-row-assignee-picker-trigger:active {
+  transform: scale(0.94);
 }
 .task-row-assignee-picker-trigger:focus-visible {
   outline: 2px solid var(--color-status-done);
@@ -354,8 +362,11 @@ onUnmounted(() => {
   z-index: 3;
 }
 .task-assignee-trigger.unassigned {
-  background: var(--color-bg-muted);
+  background: transparent;
   color: var(--color-text-secondary);
+}
+.task-assignee-trigger.unassigned:hover {
+  background: var(--color-bg-hover);
 }
 .task-assignee-trigger.assigned {
   background: transparent;
@@ -364,15 +375,15 @@ onUnmounted(() => {
 .task-row-assignee-panel {
   position: fixed;
   z-index: 1001;
-  min-width: 260px;
+  min-width: 272px;
   max-width: min(320px, 100vw - 16px);
-  max-height: 320px;
+  max-height: 360px;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 6px 0;
   background: var(--color-bg-main);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius-md);
-  box-shadow: var(--shadow-popover);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
   outline: none;
 }
 

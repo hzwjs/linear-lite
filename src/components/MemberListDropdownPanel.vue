@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { User as UserIcon, Check } from 'lucide-vue-next'
+import { Check } from 'lucide-vue-next'
 import type { User } from '../types/domain'
 import { getInitials, getAvatarColorByUsername } from '../utils/avatar'
+import UnassignedAvatarIcon from './icons/UnassignedAvatarIcon.vue'
 
 export type MemberListRow = { type: 'unassigned' } | { type: 'user'; user: User }
 
@@ -174,7 +175,7 @@ defineExpose({
         @click.stop="onOptionClick(row)"
       >
         <span v-if="row.type === 'unassigned'" class="assignee-option-inner">
-          <UserIcon class="assignee-option-icon" :size="18" aria-hidden="true" />
+          <UnassignedAvatarIcon class="assignee-option-icon" />
           <span class="assignee-option-label">{{ t('common.unassigned') }}</span>
         </span>
         <span v-else class="assignee-option-inner">
@@ -227,15 +228,15 @@ defineExpose({
 .task-row-assignee-panel {
   position: fixed;
   z-index: 1001;
-  min-width: 260px;
+  min-width: 272px;
   max-width: min(320px, 100vw - 16px);
-  max-height: 320px;
+  max-height: 360px;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 6px 0;
   background: var(--color-bg-main);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius-md);
-  box-shadow: var(--shadow-popover);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
   outline: none;
 }
 
@@ -248,7 +249,7 @@ defineExpose({
 }
 
 .assignee-search {
-  padding: 6px 10px 8px;
+  padding: 4px 12px 10px;
   border-bottom: 1px solid var(--color-border-subtle, var(--color-border));
   position: sticky;
   top: 0;
@@ -258,38 +259,44 @@ defineExpose({
 .assignee-search-input {
   width: 100%;
   box-sizing: border-box;
-  padding: 6px 8px;
+  height: 32px;
+  padding: 0 10px;
   font-size: var(--font-size-caption, 13px);
   color: var(--color-text-primary);
   background: var(--color-bg-base);
   border: 1px solid var(--color-border);
-  border-radius: var(--border-radius-sm);
+  border-radius: 8px;
   outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast),
+    background-color var(--transition-fast);
 }
 .assignee-search-input:focus {
   border-color: var(--color-status-done);
+  background: var(--color-bg-main);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-status-done) 12%, transparent);
 }
 
 .assignee-option {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  padding: 8px 12px;
+  padding: 7px 12px;
   text-align: left;
   font-size: var(--font-size-body, 14px);
   color: var(--color-text-primary);
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: background var(--transition-fast);
-  min-height: 38px;
+  line-height: 1.2;
+  transition: background var(--transition-fast), transform 140ms cubic-bezier(0.23, 1, 0.32, 1);
+  min-height: 42px;
   box-sizing: border-box;
 }
 .assignee-option-inner {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex: 1;
   min-width: 0;
 }
@@ -299,34 +306,50 @@ defineExpose({
   white-space: nowrap;
 }
 .assignee-option-icon {
+  width: 26px;
+  height: 26px;
   flex-shrink: 0;
   color: var(--color-text-secondary);
 }
 .assignee-option-avatar {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
 }
 .assignee-option-avatar.fallback {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
   color: #fff;
 }
 .assignee-option:hover,
 .assignee-option.highlighted {
-  background: var(--color-hover);
+  background: var(--color-bg-hover);
+}
+.assignee-option:active {
+  transform: scale(0.985);
 }
 .assignee-option.selected {
   font-weight: 500;
+  background: var(--color-accent-muted);
+}
+.assignee-option.selected:hover,
+.assignee-option.selected.highlighted {
+  background: color-mix(in srgb, var(--color-accent-muted) 76%, var(--color-bg-hover));
 }
 .option-check {
   display: inline-flex;
-  color: var(--color-text-primary);
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--color-accent);
   flex-shrink: 0;
 }
 

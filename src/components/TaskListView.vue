@@ -53,6 +53,7 @@ import TaskRowStatusPicker from './TaskRowStatusPicker.vue'
 import TaskRowAssigneePicker from './TaskRowAssigneePicker.vue'
 import TaskRowInlineDateCell from './TaskRowInlineDateCell.vue'
 import TaskRowProgressCell from './TaskRowProgressCell.vue'
+import UnassignedAvatarIcon from './icons/UnassignedAvatarIcon.vue'
 
 const props = defineProps<{
   groups: TaskGroup[]
@@ -964,7 +965,7 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
                         class="avatar-18 fallback"
                         :style="assigneeFallbackStyle(row.task)"
                       >{{ assigneeInitial(row.task) }}</span>
-                      <UserIcon v-else class="task-assignee-icon" aria-hidden="true" />
+                      <UnassignedAvatarIcon v-else class="task-assignee-icon" />
                     </TaskRowAssigneePicker>
                   </span>
                 </span>
@@ -1497,7 +1498,7 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   min-width: 88px;
 }
 .task-meta-slot-assignee {
-  width: 26px;
+  width: 30px;
 }
 .task-meta-slot-date {
   min-width: 88px;
@@ -1595,11 +1596,19 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   border-radius: 999px;
   color: var(--color-text-muted);
   outline: none;
+  transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
+    background-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.task-assignee-trigger:hover {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+.task-assignee-trigger:active {
+  transform: scale(0.94);
 }
 .task-assignee-trigger:focus-visible::before {
   opacity: 1;
@@ -1643,30 +1652,34 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   z-index: 3;
 }
 .task-assignee-trigger.unassigned {
-  background: var(--color-bg-muted);
+  background: transparent;
   color: var(--color-text-secondary);
+}
+.task-assignee-trigger.unassigned:hover {
+  background: var(--color-bg-hover);
 }
 .task-assignee-trigger.assigned {
   background: transparent;
 }
 .task-assignee-icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 
 .avatar-18 {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
 }
-/* 圆内两字留白：字号明显小于圆径，避免“志文”撑满 */
+/* 两字缩写保持清晰，同时为彩色圆形保留呼吸感 */
 .avatar-18.fallback {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 7px;
+  font-size: 10px;
   font-weight: var(--font-weight-medium);
   line-height: 1;
   letter-spacing: 0.02em;

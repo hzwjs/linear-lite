@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AVATAR_PALETTE_15,
   AVATAR_BACKGROUND_PALETTE_15,
   getInitials,
   getAvatarColor,
@@ -59,9 +60,12 @@ function relativeLuminance(hex: string): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
-function contrastWhiteOn(hexBg: string): number {
-  const Lbg = relativeLuminance(hexBg)
-  return (1 + 0.05) / (Lbg + 0.05)
+function contrastRatio(foreground: string, background: string): number {
+  const foregroundLuminance = relativeLuminance(foreground)
+  const backgroundLuminance = relativeLuminance(background)
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance)
+  const darker = Math.min(foregroundLuminance, backgroundLuminance)
+  return (lighter + 0.05) / (darker + 0.05)
 }
 
 describe('getAvatarColorByUsername', () => {
@@ -83,18 +87,14 @@ describe('getAvatarColorByUsername', () => {
   })
 
   it('empty string uses fixed slot 0', () => {
-    expect(getAvatarColorByUsername('')).toEqual({
-      background: AVATAR_BACKGROUND_PALETTE_15[0],
-      color: '#fff'
-    })
-    expect(getAvatarColorByUsername('   ')).toEqual({
-      background: AVATAR_BACKGROUND_PALETTE_15[0],
-      color: '#fff'
-    })
+    expect(getAvatarColorByUsername('')).toEqual(AVATAR_PALETTE_15[0])
+    expect(getAvatarColorByUsername('   ')).toEqual(AVATAR_PALETTE_15[0])
   })
 
-  it('foreground is white', () => {
-    expect(getAvatarColorByUsername('anyone').color).toBe('#fff')
+  it('foreground stays readable against its mapped background', () => {
+    for (const pair of AVATAR_PALETTE_15) {
+      expect(contrastRatio(pair.color, pair.background)).toBeGreaterThanOrEqual(4.5)
+    }
   })
 })
 
@@ -106,11 +106,18 @@ describe('normalizeUsernameForAvatar', () => {
 })
 
 describe('AVATAR_BACKGROUND_PALETTE_15', () => {
-  it('has 15 distinct colors with AA contrast for white text', () => {
+  it('has 15 distinct backgrounds', () => {
     expect(AVATAR_BACKGROUND_PALETTE_15.length).toBe(15)
     expect(new Set(AVATAR_BACKGROUND_PALETTE_15).size).toBe(15)
-    for (const hex of AVATAR_BACKGROUND_PALETTE_15) {
-      expect(contrastWhiteOn(hex)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('keeps every avatar background visibly chromatic', () => {
+    for (const { background } of AVATAR_PALETTE_15) {
+      const channels = background
+        .slice(1)
+        .match(/../g)!
+        .map((value) => parseInt(value, 16))
+      expect(Math.max(...channels) - Math.min(...channels)).toBeGreaterThan(12)
     }
   })
 })
@@ -129,7 +136,8 @@ describe('getAvatarColor (legacy userId)', () => {
     expect(AVATAR_BACKGROUND_PALETTE_15).toContain(b.background)
   })
 
-  it('uses white foreground', () => {
-    expect(getAvatarColor(42).color).toBe('#fff')
+  it('uses a readable foreground', () => {
+    const color = getAvatarColor(42)
+    expect(contrastRatio(color.color, color.background)).toBeGreaterThanOrEqual(4.5)
   })
 })
