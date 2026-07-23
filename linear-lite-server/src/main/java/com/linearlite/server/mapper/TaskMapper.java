@@ -105,4 +105,33 @@ public interface TaskMapper extends BaseMapper<Task> {
             </script>
             """)
     List<TaskSubIssueCount> selectSubIssueCounts(@Param("parentIds") List<Long> parentIds);
+
+    @Select("""
+            <script>
+            SELECT
+              t.id AS taskId,
+              t.task_key AS taskKey,
+              t.title AS title,
+              t.status AS status,
+              t.priority AS priority,
+              t.project_id AS projectId,
+              t.assignee_id AS assigneeId,
+              u.username AS assigneeUsername,
+              u.email AS assigneeEmail,
+              t.due_date AS dueDate
+            FROM tasks t
+            JOIN users u ON u.id = t.assignee_id
+            WHERE t.project_id IN
+            <foreach collection="projectIds" item="pid" open="(" separator="," close=")">
+              #{pid}
+            </foreach>
+              AND t.due_date IS NOT NULL
+              AND t.due_date &lt; #{endOfToday}
+              AND LOWER(t.status) NOT IN ('done', 'canceled', 'duplicate')
+            ORDER BY t.due_date ASC, t.id ASC
+            </script>
+            """)
+    List<com.linearlite.server.dto.DailySummaryTaskDto> selectDueForDigest(
+            @Param("projectIds") List<Long> projectIds,
+            @Param("endOfToday") java.time.LocalDateTime endOfToday);
 }
