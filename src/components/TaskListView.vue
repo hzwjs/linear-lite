@@ -1081,14 +1081,18 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 12px;
-  min-height: 36px;
-  background: var(--color-bg-subtle);
-  border-bottom: 1px solid var(--color-border);
-  transition: background var(--transition-fast);
+  margin: 8px 12px 4px;
+  padding: 0 10px;
+  min-height: 38px;
+  background: linear-gradient(90deg, var(--color-bg-muted), var(--color-bg-subtle));
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.025);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 .group-header:hover {
   background: var(--color-bg-muted);
+  border-color: var(--color-border);
 }
 .tree-chevron-glyph {
   font-size: 15px;
@@ -1111,7 +1115,7 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   border: none;
   cursor: pointer;
   padding: 0;
-  min-height: 32px;
+  min-height: 34px;
 }
 .group-toggle-chevron {
   flex: 0 0 auto;
@@ -1231,9 +1235,9 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 36px;
-  height: 36px;
-  padding: 0 12px 0 var(--task-row-pad-left);
+  min-height: 42px;
+  height: 42px;
+  padding: 0 16px 0 var(--task-row-pad-left);
   cursor: pointer;
   border-bottom: 1px solid var(--list-row-border);
   transition: background-color var(--transition-fast), box-shadow var(--transition-fast);
@@ -1243,7 +1247,7 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   border-bottom: none;
 }
 .task-row:hover {
-  background: var(--color-bg-hover);
+  background: color-mix(in srgb, var(--color-bg-hover) 68%, transparent);
 }
 .task-row.selected {
   background: var(--color-bg-hover);
@@ -1324,7 +1328,7 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
 .task-row-title {
   flex: 0 1 auto;
   min-width: 0;
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-subhead);
   font-weight: var(--font-weight-normal);
   color: var(--color-text-primary);
   white-space: nowrap;

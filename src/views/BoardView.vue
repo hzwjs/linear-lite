@@ -18,8 +18,8 @@ import {
   Circle,
   Filter,
   X,
-  LayoutList,
   Plus,
+  SlidersHorizontal,
   Tag,
   User as UserIcon
 } from 'lucide-vue-next'
@@ -559,7 +559,10 @@ function onClickOutsideDisplay(event: MouseEvent) {
         </div>
       </div>
       <div class="toolbar-actions">
-        <button class="btn-create" @click="() => openCreateEditor()">{{ t('boardView.newIssue') }}</button>
+        <button class="btn-create" @click="() => openCreateEditor()">
+          <Plus class="icon-14" stroke-width="2.2" aria-hidden="true" />
+          <span>{{ t('boardView.newIssue') }}</span>
+        </button>
       </div>
       <div class="toolbar-spacer" aria-hidden="true" />
       <div class="toolbar-search">
@@ -580,10 +583,11 @@ function onClickOutsideDisplay(event: MouseEvent) {
             :aria-label="filterButtonAria"
             aria-haspopup="true"
             :aria-expanded="filterPopoverOpen"
+            :title="t('common.filter')"
             @click="filterPopoverOpen = !filterPopoverOpen"
           >
             <Filter class="icon-14" />
-            <span>{{ t('common.filter') }}</span>
+            <span class="command-label">{{ t('common.filter') }}</span>
             <span v-if="activeFilterCount > 0" class="filter-active-badge" aria-hidden="true">
               {{ t('boardView.filterBadge', { n: activeFilterCount }) }}
             </span>
@@ -676,10 +680,11 @@ function onClickOutsideDisplay(event: MouseEvent) {
             :aria-label="t('common.display')"
             aria-haspopup="true"
             :aria-expanded="displayPopoverOpen"
+            :title="t('common.display')"
             @click="displayPopoverOpen = !displayPopoverOpen"
           >
-            <LayoutList class="icon-14" />
-            <span>{{ t('common.display') }}</span>
+            <SlidersHorizontal class="icon-14" />
+            <span class="command-label">{{ t('common.display') }}</span>
           </button>
           <div
             v-show="displayPopoverOpen"
@@ -860,7 +865,9 @@ function onClickOutsideDisplay(event: MouseEvent) {
   grid-template-columns: auto auto minmax(12px, 1fr) minmax(180px, 240px) auto auto;
   grid-template-areas: "scope actions spacer search options view";
   gap: 8px;
-  min-height: 40px;
+  min-height: 48px;
+  padding: 8px 16px;
+  background: transparent;
 }
 .toolbar-actions {
   grid-area: actions;
@@ -895,7 +902,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
   display: flex;
   align-items: center;
   justify-self: end;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
 .toolbar-view {
@@ -905,6 +912,9 @@ function onClickOutsideDisplay(event: MouseEvent) {
   min-width: 0;
 }
 .btn-create {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: var(--color-accent);
   color: white;
   padding: 4px 10px;
@@ -914,17 +924,20 @@ function onClickOutsideDisplay(event: MouseEvent) {
   font-weight: var(--font-weight-semibold);
   transition: background var(--transition-fast);
 }
+.btn-create:active {
+  transform: scale(0.97);
+}
 .btn-create:hover {
   background: var(--color-accent-hover);
 }
 .search-input {
   min-width: 180px;
-  width: 240px;
+  width: 260px;
   max-width: 100%;
   height: 26px;
   box-sizing: border-box;
   background: var(--color-bg-muted);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   color: var(--color-text-primary);
   padding: 0 8px;
   border-radius: var(--radius-sm);
@@ -942,19 +955,22 @@ function onClickOutsideDisplay(event: MouseEvent) {
 
 .scope-tabs {
   display: flex;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
+  gap: 2px;
+  border: none;
+  border-radius: 8px;
   overflow: hidden;
-  background: var(--color-bg-base);
+  background: transparent;
 }
 .scope-tab {
-  padding: 4px 10px;
+  padding: 5px 12px;
+  min-height: 30px;
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  border-radius: 6px;
+  transition: background var(--transition-fast), color var(--transition-fast), transform 160ms ease-out;
 }
 .scope-tab:hover {
   color: var(--color-text-secondary);
@@ -962,8 +978,13 @@ function onClickOutsideDisplay(event: MouseEvent) {
 }
 .scope-tab.active {
   color: var(--color-text-primary);
-  background: var(--color-bg-muted);
+  background: var(--color-bg-base);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), inset 0 0 0 1px var(--color-border-subtle);
   font-weight: var(--font-weight-medium);
+}
+.scope-tab:active,
+.toggle-btn:active {
+  transform: scale(0.98);
 }
 .icon-14 {
   width: 14px;
@@ -1126,9 +1147,9 @@ function onClickOutsideDisplay(event: MouseEvent) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 8px;
-  min-height: 26px;
-  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  min-height: 30px;
+  border-radius: 6px;
   border: none;
   background: transparent;
   color: var(--color-text-muted);
@@ -1139,6 +1160,9 @@ function onClickOutsideDisplay(event: MouseEvent) {
 .command-btn:hover {
   color: var(--color-text-secondary);
   background: var(--color-bg-hover);
+}
+.command-btn:active {
+  transform: scale(0.97);
 }
 .command-btn.active {
   color: var(--color-accent);
@@ -1384,10 +1408,11 @@ function onClickOutsideDisplay(event: MouseEvent) {
 
 .view-toggle {
   display: flex;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
   overflow: hidden;
   background: var(--color-bg-base);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
 }
 .toggle-btn {
   padding: var(--control-padding-y) var(--control-padding-x);
@@ -1404,9 +1429,28 @@ function onClickOutsideDisplay(event: MouseEvent) {
   background: var(--color-bg-hover);
 }
 .toggle-btn.active {
-  background: var(--color-bg-muted);
+  background: var(--color-bg-base);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   color: var(--color-text-primary);
   font-weight: var(--font-weight-medium);
+}
+@media (min-width: 900px) {
+  .toolbar-options .command-btn {
+    width: 30px;
+    justify-content: center;
+    padding-inline: 0;
+  }
+  .toolbar-options .command-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
 }
 .list-wrap {
   flex: 1;
