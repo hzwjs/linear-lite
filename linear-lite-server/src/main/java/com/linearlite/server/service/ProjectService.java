@@ -54,6 +54,7 @@ public class ProjectService {
     private final TaskCommentMapper taskCommentMapper;
     private final CommentMentionMapper commentMentionMapper;
     private final InAppNotificationMapper inAppNotificationMapper;
+    private final ProjectEmailPreferenceService projectEmailPreferenceService;
 
     public ProjectService(
             ProjectMapper projectMapper,
@@ -67,7 +68,8 @@ public class ProjectService {
             LabelService labelService,
             TaskCommentMapper taskCommentMapper,
             CommentMentionMapper commentMentionMapper,
-            InAppNotificationMapper inAppNotificationMapper) {
+            InAppNotificationMapper inAppNotificationMapper,
+            ProjectEmailPreferenceService projectEmailPreferenceService) {
         this.projectMapper = projectMapper;
         this.taskMapper = taskMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
@@ -80,6 +82,7 @@ public class ProjectService {
         this.taskCommentMapper = taskCommentMapper;
         this.commentMentionMapper = commentMentionMapper;
         this.inAppNotificationMapper = inAppNotificationMapper;
+        this.projectEmailPreferenceService = projectEmailPreferenceService;
     }
 
     /**
@@ -193,6 +196,7 @@ public class ProjectService {
         project.setCreatorId(creatorId);
         projectMapper.insert(project);
         addMember(project.getId(), creatorId, "owner");
+        projectEmailPreferenceService.initializeForProject(project.getId());
         return projectMapper.selectById(project.getId());
     }
 

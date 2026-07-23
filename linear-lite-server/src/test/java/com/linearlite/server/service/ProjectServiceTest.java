@@ -62,6 +62,8 @@ class ProjectServiceTest {
     private CommentMentionMapper commentMentionMapper;
     @Mock
     private InAppNotificationMapper inAppNotificationMapper;
+    @Mock
+    private ProjectEmailPreferenceService projectEmailPreferenceService;
 
     private ProjectService projectService;
 
@@ -79,7 +81,8 @@ class ProjectServiceTest {
                 labelService,
                 taskCommentMapper,
                 commentMentionMapper,
-                inAppNotificationMapper
+                inAppNotificationMapper,
+                projectEmailPreferenceService
         );
     }
 
@@ -107,6 +110,27 @@ class ProjectServiceTest {
         assertEquals(10L, memberCaptor.getValue().getProjectId());
         assertEquals(7L, memberCaptor.getValue().getUserId());
         assertEquals("owner", memberCaptor.getValue().getRole());
+    }
+
+    @Test
+    void createInitializesEmailPreferenceForProject() {
+        Project saved = new Project();
+        saved.setId(10L);
+        saved.setName("Engineering");
+        saved.setIdentifier("ENG");
+        saved.setCreatorId(7L);
+
+        doAnswer(invocation -> {
+            Project project = invocation.getArgument(0);
+            project.setId(10L);
+            return 1;
+        }).when(projectMapper).insert(any(Project.class));
+        when(projectMapper.selectById(10L)).thenReturn(saved);
+        when(projectMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+
+        projectService.create("Engineering", "eng", 7L);
+
+        verify(projectEmailPreferenceService).initializeForProject(10L);
     }
 
     @Test
