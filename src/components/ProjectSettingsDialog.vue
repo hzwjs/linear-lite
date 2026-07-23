@@ -11,6 +11,14 @@ const props = defineProps<{
   isSubmitting: boolean
   isInviting: boolean
   canDelete: boolean
+  showCodex: boolean
+  codexRunners: { id: number; name: string; status: string; lastSeenAt?: string | null }[]
+  codexRepositories: { id: number; displayName: string; repositoryKey: string; defaultBranch: string }[]
+  codexRunnerId: number | null
+  codexRepositoryId: number | null
+  codexBaseBranch: string
+  enrollmentCode: string
+  isCodexLoading: boolean
 }>()
 
 const emit = defineEmits<{
@@ -22,6 +30,12 @@ const emit = defineEmits<{
   'update:name': [value: string]
   'update:identifier': [value: string]
   'update:inviteEmail': [value: string]
+  'update:codexRunnerId': [value: number | null]
+  'update:codexRepositoryId': [value: number | null]
+  'update:codexBaseBranch': [value: string]
+  createEnrollmentCode: []
+  revokeRunner: [runnerId: number]
+  saveCodexBinding: []
 }>()
 
 const { t } = useI18n()
@@ -57,6 +71,8 @@ function onDelete() {
 function onClose() {
   emit('close')
 }
+function onRunnerChange(event: Event) { const value = (event.target as HTMLSelectElement).value; emit('update:codexRunnerId', value ? Number(value) : null) }
+function onRepositoryChange(event: Event) { const value = (event.target as HTMLSelectElement).value; emit('update:codexRepositoryId', value ? Number(value) : null) }
 </script>
 
 <template>
@@ -142,6 +158,40 @@ function onClose() {
           >
             {{ t('projectSettingsModal.importButton') }}
           </button>
+        </div>
+        <div v-if="showCodex" class="section-panel codex-zone">
+          <div class="section-header">
+            <p class="section-title">Codex 执行</p>
+            <p class="section-text">连接本地 Runner 后，为当前项目固定一个代码仓库和基础分支。</p>
+          </div>
+          <div class="codex-enrollment-row">
+            <button type="button" class="btn-secondary" data-testid="codex-create-enrollment" :disabled="isCodexLoading" @click="emit('createEnrollmentCode')">创建 Runner 连接码</button>
+            <code v-if="enrollmentCode" class="codex-enrollment-code" data-testid="codex-enrollment-code">{{ enrollmentCode }}</code>
+            <span v-else class="codex-enrollment-hint">生成一次性连接码，用于注册本地 Runner</span>
+          </div>
+          <div class="form-group">
+            <label>Runner</label>
+            <select class="input" data-testid="codex-runner-select" :value="codexRunnerId ?? ''" :disabled="isCodexLoading" @change="onRunnerChange">
+              <option value="">请选择 Runner</option>
+              <option v-for="runner in codexRunners" :key="runner.id" :value="runner.id">{{ runner.name }}（{{ runner.status }}）</option>
+            </select>
+            <button v-if="codexRunnerId" type="button" class="btn-danger codex-revoke" :disabled="isCodexLoading" @click="emit('revokeRunner', codexRunnerId)">撤销 Runner</button>
+          </div>
+          <div class="form-group">
+            <label>仓库</label>
+            <select class="input" data-testid="codex-repository-select" :value="codexRepositoryId ?? ''" :disabled="isCodexLoading || !codexRunnerId" @change="onRepositoryChange">
+              <option value="">请选择仓库</option>
+              <option v-for="repository in codexRepositories" :key="repository.id" :value="repository.id">{{ repository.displayName }}（{{ repository.repositoryKey }}）</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>基础分支</label>
+            <input class="input" data-testid="codex-base-branch" :value="codexBaseBranch" :disabled="isCodexLoading || !codexRepositoryId" @input="emit('update:codexBaseBranch', ($event.target as HTMLInputElement).value)" />
+          </div>
+          <div class="codex-save-row">
+            <span class="codex-save-hint">绑定后，任务会默认派发到此 Runner。</span>
+            <button type="button" class="btn-primary" data-testid="codex-save-binding" :disabled="isCodexLoading || !codexRunnerId || !codexRepositoryId || !codexBaseBranch.trim()" @click="emit('saveCodexBinding')">保存 Codex 绑定</button>
+          </div>
         </div>
         <div v-if="canDelete" class="section-panel danger-zone">
           <div class="section-header">
@@ -299,6 +349,187 @@ function onClose() {
   align-items: center;
   gap: 16px;
 }
+.codex-zone {
+  margin-top: 14px;
+  padding: 18px;
+  border-color: #dfe4ec;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fbfcfe 0%, #f7f9fc 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+.codex-zone .section-header {
+  margin-bottom: 16px;
+}
+.codex-zone .section-title {
+  font-size: 15px;
+  line-height: 20px;
+  letter-spacing: -0.01em;
+}
+.codex-zone .section-text {
+  max-width: 46em;
+  margin-top: 5px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.codex-enrollment-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  margin-bottom: 18px;
+  padding: 8px;
+  border: 1px solid #e4e8ef;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.82);
+}
+.codex-enrollment-code,
+.codex-enrollment-hint {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 3px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.codex-enrollment-code {
+  color: #172033;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.codex-enrollment-hint {
+  color: #8a94a5;
+}
+.codex-zone .form-group {
+  margin-bottom: 14px;
+}
+.codex-zone .form-group label {
+  margin-bottom: 6px;
+  color: #5f6b7d;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+.codex-zone .input {
+  min-height: 40px;
+  padding: 9px 12px;
+  border-color: #dfe4ec;
+  border-radius: 9px;
+  background: #ffffff;
+  font-size: 13px;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.02);
+}
+.codex-zone select.input {
+  appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none'%3E%3Cpath d='m3.5 5.25 3.5 3.5 3.5-3.5' stroke='%236b778c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 12px center;
+  background-repeat: no-repeat;
+}
+.codex-zone .input:hover:not(:disabled) {
+  border-color: #c7cfdb;
+}
+.codex-zone .input:focus {
+  border-color: #64748b;
+  box-shadow: 0 0 0 3px rgba(100, 116, 139, 0.14), 0 1px 1px rgba(15, 23, 42, 0.02);
+}
+.codex-zone .input:disabled {
+  color: #a0a9b8;
+  background: #f5f7fa;
+  cursor: not-allowed;
+}
+.codex-revoke {
+  margin-top: 7px;
+  padding: 0;
+  min-height: 22px;
+  color: #b42318;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+}
+.codex-revoke:hover:not(:disabled) {
+  color: #8f1d15;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.codex-save-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 18px;
+}
+.codex-save-hint {
+  color: #8a94a5;
+  font-size: 11px;
+  line-height: 16px;
+}
+.codex-zone .btn-secondary,
+.codex-zone .btn-primary {
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+.codex-zone .btn-secondary {
+  border-color: #cfd6e1;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.03);
+}
+.codex-zone .btn-secondary:hover:not(:disabled) {
+  border-color: #b8c2d0;
+  background: #f8fafc;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.06);
+}
+.codex-zone .btn-primary {
+  background: #475569;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14);
+}
+.codex-zone .btn-primary:hover:not(:disabled) {
+  filter: none;
+  background: #334155;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.16);
+}
+.codex-zone .btn-primary:disabled {
+  background: #a2adbc;
+  opacity: 1;
+  box-shadow: none;
+}
+.codex-zone .btn-secondary:active:not(:disabled),
+.codex-zone .btn-primary:active:not(:disabled),
+.codex-zone .codex-revoke:active:not(:disabled) {
+  transform: scale(0.98);
+}
+@media (max-width: 520px) {
+  .codex-zone {
+    padding: 14px;
+  }
+  .codex-enrollment-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .codex-enrollment-code,
+  .codex-enrollment-hint {
+    padding: 2px 3px 0;
+  }
+  .codex-save-row {
+    align-items: stretch;
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+  .codex-zone .btn-primary[data-testid="codex-save-binding"] {
+    width: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .codex-zone .btn-secondary,
+  .codex-zone .btn-primary,
+  .codex-zone .codex-revoke {
+    transition: none;
+  }
+}
 .invite-controls {
   display: flex;
   gap: 8px;
@@ -390,5 +621,366 @@ function onClose() {
 .btn-danger:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Project settings visual system: one rhythm for every section and action. */
+.modal-overlay {
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.38);
+}
+.modal {
+  max-height: min(760px, calc(100vh - 32px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-color: #dfe4ec;
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2), 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+.modal-header {
+  flex: 0 0 auto;
+  min-height: 58px;
+  padding: 14px 20px;
+  border-bottom-color: #e5e9f0;
+}
+.modal-header h3 {
+  color: #111827;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 28px;
+}
+.modal-header .close-btn {
+  width: 32px;
+  height: 32px;
+  margin-right: -4px;
+  border-radius: 8px;
+  font-size: 28px;
+  font-weight: 300;
+}
+.modal-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+  scrollbar-color: #cbd3df transparent;
+  scrollbar-width: thin;
+}
+.modal-body::-webkit-scrollbar {
+  width: 8px;
+}
+.modal-body::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #cbd3df;
+  background-clip: padding-box;
+}
+.section-panel {
+  padding: 16px;
+  border-color: #e1e6ee;
+  border-radius: 12px;
+  background: #fbfcfe;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+.section-header {
+  margin-bottom: 14px;
+}
+.section-title {
+  color: #172033;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 20px;
+}
+.section-text {
+  margin-top: 5px;
+  color: #718096;
+  font-size: 13px;
+  line-height: 19px;
+}
+.form-group {
+  margin-bottom: 14px;
+}
+.form-group:last-child {
+  margin-bottom: 0;
+}
+.form-group label {
+  margin-bottom: 7px;
+  color: #657187;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  line-height: 17px;
+}
+.modal .input {
+  min-height: 40px;
+  padding: 9px 12px;
+  border-color: #dfe4ec;
+  border-radius: 10px;
+  background: #ffffff;
+  font-size: 13px;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+.modal .input:hover:not(:disabled) {
+  border-color: #c7cfdb;
+}
+.modal .input:focus {
+  border-color: #64748b;
+  box-shadow: 0 0 0 3px rgba(100, 116, 139, 0.14);
+  outline: none;
+}
+.modal .input:disabled {
+  color: #a0a9b8;
+  background: #f5f7fa;
+  cursor: not-allowed;
+}
+.error-msg {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-color: #fecaca;
+  border-radius: 10px;
+  background: #fff7f7;
+  color: #b42318;
+  line-height: 18px;
+}
+.invite-zone,
+.import-zone,
+.codex-zone,
+.danger-zone {
+  margin-top: 12px;
+}
+.invite-controls {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+.invite-controls .input {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.invite-controls .btn-primary {
+  flex: 0 0 auto;
+}
+.invite-success {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.import-zone {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.codex-zone {
+  padding: 18px;
+  border-color: #d9e2ee;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fbfcfe 0%, #f7f9fc 100%);
+}
+.codex-zone .section-header {
+  margin-bottom: 16px;
+}
+.codex-zone .section-text {
+  max-width: 46em;
+}
+.codex-enrollment-row {
+  min-height: 48px;
+  margin-bottom: 18px;
+  padding: 8px;
+  border-color: #e0e7f0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.82);
+}
+.codex-zone .input {
+  border-radius: 10px;
+}
+.codex-zone select.input {
+  appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none'%3E%3Cpath d='m3.5 5.25 3.5 3.5 3.5-3.5' stroke='%236b778c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 12px center;
+  background-repeat: no-repeat;
+}
+.codex-save-row {
+  margin-top: 18px;
+}
+.danger-zone {
+  border-color: #fecdca;
+  background: #fff8f7;
+}
+.danger-zone-title {
+  color: #b42318;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+}
+.danger-zone-text {
+  margin-top: 5px;
+  color: #9f1239;
+  line-height: 18px;
+}
+.modal-footer {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top-color: #e7ebf1;
+}
+.btn-cancel,
+.btn-secondary,
+.btn-primary,
+.btn-danger {
+  min-height: 40px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+.btn-cancel,
+.btn-secondary {
+  border: 1px solid #cfd6e1;
+  color: #172033;
+  background: #ffffff;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.03);
+}
+.btn-cancel:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled) {
+  border-color: #b8c2d0;
+  background: #f8fafc;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.06);
+}
+.btn-primary {
+  border: 1px solid #475569;
+  color: #ffffff;
+  background: #475569;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14);
+}
+.btn-primary:hover:not(:disabled) {
+  border-color: #334155;
+  background: #334155;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.16);
+  filter: none;
+}
+.btn-danger {
+  border: 1px solid #d64545;
+  color: #ffffff;
+  background: #d64545;
+}
+.btn-danger:hover:not(:disabled) {
+  border-color: #bd3737;
+  background: #bd3737;
+}
+.btn-cancel:disabled,
+.btn-secondary:disabled,
+.btn-primary:disabled,
+.btn-danger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.btn-primary:disabled {
+  border-color: #a2adbc;
+  background: #a2adbc;
+  box-shadow: none;
+}
+.btn-danger:disabled {
+  border-color: #e49a9a;
+  background: #e49a9a;
+}
+.btn-cancel:active:not(:disabled),
+.btn-secondary:active:not(:disabled),
+.btn-primary:active:not(:disabled),
+.btn-danger:active:not(:disabled),
+.close-btn:active {
+  transform: scale(0.98);
+}
+.close-btn:hover {
+  color: #172033;
+  background: #f1f4f8;
+}
+.codex-revoke {
+  min-height: 22px;
+  margin-top: 7px;
+  padding: 0;
+  border: 0;
+  color: #b42318;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+}
+.codex-revoke:hover:not(:disabled) {
+  color: #8f1d15;
+  background: transparent;
+  box-shadow: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (max-width: 520px) {
+  .modal-overlay {
+    align-items: flex-start;
+    padding: 8px;
+  }
+  .modal {
+    max-height: calc(100vh - 16px);
+    border-radius: 14px;
+  }
+  .modal-header {
+    padding-inline: 16px;
+  }
+  .modal-body {
+    padding: 12px;
+  }
+  .section-panel {
+    padding: 14px;
+  }
+  .invite-controls,
+  .import-zone,
+  .danger-zone {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .invite-controls {
+    display: grid;
+  }
+  .invite-controls .btn-primary,
+  .import-zone .btn-secondary,
+  .danger-zone .btn-danger {
+    width: 100%;
+  }
+  .codex-zone {
+    padding: 14px;
+  }
+  .codex-enrollment-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .codex-enrollment-code,
+  .codex-enrollment-hint {
+    padding: 2px 3px 0;
+  }
+  .codex-save-row {
+    align-items: stretch;
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+  .codex-zone .btn-primary[data-testid="codex-save-binding"] {
+    width: 100%;
+  }
+  .modal-footer {
+    flex-direction: column-reverse;
+  }
+  .modal-footer .btn-cancel,
+  .modal-footer .btn-primary {
+    width: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-cancel,
+  .btn-secondary,
+  .btn-primary,
+  .btn-danger,
+  .close-btn {
+    transition: none;
+  }
 }
 </style>

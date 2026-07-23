@@ -23,7 +23,15 @@ describe('ProjectSettingsDialog', () => {
       inviteMessage: '',
       isSubmitting: false,
       isInviting: false,
-      canDelete: true
+      canDelete: true,
+      showCodex: false,
+      codexRunners: [],
+      codexRepositories: [],
+      codexRunnerId: null,
+      codexRepositoryId: null,
+      codexBaseBranch: '',
+      enrollmentCode: '',
+      isCodexLoading: false
     })
     app.use(i18n)
     app.mount(host)
@@ -59,6 +67,14 @@ describe('ProjectSettingsDialog', () => {
           isSubmitting: false,
           isInviting: false,
           canDelete: true,
+          showCodex: true,
+          codexRunners: [{ id: 1, name: 'Mac', status: 'active' }],
+          codexRepositories: [{ id: 2, displayName: 'Linear', repositoryKey: 'linear', defaultBranch: 'main' }],
+          codexRunnerId: 1,
+          codexRepositoryId: 2,
+          codexBaseBranch: 'main',
+          enrollmentCode: 'once-code',
+          isCodexLoading: false,
           'onUpdate:name': onUpdateName,
           'onUpdate:identifier': onUpdateIdentifier,
           'onUpdate:inviteEmail': onUpdateInviteEmail,
@@ -102,6 +118,7 @@ describe('ProjectSettingsDialog', () => {
     expect(onImport).toHaveBeenCalledTimes(1)
     expect(onDelete).toHaveBeenCalledTimes(1)
     expect(onClose).toHaveBeenCalledTimes(1)
+    expect(host.querySelector('[data-testid="codex-enrollment-code"]')?.textContent).toBe('once-code')
 
     app.unmount()
     host.remove()

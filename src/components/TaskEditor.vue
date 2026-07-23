@@ -19,6 +19,7 @@ import { projectApi } from '../services/api/project'
 import { activityApi } from '../services/api/activity'
 import { taskCommentsApi, type TaskCommentDto } from '../services/api/taskComments'
 import { attachmentsApi } from '../services/api/attachments'
+import { codexApi, type CodexRun } from '../services/api/codex'
 import { toLabelWriteItems } from '../utils/taskLabelWrite'
 import type { TaskAttachment } from '../services/api/types'
 import { getActivityAvatarLabel } from '../utils/taskActivity'
@@ -133,6 +134,10 @@ const taskLabelComboboxRef = ref<{
 const editorPanelRef = ref<HTMLElement | null>(null)
 const descriptionSectionRef = ref<HTMLElement | null>(null)
 const isDescriptionFullscreen = ref(false)
+const codexRuns = ref<CodexRun[]>([])
+const codexLoading = ref(false)
+const codexInstruction = ref('')
+const isDispatchingCodex = ref(false)
 
 const userList = ref<User[]>([])
 const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
@@ -309,6 +314,22 @@ const effectiveProjectId = computed((): number | null => {
   if (props.mode === 'edit' && props.task?.projectId != null) return props.task.projectId
   return projectStore.activeProjectId
 })
+const canDispatchCodex = computed(() => {
+  const project = projectStore.projects.find((item) => item.id === props.task?.projectId)
+  return props.mode === 'edit' && !!props.task && project?.creatorId === authStore.currentUser?.id && !codexRuns.value.some((run) => ['queued', 'claimed', 'running', 'needs_input'].includes(run.status))
+})
+const activeCodexRun = computed(() => codexRuns.value[0] ?? null)
+
+async function loadCodexRuns() {
+  if (props.mode !== 'edit' || !props.task?.id) { codexRuns.value = []; return }
+  codexLoading.value = true
+  try { codexRuns.value = await codexApi.list(props.task.id) } catch { codexRuns.value = [] } finally { codexLoading.value = false }
+}
+async function dispatchToCodex() {
+  if (!props.task?.id || !canDispatchCodex.value || isDispatchingCodex.value) return
+  isDispatchingCodex.value = true
+  try { await codexApi.dispatch(props.task.id, { clientRequestId: randomClientId(), instruction: codexInstruction.value.trim() }); codexInstruction.value = ''; await loadCodexRuns() } catch (error) { notifySaveState(toApiError(error).message) } finally { isDispatchingCodex.value = false }
+}
 
 const showPropRowLabels = computed(
   () => effectiveProjectId.value != null || (props.mode === 'edit' && formLabels.value.length > 0)
@@ -989,6 +1010,7 @@ watch(
   },
   { immediate: true }
 )
+watch(() => props.task?.id, () => { void loadCodexRuns() }, { immediate: true })
 watch(() => props.mode, () => loadForm())
 watch(() => props.defaultStatus, () => {
   if (props.mode === 'create') formStatus.value = props.defaultStatus ?? 'todo'
@@ -1349,6 +1371,9 @@ async function toggleDescriptionFullscreen() {
         </button>
       </div>
       <div class="editor-header-actions">
+        <button v-if="canDispatchCodex" type="button" class="nav-btn" :disabled="isDispatchingCodex" @click="dispatchToCodex">
+          {{ isDispatchingCodex ? '派发中…' : '交给 Codex' }}
+        </button>
         <span v-if="saveStatus === 'saved'" class="save-indicator save-indicator--saved">{{ t('taskEditor.saved') }}</span>
         <span v-else-if="saveStatus === 'saving'" class="save-indicator save-indicator--saving">{{ t('taskEditor.saving') }}</span>
         <div v-if="workspaceSourceLabel" class="issue-source">{{ workspaceSourceLabel }}</div>
@@ -1372,6 +1397,18 @@ async function toggleDescriptionFullscreen() {
         <button class="close-btn" @click="closeEditor" :aria-label="t('common.close')">×</button>
       </div>
     </div>
+    <section v-if="props.mode === 'edit' && (canDispatchCodex || activeCodexRun)" class="codex-run-panel">
+      <strong>Codex 执行</strong>
+      <template v-if="activeCodexRun">
+        <span>状态：{{ activeCodexRun.status }}</span><span>分支：{{ activeCodexRun.branchName }}</span>
+        <p v-if="activeCodexRun.resultSummary">{{ activeCodexRun.resultSummary }}</p>
+        <p v-if="activeCodexRun.errorMessage" class="error-msg">{{ activeCodexRun.errorMessage }}</p>
+      </template>
+      <template v-else-if="canDispatchCodex">
+        <input v-model="codexInstruction" class="input" placeholder="可选补充指令" :disabled="isDispatchingCodex" />
+        <span v-if="codexLoading">正在读取执行记录…</span>
+      </template>
+    </section>
 
     <div class="editor-body">
       <div class="editor-content">
@@ -1947,6 +1984,17 @@ async function toggleDescriptionFullscreen() {
 </template>
 
 <style scoped>
+.codex-run-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 20px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--task-editor-border, #e5e7eb);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.codex-run-panel p { margin: 0; }
 /* P6-5: Issue workspace — 工作上下文感，弱化表单 */
 .editor-panel {
   width: min(1040px, calc(100vw - 320px));

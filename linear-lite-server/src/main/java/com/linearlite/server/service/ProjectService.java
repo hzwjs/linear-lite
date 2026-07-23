@@ -211,6 +211,11 @@ public class ProjectService {
         if (identifier != null && !identifier.isBlank()) {
             String trimmedId = identifier.trim().toUpperCase();
             if (!trimmedId.equals(existing.getIdentifier())) {
+                Long taskCount = taskMapper.selectCount(
+                        new LambdaQueryWrapper<Task>().eq(Task::getProjectId, id));
+                if (taskCount != null && taskCount > 0) {
+                    throw new IllegalArgumentException("项目已有任务，不能修改项目标识");
+                }
                 Long count = projectMapper.selectCount(
                         new LambdaQueryWrapper<Project>()
                                 .eq(Project::getIdentifier, trimmedId)

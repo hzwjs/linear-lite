@@ -32,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -205,6 +206,42 @@ class ProjectServiceTest {
         when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
 
         assertThrows(ForbiddenOperationException.class, () -> projectService.invite(3L, 8L, "new@example.com"));
+    }
+
+    @Test
+    void updateRejectsIdentifierChangeWhenProjectAlreadyHasTasks() {
+        Project project = new Project();
+        project.setId(3L);
+        project.setIdentifier("ENG");
+        project.setCreatorId(7L);
+        when(projectMapper.selectById(3L)).thenReturn(project);
+        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(taskMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> projectService.update(3L, null, "PROD", 7L));
+
+        assertEquals("项目已有任务，不能修改项目标识", error.getMessage());
+        verify(projectMapper, never()).updateById(any(Project.class));
+    }
+
+    @Test
+    void updateAllowsIdentifierChangeWhenProjectHasNoTasks() {
+        Project project = new Project();
+        project.setId(3L);
+        project.setIdentifier("ENG");
+        project.setCreatorId(7L);
+        when(projectMapper.selectById(3L)).thenReturn(project);
+        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(taskMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(projectMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(projectMapper.selectById(3L)).thenReturn(project);
+
+        Project updated = projectService.update(3L, null, "prod", 7L);
+
+        assertEquals("PROD", updated.getIdentifier());
+        verify(projectMapper).updateById(project);
     }
 
     @Test

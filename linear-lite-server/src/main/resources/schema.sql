@@ -200,6 +200,106 @@ CREATE TABLE IF NOT EXISTS in_app_notifications (
 CREATE INDEX idx_in_app_notifications_user_created ON in_app_notifications (user_id, created_at DESC);
 CREATE INDEX idx_in_app_notifications_user_unread ON in_app_notifications (user_id, read_at);
 
+-- Codex 派发：服务端仅保存 Runner/仓库身份，不保存本地路径或 Codex 凭据。
+CREATE TABLE IF NOT EXISTS codex_runners (
+    id           BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id      BIGINT       NOT NULL,
+    name         VARCHAR(128) NOT NULL,
+    token_hash   VARCHAR(128) NOT NULL UNIQUE,
+    status       VARCHAR(16)  NOT NULL DEFAULT 'active',
+    last_seen_at DATETIME     DEFAULT NULL,
+    created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at   DATETIME     DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE INDEX idx_codex_runners_user_status ON codex_runners (user_id, status);
+
+CREATE TABLE IF NOT EXISTS codex_runner_enrollment_codes (
+    id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id     BIGINT       NOT NULL,
+    code_hash   VARCHAR(128) NOT NULL UNIQUE,
+    expires_at  DATETIME     NOT NULL,
+    consumed_at DATETIME     DEFAULT NULL,
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS codex_repositories (
+    id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    runner_id       BIGINT       NOT NULL,
+    repository_key  VARCHAR(128) NOT NULL,
+    display_name    VARCHAR(256) NOT NULL,
+    remote_identity VARCHAR(512) NOT NULL,
+    default_branch  VARCHAR(128) NOT NULL,
+    last_seen_at    DATETIME     NOT NULL,
+    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_codex_repositories_runner_key (runner_id, repository_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS project_codex_bindings (
+    id            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    project_id    BIGINT       NOT NULL,
+    runner_id     BIGINT       NOT NULL,
+    repository_id BIGINT       NOT NULL,
+    base_branch   VARCHAR(128) NOT NULL,
+    created_by    BIGINT       NOT NULL,
+    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_project_codex_bindings_project (project_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS codex_runs (
+    id                  VARCHAR(36)  NOT NULL PRIMARY KEY,
+    client_request_id   VARCHAR(64)  NOT NULL,
+    task_id             BIGINT       NOT NULL,
+    task_key            VARCHAR(32)  NOT NULL,
+    task_updated_at     DATETIME     NOT NULL,
+    task_snapshot       JSON         NOT NULL,
+    dispatch_instruction TEXT        NOT NULL,
+    created_by          BIGINT       NOT NULL,
+    runner_id           BIGINT       NOT NULL,
+    repository_id       BIGINT       NOT NULL,
+    base_branch         VARCHAR(128) NOT NULL,
+    branch_name         VARCHAR(160) NOT NULL,
+    codex_thread_id     VARCHAR(128) DEFAULT NULL,
+    status              VARCHAR(16)  NOT NULL,
+    lease_expires_at    DATETIME     DEFAULT NULL,
+    cancel_requested_at DATETIME     DEFAULT NULL,
+    result_summary      TEXT         DEFAULT NULL,
+    result_payload      JSON         DEFAULT NULL,
+    error_code          VARCHAR(64)  DEFAULT NULL,
+    error_message       TEXT         DEFAULT NULL,
+    created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    claimed_at          DATETIME     DEFAULT NULL,
+    started_at          DATETIME     DEFAULT NULL,
+    finished_at         DATETIME     DEFAULT NULL,
+    UNIQUE KEY uk_codex_runs_creator_request (created_by, client_request_id),
+    UNIQUE KEY uk_codex_runs_thread (codex_thread_id),
+    KEY idx_codex_runs_task_status (task_id, status),
+    KEY idx_codex_runs_runner_status_created (runner_id, status, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS codex_run_events (
+    id            BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    run_id        VARCHAR(36) NOT NULL,
+    sequence_no   BIGINT      NOT NULL,
+    event_type    VARCHAR(32) NOT NULL,
+    event_payload JSON        NOT NULL,
+    created_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_codex_run_events_sequence (run_id, sequence_no)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS codex_run_messages (
+    id             BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    run_id         VARCHAR(36) NOT NULL,
+    sender_user_id BIGINT      NOT NULL,
+    content        TEXT        NOT NULL,
+    status         VARCHAR(16) NOT NULL DEFAULT 'pending',
+    claimed_at     DATETIME    DEFAULT NULL,
+    created_at     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    consumed_at    DATETIME    DEFAULT NULL,
+    KEY idx_codex_run_messages_run_status_created (run_id, status, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ========== 种子数据（可选；密码字段为 BCrypt 哈希）==========
 
 INSERT INTO users (username, email, password, avatar_url) VALUES
