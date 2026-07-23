@@ -19,6 +19,8 @@ const props = defineProps<{
   codexBaseBranch: string
   enrollmentCode: string
   isCodexLoading: boolean
+  dailySummaryEnabled: boolean
+  isEmailSaving: boolean
 }>()
 
 const emit = defineEmits<{
@@ -36,6 +38,7 @@ const emit = defineEmits<{
   createEnrollmentCode: []
   revokeRunner: [runnerId: number]
   saveCodexBinding: []
+  toggleDailySummary: [value: boolean]
 }>()
 
 const { t } = useI18n()
@@ -158,6 +161,22 @@ function onRepositoryChange(event: Event) { const value = (event.target as HTMLS
           >
             {{ t('projectSettingsModal.importButton') }}
           </button>
+        </div>
+        <div v-if="canDelete" class="section-panel email-zone">
+          <div class="section-header">
+            <p class="section-title">{{ t('projectSettingsModal.emailTitle') }}</p>
+            <p class="section-text">{{ t('projectSettingsModal.emailDescription') }}</p>
+          </div>
+          <label class="email-toggle">
+            <input
+              type="checkbox"
+              data-testid="project-settings-daily-summary"
+              :checked="dailySummaryEnabled"
+              :disabled="isEmailSaving"
+              @change="emit('toggleDailySummary', ($event.target as HTMLInputElement).checked)"
+            />
+            <span>{{ t('projectSettingsModal.dailySummary') }}</span>
+          </label>
         </div>
         <div v-if="showCodex" class="section-panel codex-zone">
           <div class="section-header">

@@ -31,7 +31,9 @@ describe('ProjectSettingsDialog', () => {
       codexRepositoryId: null,
       codexBaseBranch: '',
       enrollmentCode: '',
-      isCodexLoading: false
+      isCodexLoading: false,
+      dailySummaryEnabled: false,
+      isEmailSaving: false
     })
     app.use(i18n)
     app.mount(host)
@@ -51,6 +53,7 @@ describe('ProjectSettingsDialog', () => {
     const onImport = vi.fn()
     const onDelete = vi.fn()
     const onClose = vi.fn()
+    const onToggleDailySummary = vi.fn()
 
     const host = document.createElement('div')
     document.body.appendChild(host)
@@ -75,6 +78,8 @@ describe('ProjectSettingsDialog', () => {
           codexBaseBranch: 'main',
           enrollmentCode: 'once-code',
           isCodexLoading: false,
+          dailySummaryEnabled: false,
+          isEmailSaving: false,
           'onUpdate:name': onUpdateName,
           'onUpdate:identifier': onUpdateIdentifier,
           'onUpdate:inviteEmail': onUpdateInviteEmail,
@@ -82,7 +87,8 @@ describe('ProjectSettingsDialog', () => {
           onInvite,
           onImport,
           onDelete,
-          onClose
+          onClose,
+          onToggleDailySummary
         })
       }
     })
@@ -108,6 +114,10 @@ describe('ProjectSettingsDialog', () => {
     ;(host.querySelector('[data-testid="project-settings-import"]') as HTMLButtonElement).click()
     ;(host.querySelector('[data-testid="project-settings-delete"]') as HTMLButtonElement).click()
     ;(host.querySelector('[data-testid="project-settings-close"]') as HTMLButtonElement).click()
+    ;(host.querySelector('[data-testid="project-settings-daily-summary"]') as HTMLInputElement).checked = true
+    ;(host.querySelector('[data-testid="project-settings-daily-summary"]') as HTMLInputElement).dispatchEvent(
+      new Event('change', { bubbles: true })
+    )
     await nextTick()
 
     expect(onUpdateName).toHaveBeenCalledWith('Core 2')
@@ -118,6 +128,7 @@ describe('ProjectSettingsDialog', () => {
     expect(onImport).toHaveBeenCalledTimes(1)
     expect(onDelete).toHaveBeenCalledTimes(1)
     expect(onClose).toHaveBeenCalledTimes(1)
+    expect(onToggleDailySummary).toHaveBeenCalledWith(true)
     expect(host.querySelector('[data-testid="codex-enrollment-code"]')?.textContent).toBe('once-code')
 
     app.unmount()

@@ -46,6 +46,8 @@ const codexRepositoryId = ref<number | null>(null)
 const codexBaseBranch = ref('')
 const enrollmentCode = ref('')
 const isCodexLoading = ref(false)
+const dailySummaryEnabled = ref(false)
+const isEmailSaving = ref(false)
 
 watch(
   () => [props.open, props.project] as const,
@@ -58,6 +60,7 @@ watch(
       error.value = ''
       inviteMessage.value = ''
       void loadCodexConfiguration(project)
+      void loadEmailSettings(project)
     }
     if (!open) {
       importOpen.value = false
@@ -116,6 +119,33 @@ async function saveCodexBinding() {
   if (!props.project || codexRunnerId.value == null || codexRepositoryId.value == null || !codexBaseBranch.value.trim()) return
   isCodexLoading.value = true
   try { await codexApi.saveBinding(props.project.id, { runnerId: codexRunnerId.value, repositoryId: codexRepositoryId.value, baseBranch: codexBaseBranch.value.trim() }) } catch (e) { error.value = e instanceof Error ? e.message : '无法保存 Codex 绑定' } finally { isCodexLoading.value = false }
+}
+
+async function loadEmailSettings(project: Project) {
+  if (!canDelete.value) return
+  try {
+    const settings = await projectApi.getEmailSettings(project.id)
+    const daily = settings.find((s) => s.scenarioKey === 'daily_summary')
+    dailySummaryEnabled.value = daily?.enabled ?? false
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '无法读取邮件设置'
+  }
+}
+
+async function onToggleDailySummary(enabled: boolean) {
+  if (!props.project) return
+  const previous = dailySummaryEnabled.value
+  dailySummaryEnabled.value = enabled
+  isEmailSaving.value = true
+  error.value = ''
+  try {
+    await projectApi.putEmailSettings(props.project.id, [{ scenarioKey: 'daily_summary', enabled }])
+  } catch (e) {
+    dailySummaryEnabled.value = previous
+    error.value = e instanceof Error ? e.message : '无法保存邮件设置'
+  } finally {
+    isEmailSaving.value = false
+  }
 }
 
 watch(importOpen, (open) => {
@@ -243,6 +273,8 @@ onUnmounted(() => {
     :codex-base-branch="codexBaseBranch"
     :enrollment-code="enrollmentCode"
     :is-codex-loading="isCodexLoading"
+    :daily-summary-enabled="dailySummaryEnabled"
+    :is-email-saving="isEmailSaving"
     @update:name="name = $event"
     @update:identifier="identifier = $event"
     @update:invite-email="inviteEmail = $event"
@@ -252,6 +284,7 @@ onUnmounted(() => {
     @create-enrollment-code="createEnrollmentCode"
     @revoke-runner="revokeCodexRunner"
     @save-codex-binding="saveCodexBinding"
+    @toggle-daily-summary="onToggleDailySummary"
     @submit="submit"
     @invite="inviteMember"
     @import="openTaskImport"
