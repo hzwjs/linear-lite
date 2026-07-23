@@ -332,6 +332,14 @@ public class ProjectService {
         }
     }
 
+    public Project loadProject(Long projectId) {
+        Project project = projectMapper.selectById(projectId);
+        if (project == null) {
+            throw new ResourceNotFoundException("项目不存在: " + projectId);
+        }
+        return project;
+    }
+
     private void addMember(Long projectId, Long userId, String role) {
         ProjectMember member = new ProjectMember();
         member.setProjectId(projectId);
