@@ -84,6 +84,23 @@ export const projectApi = {
       })
   },
 
+  getEmailSettings(projectId: number): Promise<{ scenarioKey: string; enabled: boolean }[]> {
+    return api
+      .get<ApiResponse<{ scenarioKey: string; enabled: boolean }[]>>(`/projects/${projectId}/email-settings`)
+      .then((res) => asArray(unwrap(res)))
+  },
+
+  putEmailSettings(
+    projectId: number,
+    items: { scenarioKey: string; enabled: boolean }[]
+  ): Promise<void> {
+    return api
+      .put<ApiResponse<null>>(`/projects/${projectId}/email-settings`, { items })
+      .then((res) => {
+        unwrap(res)
+      })
+  },
+
   /** 获取项目成员列表（负责人选择用） */
   listMembers(projectId: number): Promise<User[]> {
     return api
