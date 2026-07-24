@@ -96,6 +96,14 @@ public class DailySummaryDispatchService {
                         .eq(ProjectEmailDispatch::getRecipientUserId, recipientUserId));
         if (record != null && "sent".equals(record.getStatus())) return;
 
+        DigestMailContent content;
+        try {
+            content = composer.compose(project, recipientName, businessDate, tasks);
+        } catch (RuntimeException e) {
+            log.warn("今日汇总邮件编排失败 projectId={} userId={}", project.getId(), recipientUserId, e);
+            return;
+        }
+
         if (record == null) {
             record = new ProjectEmailDispatch();
             record.setProjectId(project.getId());
@@ -103,6 +111,8 @@ public class DailySummaryDispatchService {
             record.setBusinessDate(businessDate);
             record.setRecipientUserId(recipientUserId);
             record.setStatus("pending");
+            record.setSubject(content.getSubject());
+            record.setTaskCount(content.getTaskCount());
             record.setCreatedAt(LocalDateTime.now());
             record.setUpdatedAt(LocalDateTime.now());
             try {
@@ -134,21 +144,8 @@ public class DailySummaryDispatchService {
 
         record.setStatus("sending");
         record.setUpdatedAt(now);
-
-        DigestMailContent content;
-        try {
-            content = composer.compose(project, recipientName, businessDate, tasks);
-            record.setSubject(content.getSubject());
-            record.setTaskCount(content.getTaskCount());
-        } catch (RuntimeException e) {
-            record.setStatus("failed");
-            String msg = e.getMessage();
-            record.setLastError(msg == null ? null : msg.substring(0, Math.min(msg.length(), 1024)));
-            record.setUpdatedAt(LocalDateTime.now());
-            dispatchMapper.updateById(record);
-            log.warn("今日汇总邮件编排失败 projectId={} userId={}", project.getId(), recipientUserId, e);
-            return;
-        }
+        record.setSubject(content.getSubject());
+        record.setTaskCount(content.getTaskCount());
 
         try {
             sender.send(recipientEmail, content);

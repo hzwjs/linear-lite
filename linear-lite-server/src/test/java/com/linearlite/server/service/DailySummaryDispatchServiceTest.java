@@ -11,6 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -84,12 +85,17 @@ class DailySummaryDispatchServiceTest {
 
         service.dispatchForDate(date);
 
-        verify(sender).send(eq("a@example.com"), any(DigestMailContent.class));
+        InOrder inOrder = org.mockito.Mockito.inOrder(composer, dispatchMapper, sender);
+        inOrder.verify(composer).compose(eq(project), eq("alice"), eq(date), any());
+        inOrder.verify(dispatchMapper).insert(any(ProjectEmailDispatch.class));
+        inOrder.verify(sender).send(eq("a@example.com"), any(DigestMailContent.class));
         ArgumentCaptor<ProjectEmailDispatch> captor = ArgumentCaptor.forClass(ProjectEmailDispatch.class);
         verify(dispatchMapper, times(1)).insert(captor.capture());
         verify(dispatchMapper, times(1)).updateById(any(ProjectEmailDispatch.class));
         ProjectEmailDispatch recorded = captor.getValue();
         assertEquals("daily_summary", recorded.getScenarioKey());
+        assertEquals("主题", recorded.getSubject());
+        assertEquals(1, recorded.getTaskCount());
         assertEquals("sent", recorded.getStatus());
     }
 
@@ -126,9 +132,10 @@ class DailySummaryDispatchServiceTest {
 
         service.dispatchForDate(date);
 
-        verify(composer, never()).compose(any(), any(), any(), any());
+        verify(composer).compose(eq(project), eq("alice"), eq(date), any());
         verify(sender, never()).send(anyString(), any());
         verify(dispatchMapper, never()).updateById(any());
+        verify(dispatchMapper, never()).insert(any());
     }
 
     @Test
