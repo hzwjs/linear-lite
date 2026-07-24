@@ -55,9 +55,6 @@ class TaskCommentServiceTest {
     private UserMapper userMapper;
     @Mock
     private NotificationSseBroadcaster notificationSseBroadcaster;
-    @Mock
-    private WeComNotificationService weComNotificationService;
-
     private TaskCommentService taskCommentService;
 
     @BeforeEach
@@ -69,8 +66,7 @@ class TaskCommentServiceTest {
                 inAppNotificationMapper,
                 projectMemberMapper,
                 userMapper,
-                notificationSseBroadcaster,
-                weComNotificationService);
+                notificationSseBroadcaster);
     }
 
     @Test

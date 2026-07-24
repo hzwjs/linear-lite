@@ -11,7 +11,6 @@ CREATE TABLE IF NOT EXISTS users (
     password    VARCHAR(255) NOT NULL,
     avatar_url  VARCHAR(512) DEFAULT NULL,
     user_type   VARCHAR(16)  NOT NULL DEFAULT 'human' COMMENT '用户领域类型：human/codex',
-    wecom_user_id VARCHAR(128) DEFAULT NULL COMMENT '企业微信成员 UserID',
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -28,19 +27,6 @@ SET @users_user_type_ddl = IF(
 PREPARE users_user_type_stmt FROM @users_user_type_ddl;
 EXECUTE users_user_type_stmt;
 DEALLOCATE PREPARE users_user_type_stmt;
-
-SET @users_wecom_user_id_exists = (
-    SELECT COUNT(*) FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'wecom_user_id'
-);
-SET @users_wecom_user_id_ddl = IF(
-    @users_wecom_user_id_exists = 0,
-    'ALTER TABLE users ADD COLUMN wecom_user_id VARCHAR(128) DEFAULT NULL COMMENT ''企业微信成员 UserID'' AFTER user_type',
-    'SELECT 1'
-);
-PREPARE users_wecom_user_id_stmt FROM @users_wecom_user_id_ddl;
-EXECUTE users_wecom_user_id_stmt;
-DEALLOCATE PREPARE users_wecom_user_id_stmt;
 
 CREATE TABLE IF NOT EXISTS email_verification_codes (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,

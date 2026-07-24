@@ -19,7 +19,6 @@ public class User {
     private String password;
     private String avatarUrl;
     private String userType;
-    private String wecomUserId;
     private LocalDateTime createdAt;
 
     public Long getId() {
@@ -68,14 +67,6 @@ public class User {
 
     public void setUserType(String userType) {
         this.userType = userType;
-    }
-
-    public String getWecomUserId() {
-        return wecomUserId;
-    }
-
-    public void setWecomUserId(String wecomUserId) {
-        this.wecomUserId = wecomUserId;
     }
 
     public LocalDateTime getCreatedAt() {
