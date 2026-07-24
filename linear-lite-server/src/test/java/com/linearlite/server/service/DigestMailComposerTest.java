@@ -6,6 +6,7 @@ import com.linearlite.server.entity.Project;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -38,12 +39,14 @@ class DigestMailComposerTest {
         task.setDueDate(LocalDateTime.of(2026, 7, 24, 18, 0));
         task.setOverdue(false);
 
-        DigestMailContent content = composer.compose(project, "alice", List.of(task));
+        DigestMailContent content = composer.compose(project, "alice", LocalDate.of(2026, 7, 24), List.of(task));
 
         assertTrue(content.getSubject().contains("Engineering"));
         assertTrue(content.getHtmlBody().contains("修复登录"));
+        assertTrue(content.getHtmlBody().contains("2026-07-24"));
         assertTrue(content.getHtmlBody().contains("https://app.example.com/projects/10/tasks/ENG-1"));
         assertTrue(content.getTextBody().contains("ENG-1"));
+        assertTrue(content.getTextBody().contains("2026-07-24"));
         assertTrue(content.getTextBody().contains("https://app.example.com/projects/10/tasks/ENG-1"));
         assertEquals(1, content.getTaskCount());
     }
@@ -63,7 +66,7 @@ class DigestMailComposerTest {
         task.setDueDate(LocalDateTime.of(2026, 7, 24, 18, 0));
         task.setOverdue(false);
 
-        DigestMailContent content = composer.compose(project, "alice", List.of(task));
+        DigestMailContent content = composer.compose(project, "alice", LocalDate.of(2026, 7, 24), List.of(task));
 
         assertTrue(content.getHtmlBody().contains("&lt;script&gt;"));
         assertTrue(!content.getHtmlBody().contains("<script>alert"));

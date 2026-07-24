@@ -7,6 +7,7 @@ import { useTaskStore } from '../store/taskStore'
 import { useOverlayStore } from '../store/overlayStore'
 import { useI18n } from 'vue-i18n'
 import { projectApi } from '../services/api/project'
+import { shouldIgnoreProjectResponse } from '../utils/projectRequestGuard'
 import { codexApi, type CodexRepository, type CodexRunner } from '../services/api/codex'
 import ProjectSettingsDialog from './ProjectSettingsDialog.vue'
 import TaskImportModal from './TaskImportModal.vue'
@@ -48,6 +49,7 @@ const enrollmentCode = ref('')
 const isCodexLoading = ref(false)
 const dailySummaryEnabled = ref(false)
 const isEmailSaving = ref(false)
+let emailSettingsRequestSeq = 0
 
 watch(
   () => [props.open, props.project] as const,
@@ -59,12 +61,16 @@ watch(
       importUsers.value = []
       error.value = ''
       inviteMessage.value = ''
+      dailySummaryEnabled.value = false
+      isEmailSaving.value = false
       void loadCodexConfiguration(project)
       void loadEmailSettings(project)
     }
     if (!open) {
       importOpen.value = false
       importUsers.value = []
+      emailSettingsRequestSeq += 1
+      isEmailSaving.value = false
     }
   }
 )
@@ -123,28 +129,36 @@ async function saveCodexBinding() {
 
 async function loadEmailSettings(project: Project) {
   if (!canDelete.value) return
+  const requestSeq = ++emailSettingsRequestSeq
+  const projectId = project.id
   try {
-    const settings = await projectApi.getEmailSettings(project.id)
+    const settings = await projectApi.getEmailSettings(projectId)
+    if (shouldIgnoreProjectResponse(requestSeq, emailSettingsRequestSeq, props.project?.id, projectId)) return
     const daily = settings.find((s) => s.scenarioKey === 'daily_summary')
     dailySummaryEnabled.value = daily?.enabled ?? false
   } catch (e) {
+    if (shouldIgnoreProjectResponse(requestSeq, emailSettingsRequestSeq, props.project?.id, projectId)) return
     error.value = e instanceof Error ? e.message : '无法读取邮件设置'
   }
 }
 
 async function onToggleDailySummary(enabled: boolean) {
   if (!props.project) return
+  const projectId = props.project.id
   const previous = dailySummaryEnabled.value
   dailySummaryEnabled.value = enabled
   isEmailSaving.value = true
   error.value = ''
   try {
-    await projectApi.putEmailSettings(props.project.id, [{ scenarioKey: 'daily_summary', enabled }])
+    await projectApi.putEmailSettings(projectId, [{ scenarioKey: 'daily_summary', enabled }])
   } catch (e) {
+    if (props.project?.id !== projectId) return
     dailySummaryEnabled.value = previous
     error.value = e instanceof Error ? e.message : '无法保存邮件设置'
   } finally {
-    isEmailSaving.value = false
+    if (props.project?.id === projectId) {
+      isEmailSaving.value = false
+    }
   }
 }
 

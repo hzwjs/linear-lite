@@ -6,6 +6,7 @@ import com.linearlite.server.entity.Project;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -22,20 +23,20 @@ public class DigestMailComposer {
         this.publicBaseUrl = publicBaseUrl == null || publicBaseUrl.isBlank() ? "" : publicBaseUrl.replaceAll("/+$", "");
     }
 
-    public DigestMailContent compose(Project project, String recipientName, List<DailySummaryTaskDto> tasks) {
-        String today = LocalDateTime.now().format(DATE_FMT);
-        String subject = "【今日汇总】" + project.getName() + " · " + today;
+    public DigestMailContent compose(Project project, String recipientName, LocalDate businessDate, List<DailySummaryTaskDto> tasks) {
+        String businessDay = businessDate.format(DATE_FMT);
+        String subject = "【今日汇总】" + project.getName() + " · " + businessDay;
 
         List<DailySummaryTaskDto> overdue = tasks.stream().filter(t -> Boolean.TRUE.equals(t.getOverdue())).toList();
         List<DailySummaryTaskDto> dueToday = tasks.stream().filter(t -> !Boolean.TRUE.equals(t.getOverdue())).toList();
 
-        String html = buildHtml(project, recipientName, today, dueToday, overdue);
-        String text = buildText(project, recipientName, today, dueToday, overdue);
+        String html = buildHtml(project, recipientName, businessDay, dueToday, overdue);
+        String text = buildText(project, recipientName, businessDay, dueToday, overdue);
 
         return new DigestMailContent(subject, html, text, tasks.size());
     }
 
-    private String buildHtml(Project project, String recipientName, String today,
+    private String buildHtml(Project project, String recipientName, String businessDay,
                              List<DailySummaryTaskDto> dueToday, List<DailySummaryTaskDto> overdue) {
         StringBuilder sb = new StringBuilder();
         sb.append("<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head><body style=\"margin:0;padding:0;background:#f6f7f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1f2937;\">");
@@ -45,7 +46,7 @@ public class DigestMailComposer {
         sb.append("<tr><td style=\"padding:28px 32px 8px 32px;\">");
         sb.append("<p style=\"margin:0 0 4px 0;font-size:15px;color:#6b7280;\">").append(escape("Hi " + nullSafe(recipientName))).append("</p>");
         sb.append("<h1 style=\"margin:0 0 12px 0;font-size:22px;font-weight:600;color:#111827;\">").append(escape(project.getName())).append(" · 今日汇总</h1>");
-        sb.append("<p style=\"margin:0;font-size:13px;color:#9ca3af;\">").append(today).append(" · 共 ").append(dueToday.size() + overdue.size()).append(" 个待处理任务</p>");
+        sb.append("<p style=\"margin:0;font-size:13px;color:#9ca3af;\">").append(businessDay).append(" · 共 ").append(dueToday.size() + overdue.size()).append(" 个待处理任务</p>");
         sb.append("</td></tr>");
 
         if (!overdue.isEmpty()) {
@@ -80,11 +81,11 @@ public class DigestMailComposer {
         return sb.toString();
     }
 
-    private String buildText(Project project, String recipientName, String today,
+    private String buildText(Project project, String recipientName, String businessDay,
                              List<DailySummaryTaskDto> dueToday, List<DailySummaryTaskDto> overdue) {
         StringBuilder sb = new StringBuilder();
         sb.append("Hi ").append(nullSafe(recipientName)).append("\n\n");
-        sb.append(project.getName()).append(" · 今日汇总\n").append(today).append(" · 共 ")
+        sb.append(project.getName()).append(" · 今日汇总\n").append(businessDay).append(" · 共 ")
           .append(dueToday.size() + overdue.size()).append(" 个待处理任务\n\n");
         if (!overdue.isEmpty()) {
             sb.append("已逾期 · ").append(overdue.size()).append("\n");

@@ -37,7 +37,11 @@ public class ProjectEmailPreferenceController {
     }
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<EmailSettingsResponse>>> list(@PathVariable("id") Long projectId) {
+    public ResponseEntity<ApiResponse<List<EmailSettingsResponse>>> list(
+            @PathVariable("id") Long projectId,
+            HttpServletRequest httpRequest) {
+        Long userId = (Long) httpRequest.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        projectService.requireProjectMember(projectId, userId);
         return ResponseEntity.ok(ApiResponse.success(List.of(
                 new EmailSettingsResponse(
                         ProjectEmailPreferenceService.SCENARIO_DAILY_SUMMARY,

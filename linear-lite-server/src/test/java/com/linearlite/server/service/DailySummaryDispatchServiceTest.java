@@ -77,9 +77,10 @@ class DailySummaryDispatchServiceTest {
         when(preferenceService.listEnabledProjectIds("daily_summary")).thenReturn(List.of(10L));
         when(projectMapper.selectById(10L)).thenReturn(project);
         when(queryService.findDueTasks(eq(List.of(10L)), any(), any())).thenReturn(List.of(task));
-        when(composer.compose(eq(project), eq("alice"), any())).thenReturn(
-                new DigestMailContent("主题", "<html/>", "text", 1));
         when(dispatchMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
+        when(dispatchMapper.update(any(), any())).thenReturn(1);
+        when(composer.compose(eq(project), eq("alice"), eq(date), any())).thenReturn(
+                new DigestMailContent("主题", "<html/>", "text", 1));
 
         service.dispatchForDate(date);
 
@@ -90,6 +91,44 @@ class DailySummaryDispatchServiceTest {
         ProjectEmailDispatch recorded = captor.getValue();
         assertEquals("daily_summary", recorded.getScenarioKey());
         assertEquals("sent", recorded.getStatus());
+    }
+
+    @Test
+    void skipsWhenAnotherWorkerAlreadyClaimedDispatch() {
+        LocalDate date = LocalDate.of(2026, 7, 24);
+
+        Project project = new Project();
+        project.setId(10L);
+        project.setName("Engineering");
+
+        ProjectEmailDispatch existing = new ProjectEmailDispatch();
+        existing.setId(99L);
+        existing.setProjectId(10L);
+        existing.setScenarioKey("daily_summary");
+        existing.setBusinessDate(date);
+        existing.setRecipientUserId(7L);
+        existing.setStatus("pending");
+
+        DailySummaryTaskDto task = new DailySummaryTaskDto();
+        task.setTaskId(1L);
+        task.setTaskKey("ENG-1");
+        task.setTitle("修复");
+        task.setProjectId(10L);
+        task.setAssigneeId(7L);
+        task.setAssigneeUsername("alice");
+        task.setAssigneeEmail("a@example.com");
+
+        when(preferenceService.listEnabledProjectIds("daily_summary")).thenReturn(List.of(10L));
+        when(projectMapper.selectById(10L)).thenReturn(project);
+        when(queryService.findDueTasks(eq(List.of(10L)), any(), any())).thenReturn(List.of(task));
+        when(dispatchMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
+        when(dispatchMapper.update(any(), any())).thenReturn(0);
+
+        service.dispatchForDate(date);
+
+        verify(composer, never()).compose(any(), any(), any(), any());
+        verify(sender, never()).send(anyString(), any());
+        verify(dispatchMapper, never()).updateById(any());
     }
 
     @Test

@@ -35,11 +35,14 @@ class ProjectEmailPreferenceControllerTest {
     }
 
     @Test
-    void getEmailSettingsReturnsDailySummaryFlag() {
+    void getEmailSettingsRequiresMembership() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID)).thenReturn(7L);
         when(preferenceService.isEnabled(10L, "daily_summary")).thenReturn(false);
 
-        ResponseEntity<ApiResponse<List<EmailSettingsResponse>>> response = controller.list(10L);
+        ResponseEntity<ApiResponse<List<EmailSettingsResponse>>> response = controller.list(10L, request);
 
+        verify(projectService).requireProjectMember(10L, 7L);
         assertEquals(false, response.getBody().getData().get(0).getEnabled());
         assertEquals("daily_summary", response.getBody().getData().get(0).getScenarioKey());
     }
@@ -62,6 +65,7 @@ class ProjectEmailPreferenceControllerTest {
 
         controller.update(10L, request, httpRequest);
 
+        verify(projectService).requireProjectMember(10L, 7L);
         verify(preferenceService).setEnabled(10L, "daily_summary", true);
     }
 

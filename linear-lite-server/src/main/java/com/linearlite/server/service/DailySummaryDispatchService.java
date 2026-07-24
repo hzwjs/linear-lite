@@ -1,6 +1,7 @@
 package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.linearlite.server.dto.DailySummaryTaskDto;
 import com.linearlite.server.dto.DigestMailContent;
 import com.linearlite.server.entity.Project;
@@ -9,6 +10,7 @@ import com.linearlite.server.mapper.ProjectEmailDispatchMapper;
 import com.linearlite.server.mapper.ProjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -85,35 +87,67 @@ public class DailySummaryDispatchService {
 
     private void dispatchOne(Project project, Long recipientUserId, String recipientName,
                              String recipientEmail, List<DailySummaryTaskDto> tasks, LocalDate businessDate) {
-        ProjectEmailDispatch existing = dispatchMapper.selectOne(
+        ProjectEmailDispatch record = dispatchMapper.selectOne(
                 new LambdaQueryWrapper<ProjectEmailDispatch>()
                         .eq(ProjectEmailDispatch::getProjectId, project.getId())
                         .eq(ProjectEmailDispatch::getScenarioKey,
                                 ProjectEmailPreferenceService.SCENARIO_DAILY_SUMMARY)
                         .eq(ProjectEmailDispatch::getBusinessDate, businessDate)
                         .eq(ProjectEmailDispatch::getRecipientUserId, recipientUserId));
-        if (existing != null && "sent".equals(existing.getStatus())) return;
+        if (record != null && "sent".equals(record.getStatus())) return;
 
-        DigestMailContent content = composer.compose(project, recipientName, tasks);
-
-        ProjectEmailDispatch record;
-        if (existing == null) {
+        if (record == null) {
             record = new ProjectEmailDispatch();
             record.setProjectId(project.getId());
             record.setScenarioKey(ProjectEmailPreferenceService.SCENARIO_DAILY_SUMMARY);
             record.setBusinessDate(businessDate);
             record.setRecipientUserId(recipientUserId);
             record.setStatus("pending");
-            record.setSubject(content.getSubject());
-            record.setTaskCount(content.getTaskCount());
             record.setCreatedAt(LocalDateTime.now());
             record.setUpdatedAt(LocalDateTime.now());
-            dispatchMapper.insert(record);
-        } else {
-            record = existing;
+            try {
+                dispatchMapper.insert(record);
+            } catch (DuplicateKeyException ignored) {
+                record = dispatchMapper.selectOne(
+                        new LambdaQueryWrapper<ProjectEmailDispatch>()
+                                .eq(ProjectEmailDispatch::getProjectId, project.getId())
+                                .eq(ProjectEmailDispatch::getScenarioKey,
+                                        ProjectEmailPreferenceService.SCENARIO_DAILY_SUMMARY)
+                                .eq(ProjectEmailDispatch::getBusinessDate, businessDate)
+                                .eq(ProjectEmailDispatch::getRecipientUserId, recipientUserId));
+                if (record == null || "sent".equals(record.getStatus())) {
+                    return;
+                }
+            }
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        int claimed = dispatchMapper.update(null,
+                new UpdateWrapper<ProjectEmailDispatch>()
+                        .eq("id", record.getId())
+                        .in("status", "pending", "failed")
+                        .set("status", "sending")
+                        .set("updated_at", now));
+        if (claimed != 1) {
+            return;
+        }
+
+        record.setStatus("sending");
+        record.setUpdatedAt(now);
+
+        DigestMailContent content;
+        try {
+            content = composer.compose(project, recipientName, businessDate, tasks);
             record.setSubject(content.getSubject());
             record.setTaskCount(content.getTaskCount());
-            record.setLastError(null);
+        } catch (RuntimeException e) {
+            record.setStatus("failed");
+            String msg = e.getMessage();
+            record.setLastError(msg == null ? null : msg.substring(0, Math.min(msg.length(), 1024)));
+            record.setUpdatedAt(LocalDateTime.now());
+            dispatchMapper.updateById(record);
+            log.warn("今日汇总邮件编排失败 projectId={} userId={}", project.getId(), recipientUserId, e);
+            return;
         }
 
         try {
