@@ -25,7 +25,8 @@ async function mountCombobox(options?: { labels?: { id?: number; name: string }[
     pick: vi.fn(),
     create: vi.fn(),
     remove: vi.fn(),
-    deleteDefinition: vi.fn()
+    deleteDefinition: vi.fn(),
+    openChange: vi.fn()
   }
 
   const app = createApp(TaskLabelCombobox, {
@@ -33,17 +34,18 @@ async function mountCombobox(options?: { labels?: { id?: number; name: string }[
     labels: options?.labels ?? [{ id: 1, name: '外系统审批' }],
     projectId: 10,
     disabled: false,
-    sidebarRoot: sidebar,
     taskId: 'ENG-1',
     placeholder: '添加标签',
     ariaLabel: '添加标签',
     removeLabelAriaLabel: '从任务移除',
     deleteDefinitionAriaLabel: '从项目删除',
+    noMatchesText: '没有匹配的标签',
     'onUpdate:modelValue': events.updateModelValue,
     onPick: events.pick,
     onCreate: events.create,
     onRemove: events.remove,
-    onDeleteLabelDefinition: events.deleteDefinition
+    onDeleteLabelDefinition: events.deleteDefinition,
+    onOpenChange: events.openChange
   })
   app.mount(host)
   await nextTick()
@@ -71,26 +73,17 @@ describe('TaskLabelCombobox', () => {
     ])
   })
 
-  it('opens suggestions on focus and keeps them open for combobox interaction', async () => {
+  it('opens the picker from the compact trigger', async () => {
     const view = await mountCombobox()
     try {
-      const input = view.host.querySelector('input') as HTMLInputElement
-      expect(input).toBeTruthy()
-
-      input.focus()
-      input.dispatchEvent(new FocusEvent('focus'))
+      const trigger = view.host.querySelector('.label-trigger') as HTMLButtonElement
+      expect(trigger).toBeTruthy()
+      trigger.click()
       await nextTick()
       await flushPromises()
 
       expect(view.host.querySelector('[role="listbox"]')).toBeTruthy()
-
-      const editor = view.host.querySelector('.prop-label-editor') as HTMLElement
-      expect(editor).toBeTruthy()
-      editor.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-      await nextTick()
-      await flushPromises()
-
-      expect(view.host.querySelector('[role="listbox"]')).toBeTruthy()
+      expect(view.host.querySelector('.label-search-input')).toBe(document.activeElement)
     } finally {
       view.unmount()
     }
@@ -104,9 +97,8 @@ describe('TaskLabelCombobox', () => {
     document.body.appendChild(outside)
 
     try {
-      const input = view.host.querySelector('input') as HTMLInputElement
-      input.focus()
-      input.dispatchEvent(new FocusEvent('focus'))
+      const trigger = view.host.querySelector('.label-trigger') as HTMLButtonElement
+      trigger.click()
       await nextTick()
       await flushPromises()
 
@@ -122,12 +114,11 @@ describe('TaskLabelCombobox', () => {
     }
   })
 
-  it('picks a suggestion on mousedown and closes the list', async () => {
+  it('toggles a suggestion and keeps the picker open for multi-select', async () => {
     const view = await mountCombobox()
     try {
-      const input = view.host.querySelector('input') as HTMLInputElement
-      input.focus()
-      input.dispatchEvent(new FocusEvent('focus'))
+      const trigger = view.host.querySelector('.label-trigger') as HTMLButtonElement
+      trigger.click()
       await nextTick()
       await flushPromises()
 
@@ -135,35 +126,55 @@ describe('TaskLabelCombobox', () => {
         el.textContent?.includes('运维任务')
       ) as HTMLElement | undefined
       expect(option).toBeTruthy()
-      const mainBtn = option!.querySelector('.label-pill-main') as HTMLButtonElement
+      const mainBtn = option as HTMLButtonElement
       expect(mainBtn).toBeTruthy()
 
-      mainBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      mainBtn.click()
       await nextTick()
       await flushPromises()
 
       expect(view.events.pick).toHaveBeenCalledWith({ id: 2, name: '运维任务' })
-      expect(view.host.querySelector('[role="listbox"]')).toBeNull()
+      expect(projectApi.listLabels).toHaveBeenCalledTimes(1)
+      expect(view.host.querySelector('[role="listbox"]')).toBeTruthy()
     } finally {
       view.unmount()
     }
   })
 
-  it('commits first suggestion on Enter when input is empty', async () => {
+  it('reports the interaction boundary so the editor can batch label saves', async () => {
+    const view = await mountCombobox()
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+    try {
+      const trigger = view.host.querySelector('.label-trigger') as HTMLButtonElement
+      trigger.click()
+      await nextTick()
+      outside.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      await nextTick()
+
+      expect(view.events.openChange.mock.calls.map(([open]) => open)).toEqual([true, false])
+    } finally {
+      outside.remove()
+      view.unmount()
+    }
+  })
+
+  it('supports keyboard navigation and selection', async () => {
     const view = await mountCombobox({ labels: [] })
     try {
-      const input = view.host.querySelector('input') as HTMLInputElement
-      input.focus()
-      input.dispatchEvent(new FocusEvent('focus'))
+      const trigger = view.host.querySelector('.label-trigger') as HTMLButtonElement
+      trigger.click()
       await nextTick()
       await flushPromises()
 
+      const input = view.host.querySelector('.label-search-input') as HTMLInputElement
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
       await nextTick()
       await flushPromises()
 
       expect(view.events.pick).toHaveBeenCalledWith({ id: 1, name: '外系统审批' })
-      expect(view.host.querySelector('[role="listbox"]')).toBeNull()
+      expect(view.host.querySelector('[role="listbox"]')).toBeTruthy()
     } finally {
       view.unmount()
     }
@@ -177,9 +188,8 @@ describe('TaskLabelCombobox', () => {
     view.sidebar.appendChild(siblingControl)
 
     try {
-      const input = view.host.querySelector('input') as HTMLInputElement
-      input.focus()
-      input.dispatchEvent(new FocusEvent('focus'))
+      const trigger = view.host.querySelector('.label-trigger') as HTMLButtonElement
+      trigger.click()
       await nextTick()
       await flushPromises()
 
@@ -198,15 +208,14 @@ describe('TaskLabelCombobox', () => {
   it('emits deleteLabelDefinition when suggestion row delete is clicked', async () => {
     const view = await mountCombobox({ labels: [] })
     try {
-      const input = view.host.querySelector('input') as HTMLInputElement
-      input.focus()
-      input.dispatchEvent(new FocusEvent('focus'))
+      const trigger = view.host.querySelector('.label-trigger') as HTMLButtonElement
+      trigger.click()
       await nextTick()
       await flushPromises()
 
-      const del = view.host.querySelector('.label-pill-delete') as HTMLButtonElement
+      const del = view.host.querySelector('.label-definition-delete') as HTMLButtonElement
       expect(del).toBeTruthy()
-      del.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      del.click()
       await nextTick()
       expect(view.events.deleteDefinition).toHaveBeenCalled()
     } finally {

@@ -58,14 +58,14 @@ describe('TaskRowAssigneePicker', () => {
     const users: User[] = [{ id: 999, username }]
     const view = await mountPicker(task, users)
     try {
-      const trigger = view.host.querySelector('.task-row-assignee-picker-trigger') as HTMLButtonElement
+      const trigger = view.host.querySelector('.assignee-trigger') as HTMLButtonElement
       expect(trigger).toBeTruthy()
       trigger.click()
       await nextTick()
 
-      const fallback = document.querySelector(
-        '.assignee-option-avatar.fallback'
-      ) as HTMLElement | null
+      const fallback = document.querySelectorAll<HTMLElement>(
+        '.assignee-option .assignee-avatar'
+      )[1] ?? null
       expect(fallback).toBeTruthy()
       const domSig = `${fallback!.style.background || fallback!.style.backgroundColor}|${fallback!.style.color}`
       const expectedSig = styleSignature(getAvatarColorByUsername(username))

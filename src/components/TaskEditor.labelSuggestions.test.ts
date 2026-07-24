@@ -9,6 +9,7 @@ import { userApi } from '../services/api/user'
 import { activityApi } from '../services/api/activity'
 import { attachmentsApi } from '../services/api/attachments'
 import { taskApi } from '../services/api/task'
+import { useTaskStore } from '../store/taskStore'
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({
@@ -123,6 +124,7 @@ async function mountEditor(task: Task) {
   document.body.appendChild(container)
   const pinia = createPinia()
   setActivePinia(pinia)
+  useTaskStore().tasks = [task]
   const app = createApp(TaskEditor, {
     mode: 'edit',
     task
@@ -150,46 +152,44 @@ describe('TaskEditor label suggestions', () => {
     vi.mocked(activityApi.list).mockResolvedValue([])
     vi.mocked(attachmentsApi.list).mockResolvedValue([])
     vi.mocked(taskApi.list).mockResolvedValue([])
-    vi.mocked(taskApi.update).mockImplementation(async (id, payload) => ({
-      ...createTask(),
-      id,
-      ...payload,
-      favorited: false
-    } as Task))
+    vi.mocked(taskApi.update).mockImplementation(async (id, payload) => {
+      const labels = payload.labels?.map((label) => {
+        if ('id' in label) {
+          const labelId = Number(label.id)
+          return { id: labelId, name: labelId === 1 ? '运维任务' : '运维问题' }
+        }
+        return { id: 99, name: label.name }
+      })
+      return {
+        ...createTask(),
+        id,
+        ...payload,
+        ...(labels ? { labels } : {}),
+        favorited: false
+      } as Task
+    })
     vi.mocked(projectApi.listLabels).mockResolvedValue([
       { id: 1, name: '运维任务' },
       { id: 2, name: '运维问题' }
     ])
   })
 
-  it('keeps suggestions open when input blurs after a mousedown inside the labels combobox', async () => {
+  it('opens the label picker inside the labels property row', async () => {
     const view = await mountEditor(createTask())
     try {
-      const labelInput = view.container.querySelector('.prop-label-input') as HTMLInputElement
-      expect(labelInput).toBeTruthy()
-
-      labelInput.focus()
-      labelInput.dispatchEvent(new FocusEvent('focus'))
-      await nextTick()
-      await flushPromises()
-
-      expect(document.body.textContent).toContain('运维问题')
-
-      const labelsEditor = view.container.querySelector('.prop-label-editor') as HTMLElement
-      expect(labelsEditor).toBeTruthy()
-      labelsEditor.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-      labelInput.dispatchEvent(new FocusEvent('blur', { relatedTarget: null }))
+      const trigger = view.container.querySelector('.label-trigger') as HTMLButtonElement
+      expect(trigger).toBeTruthy()
+      trigger.click()
       await nextTick()
       await flushPromises()
 
       expect(document.body.textContent).toContain('运维问题')
 
       const labelsRow = view.container.querySelector('.prop-row-labels') as HTMLElement
-      const suggestionList = labelsRow.querySelector('.prop-label-suggestions') as HTMLUListElement
+      const suggestionList = labelsRow.querySelector('.label-option-list') as HTMLUListElement
       expect(suggestionList).toBeTruthy()
       expect(labelsRow.contains(suggestionList)).toBe(true)
       expect(labelsRow.querySelector('.task-label-combobox')?.contains(suggestionList)).toBe(true)
-      expect(labelsRow.nextElementSibling?.classList.contains('prop-row--linear-action')).toBe(true)
     } finally {
       view.unmount()
     }
@@ -198,11 +198,8 @@ describe('TaskEditor label suggestions', () => {
   it('closes suggestions when focus moves to another control in the sidebar', async () => {
     const view = await mountEditor(createTask())
     try {
-      const labelInput = view.container.querySelector('.prop-label-input') as HTMLInputElement
-      expect(labelInput).toBeTruthy()
-
-      labelInput.focus()
-      labelInput.dispatchEvent(new FocusEvent('focus'))
+      const trigger = view.container.querySelector('.label-trigger') as HTMLButtonElement
+      trigger.click()
       await nextTick()
       await flushPromises()
 
@@ -215,34 +212,74 @@ describe('TaskEditor label suggestions', () => {
       await nextTick()
       await flushPromises()
 
-      expect(view.container.querySelector('.prop-label-suggestions')).toBeNull()
+      expect(view.container.querySelector('.label-popover')).toBeNull()
     } finally {
       view.unmount()
     }
   })
 
-  it('selects suggestion, writes label, and closes the list', async () => {
+  it('batches label edits while open and skips saving when selection returns to the original state', async () => {
     const view = await mountEditor(createTask())
+    const outsideButton = document.createElement('button')
+    document.body.appendChild(outsideButton)
     try {
-      const labelInput = view.container.querySelector('.prop-label-input') as HTMLInputElement
-      expect(labelInput).toBeTruthy()
-
-      labelInput.focus()
-      labelInput.dispatchEvent(new FocusEvent('focus'))
+      const trigger = view.container.querySelector('.label-trigger') as HTMLButtonElement
+      trigger.click()
       await nextTick()
       await flushPromises()
 
-      const options = view.container.querySelectorAll('[role="option"]')
-      const suggestion = options[1]?.querySelector('.label-pill-main') as HTMLButtonElement
+      const option = Array.from(view.container.querySelectorAll('[role="option"]')).find((row) =>
+        row.textContent?.includes('运维问题')
+      )
+      const suggestion = option as HTMLButtonElement
       expect(suggestion).toBeTruthy()
-      suggestion.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      suggestion.click()
       await nextTick()
       await flushPromises()
 
       expect(document.body.textContent).toContain('运维任务')
       expect(document.body.textContent).toContain('运维问题')
-      expect(view.container.querySelector('.prop-label-suggestions')).toBeNull()
+      expect(view.container.querySelector('.label-popover')).toBeTruthy()
+      expect(taskApi.update).not.toHaveBeenCalled()
+
+      suggestion.click()
+      await nextTick()
+      await flushPromises()
+      expect(taskApi.update).not.toHaveBeenCalled()
+
+      outsideButton.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      await new Promise((resolve) => setTimeout(resolve, 650))
+      expect(view.container.querySelector('.label-popover')).toBeNull()
+      expect(taskApi.update).not.toHaveBeenCalled()
     } finally {
+      outsideButton.remove()
+      view.unmount()
+    }
+  })
+
+  it('saves one committed label change without scheduling a save loop from server write-back', async () => {
+    const view = await mountEditor(createTask())
+    const outsideButton = document.createElement('button')
+    document.body.appendChild(outsideButton)
+    try {
+      const trigger = view.container.querySelector('.label-trigger') as HTMLButtonElement
+      trigger.click()
+      await nextTick()
+      await flushPromises()
+
+      const suggestion = Array.from(view.container.querySelectorAll('[role="option"]')).find((row) =>
+        row.textContent?.includes('运维问题')
+      ) as HTMLButtonElement
+      suggestion.click()
+      await nextTick()
+      outsideButton.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+
+      await new Promise((resolve) => setTimeout(resolve, 750))
+      expect(taskApi.update).toHaveBeenCalledTimes(1)
+      await new Promise((resolve) => setTimeout(resolve, 1_000))
+      expect(taskApi.update).toHaveBeenCalledTimes(1)
+    } finally {
+      outsideButton.remove()
       view.unmount()
     }
   })
@@ -255,11 +292,8 @@ describe('TaskEditor label suggestions', () => {
     document.body.appendChild(outsideButton)
 
     try {
-      const labelInput = view.container.querySelector('.prop-label-input') as HTMLInputElement
-      expect(labelInput).toBeTruthy()
-
-      labelInput.focus()
-      labelInput.dispatchEvent(new FocusEvent('focus'))
+      const trigger = view.container.querySelector('.label-trigger') as HTMLButtonElement
+      trigger.click()
       await nextTick()
       await flushPromises()
 
@@ -269,7 +303,7 @@ describe('TaskEditor label suggestions', () => {
       await nextTick()
       await flushPromises()
 
-      const suggestionList = document.body.querySelector('.prop-label-suggestions')
+      const suggestionList = document.body.querySelector('.label-popover')
       expect(suggestionList).toBeNull()
     } finally {
       outsideButton.remove()

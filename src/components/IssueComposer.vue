@@ -14,6 +14,7 @@ import { blockNoteDocHasPersistableContent, parseBlockNoteStoredBlocks } from '.
 import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
+import AssigneeSelect from './ui/AssigneeSelect.vue'
 import type { CustomSelectOption } from './ui/CustomSelect.vue'
 import {
   PriorityUrgentIcon,
@@ -29,8 +30,7 @@ import {
   Copy,
   Eye,
   Loader2,
-  Paperclip,
-  User as UserIcon
+  Paperclip
 } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -97,16 +97,6 @@ const priorityOptions = computed<CustomSelectOption[]>(() => [
   { value: 'high', label: getPriorityLabel('high'), icon: PriorityHighIcon },
   { value: 'urgent', label: getPriorityLabel('urgent'), icon: PriorityUrgentIcon }
 ])
-
-const assigneeOptions = computed<CustomSelectOption[]>(() => {
-  const list: CustomSelectOption[] = [{ value: '', label: t('common.unassigned'), icon: UserIcon }]
-  for (const user of userList.value) {
-    const id = user?.id
-    if (typeof id !== 'number' || !Number.isFinite(id)) continue
-    list.push({ value: id, label: user.username ?? '', icon: UserIcon })
-  }
-  return list
-})
 
 function descriptionForSave(desc: string | undefined): string {
   const s = (desc ?? '').trim()
@@ -395,11 +385,11 @@ async function handleCreate() {
               :aria-label="t('common.priority')"
               trigger-class="composer-trigger"
             />
-            <CustomSelect
+            <AssigneeSelect
               id="composer-assignee"
               v-model="assigneeId"
-              :options="assigneeOptions"
-              :placeholder="t('common.assignee')"
+              :users="userList"
+              :placeholder="t('common.unassigned')"
               :aria-label="t('common.assignee')"
               trigger-class="composer-trigger"
             />

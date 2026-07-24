@@ -11,7 +11,6 @@ import { useNotificationStore } from '../store/notificationStore'
 import { useTaskStore } from '../store/taskStore'
 import { useFavoriteStore } from '../store/favoriteStore'
 import { useProjectStore } from '../store/projectStore'
-import { useViewModeStore } from '../store/viewModeStore'
 import { useIssuePanelStore } from '../store/issuePanelStore'
 import { useRouter } from 'vue-router'
 import { toApiError } from '../services/api/index'
@@ -40,6 +39,7 @@ import { captureTaskLoadContext, isTaskLoadStale } from '../utils/taskLoadContex
 import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
+import AssigneeSelect from './ui/AssigneeSelect.vue'
 import TaskLabelCombobox from './TaskLabelCombobox.vue'
 import type { CustomSelectOption } from './ui/CustomSelect.vue'
 import {
@@ -56,12 +56,14 @@ import {
   CircleX,
   Copy,
   Eye,
-  User as UserIcon,
   Star,
   Maximize2,
   Minimize2,
   Paperclip,
-  Folder
+  Folder,
+  ChevronDown,
+  ChevronRight,
+  Plus
 } from 'lucide-vue-next'
 import TaskRowStatusPicker from './TaskRowStatusPicker.vue'
 
@@ -91,7 +93,6 @@ const notificationStore = useNotificationStore()
 const store = useTaskStore()
 const favoriteStore = useFavoriteStore()
 const projectStore = useProjectStore()
-const viewModeStore = useViewModeStore()
 const issuePanelStore = useIssuePanelStore()
 const router = useRouter()
 const { t } = useI18n()
@@ -124,15 +125,17 @@ const formDueDate = ref('') // YYYY-MM-DD for input[type=date]
 const formProgressPercent = ref(0)
 /** 侧栏标签编辑：有 id 为已持久化标签，无 id 为待创建 */
 const formLabels = ref<{ id?: number; name: string }[]>([])
+const labelPickerOpen = ref(false)
 const labelInput = ref('')
 const taskLabelComboboxRef = ref<{
   removeFromSuggestions: (labelId: number) => void
 } | null>(null)
-const editorPanelRef = ref<HTMLElement | null>(null)
 const descriptionSectionRef = ref<HTMLElement | null>(null)
 const isDescriptionFullscreen = ref(false)
 const userList = ref<User[]>([])
-const saveStatus = ref<'idle' | 'saving' | 'saved'>('idle')
+const saveStatus = ref<'idle' | 'saving' | 'saved' | 'failed'>('idle')
+const progressStatusHint = ref('')
+let progressStatusHintTimer: ReturnType<typeof setTimeout> | null = null
 let codexTaskRefreshTimer: ReturnType<typeof setInterval> | null = null
 const activities = ref<TaskActivity[]>([])
 const activitiesLoading = ref(false)
@@ -181,6 +184,8 @@ const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024 // 10MB
 /** 刚由本端保存的任务 id，避免 save 后 loadForm 用接口返回值覆盖编辑器内容 */
 const justSavedTaskId = ref<string | null>(null)
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+let autoSaveQueuedWhileSaving = false
+let lastAcknowledgedSave: { taskId: string; signature: string } | null = null
 
 const statusOptions = computed<CustomSelectOption[]>(() => [
   { value: 'backlog', label: getStatusLabel('backlog'), icon: CircleDashed, shortcut: '1' },
@@ -217,16 +222,6 @@ const mentionMembersForCommentEditor = computed(() =>
 const commentEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
 const inlineReplyEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
 const commentThreads = computed(() => buildCommentThreads(comments.value))
-
-const assigneeOptions = computed<CustomSelectOption[]>(() => {
-  const list: CustomSelectOption[] = [{ value: '', label: t('common.unassigned'), icon: UserIcon }]
-  for (const u of userList.value) {
-    const id = u?.id
-    if (typeof id !== 'number' || !Number.isFinite(id)) continue
-    list.push({ value: id, label: u.username ?? '', icon: UserIcon })
-  }
-  return list
-})
 
 const breadcrumbScopeName = computed(() => {
   if (props.mode !== 'edit' || !props.task?.projectId) {
@@ -331,6 +326,7 @@ const subIssueFormAssigneeId = ref<string | number>('')
 const subIssueFormPlannedStartDate = ref('')
 const subIssueFormDueDate = ref('')
 const subIssueSaving = ref(false)
+const subIssueTitleInputRef = ref<HTMLInputElement | null>(null)
 
 const subIssueCountDisplay = computed(() => {
   const rows = subIssueRows.value
@@ -338,6 +334,17 @@ const subIssueCountDisplay = computed(() => {
   const done = rows.filter((r) => r.task.status === 'done').length
   return { done, total }
 })
+
+function subIssueAssigneeLabel(task: Task): string {
+  const externalName = task.assigneeDisplayName?.trim()
+  if (externalName) return externalName
+  if (task.assigneeId == null) return ''
+  return userList.value.find((user) => user.id === task.assigneeId)?.username?.trim() ?? ''
+}
+
+function subIssueAssigneeInitial(task: Task): string {
+  return subIssueAssigneeLabel(task).slice(0, 1).toUpperCase()
+}
 
 async function loadSubIssues() {
   if (props.mode !== 'edit' || !props.task?.id || props.task.numericId == null) {
@@ -354,11 +361,6 @@ async function loadSubIssues() {
   try {
     const direct = await store.fetchSubIssues(rootNumericId)
     if (isTaskLoadStale(ctx, props.task)) return
-    const nested = viewModeStore.viewConfig.nestedSubIssues
-    if (!nested) {
-      subIssueRows.value = safeArray(direct).map((t) => ({ task: t, depth: 0 }))
-      return
-    }
     const rows: { task: Task; depth: number }[] = []
     async function appendChildren(parentNumericId: number, depth: number): Promise<boolean> {
       const children = await store.fetchSubIssues(parentNumericId)
@@ -578,18 +580,29 @@ async function deleteCommentRow(c: TaskCommentDto) {
 }
 
 function openSubIssueForm() {
+  if (showSubIssueForm.value) {
+    nextTick(() => subIssueTitleInputRef.value?.focus())
+    return
+  }
   showSubIssueForm.value = true
   subIssueFormTitle.value = ''
   subIssueFormDescription.value = ''
-  subIssueFormStatus.value = props.task?.status ?? 'backlog'
+  subIssueFormStatus.value = 'todo'
   subIssueFormPriority.value = props.task?.priority ?? 'medium'
   subIssueFormAssigneeId.value = ''
   subIssueFormPlannedStartDate.value = ''
   subIssueFormDueDate.value = ''
+  nextTick(() => subIssueTitleInputRef.value?.focus())
 }
 
 function closeSubIssueForm() {
   showSubIssueForm.value = false
+}
+
+function onSubIssueFormEscape(e: KeyboardEvent) {
+  if (e.defaultPrevented) return
+  e.preventDefault()
+  closeSubIssueForm()
 }
 
 async function submitSubIssue() {
@@ -762,11 +775,6 @@ watch(
   { immediate: true }
 )
 watch(
-  () => viewModeStore.viewConfig.nestedSubIssues,
-  () => loadSubIssues()
-)
-
-watch(
   [comments, commentsLoading, expandedReplyRootIds],
   () => {
     if (commentsLoading.value) return
@@ -888,6 +896,19 @@ function removeFormLabel(idx: number) {
   formLabels.value = formLabels.value.filter((_, i) => i !== idx)
 }
 
+function onLabelPickerOpenChange(isOpen: boolean) {
+  labelPickerOpen.value = isOpen
+  if (
+    !isOpen &&
+    props.mode === 'edit' &&
+    props.task &&
+    formLabelStableKey(formLabels.value) !== taskLabelsStableKey(props.task.labels)
+  ) {
+    persistFormDraftIfNeeded()
+    scheduleAutoSave()
+  }
+}
+
 async function onDeleteLabelDefinition(labelId: number) {
   const pid = effectiveProjectId.value
   if (pid == null) return
@@ -916,11 +937,22 @@ function syncFormStatusFromProgress() {
   const st = formStatus.value
   if (st === 'done' && p < 100) {
     formStatus.value = 'in_progress'
+    showProgressStatusHint(t('taskEditor.progressReopensTask'))
     return
   }
   if (p === 100 && OPEN_STATUSES_FOR_PROGRESS.includes(st)) {
     formStatus.value = 'done'
+    showProgressStatusHint(t('taskEditor.progressCompletesTask'))
   }
+}
+
+function showProgressStatusHint(message: string) {
+  progressStatusHint.value = message
+  if (progressStatusHintTimer) clearTimeout(progressStatusHintTimer)
+  progressStatusHintTimer = setTimeout(() => {
+    progressStatusHint.value = ''
+    progressStatusHintTimer = null
+  }, SAVED_INDICATOR_MS)
 }
 
 function descriptionForSave(desc: string | undefined): string {
@@ -1069,10 +1101,30 @@ function isPayloadEqual(
   )
 }
 
-async function performAutoSave() {
-  if (props.mode !== 'edit' || !props.task) return
+function formSaveSignature(): string {
   const payload = getPayload()
-  if (!payload.title) return
+  return JSON.stringify([
+    payload.title,
+    payload.description ?? '',
+    payload.status,
+    payload.priority,
+    payload.assigneeId,
+    dueDateKey(payload.plannedStartDate),
+    dueDateKey(payload.dueDate),
+    payload.progressPercent,
+    formLabelStableKey(formLabels.value)
+  ])
+}
+
+function isFormDirty(): boolean {
+  if (props.mode !== 'edit' || !props.task) return false
+  if (
+    lastAcknowledgedSave?.taskId === props.task.id &&
+    lastAcknowledgedSave.signature === formSaveSignature()
+  ) {
+    return false
+  }
+  const payload = getPayload()
   const current = {
     title: props.task.title,
     description: props.task.description,
@@ -1083,12 +1135,17 @@ async function performAutoSave() {
     dueDate: props.task.dueDate ?? null,
     progressPercent: props.task.progressPercent ?? 0
   }
-  if (
-    isPayloadEqual(payload, current) &&
-    formLabelStableKey(formLabels.value) === taskLabelsStableKey(props.task.labels)
-  ) {
-    return
-  }
+  return (
+    !isPayloadEqual(payload, current) ||
+    formLabelStableKey(formLabels.value) !== taskLabelsStableKey(props.task.labels)
+  )
+}
+
+async function performAutoSave() {
+  if (props.mode !== 'edit' || !props.task) return
+  const payload = getPayload()
+  if (!payload.title) return
+  if (!isFormDirty()) return
   if (descriptionUploadState.value.hasPending || descriptionUploadState.value.hasFailed) return
 
   const clearPlannedStart =
@@ -1123,6 +1180,7 @@ async function performAutoSave() {
     formStatus.value = merged.status
     formProgressPercent.value = clampTaskProgress(merged.progressPercent ?? 0)
     formLabels.value = safeArray(merged.labels).map((l) => ({ id: l.id, name: l.name }))
+    lastAcknowledgedSave = { taskId: props.task.id, signature: formSaveSignature() }
     clearTaskEditDraft(props.task.id)
     await loadActivities({ silent: true })
     saveStatus.value = 'saved'
@@ -1131,13 +1189,21 @@ async function performAutoSave() {
     }, SAVED_INDICATOR_MS)
   } catch (error) {
     console.error('Auto-save failed:', error)
-    saveStatus.value = 'idle'
+    saveStatus.value = 'failed'
   } finally {
     // 乐观更新（同步）与 API 返回（异步）分两次触发 props.task watcher；
     // 等微任务队列清空后再解锁，确保两次触发都被 justSavedTaskId 屏蔽。
     await nextTick()
     justSavedTaskId.value = null
+    const shouldRecheck = autoSaveQueuedWhileSaving
+    autoSaveQueuedWhileSaving = false
+    if (shouldRecheck && !labelPickerOpen.value && isFormDirty()) scheduleAutoSave()
   }
+}
+
+function retryAutoSave() {
+  if (saveStatus.value === 'saving') return
+  void performAutoSave()
 }
 
 function persistFormDraftIfNeeded() {
@@ -1198,6 +1264,7 @@ function notifySaveState(message: string) {
 }
 
 onBeforeUnmount(() => {
+  if (progressStatusHintTimer) clearTimeout(progressStatusHintTimer)
   document.removeEventListener('fullscreenchange', syncDescriptionFullscreenState)
   if (props.mode !== 'edit' || !props.task) return
   void flushEditorDraft().catch((e) => {
@@ -1248,26 +1315,17 @@ watch(
   ],
   () => {
     if (props.mode !== 'edit' || !props.task) return
-    const payload = getPayload()
-    const current = {
-      title: props.task.title,
-      description: props.task.description,
-      status: props.task.status,
-      priority: props.task.priority,
-      assigneeId: props.task.assigneeId ?? null,
-      plannedStartDate: props.task.plannedStartDate ?? null,
-      dueDate: props.task.dueDate ?? null,
-      progressPercent: props.task.progressPercent ?? 0
-    }
-    if (
-      isPayloadEqual(payload, current) &&
-      formLabelStableKey(formLabels.value) === taskLabelsStableKey(props.task.labels)
-    ) {
+    if (!isFormDirty()) {
       clearTaskEditDraft(props.task.id)
       return
     }
 
     persistFormDraftIfNeeded()
+    if (labelPickerOpen.value) return
+    if (saveStatus.value === 'saving' || justSavedTaskId.value === props.task.id) {
+      autoSaveQueuedWhileSaving = true
+      return
+    }
     scheduleAutoSave()
   },
   { deep: true }
@@ -1320,7 +1378,6 @@ async function toggleDescriptionFullscreen() {
 
 <template>
   <aside
-    ref="editorPanelRef"
     class="editor-panel"
     :class="{
       'editor-panel--inline': props.variant === 'inline',
@@ -1359,8 +1416,20 @@ async function toggleDescriptionFullscreen() {
         </button>
       </div>
       <div class="editor-header-actions">
-        <span v-if="saveStatus === 'saved'" class="save-indicator save-indicator--saved">{{ t('taskEditor.saved') }}</span>
-        <span v-else-if="saveStatus === 'saving'" class="save-indicator save-indicator--saving">{{ t('taskEditor.saving') }}</span>
+        <div class="save-indicator-slot" role="status" aria-live="polite">
+          <span v-if="saveStatus === 'saved'" class="save-indicator save-indicator--saved">
+            {{ t('taskEditor.saved') }}
+          </span>
+          <span v-else-if="saveStatus === 'saving'" class="save-indicator save-indicator--saving">
+            {{ t('taskEditor.saving') }}
+          </span>
+          <span v-else-if="saveStatus === 'failed'" class="save-indicator save-indicator--failed">
+            {{ t('taskEditor.saveFailed') }}
+            <button type="button" class="save-indicator-retry" @click="retryAutoSave">
+              {{ t('taskEditor.retrySave') }}
+            </button>
+          </span>
+        </div>
         <div v-if="workspaceSourceLabel" class="issue-source">{{ workspaceSourceLabel }}</div>
         <div v-if="position && total" class="issue-position">{{ position }} / {{ total }}</div>
         <button
@@ -1434,19 +1503,6 @@ async function toggleDescriptionFullscreen() {
           style="display: none"
           @change="onAttachmentInputChange"
         />
-        <div class="content-actions">
-          <button
-            type="button"
-            class="content-action-btn"
-            :aria-label="attachmentUploadInProgress ? t('taskEditor.attachmentsUploading') : t('common.attach')"
-            :disabled="mode !== 'edit' || !task || attachmentUploadInProgress"
-            @click="openAttachmentInput"
-          >
-            <Loader2 v-if="attachmentUploadInProgress" class="icon-14 linear-attachment-upload-spin" />
-            <Paperclip v-else class="icon-14" />
-          </button>
-        </div>
-
         <section v-if="mode === 'edit' && task" class="content-section subdued linear-section">
           <div class="linear-section-head-wrap">
             <button
@@ -1464,6 +1520,16 @@ async function toggleDescriptionFullscreen() {
               <span class="linear-section-title">{{ t('taskEditor.attachments') }}</span>
               <span class="linear-section-count">{{ attachmentsCountDisplay }}</span>
             </div>
+            <button
+              type="button"
+              class="content-action-btn linear-section-action"
+              :aria-label="attachmentUploadInProgress ? t('taskEditor.attachmentsUploading') : t('common.attach')"
+              :disabled="attachmentUploadInProgress"
+              @click="openAttachmentInput"
+            >
+              <Loader2 v-if="attachmentUploadInProgress" class="icon-14 linear-attachment-upload-spin" />
+              <Paperclip v-else class="icon-14" />
+            </button>
           </div>
           <div v-if="showAttachmentBody" v-show="!attachmentsCollapsed" class="linear-section-body">
             <p v-if="attachmentsLoading" class="linear-placeholder">{{ t('common.loading') }}</p>
@@ -1514,35 +1580,40 @@ async function toggleDescriptionFullscreen() {
         </section>
 
         <section v-if="mode === 'edit' && task" class="content-section subdued linear-section">
-          <div class="linear-section-head-wrap">
+          <div class="sub-issue-toolbar">
             <button
               type="button"
               class="linear-section-head"
               :aria-expanded="!subIssuesCollapsed"
+              :aria-label="subIssuesCollapsed ? t('taskEditor.expandSubIssues') : t('taskEditor.collapseSubIssues')"
               @click="subIssuesCollapsed = !subIssuesCollapsed"
             >
-              <span class="linear-section-chevron">{{ subIssuesCollapsed ? '▸' : '▾' }}</span>
+              <ChevronRight v-if="subIssuesCollapsed" class="icon-14 linear-section-chevron" aria-hidden="true" />
+              <ChevronDown v-else class="icon-14 linear-section-chevron" aria-hidden="true" />
               <span class="linear-section-title">{{ t('taskEditor.subIssues') }}</span>
               <span class="linear-section-count">{{ subIssueCountDisplay.done }}/{{ subIssueCountDisplay.total }}</span>
             </button>
-            <label v-if="!subIssuesCollapsed" class="linear-section-display-opt">
-              <input
-                type="checkbox"
-                :checked="viewModeStore.viewConfig.nestedSubIssues"
-                @change="viewModeStore.setNestedSubIssues(!viewModeStore.viewConfig.nestedSubIssues)"
-              />
-              <span>{{ t('taskEditor.nestedSubIssues') }}</span>
-            </label>
+            <div v-if="!subIssuesCollapsed" class="sub-issue-toolbar-actions">
+              <button
+                type="button"
+                class="sub-issue-icon-action"
+                :aria-label="t('taskEditor.createNewSubIssue')"
+                :title="t('taskEditor.createNewSubIssue')"
+                @click="openSubIssueForm"
+              >
+                <Plus class="icon-14" aria-hidden="true" />
+              </button>
+            </div>
           </div>
-          <div v-show="!subIssuesCollapsed" class="linear-section-body">
+          <div v-show="!subIssuesCollapsed" class="linear-section-body sub-issue-body">
             <p v-if="subIssuesLoading" class="linear-placeholder">{{ t('common.loading') }}</p>
             <template v-else>
-              <ul v-if="subIssueRows.length" class="linear-sub-list">
+              <ul v-if="subIssueRows.length" class="linear-sub-list sub-issue-list">
                 <li
                   v-for="row in subIssueRows"
                   :key="row.task.id"
                   class="linear-sub-item linear-sub-row"
-                  :style="{ paddingLeft: row.depth > 0 ? `${row.depth * 16}px` : undefined }"
+                  :style="{ paddingLeft: row.depth > 0 ? `${row.depth * 20}px` : undefined }"
                 >
                   <TaskRowStatusPicker
                     :task-id="row.task.id"
@@ -1554,74 +1625,98 @@ async function toggleDescriptionFullscreen() {
                     class="linear-sub-link"
                     @click="navigateTo(row.task.id)"
                   >
-                    <span>{{ row.task.title }}</span>
-                    <span v-if="(row.task.subIssueCount ?? 0) > 0" class="linear-sub-xy">{{ row.task.completedSubIssueCount ?? 0 }}/{{ row.task.subIssueCount }}</span>
+                    <span class="sub-issue-title">{{ row.task.title }}</span>
+                    <span v-if="(row.task.subIssueCount ?? 0) > 0" class="linear-sub-xy">
+                      {{ row.task.completedSubIssueCount ?? 0 }}/{{ row.task.subIssueCount }}
+                    </span>
+                    <span
+                      v-if="subIssueAssigneeInitial(row.task)"
+                      class="sub-issue-assignee"
+                      :title="subIssueAssigneeLabel(row.task)"
+                    >
+                      {{ subIssueAssigneeInitial(row.task) }}
+                    </span>
                   </button>
                 </li>
               </ul>
-              <p v-else class="linear-placeholder">{{ t('taskEditor.noSubIssues') }}</p>
-              <button
-                v-if="!showSubIssueForm"
-                type="button"
-                class="linear-create-btn"
-                @click="openSubIssueForm"
+              <div
+                v-if="showSubIssueForm"
+                class="linear-inline-form"
+                @keydown.esc="onSubIssueFormEscape"
               >
-                <span class="linear-create-btn-icon">+</span>
-                {{ t('taskEditor.createNewSubIssue') }}
-              </button>
-              <div v-else class="linear-inline-form">
-                <input
-                  v-model="subIssueFormTitle"
-                  type="text"
-                  class="linear-inline-title"
-                  :placeholder="t('taskEditor.issueTitlePlaceholder')"
-                  @keydown.enter.exact.prevent="submitSubIssue"
-                />
-                <div class="linear-inline-props">
+                <div class="linear-inline-heading">
                   <CustomSelect
+                    class="linear-inline-status-select"
                     v-model="subIssueFormStatus"
                     :options="statusOptions"
                     :search-placeholder="t('boardView.filterByStatus')"
                     search-shortcut-badge="S"
                     :aria-label="t('common.status')"
-                    trigger-class="linear-inline-trigger"
+                    trigger-class="linear-inline-status-trigger"
                   />
-                  <CustomSelect
-                    v-model="subIssueFormPriority"
-                    :options="priorityOptions"
-                    :aria-label="t('common.priority')"
-                    trigger-class="linear-inline-trigger"
-                  />
-                  <CustomSelect
-                    v-model="subIssueFormAssigneeId"
-                    :options="assigneeOptions"
-                    :placeholder="t('common.assignee')"
-                    :aria-label="t('common.assignee')"
-                    trigger-class="linear-inline-trigger"
-                  />
-                  <CustomDatePicker
-                    v-model="subIssueFormPlannedStartDate"
-                    :placeholder="t('common.plannedStartDate')"
-                    :aria-label="t('common.plannedStartDate')"
-                    trigger-class="linear-inline-trigger"
-                  />
-                  <CustomDatePicker
-                    v-model="subIssueFormDueDate"
-                    :placeholder="t('common.dueDate')"
-                    :aria-label="t('common.dueDate')"
-                    trigger-class="linear-inline-trigger"
+                  <input
+                    ref="subIssueTitleInputRef"
+                    v-model="subIssueFormTitle"
+                    type="text"
+                    class="linear-inline-title"
+                    :placeholder="t('taskEditor.issueTitlePlaceholder')"
+                    @keydown.enter.exact.prevent="submitSubIssue"
                   />
                 </div>
-                <div class="linear-inline-actions">
-                  <button type="button" class="linear-inline-discard" @click="closeSubIssueForm">{{ t('taskEditor.discard') }}</button>
-                  <button
-                    type="button"
-                    class="linear-inline-create"
-                    :disabled="!subIssueFormTitle.trim() || subIssueSaving"
-                    @click="submitSubIssue"
-                  >
-                    {{ subIssueSaving ? t('taskEditor.creatingSubIssue') : t('taskEditor.createSubIssue') }}
-                  </button>
+                <textarea
+                  v-model="subIssueFormDescription"
+                  class="linear-inline-description"
+                  rows="2"
+                  :placeholder="t('taskEditor.subIssueDescriptionPlaceholder')"
+                />
+                <div class="linear-inline-footer">
+                  <div class="linear-inline-props">
+                    <span class="linear-inline-project" :title="taskProjectName ?? t('taskEditor.noProject')">
+                      <Folder class="icon-14" aria-hidden="true" />
+                      <span>{{ taskProjectName ?? t('taskEditor.noProject') }}</span>
+                    </span>
+                    <CustomSelect
+                      v-model="subIssueFormPriority"
+                      :options="priorityOptions"
+                      :aria-label="t('common.priority')"
+                      trigger-class="linear-inline-trigger"
+                    />
+                    <AssigneeSelect
+                      v-model="subIssueFormAssigneeId"
+                      :users="userList"
+                      :placeholder="t('common.unassigned')"
+                      :aria-label="t('common.assignee')"
+                      trigger-class="linear-inline-trigger"
+                      variant="compact"
+                    />
+                    <CustomDatePicker
+                      class="linear-inline-date-select"
+                      v-model="subIssueFormPlannedStartDate"
+                      :placeholder="t('common.plannedStartDate')"
+                      :aria-label="t('common.plannedStartDate')"
+                      trigger-class="linear-inline-trigger linear-inline-date-trigger"
+                    />
+                    <CustomDatePicker
+                      class="linear-inline-date-select"
+                      v-model="subIssueFormDueDate"
+                      :placeholder="t('common.dueDate')"
+                      :aria-label="t('common.dueDate')"
+                      trigger-class="linear-inline-trigger linear-inline-date-trigger"
+                    />
+                  </div>
+                  <div class="linear-inline-actions">
+                    <button type="button" class="linear-inline-discard" @click="closeSubIssueForm">
+                      {{ t('taskEditor.discard') }}
+                    </button>
+                    <button
+                      type="button"
+                      class="linear-inline-create"
+                      :disabled="!subIssueFormTitle.trim() || subIssueSaving"
+                      @click="submitSubIssue"
+                    >
+                      {{ subIssueSaving ? t('taskEditor.creatingSubIssue') : t('taskEditor.createSubIssue') }}
+                    </button>
+                  </div>
                 </div>
               </div>
             </template>
@@ -1816,10 +1911,9 @@ async function toggleDescriptionFullscreen() {
 
       <div class="editor-props">
         <div class="props-card">
-          <section class="prop-group">
-            <h3 class="prop-group-title">{{ t('taskEditor.execution') }}</h3>
-            <div class="prop-row">
-              <span class="prop-label">{{ t('common.status') }}</span>
+          <section class="prop-group prop-group--properties">
+            <h3 class="prop-group-title">{{ t('taskEditor.properties') }}</h3>
+            <div class="prop-row prop-row--inline">
               <CustomSelect
                 id="task-status"
                 v-model="formStatus"
@@ -1830,8 +1924,7 @@ async function toggleDescriptionFullscreen() {
                 trigger-class="prop-trigger prop-trigger--linear"
               />
             </div>
-            <div class="prop-row">
-              <span class="prop-label">{{ t('taskEditor.setPriority') }}</span>
+            <div class="prop-row prop-row--inline">
               <CustomSelect
                 id="task-priority"
                 v-model="formPriority"
@@ -1840,15 +1933,15 @@ async function toggleDescriptionFullscreen() {
                 trigger-class="prop-trigger prop-trigger--linear"
               />
             </div>
-            <div class="prop-row">
-              <span class="prop-label">{{ t('common.assignee') }}</span>
+            <div class="prop-row prop-row--inline">
               <div class="prop-assignee-stack">
-                <CustomSelect
+                <AssigneeSelect
                   id="task-assignee"
                   v-model="formAssigneeId"
-                  :options="assigneeOptions"
-                  :placeholder="t('common.assignee')"
+                  :users="userList"
+                  :placeholder="t('common.unassigned')"
                   :aria-label="t('common.assignee')"
+                  :external-label="importedAssigneeOnlyLabel"
                   trigger-class="prop-trigger prop-trigger--linear"
                 />
                 <p v-if="importedAssigneeOnlyLabel" class="external-assignee-hint">
@@ -1860,8 +1953,8 @@ async function toggleDescriptionFullscreen() {
 
           <section class="prop-group">
             <h3 class="prop-group-title">{{ t('taskEditor.time') }}</h3>
-            <div class="prop-row">
-              <span class="prop-label">{{ t('common.plannedStartDate') }}</span>
+            <div class="prop-row prop-row--date">
+              <span class="prop-row-name">{{ t('common.plannedStartDate') }}</span>
               <CustomDatePicker
                 id="task-planned-start"
                 v-model="formPlannedStartDate"
@@ -1870,8 +1963,8 @@ async function toggleDescriptionFullscreen() {
                 trigger-class="prop-trigger prop-trigger--linear"
               />
             </div>
-            <div class="prop-row prop-row--with-helper">
-              <span class="prop-label">{{ t('common.dueDate') }}</span>
+            <div class="prop-row prop-row--date prop-row--with-helper">
+              <span class="prop-row-name">{{ t('common.dueDate') }}</span>
               <div class="prop-row-stack">
                 <CustomDatePicker
                   id="task-due"
@@ -1883,8 +1976,8 @@ async function toggleDescriptionFullscreen() {
                 <p v-if="taskDueStateText" class="prop-row-help">{{ taskDueStateText }}</p>
               </div>
             </div>
-            <div v-if="mode === 'edit'" class="prop-row">
-              <span class="prop-label">{{ t('taskEditor.progress') }}</span>
+            <div v-if="mode === 'edit'" class="prop-row prop-row--progress">
+              <span class="prop-row-name">{{ t('taskEditor.progress') }}</span>
               <div class="prop-progress-control">
                 <input
                   id="task-progress"
@@ -1899,39 +1992,45 @@ async function toggleDescriptionFullscreen() {
                 <span class="prop-progress-value">{{ clampTaskProgress(formProgressPercent) }}%</span>
               </div>
             </div>
+            <p v-if="progressStatusHint" class="prop-row-help prop-row-help--progress" role="status">
+              {{ progressStatusHint }}
+            </p>
           </section>
 
           <section class="prop-group">
-            <h3 class="prop-group-title">{{ t('taskEditor.archive') }}</h3>
+            <h3 class="prop-group-title">{{ t('common.labels') }}</h3>
             <div v-if="showPropRowLabels" class="prop-row prop-row-labels">
-              <span class="prop-label">{{ t('common.labels') }}</span>
               <TaskLabelCombobox
                 ref="taskLabelComboboxRef"
                 v-model="labelInput"
                 :labels="formLabels"
                 :project-id="effectiveProjectId"
                 :disabled="mode !== 'edit' || !task"
-                :sidebar-root="editorPanelRef"
                 :task-id="task?.id ?? null"
                 :placeholder="t('taskEditor.addLabel')"
                 :ariaLabel="t('taskEditor.addLabel')"
                 :remove-label-aria-label="t('taskEditor.removeLabel')"
                 :delete-definition-aria-label="t('taskEditor.deleteProjectLabelDefinition')"
+                :no-matches-text="t('boardView.noLabelsMatch')"
                 @pick="pickSuggestion"
                 @create="commitLabelInput"
                 @remove="removeFormLabel"
+                @open-change="onLabelPickerOpenChange"
                 @delete-label-definition="onDeleteLabelDefinition"
               />
             </div>
-            <div class="prop-row prop-row--linear-action">
-              <span class="prop-label">{{ t('common.project') }}</span>
-              <button type="button" class="prop-action-trigger" :aria-label="t('taskEditor.addToProject')">
-                <Folder class="icon-14" />
-                <span>{{ taskProjectName ?? t('taskEditor.addToProject') }}</span>
-              </button>
+          </section>
+
+          <section class="prop-group">
+            <h3 class="prop-group-title">{{ t('common.project') }}</h3>
+            <div class="prop-row prop-row--static">
+              <div class="prop-static-value" :aria-label="t('common.project')">
+                <Folder class="icon-14" aria-hidden="true" />
+                <span>{{ taskProjectName ?? t('taskEditor.noProject') }}</span>
+              </div>
             </div>
-            <div v-if="mode === 'edit' && task?.completedAt" class="prop-row read-only">
-              <span class="prop-label">{{ t('taskEditor.completedAt') }}</span>
+            <div v-if="mode === 'edit' && task?.completedAt" class="prop-row prop-row--date prop-row--readonly">
+              <span class="prop-row-name">{{ t('taskEditor.completedAt') }}</span>
               <span class="read-only-value">{{ new Date(task.completedAt).toLocaleString() }}</span>
             </div>
           </section>
@@ -2054,14 +2153,40 @@ async function toggleDescriptionFullscreen() {
   align-items: center;
   gap: 8px;
 }
+.save-indicator-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 96px;
+  min-height: 24px;
+  flex: 0 0 96px;
+}
 .save-indicator {
   font-size: var(--font-size-xs);
+  white-space: nowrap;
 }
 .save-indicator--saved {
   color: var(--color-text-muted);
 }
 .save-indicator--saving {
   color: var(--color-text-secondary);
+}
+.save-indicator--failed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-danger);
+}
+.save-indicator-retry {
+  min-height: 24px;
+  padding: 0;
+  border: none;
+  border-bottom: 1px solid currentColor;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
 .issue-id {
   font-size: var(--font-size-xs);
@@ -2125,7 +2250,7 @@ async function toggleDescriptionFullscreen() {
   display: flex;
   gap: 0;
   min-height: 0;
-  background: var(--color-bg-subtle);
+  background: var(--color-bg-base);
 }
 .editor-content {
   flex: 1;
@@ -2199,9 +2324,9 @@ async function toggleDescriptionFullscreen() {
   justify-content: flex-end;
 }
 .description-section__surface {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-muted);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
   /*
    * 侧栏 Portal 宽约 42–46px（两枚 22px + Menu 外包层）。左内边距须包住侧栏；
    * 配合 .blocknote-editor-wrap 负边距左移整块编辑区，收紧「边框—侧栏」空白。
@@ -2213,12 +2338,11 @@ async function toggleDescriptionFullscreen() {
     box-shadow var(--transition-fast);
 }
 .description-section__surface:hover {
-  border-color: var(--color-border-strong);
-  background: color-mix(in srgb, var(--color-bg-muted) 88%, var(--color-bg-hover) 12%);
+  background: color-mix(in srgb, var(--color-bg-subtle) 48%, transparent);
 }
 .description-section__surface:focus-within {
-  border-color: var(--color-accent-muted-border);
-  box-shadow: 0 0 0 1px var(--color-accent-muted);
+  border-color: var(--color-border-subtle);
+  box-shadow: none;
   background: var(--color-bg-base);
 }
 .description-section__surface :deep(.blocknote-editor-wrap) {
@@ -2264,13 +2388,6 @@ async function toggleDescriptionFullscreen() {
 .editor-panel--create .content-section.description-section {
   margin-top: 8px;
 }
-.content-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: -4px;
-  flex-shrink: 0;
-}
 .content-action-btn {
   display: flex;
   align-items: center;
@@ -2288,9 +2405,12 @@ async function toggleDescriptionFullscreen() {
   background: var(--color-bg-hover);
 }
 .linear-section {
-  padding-top: 12px;
-  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 18px;
+  border-top: none;
   flex-shrink: 0;
+}
+.linear-section + .linear-section {
+  margin-top: 4px;
 }
 .linear-section-head-wrap {
   display: flex;
@@ -2299,6 +2419,52 @@ async function toggleDescriptionFullscreen() {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 8px;
+}
+.sub-issue-toolbar {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.sub-issue-toolbar .linear-section-head {
+  min-width: 0;
+}
+.sub-issue-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.sub-issue-icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  list-style: none;
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+}
+.sub-issue-icon-action:hover,
+.sub-issue-icon-action:focus-visible {
+  border-color: var(--color-border);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.sub-issue-icon-action:focus-visible {
+  outline: 2px solid var(--color-accent-muted-border);
+  outline-offset: 1px;
+}
+.linear-section-action {
+  margin-left: auto;
+  padding: 4px;
 }
 .linear-section-head {
   display: flex;
@@ -2339,6 +2505,9 @@ async function toggleDescriptionFullscreen() {
 .linear-section-body {
   padding-left: 0;
 }
+.sub-issue-body {
+  min-width: 0;
+}
 .linear-placeholder {
   margin: 0;
   font-size: var(--font-size-caption);
@@ -2356,6 +2525,48 @@ async function toggleDescriptionFullscreen() {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.sub-issue-list {
+  margin-bottom: 0;
+}
+.sub-issue-list .linear-sub-row {
+  min-height: 36px;
+  margin: 0;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+.sub-issue-list .linear-sub-row:hover {
+  background: var(--color-bg-hover);
+}
+.sub-issue-list .linear-sub-link {
+  min-height: 30px;
+  padding: 3px 2px;
+  color: var(--color-text-secondary);
+}
+.sub-issue-list .linear-sub-link:hover {
+  color: var(--color-text-primary);
+}
+.sub-issue-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sub-issue-assignee {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  margin-left: auto;
+  border-radius: var(--radius-full);
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
 }
 .linear-sub-link {
   display: inline-flex;
@@ -2461,19 +2672,19 @@ async function toggleDescriptionFullscreen() {
   gap: 6px;
   width: 100%;
   margin-top: 8px;
-  padding: 8px 10px;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-base);
+  padding: 7px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
   font-size: var(--font-size-caption);
   color: var(--color-text-secondary);
   cursor: pointer;
   transition: border-color var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
 }
 .linear-create-btn:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  background: var(--color-bg-hover, rgba(99, 102, 241, 0.06));
+  border-color: transparent;
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
 }
 .linear-create-btn-icon {
   font-size: 1.1em;
@@ -2481,66 +2692,169 @@ async function toggleDescriptionFullscreen() {
   line-height: 1;
 }
 .linear-inline-form {
-  margin-top: 8px;
-  padding: 10px 0;
-  border-top: 1px solid var(--color-border-subtle);
+  margin: 8px 0 4px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-base);
+  box-shadow: var(--shadow-subtle);
+}
+.linear-inline-heading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .linear-inline-title {
-  width: 100%;
-  padding: 6px 8px;
-  margin-bottom: 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-caption);
-  background: var(--color-bg-base);
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-medium);
 }
 .linear-inline-title:focus {
   outline: none;
-  border-color: var(--color-accent);
+}
+.linear-inline-title::placeholder,
+.linear-inline-description::placeholder {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-normal);
+}
+.linear-inline-description {
+  display: block;
+  width: 100%;
+  min-height: 42px;
+  max-height: 128px;
+  padding: 4px 8px 8px 36px;
+  border: none;
+  outline: none;
+  resize: vertical;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--font-size-caption);
+  line-height: 1.45;
+}
+.linear-inline-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border-subtle);
 }
 .linear-inline-props {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 4px;
+  min-width: 0;
+}
+.linear-inline-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 160px;
+  min-height: 28px;
+  padding: 2px 8px;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-full);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+.linear-inline-project span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .linear-inline-actions {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
 }
 .linear-inline-discard {
-  padding: 4px 10px;
-  border: none;
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   background: transparent;
   font-size: var(--font-size-caption);
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
   cursor: pointer;
 }
-.linear-inline-discard:hover {
-  color: var(--color-text-secondary);
+.linear-inline-discard:hover,
+.linear-inline-discard:focus-visible {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 .linear-inline-create {
-  padding: 4px 12px;
-  border: none;
+  min-height: 28px;
+  padding: 3px 12px;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  color: #fff;
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-medium);
   cursor: pointer;
 }
+.linear-inline-create:hover:not(:disabled),
+.linear-inline-create:focus-visible:not(:disabled) {
+  background: var(--color-bg-hover);
+}
 .linear-inline-create:disabled {
-  opacity: 0.6;
+  border-color: var(--color-border-subtle);
+  background: var(--color-bg-muted);
+  color: var(--color-text-muted);
   cursor: not-allowed;
 }
-.editor-props :deep(.linear-inline-trigger) {
+.linear-inline-form :deep(.linear-inline-trigger) {
   min-height: 28px;
-  padding: 2px 8px;
+  min-width: 0;
+  padding: 2px 7px;
+  gap: 5px;
+  border-color: var(--color-border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-base);
   font-size: var(--font-size-xs);
 }
-/* 子任务表单内 Due date 未选时与 Status/Priority/Assignee 文字颜色一致 */
-.linear-inline-form :deep(.trigger-label.placeholder) {
-  color: var(--color-text-primary);
+.linear-inline-status-select :deep(.linear-inline-status-trigger) {
+  width: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+  border-color: transparent;
+  border-radius: var(--radius-full);
+  background: transparent;
+}
+.linear-inline-status-select :deep(.linear-inline-status-trigger:hover) {
+  background: var(--color-bg-hover);
+}
+.linear-inline-status-select :deep(.linear-inline-status-trigger .trigger-label),
+.linear-inline-status-select :deep(.linear-inline-status-trigger .trigger-chevron) {
+  display: none;
+}
+.linear-inline-status-select :deep(.custom-select-list) {
+  min-width: 220px;
+}
+.linear-inline-date-select :deep(.linear-inline-date-trigger) {
+  min-width: 104px;
+  max-width: 154px;
+}
+@media (max-width: 760px) {
+  .linear-inline-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .linear-inline-actions {
+    align-self: flex-end;
+  }
 }
 .activity-list-wrap {
   max-height: 220px;
@@ -2758,10 +3072,10 @@ async function toggleDescriptionFullscreen() {
 .comment-compose {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  padding: 10px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-base);
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 .comment-compose-input {
   min-width: 0;
@@ -2857,8 +3171,8 @@ async function toggleDescriptionFullscreen() {
   color: var(--color-text-muted);
 }
 .subdued {
-  padding-top: 12px;
-  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 18px;
+  border-top: none;
 }
 .title-input {
   width: 100%;
@@ -2875,11 +3189,12 @@ async function toggleDescriptionFullscreen() {
   color: var(--color-text-muted);
 }
 .editor-props {
-  min-width: 260px;
-  width: 260px;
+  box-sizing: border-box;
+  min-width: 400px;
+  width: clamp(400px, 30vw, 500px);
   flex-shrink: 0;
-  border-left: 1px solid var(--color-border-subtle);
-  padding: 12px 12px 14px;
+  border-left: none;
+  padding: 76px 28px 28px;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -2888,7 +3203,9 @@ async function toggleDescriptionFullscreen() {
 .props-card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 28px;
+  width: 100%;
+  max-width: 360px;
   padding: 0;
   border: none;
   border-radius: 0;
@@ -2897,37 +3214,36 @@ async function toggleDescriptionFullscreen() {
 .prop-group {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-.prop-group:last-child {
-  padding-bottom: 0;
-  border-bottom: none;
+  gap: 5px;
 }
 .prop-group-title {
-  margin: 0;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-.props-title {
-  font-size: var(--font-size-xs);
+  margin: 0 0 8px;
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-medium);
-  letter-spacing: 0.02em;
-  text-transform: none;
-  color: var(--color-text-muted);
-  margin-bottom: 2px;
+  letter-spacing: 0;
+  color: var(--color-text-secondary);
 }
 .prop-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+}
+.prop-row--inline {
+  min-height: 32px;
+}
+.prop-row--date,
+.prop-row--progress,
+.prop-row--readonly {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  align-items: center;
+  min-height: 32px;
+}
+.prop-row--date {
+  gap: 8px;
 }
 .prop-row--with-helper {
-  gap: 6px;
+  align-items: flex-start;
 }
 .prop-assignee-stack {
   display: flex;
@@ -2940,12 +3256,17 @@ async function toggleDescriptionFullscreen() {
   flex-direction: column;
   gap: 6px;
   width: 100%;
+  min-width: 0;
 }
 .prop-row-help {
-  margin: 0;
+  margin: 2px 0 0 6px;
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   line-height: 1.35;
+}
+.prop-row-help--progress {
+  margin: -2px 0 0 0;
+  color: var(--color-text-secondary);
 }
 .external-assignee-hint {
   margin: 0;
@@ -2953,54 +3274,73 @@ async function toggleDescriptionFullscreen() {
   color: var(--color-text-muted);
   line-height: 1.35;
 }
-.prop-label {
-  font-size: var(--font-size-xs);
+.prop-row-name {
+  flex: 0 0 auto;
+  min-width: 0;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
-  font-weight: var(--font-weight-normal);
 }
-.prop-row--linear-action .prop-label {
-  margin-bottom: 2px;
-}
-.prop-row-labels .prop-label {
-  margin-bottom: 2px;
-}
-.prop-action-trigger {
+.prop-static-value {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: var(--control-padding-y) var(--control-padding-x);
+  min-height: 34px;
+  padding: 5px 8px;
   border: none;
   border-radius: var(--radius-sm);
-  background: var(--color-bg-muted);
+  background: transparent;
   color: var(--color-text-secondary);
   font-size: var(--font-size-caption);
   text-align: left;
-  cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-.prop-action-trigger:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
 }
 .editor-props :deep(.prop-trigger),
 .editor-props :deep(.prop-trigger--linear) {
-  background: var(--color-bg-muted);
-  border: 1px solid var(--color-border-subtle);
-  color: var(--color-text-primary);
-  padding: var(--control-padding-y) var(--control-padding-x);
-  min-height: var(--input-min-height);
+  width: auto;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  color: var(--color-text-secondary);
   border-radius: var(--radius-sm);
   text-align: left;
   font-size: var(--font-size-caption);
   cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
-.editor-props :deep(.prop-trigger:hover) {
+.editor-props :deep(.custom-select) {
+  width: 100%;
+}
+.editor-props :deep(.custom-select .prop-trigger) {
+  width: 100%;
+}
+.editor-props :deep(.assignee-select),
+.editor-props :deep(.assignee-select .prop-trigger) {
+  width: 100%;
+}
+.editor-props :deep(.custom-date-picker) {
+  width: 100%;
+  min-width: 0;
+}
+.editor-props :deep(.custom-date-picker .prop-trigger) {
+  width: 100%;
+  min-width: 0;
+}
+.editor-props :deep(.prop-trigger:hover),
+.editor-props :deep(.prop-trigger:focus-visible) {
   background: var(--color-bg-hover);
   border-color: var(--color-border);
+  color: var(--color-text-primary);
 }
-.read-only .read-only-value {
+.editor-props :deep(.prop-trigger .trigger-chevron) {
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+.editor-props :deep(.prop-trigger:hover .trigger-chevron),
+.editor-props :deep(.prop-trigger:focus-visible .trigger-chevron) {
+  opacity: 1;
+}
+.prop-row--readonly .read-only-value {
+  margin-left: auto;
   font-size: var(--font-size-caption);
   color: var(--color-text-secondary);
 }
@@ -3009,10 +3349,17 @@ async function toggleDescriptionFullscreen() {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: var(--control-padding-y) var(--control-padding-x);
-  border: 1px solid var(--color-border-subtle);
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  background: var(--color-bg-muted);
+  background: transparent;
+}
+.prop-progress-control:hover,
+.prop-progress-control:focus-within {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border);
 }
 .prop-progress-range {
   flex: 1;
@@ -3022,7 +3369,7 @@ async function toggleDescriptionFullscreen() {
 .prop-progress-value {
   font-size: var(--font-size-caption);
   color: var(--color-text-secondary);
-  min-width: 2.75rem;
+  min-width: 34px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -3039,9 +3386,25 @@ async function toggleDescriptionFullscreen() {
   }
 
   .editor-props {
+    min-width: 0;
     width: auto;
     border-left: none;
     border-top: 1px solid var(--color-border-subtle);
+    padding: 20px;
+  }
+
+  .props-card {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: none;
+    gap: 24px 32px;
+  }
+}
+
+@media (max-width: 680px) {
+  .props-card {
+    display: flex;
+    gap: 24px;
   }
 }
 </style>

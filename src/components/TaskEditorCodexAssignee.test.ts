@@ -7,8 +7,8 @@ describe('TaskEditor Codex assignee interaction', () => {
     expect(taskEditorSource).not.toContain('codex-run-panel')
     expect(taskEditorSource).not.toContain('dispatchToCodex')
     expect(taskEditorSource).not.toContain('codexApi')
-    expect(taskEditorSource).toContain('for (const u of userList.value)')
-    expect(taskEditorSource).toContain("label: u.username ?? ''")
+    expect(taskEditorSource).toContain("import AssigneeSelect from './ui/AssigneeSelect.vue'")
+    expect(taskEditorSource).toContain(':users="userList"')
   })
 
   it('silently refreshes an active Codex task so completed progress reaches the open editor', () => {

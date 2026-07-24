@@ -43,17 +43,11 @@ import { labelListDotColor, sortedTaskLabelsForList } from '../utils/taskLabelLi
 import { filterVisibleTaskRows, type TaskGroup, type TaskRow } from '../utils/taskView'
 import type { VisibleProperty } from '../utils/viewPreference'
 import { getSubtaskProgressDisplay } from '../utils/subtaskProgress'
-import { getInitials, getAvatarColorByUsername } from '../utils/avatar'
-import {
-  assigneeDisplayLabel,
-  resolveAssigneeUser,
-  taskHasAssignableDisplay
-} from '../utils/taskAssigneeDisplay'
+import { assigneeDisplayLabel } from '../utils/taskAssigneeDisplay'
 import TaskRowStatusPicker from './TaskRowStatusPicker.vue'
 import TaskRowAssigneePicker from './TaskRowAssigneePicker.vue'
 import TaskRowInlineDateCell from './TaskRowInlineDateCell.vue'
 import TaskRowProgressCell from './TaskRowProgressCell.vue'
-import UnassignedAvatarIcon from './icons/UnassignedAvatarIcon.vue'
 
 const props = defineProps<{
   groups: TaskGroup[]
@@ -497,25 +491,6 @@ function assigneeName(task: Task): string {
   return assigneeDisplayLabel(task, props.users, t('common.unassigned'))
 }
 
-function assigneeAvatar(task: Task): string | null {
-  const u = resolveAssigneeUser(task, props.users)
-  return u?.avatar_url ?? null
-}
-
-function hasAssignee(task: Task): boolean {
-  return taskHasAssignableDisplay(task, props.users)
-}
-
-function assigneeInitial(task: Task): string {
-  return getInitials(assigneeName(task))
-}
-
-function assigneeFallbackStyle(task: Task): { background: string; color: string } | undefined {
-  const u = resolveAssigneeUser(task, props.users)
-  if (u == null) return undefined
-  return getAvatarColorByUsername(u.username)
-}
-
 function updatedText(task: Task): string {
   return new Date(task.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
@@ -953,20 +928,7 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
                       :users="users"
                       :tooltip="assigneeName(row.task)"
                       @pick="(uid, o) => onAssigneePicked(row.task, uid, o)"
-                    >
-                      <img
-                        v-if="assigneeAvatar(row.task)"
-                        :src="assigneeAvatar(row.task)!"
-                        :alt="assigneeName(row.task)"
-                        class="avatar-18"
-                      />
-                      <span
-                        v-else-if="hasAssignee(row.task)"
-                        class="avatar-18 fallback"
-                        :style="assigneeFallbackStyle(row.task)"
-                      >{{ assigneeInitial(row.task) }}</span>
-                      <UnassignedAvatarIcon v-else class="task-assignee-icon" />
-                    </TaskRowAssigneePicker>
+                    />
                   </span>
                 </span>
               </template>
@@ -1069,6 +1031,7 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
 
 /* 分组：轻底 + 稍重边框 + 字重，让标题更易辨认 */
 .group {
+  margin: 0 12px;
   background: transparent;
   border-bottom: 1px solid var(--list-row-border);
 }
@@ -1082,7 +1045,7 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 8px 12px 4px;
+  margin: 8px 0 4px;
   padding: 0 10px;
   min-height: 38px;
   background: linear-gradient(90deg, var(--color-bg-muted), var(--color-bg-subtle));

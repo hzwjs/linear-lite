@@ -185,7 +185,7 @@ describe('TaskEditor due state', () => {
     vi.useRealTimers()
   })
 
-  it('groups sidebar properties into execution, time, and archive blocks', async () => {
+  it('groups sidebar properties into properties, time, labels, and project blocks', async () => {
     const view = await mountEditor(
       createTask({
         dueDate: localDate(2026, 4, 12).getTime(),
@@ -198,7 +198,8 @@ describe('TaskEditor due state', () => {
       const groupTitles = [...view.container.querySelectorAll('.prop-group-title')].map(
         (node) => node.textContent?.trim()
       )
-      expect(groupTitles).toEqual(['执行', '时间', '归档'])
+      expect(groupTitles).toEqual(['属性', '时间', '标签', '项目'])
+      expect(view.container.querySelector('.prop-action-trigger')).toBeNull()
       expect(view.container.querySelector('.issue-source')?.textContent).toContain('全部任务')
     } finally {
       view.unmount()

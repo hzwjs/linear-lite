@@ -1147,6 +1147,8 @@ function onClickOutsideDisplay(event: MouseEvent) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: 5px 8px;
   min-height: 30px;
   border-radius: 6px;

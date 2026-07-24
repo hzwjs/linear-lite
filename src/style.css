@@ -22,12 +22,21 @@
   --color-accent-hover: #334155;
   --color-accent-muted: rgba(71, 85, 105, 0.08);
   --color-accent-muted-border: rgba(71, 85, 105, 0.18);
+  --color-text-on-accent: #ffffff;
 
   /* 状态色 */
   --color-status-done: #475569;
   --color-status-in-progress: #c9a227;
   --color-status-warning: #c94a4a;
   --color-danger: var(--color-status-warning);
+
+  /* 标签色板：只用于标签语义点，避免把强调色扩散到普通控件 */
+  --label-color-red: #dc5a5f;
+  --label-color-violet: #9b72cf;
+  --label-color-blue: #5b8def;
+  --label-color-cyan: #42a5b3;
+  --label-color-green: #55a86f;
+  --label-color-amber: #c99236;
 
   /* 兼容旧变量名，供现有组件过渡 */
   --color-bg-main: var(--color-bg-base);
