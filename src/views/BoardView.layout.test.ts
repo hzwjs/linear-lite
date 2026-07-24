@@ -25,4 +25,10 @@ describe('BoardView toolbar layout', () => {
     expect(boardViewSource).not.toContain('class="btn-import"')
     expect(boardViewSource).not.toContain('openImportModal')
   })
+
+  it('reserves space for the active filter badge instead of letting it overflow into view tabs', () => {
+    expect(boardViewSource).toMatch(
+      /\.toolbar-options \.command-btn-filter\.has-active-filters\s*\{[\s\S]*?width:\s*auto;[\s\S]*?padding-inline:\s*8px;/
+    )
+  })
 })

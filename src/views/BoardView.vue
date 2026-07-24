@@ -1440,6 +1440,12 @@ function onClickOutsideDisplay(event: MouseEvent) {
     justify-content: center;
     padding-inline: 0;
   }
+  .toolbar-options .command-btn-filter.has-active-filters {
+    width: auto;
+    min-width: 30px;
+    justify-content: flex-start;
+    padding-inline: 8px;
+  }
   .toolbar-options .command-label {
     position: absolute;
     width: 1px;
