@@ -32,7 +32,7 @@ class DailySummaryQueryServiceTest {
     }
 
     @Test
-    void findDueTasksClassifiesTodayAndOverdue() {
+    void findDueTasksPreservesProgressPercentAndClassifiesTodayAndOverdue() {
         LocalDateTime startOfToday = LocalDate.of(2026, 7, 24).atStartOfDay();
         LocalDateTime endOfToday = LocalDate.of(2026, 7, 25).atStartOfDay();
 
@@ -44,6 +44,7 @@ class DailySummaryQueryServiceTest {
         today.setAssigneeId(7L);
         today.setAssigneeEmail("a@example.com");
         today.setDueDate(LocalDateTime.of(2026, 7, 24, 18, 0));
+        today.setProgressPercent(65);
 
         DailySummaryTaskDto overdue = new DailySummaryTaskDto();
         overdue.setTaskId(2L);
@@ -53,6 +54,7 @@ class DailySummaryQueryServiceTest {
         overdue.setAssigneeId(7L);
         overdue.setAssigneeEmail("a@example.com");
         overdue.setDueDate(LocalDateTime.of(2026, 7, 20, 12, 0));
+        overdue.setProgressPercent(null);
 
         when(taskMapper.selectDueForDigest(anyList(), any(LocalDateTime.class)))
                 .thenReturn(List.of(today, overdue));
@@ -60,6 +62,8 @@ class DailySummaryQueryServiceTest {
         List<DailySummaryTaskDto> result = service.findDueTasks(List.of(10L), startOfToday, endOfToday);
 
         assertEquals(2, result.size());
+        assertEquals(65, result.stream().filter(t -> t.getTaskId().equals(1L)).findFirst().orElseThrow().getProgressPercent());
+        assertEquals(null, result.stream().filter(t -> t.getTaskId().equals(2L)).findFirst().orElseThrow().getProgressPercent());
         assertTrue(result.stream().anyMatch(t -> t.getTaskId().equals(1L) && !t.getOverdue()));
         assertTrue(result.stream().anyMatch(t -> t.getTaskId().equals(2L) && t.getOverdue()));
     }

@@ -118,6 +118,7 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.assignee_id AS assigneeId,
               u.username AS assigneeUsername,
               u.email AS assigneeEmail,
+              t.progress_percent AS progressPercent,
               t.due_date AS dueDate
             FROM tasks t
             JOIN users u ON u.id = t.assignee_id
