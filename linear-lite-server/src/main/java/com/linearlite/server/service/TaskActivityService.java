@@ -41,6 +41,7 @@ public class TaskActivityService {
         activity.setTaskId(taskId);
         activity.setUserId(userId);
         activity.setActionType(actionType);
+        activity.setCreatedAt(LocalDateTime.now());
         taskActivityMapper.insert(activity);
     }
 
@@ -87,6 +88,7 @@ public class TaskActivityService {
         activity.setFieldName(fieldName);
         activity.setOldValue(compactOld);
         activity.setNewValue(compactNew);
+        activity.setCreatedAt(LocalDateTime.now());
         taskActivityMapper.insert(activity);
     }
 

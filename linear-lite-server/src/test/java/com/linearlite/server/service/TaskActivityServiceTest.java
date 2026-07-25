@@ -19,6 +19,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
@@ -52,6 +53,9 @@ class TaskActivityServiceTest {
         assertEquals("status", captor.getValue().getFieldName());
         assertEquals("todo", captor.getValue().getOldValue());
         assertEquals("done", captor.getValue().getNewValue());
+        // 不能依赖数据库 CURRENT_TIMESTAMP：本地数据库可能使用 UTC，接口的 LocalDateTime
+        // 序列化后会被浏览器按本地时区解释，导致活动显示为 8 小时前。
+        assertNotNull(captor.getValue().getCreatedAt());
     }
 
     @Test
