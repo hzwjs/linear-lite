@@ -143,6 +143,7 @@ describe('SidebarNavigation', () => {
 
     ;(host.querySelector('[data-testid="sidebar-favorites-toggle"]') as HTMLButtonElement).click()
     ;(host.querySelector('[data-testid="sidebar-favorite-ENG-1"]') as HTMLButtonElement).click()
+    await new Promise((resolve) => setTimeout(resolve, 40))
     ;(host.querySelector('[data-testid="sidebar-analytics"]') as HTMLButtonElement).click()
     ;(host.querySelector('[data-testid="sidebar-projects-toggle"]') as HTMLButtonElement).click()
     ;(host.querySelector('[data-testid="sidebar-create-project"]') as HTMLButtonElement).click()

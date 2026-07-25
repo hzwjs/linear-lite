@@ -54,6 +54,7 @@ const props = defineProps<{
   users?: User[]
   visibleProperties?: VisibleProperty[]
   selectedTaskId?: string | null
+  openingTaskId?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -779,7 +780,12 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
             v-for="row in visibleGroupRows(group)"
             :key="row.task.id"
             class="task-row"
-            :class="{ overdue: isOverdue(row.task), selected: props.selectedTaskId === row.task.id }"
+            :class="{
+              overdue: isOverdue(row.task),
+              selected: props.selectedTaskId === row.task.id,
+              'task-row--opening': props.openingTaskId === row.task.id
+            }"
+            :aria-busy="props.openingTaskId === row.task.id"
             :style="{ paddingLeft: row.depth > 0 ? `calc(var(--task-row-pad-left) + ${row.depth * 20}px)` : undefined }"
             tabindex="0"
             @mouseenter="setHoveredId(row.task.id)"
@@ -839,6 +845,7 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
             <div class="task-row-content">
               <span class="task-row-title-cluster">
                 <span class="task-row-title">{{ rowTitle(row) }}</span>
+                <Loader2 v-if="props.openingTaskId === row.task.id" class="task-row-opening-spinner" :size="14" aria-label="正在打开任务" />
                 <button
                   type="button"
                   class="task-row-copy-title"
@@ -1219,6 +1226,21 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
 }
 .task-row.selected:hover {
   background: var(--color-bg-hover);
+}
+.task-row--opening {
+  background: var(--color-bg-hover);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+.task-row-opening-spinner {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  animation: task-row-opening-spin 700ms linear infinite;
+}
+@keyframes task-row-opening-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-row-opening-spinner { animation: none; }
 }
 .task-row:focus-visible {
   box-shadow: inset 2px 0 0 var(--color-accent);

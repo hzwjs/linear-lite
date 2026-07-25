@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch, onMounted, onUnmounted, ref } from 'vue'
+import { computed, watch, onMounted, onUnmounted, ref, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from './store/authStore'
 import { useProjectStore } from './store/projectStore'
@@ -20,6 +20,7 @@ import { useLocaleStore } from './store/localeStore'
 import { useNotificationStore } from './store/notificationStore'
 import { useIssuePanelStore } from './store/issuePanelStore'
 import { buildTaskRoute, getRouteTaskId } from './utils/taskRoute'
+import { preloadTaskDetail } from './utils/taskDetailPreload'
 import {
   Plus,
   LayoutGrid,
@@ -231,11 +232,21 @@ async function reorderProjects(projectIds: number[]) {
 }
 
 async function openFavoriteTask(taskId: string, projectId?: number) {
-  if (projectId != null && projectStore.activeProjectId !== projectId) {
-    projectStore.setActiveProject(projectId)
-    await taskStore.fetchTasks()
+  const targetProjectId = projectId ?? projectStore.activeProjectId
+  const task = taskStore.tasks.find((item) => item.id === taskId)
+    ?? await taskStore.fetchTaskByKey(taskId)
+  try {
+    await preloadTaskDetail(task, (parentNumericId) => taskStore.fetchSubIssues(parentNumericId, targetProjectId))
+  } catch (error) {
+    console.error(`Failed to preload favorite task detail ${taskId}:`, error)
   }
-  router.push(buildTaskRoute(taskId, projectId ?? projectStore.activeProjectId))
+  taskStore.currentTaskId = taskId
+  await router.push(buildTaskRoute(taskId, targetProjectId))
+  // Switch the project only after the detail surface has replaced the large task list.
+  await nextTick()
+  if (targetProjectId != null && projectStore.activeProjectId !== targetProjectId) {
+    projectStore.setActiveProject(targetProjectId)
+  }
 }
 
 const showEmptyProjects = computed(

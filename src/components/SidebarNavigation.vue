@@ -55,6 +55,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const userMenuOpen = ref(false)
 const userMenuRef = ref<HTMLElement | null>(null)
+const openingFavoriteId = ref<string | null>(null)
 
 const hasFavorites = computed(() => props.favorites.length > 0)
 const draggedProjectId = ref<number | null>(null)
@@ -70,6 +71,35 @@ const statusIcons: Record<Task['status'], typeof Circle> = {
   canceled: CircleX,
   duplicate: Copy
 }
+
+function markFavoriteOpening(task: Task) {
+  if (openingFavoriteId.value != null || props.routeTaskId === task.id) return
+  openingFavoriteId.value = task.id
+}
+
+function openFavoriteTask(task: Task) {
+  if (props.routeTaskId === task.id) {
+    emit('open-favorite-task', task.id, task.projectId)
+    return
+  }
+  if (openingFavoriteId.value != null && openingFavoriteId.value !== task.id) return
+  markFavoriteOpening(task)
+  // The first frame paints the local acknowledgement. Parent navigation starts
+  // on the following frame so its project/list updates cannot swallow that paint.
+  const dispatch = () => emit('open-favorite-task', task.id, task.projectId)
+  if (typeof requestAnimationFrame !== 'function') {
+    queueMicrotask(dispatch)
+    return
+  }
+  requestAnimationFrame(() => requestAnimationFrame(dispatch))
+}
+
+watch(
+  () => props.routeTaskId,
+  (taskId) => {
+    if (taskId === openingFavoriteId.value) openingFavoriteId.value = null
+  }
+)
 
 function toggleUserMenu() {
   userMenuOpen.value = !userMenuOpen.value
@@ -263,12 +293,24 @@ onUnmounted(() => {
             :key="task.id"
             type="button"
             class="sidebar-nav__item"
-            :class="{ 'sidebar-nav__item--active': routeTaskId === task.id }"
+            :class="{
+              'sidebar-nav__item--active': routeTaskId === task.id,
+              'sidebar-nav__item--opening': openingFavoriteId === task.id
+            }"
+            :aria-busy="openingFavoriteId === task.id"
             data-item-kind="favorite"
             :data-testid="`sidebar-favorite-${task.id}`"
-            @click="emit('open-favorite-task', task.id, task.projectId)"
+            @pointerdown="markFavoriteOpening(task)"
+            @click="openFavoriteTask(task)"
           >
+            <Loader2
+              v-if="openingFavoriteId === task.id"
+              class="sidebar-nav__icon sidebar-nav__item-icon sidebar-nav__opening-spinner"
+              :size="16"
+              aria-label="正在打开任务"
+            />
             <component
+              v-else
               :is="statusIcons[task.status]"
               class="sidebar-nav__icon sidebar-nav__item-icon sidebar-nav__item-icon--favorite"
               :class="`sidebar-nav__item-icon--status-${task.status}`"
@@ -598,7 +640,7 @@ onUnmounted(() => {
   gap: 8px;
   border-radius: 8px;
   color: var(--sidebar-subtle-text);
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast), transform 120ms var(--sidebar-ease-out);
 }
 
 .sidebar-nav__menu-item:hover {
@@ -692,6 +734,13 @@ onUnmounted(() => {
   color: var(--sidebar-text);
   background: var(--sidebar-item-active-bg);
   font-weight: 500;
+}
+.sidebar-nav__item--opening {
+  background: var(--sidebar-item-hover-strong);
+}
+.sidebar-nav__item[data-item-kind="favorite"]:active {
+  background: var(--sidebar-item-hover-strong);
+  transform: scale(0.985);
 }
 
 .sidebar-nav__item--project {
@@ -804,6 +853,15 @@ onUnmounted(() => {
   width: 15px;
   height: 15px;
   stroke-width: 2;
+}
+.sidebar-nav__opening-spinner {
+  animation: sidebar-nav-opening-spin 700ms linear infinite;
+}
+@keyframes sidebar-nav-opening-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-nav__opening-spinner { animation: none; }
 }
 
 .sidebar-nav__item-icon--status-backlog,

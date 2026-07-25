@@ -435,9 +435,9 @@ export const useTaskStore = defineStore('taskStore', () => {
   }
 
   /** 拉取指定父任务的子任务（parentId 为父任务数据库 id） */
-  async function fetchSubIssues(parentNumericId: number): Promise<Task[]> {
+  async function fetchSubIssues(parentNumericId: number, projectIdOverride?: number | null): Promise<Task[]> {
     const projectStore = useProjectStore()
-    const projectId = projectStore.activeProjectId
+    const projectId = projectIdOverride ?? projectStore.activeProjectId
     if (projectId == null) return []
     const list = await taskApi.list(projectId, { parentId: parentNumericId })
     return list

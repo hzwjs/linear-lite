@@ -41,6 +41,7 @@ import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import { buildTaskGroups, filterVisibleTaskRows, getAdjacentTaskIds } from '../utils/taskView'
 import { buildTaskRoute, getRouteTaskId } from '../utils/taskRoute'
 import { tryRecoverDynamicImport } from '../utils/dynamicImportRecovery'
+import { preloadTaskDetail } from '../utils/taskDetailPreload'
 
 function resilientAsyncComponent<T extends Component>(loader: () => Promise<T>) {
   return defineAsyncComponent({
@@ -72,6 +73,7 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const listSubtaskExpanded = ref<Record<string, boolean>>({})
+const openingTaskId = ref<string | null>(null)
 const taskEditorRef = ref<
   ComponentPublicInstance & { flushPendingSave?: () => Promise<void> }
  | null
@@ -155,9 +157,22 @@ function findWorkspaceSourceLabel(taskId: string) {
   return resolveWorkspaceSourceLabel(taskId, localizedTaskGroups.value)
 }
 
-function openEditEditor(task: { id: string }, sourceLabel?: string | null) {
-  issuePanelStore.openWorkspace(task.id, sourceLabel ?? findWorkspaceSourceLabel(task.id))
-  router.push(buildTaskRoute(task.id, projectStore.activeProjectId))
+async function openEditEditor(task: { id: string }, sourceLabel?: string | null) {
+  if (openingTaskId.value != null) return
+  openingTaskId.value = task.id
+  issuePanelStore.setSelectedTask(task.id)
+  issuePanelStore.workspaceSourceLabel = sourceLabel ?? findWorkspaceSourceLabel(task.id)
+  try {
+    const detailTask = store.tasks.find((candidate) => candidate.id === task.id)
+      ?? await store.fetchTaskByKey(task.id)
+    await preloadTaskDetail(detailTask, store.fetchSubIssues)
+  } catch (error) {
+    console.error(`Failed to preload task detail ${task.id}:`, error)
+  } finally {
+    store.currentTaskId = task.id
+    router.push(buildTaskRoute(task.id, projectStore.activeProjectId))
+    openingTaskId.value = null
+  }
 }
 
 async function closeEditor() {
@@ -322,6 +337,7 @@ onUnmounted(() => {
                 :users="users"
                 :visible-properties="viewModeStore.visibleProperties"
                 :selected="issuePanelStore.selectedTaskId === task.id"
+                :opening="openingTaskId === task.id"
                 @click="openEditEditor"
                 @transition="(id, status) => store.transitionTask(id, status)"
               />
@@ -335,6 +351,7 @@ onUnmounted(() => {
             :users="users"
             :visible-properties="viewModeStore.visibleProperties"
             :selected-task-id="issuePanelStore.selectedTaskId"
+            :opening-task-id="openingTaskId"
             @row-click="openEditEditor"
             @create-in-status="openCreateEditor"
             @add-sub-issue="(task) => openCreateEditor(undefined, task.numericId)"

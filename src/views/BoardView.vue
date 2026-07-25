@@ -10,7 +10,7 @@ import AddIssueFilterMenu from '../components/issue-filters/AddIssueFilterMenu.v
 import CustomSelect from '../components/ui/CustomSelect.vue'
 import type { CustomSelectOption } from '../components/ui/CustomSelect.vue'
 import { projectApi } from '../services/api/project'
-import type { User } from '../types/domain'
+import type { Task, User } from '../types/domain'
 import {
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
@@ -32,6 +32,7 @@ import {
 } from '../utils/projectBoardPreferences'
 import { buildTaskRoute, getRouteProjectId, getRouteTaskId } from '../utils/taskRoute'
 import { tryRecoverDynamicImport } from '../utils/dynamicImportRecovery'
+import { preloadTaskDetail, readTaskDetailSnapshot } from '../utils/taskDetailPreload'
 
 const BoardViewContent = defineAsyncComponent({
   loader: () => import('./BoardViewContent.vue'),
@@ -289,7 +290,7 @@ const visiblePropertyOptions = computed<Array<{ value: VisibleProperty; label: s
   { value: 'updatedAt', label: t('common.updated') }
 ])
 
-async function ensureTaskProjectResolved(taskId: string, projectIdHint: number | null) {
+async function ensureTaskProjectResolved(taskId: string, projectIdHint: number | null): Promise<Task | null> {
   const seq = ++deepLinkResolveSeq.value
   try {
     if (projectIdHint != null && projectStore.activeProjectId !== projectIdHint) {
@@ -298,10 +299,10 @@ async function ensureTaskProjectResolved(taskId: string, projectIdHint: number |
     }
 
     const task = await store.fetchTaskByKey(taskId)
-    if (deepLinkResolveSeq.value !== seq || routeTaskId.value !== taskId) return
+    if (deepLinkResolveSeq.value !== seq || routeTaskId.value !== taskId) return null
     if (task.projectId == null) {
       console.error(`Task ${taskId} has no projectId`)
-      return
+      return null
     }
     if (projectStore.activeProjectId !== task.projectId) {
       projectStore.setActiveProject(task.projectId)
@@ -312,8 +313,10 @@ async function ensureTaskProjectResolved(taskId: string, projectIdHint: number |
     if (route.path !== canonicalPath) {
       await router.replace(canonicalPath)
     }
+    return task
   } catch (e) {
     console.error(`Failed to resolve deep-link task ${taskId}:`, e)
+    return null
   }
 }
 
@@ -322,9 +325,21 @@ watch(
   () => [routeTaskId.value, routeProjectId.value] as const,
   async ([taskId, projectId]) => {
     if (taskId) {
+      if (store.currentTask?.id === taskId && readTaskDetailSnapshot(taskId)) {
+        store.currentTaskId = taskId
+        issuePanelStore.openWorkspace(taskId)
+        return
+      }
+      const task = await ensureTaskProjectResolved(taskId, projectId)
+      if (task == null || routeTaskId.value !== taskId) return
+      try {
+        await preloadTaskDetail(task, store.fetchSubIssues)
+      } catch (e) {
+        console.error(`Failed to preload task detail ${taskId}:`, e)
+      }
+      if (routeTaskId.value !== taskId) return
       store.currentTaskId = taskId
       issuePanelStore.openWorkspace(taskId)
-      await ensureTaskProjectResolved(taskId, projectId)
     } else {
       deepLinkResolveSeq.value += 1
       store.currentTaskId = null

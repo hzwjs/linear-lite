@@ -31,7 +31,7 @@ export const useIssuePanelStore = defineStore('issuePanelStore', () => {
   function openWorkspace(taskId: string, sourceLabel?: string | null) {
     let nextSourceLabel: string | null
     if (sourceLabel === undefined) {
-      nextSourceLabel = workspaceTaskId.value === taskId ? workspaceSourceLabel.value : null
+      nextSourceLabel = selectedTaskId.value === taskId ? workspaceSourceLabel.value : null
     } else if (sourceLabel === null) {
       nextSourceLabel = null
     } else {

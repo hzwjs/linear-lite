@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Calendar, CalendarClock } from 'lucide-vue-next'
+import { Calendar, CalendarClock, Loader2 } from 'lucide-vue-next'
 import type { Task, Status } from '../types/domain'
 import type { User } from '../types/domain'
 import type { VisibleProperty } from '../utils/viewPreference'
@@ -12,6 +12,7 @@ const props = defineProps<{
   users?: User[]
   visibleProperties?: VisibleProperty[]
   selected?: boolean
+  opening?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -85,9 +86,10 @@ const handleTransition = (e: Event) => {
 </script>
 
 <template>
-  <div class="task-card" :class="{ selected }" @click="emit('click', task)">
+  <div class="task-card" :class="{ selected, 'task-card--opening': opening }" :aria-busy="opening" @click="emit('click', task)">
     <div class="card-header">
       <span v-if="show('id')" class="taskId">{{ task.id }}</span>
+      <Loader2 v-if="opening" class="task-opening-spinner" :size="14" aria-label="正在打开任务" />
       <span v-if="show('priority')" class="priority" :class="task.priority">{{ priorityLabel }}</span>
     </div>
     <div class="card-title">{{ task.title }}</div>
@@ -167,6 +169,21 @@ const handleTransition = (e: Event) => {
 .task-card.selected {
   background: var(--color-accent-muted);
   border-color: var(--color-accent-muted-border);
+}
+.task-card--opening {
+  background: var(--color-bg-hover);
+  border-color: var(--color-accent-muted-border);
+}
+.task-opening-spinner {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  animation: task-opening-spin 700ms linear infinite;
+}
+@keyframes task-opening-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-opening-spinner { animation: none; }
 }
 
 .card-header {

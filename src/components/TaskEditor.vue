@@ -44,6 +44,7 @@ import { blockNoteDocHasPersistableContent, parseBlockNoteStoredBlocks } from '.
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import { getTaskDueState } from '../utils/taskDueState'
 import { captureTaskLoadContext, isTaskLoadStale } from '../utils/taskLoadContext'
+import { readTaskDetailSnapshot } from '../utils/taskDetailPreload'
 import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
@@ -401,7 +402,7 @@ function subIssueAssigneeInitial(task: Task): string {
   return subIssueAssigneeLabel(task).slice(0, 1).toUpperCase()
 }
 
-async function loadSubIssues() {
+async function loadSubIssues(options?: { preferSnapshot?: boolean }) {
   if (props.mode !== 'edit' || !props.task?.id || props.task.numericId == null) {
     subIssueRows.value = []
     return
@@ -412,6 +413,12 @@ async function loadSubIssues() {
     return
   }
   const rootNumericId = props.task.numericId
+  const snapshot = options?.preferSnapshot ? readTaskDetailSnapshot(ctx.taskId) : undefined
+  if (snapshot) {
+    subIssueRows.value = snapshot.subIssueRows
+    subIssuesLoading.value = false
+    return
+  }
   subIssuesLoading.value = true
   try {
     const direct = await store.fetchSubIssues(rootNumericId)
@@ -445,7 +452,7 @@ async function loadSubIssues() {
   }
 }
 
-async function loadActivities(options?: { silent?: boolean }) {
+async function loadActivities(options?: { silent?: boolean; preferSnapshot?: boolean }) {
   if (props.mode !== 'edit' || !props.task?.id) {
     activities.value = []
     return
@@ -453,6 +460,12 @@ async function loadActivities(options?: { silent?: boolean }) {
   const ctx = captureTaskLoadContext(props.task)
   if (ctx == null) {
     activities.value = []
+    return
+  }
+  const snapshot = options?.preferSnapshot ? readTaskDetailSnapshot(ctx.taskId) : undefined
+  if (snapshot) {
+    activities.value = snapshot.activities
+    activitiesLoading.value = false
     return
   }
   const silent = options?.silent === true && activities.value.length > 0
@@ -468,7 +481,7 @@ async function loadActivities(options?: { silent?: boolean }) {
   }
 }
 
-async function loadComments(options?: { silent?: boolean }) {
+async function loadComments(options?: { silent?: boolean; preferSnapshot?: boolean }) {
   if (props.mode !== 'edit' || !props.task?.id) {
     comments.value = []
     return
@@ -476,6 +489,12 @@ async function loadComments(options?: { silent?: boolean }) {
   const ctx = captureTaskLoadContext(props.task)
   if (ctx == null) {
     comments.value = []
+    return
+  }
+  const snapshot = options?.preferSnapshot ? readTaskDetailSnapshot(ctx.taskId) : undefined
+  if (snapshot) {
+    comments.value = snapshot.comments
+    commentsLoading.value = false
     return
   }
   const silent = options?.silent === true && comments.value.length > 0
@@ -674,7 +693,7 @@ async function onSubIssueStatusPicked(task: Task, nextStatus: Status) {
   await loadSubIssues()
 }
 
-async function loadAttachments(opts?: { silent?: boolean }) {
+async function loadAttachments(opts?: { silent?: boolean; preferSnapshot?: boolean }) {
   const silent = opts?.silent === true
   if (props.mode !== 'edit' || !props.task?.id) {
     attachments.value = []
@@ -683,6 +702,12 @@ async function loadAttachments(opts?: { silent?: boolean }) {
   const ctx = captureTaskLoadContext(props.task)
   if (ctx == null) {
     attachments.value = []
+    return
+  }
+  const snapshot = opts?.preferSnapshot ? readTaskDetailSnapshot(ctx.taskId) : undefined
+  if (snapshot) {
+    attachments.value = snapshot.attachments
+    attachmentsLoading.value = false
     return
   }
   if (!silent) {
@@ -806,10 +831,10 @@ watch(
   () => {
     attachmentPendingUploads.value = []
     attachmentUploadBatchActive.value = false
-    loadSubIssues()
-    loadActivities()
-    loadComments()
-    loadAttachments()
+    loadSubIssues({ preferSnapshot: true })
+    loadActivities({ preferSnapshot: true })
+    loadComments({ preferSnapshot: true })
+    loadAttachments({ preferSnapshot: true })
   },
   { immediate: true }
 )
