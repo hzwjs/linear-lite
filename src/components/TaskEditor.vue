@@ -294,12 +294,12 @@ const workspaceSourceLabel = computed(() => {
   return issuePanelStore.workspaceSourceLabel
 })
 const taskDueState = computed(() => getTaskDueState(parseDateInputValue(formDueDate.value), new Date(dueStateNow.value)))
-const taskDueStateText = computed(() => {
+const taskDueDateToneClass = computed(() => {
+  if (formStatus.value === 'done') return ''
   const state = taskDueState.value
-  if (!state.hasDueDate) return ''
-  if (state.kind === 'today') return t('taskEditor.dueToday')
-  if (state.kind === 'overdue') return t('taskEditor.dueOverdueDays', { count: state.dayCount })
-  return t('taskEditor.dueInDays', { count: state.dayCount })
+  if (state.kind === 'today') return 'prop-trigger--due-today'
+  if (state.kind === 'overdue') return 'prop-trigger--due-overdue'
+  return ''
 })
 const showAttachmentBody = computed(
   () =>
@@ -991,6 +991,14 @@ function syncFormStatusFromProgress() {
   }
 }
 
+/** 完成状态与进度双向联动：状态切换为已完成时，进度立即反映为 100%。 */
+function syncFormProgressFromStatus() {
+  if (props.mode !== 'edit' || !props.task) return
+  if (formStatus.value === 'done' && clampTaskProgress(formProgressPercent.value) < 100) {
+    formProgressPercent.value = 100
+  }
+}
+
 function showProgressStatusHint(message: string) {
   progressStatusHint.value = message
   if (progressStatusHintTimer) clearTimeout(progressStatusHintTimer)
@@ -1082,6 +1090,7 @@ watch(() => props.defaultStatus, () => {
 })
 
 watch(formProgressPercent, () => syncFormStatusFromProgress())
+watch(formStatus, () => syncFormProgressFromStatus())
 
 function getPayload() {
   const plannedStartMs = parseDateInputValue(formPlannedStartDate.value)
@@ -2055,7 +2064,7 @@ async function toggleDescriptionFullscreen() {
                 trigger-class="prop-trigger prop-trigger--linear"
               />
             </div>
-            <div class="prop-row prop-row--date prop-row--with-helper">
+            <div class="prop-row prop-row--date">
               <span class="prop-row-name">{{ t('common.dueDate') }}</span>
               <div class="prop-row-stack">
                 <CustomDatePicker
@@ -2063,14 +2072,23 @@ async function toggleDescriptionFullscreen() {
                   v-model="formDueDate"
                   :placeholder="t('common.dueDate')"
                   :aria-label="t('common.dueDate')"
-                  trigger-class="prop-trigger prop-trigger--linear"
+                  :trigger-class="`prop-trigger prop-trigger--linear ${taskDueDateToneClass}`"
                 />
-                <p v-if="taskDueStateText" class="prop-row-help">{{ taskDueStateText }}</p>
               </div>
             </div>
             <div v-if="mode === 'edit'" class="prop-row prop-row--progress">
               <span class="prop-row-name">{{ t('taskEditor.progress') }}</span>
               <div class="prop-progress-control">
+                <div class="prop-progress-visual" aria-hidden="true">
+                  <span
+                    class="prop-progress-fill"
+                    :style="{ width: `${clampTaskProgress(formProgressPercent)}%` }"
+                  />
+                  <span
+                    class="prop-progress-thumb"
+                    :style="{ left: `${clampTaskProgress(formProgressPercent)}%` }"
+                  />
+                </div>
                 <input
                   id="task-progress"
                   v-model.number="formProgressPercent"
@@ -2414,7 +2432,7 @@ async function toggleDescriptionFullscreen() {
   padding-top: 0;
   min-height: 0;
   flex-shrink: 0;
-  /* 侧栏 gutter 放进 .description-section__surface 的左内边距，使边框包住 + / 拖拽 的视觉区域 */
+  /* 侧栏已隐藏，描述内容与编辑器边框保持一致的水平内边距 */
   padding-inline-start: 0;
   overflow: visible;
 }
@@ -2431,11 +2449,7 @@ async function toggleDescriptionFullscreen() {
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: transparent;
-  /*
-   * 侧栏 Portal 宽约 42–46px（两枚 22px + Menu 外包层）。左内边距须包住侧栏；
-   * 配合 .blocknote-editor-wrap 负边距左移整块编辑区，收紧「边框—侧栏」空白。
-   */
-  padding: 10px 12px 10px 52px;
+  padding: 10px 12px;
   transition:
     border-color var(--transition-fast),
     background-color var(--transition-fast),
@@ -2452,9 +2466,7 @@ async function toggleDescriptionFullscreen() {
 .description-section__surface :deep(.blocknote-editor-wrap) {
   background: transparent;
   border-radius: var(--radius-sm);
-  /* 块与侧栏定位一并左移，吃回 padding 内多余留白，不减小到侧栏裁切 */
-  margin-inline-start: -6px;
-  width: calc(100% + 6px);
+  width: 100%;
   max-width: none;
 }
 .description-section--fullscreen,
@@ -3459,9 +3471,6 @@ async function toggleDescriptionFullscreen() {
 .prop-row--date {
   gap: 8px;
 }
-.prop-row--with-helper {
-  align-items: flex-start;
-}
 .prop-assignee-stack {
   display: flex;
   flex-direction: column;
@@ -3548,6 +3557,14 @@ async function toggleDescriptionFullscreen() {
   border-color: var(--color-border);
   color: var(--color-text-primary);
 }
+.editor-props :deep(.prop-trigger--due-today) {
+  color: var(--color-status-in-progress);
+  font-weight: var(--font-weight-medium);
+}
+.editor-props :deep(.prop-trigger--due-overdue) {
+  color: var(--color-status-warning);
+  font-weight: var(--font-weight-medium);
+}
 .editor-props :deep(.prop-trigger .trigger-chevron) {
   opacity: 0;
   transition: opacity var(--transition-fast);
@@ -3563,30 +3580,72 @@ async function toggleDescriptionFullscreen() {
 }
 
 .prop-progress-control {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   flex: 1;
   min-width: 0;
-  padding: 4px 6px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
+  min-height: 28px;
 }
-.prop-progress-control:hover,
-.prop-progress-control:focus-within {
-  background: var(--color-bg-hover);
-  border-color: var(--color-border);
-}
-.prop-progress-range {
+.prop-progress-visual {
   flex: 1;
   min-width: 0;
-  accent-color: var(--color-accent, #6366f1);
+  position: relative;
+  height: 6px;
+  margin: 0 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-muted);
+  box-shadow: inset 0 0 0 1px var(--color-border-subtle);
+}
+.prop-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  max-width: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+  transition: width var(--transition-fast);
+}
+.prop-progress-thumb {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-bg-base);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 34%, transparent);
+  transform: translate(-50%, -50%);
+  transition: left var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+.prop-progress-range {
+  position: absolute;
+  inset: 0 54px 0 6px;
+  z-index: 2;
+  width: auto;
+  height: 100%;
+  margin: 0;
+  appearance: none;
+  cursor: ew-resize;
+  opacity: 0;
+}
+.prop-progress-range:hover + .prop-progress-value,
+.prop-progress-range:focus-visible + .prop-progress-value {
+  color: var(--color-text-primary);
+}
+.prop-progress-control:hover .prop-progress-thumb,
+.prop-progress-control:focus-within .prop-progress-thumb {
+  transform: translate(-50%, -50%) scale(1.12);
+  box-shadow: 0 0 0 3px var(--color-accent-muted);
+}
+.prop-progress-range:focus-visible {
+  outline: none;
 }
 .prop-progress-value {
-  font-size: var(--font-size-caption);
+  min-width: 38px;
   color: var(--color-text-secondary);
-  min-width: 34px;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }

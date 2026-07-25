@@ -9,8 +9,9 @@
   --color-bg-active: #ebebeb;
 
   --color-text-primary: #0d0d0d;
-  --color-text-secondary: #6b6b6b;
-  --color-text-muted: #999999;
+  /* Linear-like light-surface hierarchy: readable secondary copy and restrained tertiary copy. */
+  --color-text-secondary: #5e5e5e;
+  --color-text-muted: #7a7a7a;
 
   /* 边框：减弱存在感，保留结构线 */
   --color-border-subtle: #f0f0f0;
