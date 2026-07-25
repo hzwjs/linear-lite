@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick, useId } from 'vue'
 import type { Component } from 'vue'
 import { Check } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
@@ -41,6 +41,8 @@ const listRef = ref<HTMLElement | null>(null)
 const filterInputRef = ref<HTMLInputElement | null>(null)
 const filterQuery = ref('')
 const highlightedIndex = ref(-1)
+const popoverStyle = ref({ top: '0px', left: '0px', minWidth: '0px' })
+const listboxId = `${useId()}-custom-select-listbox`
 const resolvedPlaceholder = computed(() => props.placeholder || t('select.placeholder'))
 const resolvedAriaLabel = computed(() => props.ariaLabel || t('select.ariaLabel'))
 const resolvedFilterPlaceholder = computed(
@@ -70,9 +72,35 @@ function open() {
   isOpen.value = true
   nextTick(() => {
     syncHighlightToDisplayed()
+    updatePopoverPosition()
     if (props.filterable) filterInputRef.value?.focus()
     else listRef.value?.focus()
   })
+}
+
+function updatePopoverPosition() {
+  if (!isOpen.value || !triggerRef.value || !listRef.value) return
+  const triggerRect = triggerRef.value.getBoundingClientRect()
+  const listRect = listRef.value.getBoundingClientRect()
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+  const inset = 8
+  const gap = 4
+  const width = listRect.width || Math.max(triggerRect.width, 180)
+  const height = listRect.height || 280
+  let left = triggerRect.left
+  let top = triggerRect.bottom + gap
+
+  if (left + width > viewportWidth - inset) left = triggerRect.right - width
+  if (top + height > viewportHeight - inset && triggerRect.top > height + inset) {
+    top = triggerRect.top - height - gap
+  }
+
+  popoverStyle.value = {
+    left: `${Math.max(inset, Math.min(left, viewportWidth - width - inset))}px`,
+    top: `${Math.max(inset, Math.min(top, viewportHeight - height - inset))}px`,
+    minWidth: `${Math.max(triggerRect.width, 180)}px`
+  }
 }
 function close() {
   isOpen.value = false
@@ -205,8 +233,20 @@ watch(isOpen, (open) => {
   }
 })
 
-onMounted(() => document.addEventListener('click', handleClickOutside))
-onUnmounted(() => document.removeEventListener('click', handleClickOutside))
+function handleViewportChange() {
+  if (isOpen.value) updatePopoverPosition()
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside)
+  window.addEventListener('resize', handleViewportChange)
+  window.addEventListener('scroll', handleViewportChange, true)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('resize', handleViewportChange)
+  window.removeEventListener('scroll', handleViewportChange, true)
+})
 </script>
 
 <template>
@@ -219,7 +259,7 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
       :aria-label="resolvedAriaLabel"
       :aria-expanded="isOpen"
       :aria-haspopup="'listbox'"
-      aria-controls="custom-select-list"
+      :aria-controls="listboxId"
       @click="isOpen ? close() : open()"
       @keydown="onTriggerKeydown"
     >
@@ -229,20 +269,22 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
       <span class="trigger-label">{{ displayLabel }}</span>
       <span class="trigger-chevron" aria-hidden="true">▼</span>
     </button>
-    <div
-      v-show="isOpen"
-      id="custom-select-list"
-      ref="listRef"
-      class="custom-select-list"
-      role="listbox"
-      tabindex="-1"
-      :aria-activedescendant="
-        displayedOptions[highlightedIndex] != null
-          ? `opt-${String(displayedOptions[highlightedIndex]!.value)}`
-          : undefined
-      "
-      @keydown="onListKeydown"
-    >
+    <Teleport to="body">
+      <div
+        v-show="isOpen"
+        :id="listboxId"
+        ref="listRef"
+        class="custom-select-list"
+        :style="popoverStyle"
+        role="listbox"
+        tabindex="-1"
+        :aria-activedescendant="
+          displayedOptions[highlightedIndex] != null
+            ? `${listboxId}-opt-${String(displayedOptions[highlightedIndex]!.value)}`
+            : undefined
+        "
+        @keydown="onListKeydown"
+      >
       <div v-if="filterable" class="custom-select-search">
         <input
           ref="filterInputRef"
@@ -269,7 +311,7 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
       </div>
       <button
         v-for="(opt, i) in displayedOptions"
-        :id="`opt-${String(opt.value)}`"
+        :id="`${listboxId}-opt-${String(opt.value)}`"
         :key="String(opt.value)"
         type="button"
         class="custom-select-option"
@@ -289,7 +331,8 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
           <kbd>{{ opt.shortcut }}</kbd>
         </span>
       </button>
-    </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -332,11 +375,11 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
   color: var(--color-text-secondary);
 }
 .custom-select-list {
-  position: absolute;
-  z-index: 1000;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 100%;
+  position: fixed;
+  z-index: 1200;
+  min-width: 180px;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 16px));
   max-height: 280px;
   overflow-y: auto;
   padding: 4px 0;

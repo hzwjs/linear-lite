@@ -2948,7 +2948,7 @@ async function toggleDescriptionFullscreen() {
   min-width: 220px;
 }
 .linear-inline-date-select :deep(.linear-inline-date-trigger) {
-  min-width: 104px;
+  min-width: 0;
   max-width: 154px;
 }
 @media (max-width: 760px) {
