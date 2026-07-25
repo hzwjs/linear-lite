@@ -30,7 +30,8 @@ import {
   Copy,
   Eye,
   Loader2,
-  Paperclip
+  Paperclip,
+  X
 } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -291,11 +292,11 @@ async function handleCreate() {
       :aria-label="t('issueComposer.dialogLabel')"
       @click.self="emit('close')"
     >
-      <div class="composer-panel">
+      <div class="composer-panel" @keydown.esc="emit('close')">
         <div class="composer-header">
           <div class="composer-title">{{ t('issueComposer.title') }}</div>
           <button class="composer-close" type="button" :aria-label="t('common.close')" @click="emit('close')">
-            ×
+            <X :size="16" aria-hidden="true" />
           </button>
         </div>
 
@@ -316,7 +317,7 @@ async function handleCreate() {
               v-model="description"
               @upload-state-change="onDescriptionUploadStateChange"
               :placeholder="t('issueComposer.descriptionPlaceholder')"
-              :min-height="64"
+              :min-height="96"
             />
           </section>
           <input
@@ -370,6 +371,7 @@ async function handleCreate() {
 
           <div class="composer-props">
             <CustomSelect
+              class="composer-property composer-property--status"
               id="composer-status"
               v-model="status"
               :options="statusOptions"
@@ -379,6 +381,7 @@ async function handleCreate() {
               trigger-class="composer-trigger"
             />
             <CustomSelect
+              class="composer-property composer-property--priority"
               id="composer-priority"
               v-model="priority"
               :options="priorityOptions"
@@ -386,6 +389,7 @@ async function handleCreate() {
               trigger-class="composer-trigger"
             />
             <AssigneeSelect
+              class="composer-property composer-property--assignee"
               id="composer-assignee"
               v-model="assigneeId"
               :users="userList"
@@ -394,6 +398,7 @@ async function handleCreate() {
               trigger-class="composer-trigger"
             />
             <CustomDatePicker
+              class="composer-property composer-property--planned-start"
               id="composer-planned-start"
               v-model="plannedStartDate"
               :placeholder="t('common.plannedStartDate')"
@@ -401,6 +406,7 @@ async function handleCreate() {
               trigger-class="composer-trigger"
             />
             <CustomDatePicker
+              class="composer-property composer-property--due-date"
               id="composer-due-date"
               v-model="dueDate"
               :placeholder="t('common.dueDate')"
@@ -431,22 +437,32 @@ async function handleCreate() {
 
 <style scoped>
 .composer-overlay {
+  --composer-width: 680px;
+  --composer-desktop-top-offset: clamp(56px, 12dvh, 120px);
+  --composer-header-height: 52px;
+  --composer-footer-height: 60px;
+  --composer-inset: 20px;
+  --composer-control-height: 32px;
   position: fixed;
   inset: 0;
   z-index: 220;
-  background: rgba(17, 24, 39, 0.08);
+  background: rgba(17, 24, 39, 0.18);
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 8vh 24px 24px;
+  padding: var(--composer-desktop-top-offset) 24px 24px;
 }
 
 .composer-panel {
-  width: min(720px, 100%);
+  width: min(var(--composer-width), 100%);
+  max-height: min(720px, calc(100dvh - var(--composer-desktop-top-offset) - 24px));
+  display: flex;
+  flex-direction: column;
   background: var(--color-bg-main);
   border: 1px solid var(--color-border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-popover);
+  overflow: hidden;
 }
 
 .composer-header,
@@ -454,8 +470,9 @@ async function handleCreate() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 18px;
+  flex: 0 0 var(--composer-header-height);
+  gap: 12px;
+  padding: 0 var(--composer-inset);
 }
 
 .composer-header {
@@ -463,16 +480,19 @@ async function handleCreate() {
 }
 
 .composer-title {
-  font-size: 13px;
+  font-size: var(--font-size-body);
   font-weight: 600;
   color: var(--color-text-secondary);
 }
 
 .composer-close {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: var(--color-text-secondary);
 }
 
@@ -482,13 +502,14 @@ async function handleCreate() {
 }
 
 .composer-body {
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 0;
-  padding: 18px;
+  padding: var(--composer-inset);
 }
 
-/* 复刻详情页：标题 + 描述区 + 操作按钮 */
 .content-section {
   display: flex;
   flex-direction: column;
@@ -499,10 +520,10 @@ async function handleCreate() {
   padding-bottom: 2px;
 }
 .content-section--title .composer-title-input {
-  font-size: 2rem;
-  font-weight: 700;
-  line-height: 1.18;
-  letter-spacing: -0.035em;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
 }
 .content-section.description-section {
   margin-top: 6px;
@@ -515,11 +536,11 @@ async function handleCreate() {
   border: none;
   padding: 0;
   background: transparent;
-  font-size: 2rem;
-  font-weight: 700;
+  font-size: 24px;
+  font-weight: 600;
   color: var(--color-text-primary);
-  line-height: 1.18;
-  letter-spacing: -0.035em;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
 }
 .composer-title-input::placeholder {
   color: var(--color-text-muted);
@@ -541,7 +562,7 @@ async function handleCreate() {
   align-items: center;
   gap: 4px;
   margin-top: -4px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 .content-action-btn {
   display: flex;
@@ -642,18 +663,43 @@ async function handleCreate() {
 .composer-props {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 :deep(.composer-trigger) {
-  min-width: 122px;
-  background: var(--color-hover);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  min-height: 34px;
+  min-width: 0;
+  height: var(--composer-control-height);
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-body);
+}
+
+:deep(.composer-trigger:hover),
+:deep(.composer-trigger[aria-expanded='true']) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-subtle);
+}
+
+:deep(.composer-property) {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+}
+
+:deep(.composer-property--assignee .assignee-trigger) {
+  max-width: 160px;
+}
+
+:deep(.composer-property--planned-start .custom-date-picker-trigger),
+:deep(.composer-property--due-date .custom-date-picker-trigger) {
+  width: auto;
 }
 
 .composer-footer {
+  flex: 0 0 var(--composer-footer-height);
+  background: var(--color-bg-subtle);
   border-top: 1px solid var(--color-border);
 }
 
@@ -668,15 +714,35 @@ async function handleCreate() {
 .composer-submit {
   background: var(--color-accent);
   color: #fff;
-  border-radius: 999px;
-  padding: 8px 14px;
+  min-height: 32px;
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
   font-size: 13px;
   font-weight: 600;
 }
 
 .composer-submit:disabled {
-  opacity: 0.65;
+  opacity: 0.5;
   cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .composer-overlay {
+    --composer-inset: 16px;
+    padding: 12px;
+  }
+
+  .composer-panel {
+    max-height: calc(100dvh - 24px);
+  }
+
+  .composer-property--assignee {
+    flex-basis: 100%;
+  }
+
+  :deep(.composer-property--assignee .assignee-trigger) {
+    max-width: none;
+  }
 }
 
 @media (max-width: 720px) {
