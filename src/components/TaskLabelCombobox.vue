@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Check, Plus, Tag, X } from 'lucide-vue-next'
 import { projectApi } from '../services/api/project'
+import { getTaskLabelTone } from '../utils/taskLabelTone'
 
 type LabelOption = { id: number; name: string }
 type SelectedLabel = { id?: number; name: string }
@@ -77,12 +78,7 @@ function isSelected(label: { id?: number; name: string }): boolean {
   return selectedIndex(label) >= 0
 }
 
-function labelTone(label: { id?: number; name: string }): number {
-  const source = `${label.id ?? ''}:${label.name}`
-  let hash = 0
-  for (let i = 0; i < source.length; i += 1) hash = (hash * 31 + source.charCodeAt(i)) | 0
-  return Math.abs(hash) % 6
-}
+const labelTone = getTaskLabelTone
 
 function setInput(value: string) {
   emit('update:modelValue', value)

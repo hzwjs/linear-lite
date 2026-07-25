@@ -390,7 +390,8 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   display: flex;
-  overflow: visible;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--color-bg-base);
 }
 .workspace-primary {

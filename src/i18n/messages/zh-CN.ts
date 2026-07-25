@@ -474,6 +474,7 @@ const zhCN = {
     commentSendFailed: '发送失败',
     deleteComment: '删除',
     deleteCommentAria: '删除该评论',
+    deleteCommentConfirm: '确定删除这条评论吗？此操作无法恢复。',
     saveFailedBlockClose: '保存失败。请先处理问题并重试，当前不允许离开该任务。',
     saveTimeoutWarn: '保存时间较长，最新修改可能尚未完全同步。'
   },
@@ -558,6 +559,9 @@ const zhCN = {
     unfavorited: '{actor} 取消了收藏',
     changedField: '{actor} 修改了 {field}',
     changedFromTo: '{actor} 将 {field} 从 {oldValue} 改为 {newValue}',
+    addedLabels: '{actor} 添加了标签',
+    removedLabels: '{actor} 移除了标签',
+    updatedLabels: '{actor} 更新了标签',
     updated: '{actor} 更新了任务',
     emptyValue: '空',
     labelListSeparator: '、'

@@ -141,7 +141,7 @@ class TaskCommandServiceTest {
 
         ArgumentCaptor<TaskFavorite> captor = ArgumentCaptor.forClass(TaskFavorite.class);
         verify(taskFavoriteMapper).insert(captor.capture());
-        verify(taskActivityService).recordAction(12L, 9L, "favorited");
+        verify(taskActivityService, never()).recordAction(12L, 9L, "favorited");
         assertEquals(12L, captor.getValue().getTaskId());
         assertEquals(9L, captor.getValue().getUserId());
         verify(taskQueryService).enrichForUser(Collections.singletonList(result), 9L);
@@ -160,7 +160,7 @@ class TaskCommandServiceTest {
         Task result = taskCommandService.removeFavorite("ENG-13", 9L);
 
         verify(taskFavoriteMapper).delete(any(LambdaQueryWrapper.class));
-        verify(taskActivityService).recordAction(13L, 9L, "unfavorited");
+        verify(taskActivityService, never()).recordAction(13L, 9L, "unfavorited");
         verify(taskFavoriteMapper, never()).insert(any());
         verify(taskQueryService).enrichForUser(Collections.singletonList(result), 9L);
     }
@@ -203,10 +203,26 @@ class TaskCommandServiceTest {
 
         verify(taskPermissionGuard).requireProjectMember(1L, 7L);
         verify(taskActivityService).recordFieldChange(21L, 7L, "title", "Old title", "New title");
-        verify(taskActivityService).recordDescriptionChange(21L, 7L, "Old desc", "Old desc");
         verify(taskActivityService).recordFieldChange(21L, 7L, "status", "todo", "in_progress");
         verify(taskActivityService).recordFieldChange(21L, 7L, "priority", "medium", "high");
         verify(taskActivityService).recordAssigneeChange(21L, 7L, 1L, 2L);
+    }
+
+    @Test
+    void updateDoesNotRecordDescriptionChanges() {
+        Task existing = task(31L, "ENG-31", null);
+        existing.setDescription("Old description");
+        Task updated = task(31L, "ENG-31", null);
+        updated.setDescription("New description");
+        UpdateTaskRequest request = new UpdateTaskRequest();
+        request.setDescription("New description");
+
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
+        when(taskMapper.selectById(31L)).thenReturn(updated);
+
+        taskCommandService.update("ENG-31", request, 7L);
+
+        verify(taskActivityService, never()).recordFieldChange(31L, 7L, "description", "Old description", "New description");
     }
 
     @Test

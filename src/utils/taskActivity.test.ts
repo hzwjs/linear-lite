@@ -1,6 +1,11 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import { i18n } from '../i18n'
-import { formatTaskActivity, getActivityAvatarLabel } from './taskActivity'
+import {
+  formatTaskActivity,
+  getActivityAvatarLabel,
+  getTaskActivityLabelChange,
+  isTaskActivityTimelineEvent
+} from './taskActivity'
 import type { TaskActivity } from '../types/domain'
 
 describe('formatTaskActivity', () => {
@@ -95,5 +100,58 @@ describe('formatTaskActivity', () => {
     expect(getActivityAvatarLabel('Admin User')).toBe('AU')
     expect(getActivityAvatarLabel('alice')).toBe('AL')
     expect(getActivityAvatarLabel('')).toBe('?')
+  })
+
+  it('excludes description and personal favorite events from the activity timeline', () => {
+    expect(isTaskActivityTimelineEvent({
+      id: 7,
+      actionType: 'changed',
+      fieldName: 'description',
+      actorName: 'alice',
+      createdAt: 1
+    })).toBe(false)
+    expect(isTaskActivityTimelineEvent({
+      id: 8,
+      actionType: 'favorited',
+      actorName: 'alice',
+      createdAt: 1
+    })).toBe(false)
+    expect(isTaskActivityTimelineEvent({
+      id: 9,
+      actionType: 'changed',
+      fieldName: 'status',
+      actorName: 'alice',
+      createdAt: 1
+    })).toBe(true)
+  })
+
+  it('formats label additions as a label event and exposes the added names', () => {
+    const activity: TaskActivity = {
+      id: 10,
+      actionType: 'changed',
+      fieldName: 'labels',
+      oldValue: 'Bug',
+      newValue: 'Bug,Feature,功能',
+      actorName: 'alice',
+      createdAt: 1
+    }
+
+    expect(formatTaskActivity(activity)).toBe('alice added labels')
+    expect(getTaskActivityLabelChange(activity)).toEqual({ added: ['Feature', '功能'], removed: [] })
+  })
+
+  it('keeps label removal distinct from an ordinary field update', () => {
+    const activity: TaskActivity = {
+      id: 11,
+      actionType: 'changed',
+      fieldName: 'labels',
+      oldValue: 'Bug,Feature',
+      newValue: 'Feature',
+      actorName: 'alice',
+      createdAt: 1
+    }
+
+    expect(formatTaskActivity(activity)).toBe('alice removed labels')
+    expect(getTaskActivityLabelChange(activity)).toEqual({ added: [], removed: ['Bug'] })
   })
 })

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskActivity } from '../types/domain'
-import { formatTaskActivityDisplayItem, groupTaskActivitiesForDisplay } from './taskActivityGroup'
+import {
+  formatTaskActivityDisplayItem,
+  getTaskActivityDisplaySource,
+  groupTaskActivitiesForDisplay
+} from './taskActivityGroup'
 
 function activity(
   id: number,
@@ -155,5 +159,40 @@ describe('groupTaskActivitiesForDisplay', () => {
         activity: activities[2]
       }
     ])
+  })
+
+  it('condenses all label saves from one actor into one event even when other activity is interleaved', () => {
+    const base = Date.parse('2026-04-10T12:00:00+08:00')
+    const activities = [
+      {
+        ...activity(3, 'alice', 'labels', base - 1 * 60 * 1000),
+        oldValue: 'Bug,Feature',
+        newValue: 'Bug,Feature,功能'
+      },
+      activity(4, 'alice', 'progressPercent', base - 12 * 60 * 60 * 1000),
+      {
+        ...activity(2, 'alice', 'labels', base - 2 * 24 * 60 * 60 * 1000),
+        oldValue: 'Bug',
+        newValue: 'Bug,Feature'
+      },
+      {
+        ...activity(1, 'alice', 'labels', base - 4 * 24 * 60 * 60 * 1000),
+        oldValue: '',
+        newValue: 'Bug'
+      }
+    ]
+
+    expect(groupTaskActivitiesForDisplay(activities)).toEqual([
+      {
+        kind: 'grouped_label_changes',
+        actorName: 'alice',
+        activities: [activities[0], activities[2], activities[3]]
+      },
+      { kind: 'single', actorName: 'alice', activity: activities[1] }
+    ])
+    const [group] = groupTaskActivitiesForDisplay(activities)
+    expect(group && formatTaskActivityDisplayItem(group)).toContain('标签')
+    expect(group && getTaskActivityDisplaySource(group).oldValue).toBe('')
+    expect(group && getTaskActivityDisplaySource(group).newValue).toBe('Bug,Feature,功能')
   })
 })

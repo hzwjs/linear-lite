@@ -474,6 +474,7 @@ const en = {
     commentSendFailed: 'Failed to send',
     deleteComment: 'Delete',
     deleteCommentAria: 'Delete this comment',
+    deleteCommentConfirm: 'Delete this comment? This action cannot be undone.',
     saveFailedBlockClose: 'Save failed. Resolve the issue and try again before leaving this task.',
     saveTimeoutWarn: 'Save is taking longer than expected. Your latest edits may not be fully synced yet.'
   },
@@ -558,6 +559,9 @@ const en = {
     unfavorited: '{actor} removed the issue from favorites',
     changedField: '{actor} changed {field}',
     changedFromTo: '{actor} changed {field} from {oldValue} to {newValue}',
+    addedLabels: '{actor} added labels',
+    removedLabels: '{actor} removed labels',
+    updatedLabels: '{actor} updated labels',
     updated: '{actor} updated the issue',
     emptyValue: 'empty',
     labelListSeparator: ', '

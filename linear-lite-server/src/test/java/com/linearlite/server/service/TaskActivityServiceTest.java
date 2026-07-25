@@ -19,7 +19,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
@@ -119,115 +118,6 @@ class TaskActivityServiceTest {
         assertEquals("changed", result.get(1).getActionType());
         assertEquals("status", result.get(1).getFieldName());
         assertEquals(LocalDateTime.of(2026, 3, 14, 10, 0), result.get(1).getCreatedAt());
-    }
-
-    @Test
-    void recordDescriptionChangeInsertsWhenNoRecentActivity() {
-        when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
-                .thenReturn(new Page<TaskActivity>(1, 1).setRecords(List.of()));
-
-        taskActivityService.recordDescriptionChange(1L, 2L, "old", "new");
-
-        ArgumentCaptor<TaskActivity> captor = ArgumentCaptor.forClass(TaskActivity.class);
-        verify(taskActivityMapper).insert(captor.capture());
-        assertEquals("changed", captor.getValue().getActionType());
-        assertEquals("description", captor.getValue().getFieldName());
-        assertEquals("old", captor.getValue().getOldValue());
-        assertEquals("new", captor.getValue().getNewValue());
-    }
-
-    @Test
-    void recordDescriptionChangeCompactsLongValues() {
-        when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
-                .thenReturn(new Page<TaskActivity>(1, 1).setRecords(List.of()));
-        String longText = "x".repeat(400);
-
-        taskActivityService.recordDescriptionChange(1L, 2L, longText, longText + "new");
-
-        ArgumentCaptor<TaskActivity> captor = ArgumentCaptor.forClass(TaskActivity.class);
-        verify(taskActivityMapper).insert(captor.capture());
-        assertTrue(captor.getValue().getOldValue().contains("[len=400]"));
-        assertTrue(captor.getValue().getNewValue().contains("[len=403]"));
-        assertTrue(captor.getValue().getOldValue().length() < 230);
-        assertTrue(captor.getValue().getNewValue().length() < 230);
-    }
-
-    @Test
-    void recordDescriptionChangeUpdatesWhenRecentActivityExists() {
-        TaskActivity recent = new TaskActivity();
-        recent.setId(99L);
-        recent.setTaskId(1L);
-        recent.setUserId(2L);
-        recent.setActionType("changed");
-        recent.setFieldName("description");
-        recent.setOldValue("old");
-        recent.setNewValue("mid");
-        recent.setCreatedAt(LocalDateTime.now().minusMinutes(1));
-        Page<TaskActivity> page = new Page<>(1, 1);
-        page.setRecords(List.of(recent));
-        when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(page);
-
-        taskActivityService.recordDescriptionChange(1L, 2L, "mid", "new");
-
-        verify(taskActivityMapper).updateById(recent);
-        assertEquals("new", recent.getNewValue());
-        verify(taskActivityMapper, never()).insert(any());
-    }
-
-    @Test
-    void recordDescriptionChangeStillCoalescesAfterEightHours() {
-        TaskActivity recent = new TaskActivity();
-        recent.setId(199L);
-        recent.setTaskId(1L);
-        recent.setUserId(2L);
-        recent.setActionType("changed");
-        recent.setFieldName("description");
-        recent.setOldValue("old");
-        recent.setNewValue("mid");
-        recent.setCreatedAt(LocalDateTime.now().minusHours(8));
-        Page<TaskActivity> page = new Page<>(1, 1);
-        page.setRecords(List.of(recent));
-        when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(page);
-
-        taskActivityService.recordDescriptionChange(1L, 2L, "mid", "new");
-
-        verify(taskActivityMapper).updateById(recent);
-        verify(taskActivityMapper, never()).insert(any());
-    }
-
-    @Test
-    void recordDescriptionChangeDeletesDuplicateActivitiesInCoalesceWindow() {
-        TaskActivity newest = new TaskActivity();
-        newest.setId(201L);
-        newest.setTaskId(1L);
-        newest.setUserId(2L);
-        newest.setActionType("changed");
-        newest.setFieldName("description");
-        newest.setOldValue("mid");
-        newest.setNewValue("newer");
-        newest.setCreatedAt(LocalDateTime.now().minusMinutes(1));
-
-        TaskActivity oldest = new TaskActivity();
-        oldest.setId(200L);
-        oldest.setTaskId(1L);
-        oldest.setUserId(2L);
-        oldest.setActionType("changed");
-        oldest.setFieldName("description");
-        oldest.setOldValue("old");
-        oldest.setNewValue("mid");
-        oldest.setCreatedAt(LocalDateTime.now().minusMinutes(2));
-
-        Page<TaskActivity> page = new Page<>(1, 200);
-        page.setRecords(List.of(newest, oldest));
-        when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(page);
-
-        taskActivityService.recordDescriptionChange(1L, 2L, "newer", "final");
-
-        verify(taskActivityMapper).updateById(newest);
-        verify(taskActivityMapper).delete(any(LambdaQueryWrapper.class));
-        verify(taskActivityMapper, never()).insert(any());
-        assertEquals("old", newest.getOldValue());
-        assertEquals("final", newest.getNewValue());
     }
 
     @Test

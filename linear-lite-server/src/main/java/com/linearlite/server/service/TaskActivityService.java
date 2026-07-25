@@ -45,23 +45,10 @@ public class TaskActivityService {
     }
 
     private static final int CHANGED_FIELD_COALESCE_MINUTES = 2;
-    /**
-     * description 采用更长窗口，近似“同一天反复编辑只记一条”。
-     * 普通字段仍使用短窗口，避免跨较长时间误合并。
-     */
-    private static final int DESCRIPTION_COALESCE_MINUTES = 24 * 60;
-    private static final int DESCRIPTION_PREVIEW_CHARS = 160;
     private static final int GENERAL_VALUE_MAX_CHARS = 256;
     private static final int COALESCE_LOOKBACK_LIMIT = 200;
     private static final Set<String> COALESCE_FIELDS = Set.of(
-            "description", "title", "progressPercent", "dueDate", "plannedStartDate", "labels");
-
-    /**
-     * 记录描述变更。若该任务在最近几分钟内已有同一用户的「changed description」记录，则合并为一条（只更新 newValue 与时间），避免一次编辑产生多条活动。
-     */
-    public void recordDescriptionChange(Long taskId, Long userId, String oldValue, String newValue) {
-        recordFieldChange(taskId, userId, "description", oldValue, newValue);
-    }
+            "title", "progressPercent", "dueDate", "plannedStartDate", "labels");
 
     public void recordFieldChange(Long taskId, Long userId, String fieldName, String oldValue, String newValue) {
         String compactOld = compactValue(fieldName, oldValue);
@@ -120,6 +107,10 @@ public class TaskActivityService {
         List<TaskActivity> activities = taskActivityMapper.selectPage(page,
                 new LambdaQueryWrapper<TaskActivity>()
                         .eq(TaskActivity::getTaskId, task.getId())
+                        .notIn(TaskActivity::getActionType, List.of("favorited", "unfavorited"))
+                        .and(query -> query.isNull(TaskActivity::getFieldName)
+                                .or()
+                                .ne(TaskActivity::getFieldName, "description"))
                         .orderByDesc(TaskActivity::getCreatedAt, TaskActivity::getId))
                 .getRecords();
         if (activities.isEmpty()) {
@@ -174,9 +165,6 @@ public class TaskActivityService {
     }
 
     private static int coalesceMinutesFor(String fieldName) {
-        if ("description".equals(fieldName)) {
-            return DESCRIPTION_COALESCE_MINUTES;
-        }
         return CHANGED_FIELD_COALESCE_MINUTES;
     }
 
@@ -184,20 +172,10 @@ public class TaskActivityService {
         if (value == null) {
             return null;
         }
-        if ("description".equals(fieldName)) {
-            return compactDescription(value);
-        }
         if (value.length() <= GENERAL_VALUE_MAX_CHARS) {
             return value;
         }
         return value.substring(0, GENERAL_VALUE_MAX_CHARS) + "… [len=" + value.length() + "]";
-    }
-
-    private static String compactDescription(String value) {
-        if (value.length() <= DESCRIPTION_PREVIEW_CHARS) {
-            return value;
-        }
-        return value.substring(0, DESCRIPTION_PREVIEW_CHARS) + "… [len=" + value.length() + "]";
     }
 
 }

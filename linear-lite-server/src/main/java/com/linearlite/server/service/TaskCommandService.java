@@ -305,7 +305,6 @@ public class TaskCommandService {
             favorite.setUserId(userId);
             favorite.setTaskId(task.getId());
             taskFavoriteMapper.insert(favorite);
-            taskActivityService.recordAction(task.getId(), userId, "favorited");
         }
         Task refreshed = taskMapper.selectById(task.getId());
         taskQueryService.enrichForUser(Collections.singletonList(refreshed), userId);
@@ -320,7 +319,6 @@ public class TaskCommandService {
                 new LambdaQueryWrapper<TaskFavorite>()
                         .eq(TaskFavorite::getUserId, userId)
                         .eq(TaskFavorite::getTaskId, task.getId()));
-        taskActivityService.recordAction(task.getId(), userId, "unfavorited");
         Task refreshed = taskMapper.selectById(task.getId());
         taskQueryService.enrichForUser(Collections.singletonList(refreshed), userId);
         return refreshed;
@@ -389,7 +387,6 @@ public class TaskCommandService {
             return;
         }
         recordFieldChange(existing.getId(), userId, "title", existing.getTitle(), updated.getTitle());
-        taskActivityService.recordDescriptionChange(existing.getId(), userId, existing.getDescription(), updated.getDescription());
         recordFieldChange(existing.getId(), userId, "status", existing.getStatus(), updated.getStatus());
         recordFieldChange(existing.getId(), userId, "priority", existing.getPriority(), updated.getPriority());
         if (!equalsNullable(existing.getAssigneeId(), updated.getAssigneeId())) {
