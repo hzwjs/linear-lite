@@ -11,6 +11,7 @@ import { attachmentsApi } from '../services/api/attachments'
 import { taskCommentsApi } from '../services/api/taskComments'
 import { taskApi } from '../services/api/task'
 import { useIssuePanelStore } from '../store/issuePanelStore'
+import { useTaskStore } from '../store/taskStore'
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({
@@ -30,13 +31,44 @@ vi.mock('./TiptapEditor.vue', () => ({
   })
 }))
 
+vi.mock('./BlockNoteEditorWrapper.vue', () => ({
+  default: defineComponent({
+    name: 'BlockNoteEditorStub',
+    props: {
+      modelValue: { type: String, default: '' },
+      placeholder: { type: String, default: '' }
+    },
+    emits: ['ready', 'blur', 'focus', 'upload-state-change', 'update:modelValue'],
+    mounted() {
+      this.$emit('ready')
+      this.$emit('upload-state-change', { hasPending: false, hasFailed: false })
+    },
+    template:
+      "<textarea data-testid=\"blocknote-editor-stub\" :placeholder=\"placeholder\" :value=\"modelValue\" @focus=\"$emit('focus')\" @blur=\"$emit('blur')\" @input=\"$emit('update:modelValue', $event.target.value)\" />"
+  })
+}))
+
 vi.mock('./ui/CustomSelect.vue', () => ({
   default: defineComponent({
     name: 'CustomSelectStub',
     props: {
-      ariaLabel: { type: String, default: '' }
+      ariaLabel: { type: String, default: '' },
+      modelValue: { type: [String, Number], default: '' },
+      options: { type: Array, default: () => [] }
     },
-    template: '<button type="button" class="custom-select-stub">{{ ariaLabel }}</button>'
+    emits: ['update:modelValue'],
+    template: `
+      <select
+        class="custom-select-stub"
+        :value="modelValue"
+        :aria-label="ariaLabel"
+        @change="$emit('update:modelValue', $event.target.value)"
+      >
+        <option v-for="option in options" :key="option.value" :value="option.value">
+          {{ option.label }}
+        </option>
+      </select>
+    `
   })
 }))
 
@@ -44,9 +76,10 @@ vi.mock('./ui/CustomDatePicker.vue', () => ({
   default: defineComponent({
     name: 'CustomDatePickerStub',
     props: {
-      ariaLabel: { type: String, default: '' }
+      ariaLabel: { type: String, default: '' },
+      triggerClass: { type: String, default: '' }
     },
-    template: '<button type="button" class="custom-date-picker-stub">{{ ariaLabel }}</button>'
+    template: '<button type="button" :class="[\'custom-date-picker-stub\', triggerClass]">{{ ariaLabel }}</button>'
   })
 }))
 
@@ -146,6 +179,7 @@ async function mountEditor(task: Task) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const issuePanelStore = useIssuePanelStore()
+  useTaskStore().tasks = [task]
   issuePanelStore.openWorkspace(task.id, '全部任务')
   const app = createApp(TaskEditor, {
     mode: 'edit',
@@ -206,38 +240,78 @@ describe('TaskEditor due state', () => {
     }
   })
 
-  it('refreshes due helper text after midnight when time advances', async () => {
+  it('refreshes due date tone after midnight when time advances', async () => {
     vi.setSystemTime(new Date(2026, 3, 10, 23, 59, 0))
     const view = await mountEditor(createTask({ dueDate: localDate(2026, 4, 11).getTime() }))
 
     try {
-      expect(view.container.textContent).toContain('还有 1 天')
+      expect(view.container.textContent).not.toContain('还有 1 天')
+      expect(view.container.querySelector('.prop-trigger--due-today')).toBeNull()
 
       vi.setSystemTime(new Date(2026, 3, 11, 0, 1, 0))
       vi.advanceTimersByTime(60_000)
       await nextTick()
 
-      expect(view.container.textContent).toContain('今天截止')
+      expect(view.container.textContent).not.toContain('今天截止')
+      expect(view.container.querySelector('.prop-trigger--due-today')).not.toBeNull()
     } finally {
       view.unmount()
     }
   })
 
-  it('shows due helper text for today', async () => {
+  it('marks today due dates without helper text', async () => {
     const view = await mountEditor(createTask({ dueDate: localDate(2026, 4, 10).getTime() }))
 
     try {
-      expect(view.container.textContent).toContain('今天截止')
+      expect(view.container.textContent).not.toContain('今天截止')
+      expect(view.container.querySelector('.prop-trigger--due-today')).not.toBeNull()
     } finally {
       view.unmount()
     }
   })
 
-  it('shows due helper text for overdue dates', async () => {
+  it('marks overdue dates without helper text', async () => {
     const view = await mountEditor(createTask({ dueDate: localDate(2026, 4, 7).getTime() }))
 
     try {
-      expect(view.container.textContent).toContain('已逾期 3 天')
+      expect(view.container.textContent).not.toContain('已逾期 3 天')
+      expect(view.container.querySelector('.prop-trigger--due-overdue')).not.toBeNull()
+    } finally {
+      view.unmount()
+    }
+  })
+
+  it('does not mark the due date for completed tasks', async () => {
+    const view = await mountEditor(
+      createTask({
+        status: 'done',
+        completedAt: localDate(2026, 4, 10).getTime(),
+        dueDate: localDate(2026, 4, 7).getTime()
+      })
+    )
+
+    try {
+      expect(view.container.querySelector('.prop-trigger--due-today')).toBeNull()
+      expect(view.container.querySelector('.prop-trigger--due-overdue')).toBeNull()
+    } finally {
+      view.unmount()
+    }
+  })
+
+  it('sets progress to 100% when status changes to done', async () => {
+    const view = await mountEditor(createTask({ progressPercent: 0 }))
+
+    try {
+      const statusSelect = view.container.querySelector<HTMLSelectElement>('#task-status')
+      const progressInput = view.container.querySelector<HTMLInputElement>('#task-progress')
+      expect(statusSelect).not.toBeNull()
+      expect(progressInput?.value).toBe('0')
+
+      statusSelect!.value = 'done'
+      statusSelect!.dispatchEvent(new Event('change', { bubbles: true }))
+      await nextTick()
+
+      expect(progressInput?.value).toBe('100')
     } finally {
       view.unmount()
     }
