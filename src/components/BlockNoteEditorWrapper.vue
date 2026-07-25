@@ -145,6 +145,11 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
   position: relative;
 }
 
+/* 任务描述编辑器与外层 surface 融合，不使用独立的灰色编辑区背景。 */
+.blocknote-editor-wrap--chrome {
+  background: transparent;
+}
+
 /* Mention chip styling to match the project design */
 .blocknote-editor-wrap :deep(.bn-mention) {
   border-radius: 4px;
@@ -166,13 +171,12 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
 </style>
 
 <!-- Global (non-scoped): Veaury-bridged React elements may not carry Vue's scoped
-     data attribute, so padding/side-menu rules that need to cross the bridge boundary
+     data attribute, so BlockNote rules that need to cross the bridge boundary
      are placed here instead of in the scoped block. -->
 <style>
 /* ── Text alignment: only strip BlockNote's default 54px horizontal padding in the
       block-chrome (description) editor. Comment editors keep their own padding.
-      The side menu renders via FloatingPortal (body-level) and positions itself
-      using getBoundingClientRect — it does NOT depend on this padding. ── */
+      The description editor no longer renders BlockNote's side menu. ── */
 /*
  * 任务描述 chrome：去默认水平 padding + 标题比例变量（相对 TaskEditor `--task-editor-issue-title-size`）
  * 标题覆写见下块（官方 Overriding CSS 思路）
@@ -294,80 +298,6 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
 .blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-is-empty-and-focused]::before,
 .blocknote-editor-wrap--chrome .bn-editor .bn-block-content[data-is-placeholder-visible]::before {
   color: var(--color-text-secondary, #6b6b6b) !important;
-}
-
-/* ── 标题比例变量同步到 :root，使 FloatingPortal (body 层) 的 .bn-side-menu 也能读取 ── */
-:root {
-  --bn-desc-h1: calc(2rem * 0.85);
-  --bn-desc-h2: calc(2rem * 0.72);
-  --bn-desc-h3: calc(2rem * 0.63);
-}
-
-/* ── Side menu 高度对齐：上游 styles.css 把 h1/h2/h3 的 .bn-side-menu 按默认大尺寸硬编码
-      (78px/54px/37px)，本地把标题缩小后两套基准脱节，按钮在过高的盒子里 align-items:center
-      后视觉下移。此处覆写为实际行高 = heading-font-size × line-height + bn-block-content-padding ── */
-.bn-side-menu[data-block-type="heading"][data-level="1"] {
-  height: calc(var(--bn-desc-h1) * 1.28 + 6px) !important;
-}
-.bn-side-menu[data-block-type="heading"][data-level="2"] {
-  height: calc(var(--bn-desc-h2) * 1.3 + 6px) !important;
-}
-.bn-side-menu[data-block-type="heading"][data-level="3"] {
-  height: calc(var(--bn-desc-h3) * 1.32 + 6px) !important;
-}
-
-/* ── Side menu: FloatingPortal renders at body level — BlockNote manages show/hide
-      internally; just style size, colour, and layout here ── */
-.bn-side-menu {
-  display: flex !important;
-  align-items: center !important;
-  /* @blocknote/mantine SideMenu 已是 Group gap=0；勿再加 gap，否则与拖拽外包 Menu 叠起来显宽 */
-  gap: 0 !important;
-  column-gap: 0 !important;
-}
-/* 拖拽在 MantineMenu 内，第二个 flex 子项（Menu 根）略向左收，避免与「+」之间空一条 */
-.bn-side-menu > * + * {
-  margin: 0 !important;
-  padding: 0 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  width: auto !important;
-  min-width: 0 !important;
-  margin-inline-start: -2px !important;
-}
-
-/* ── Side menu button sizing and colour ──
-      SideMenuButton renders as MantineActionIcon (mantine-ActionIcon-root) when it has
-      an icon (drag handle), and MantineButton (mantine-Button-root) for the + button ── */
-.bn-side-menu .mantine-ActionIcon-root,
-.bn-side-menu .mantine-Button-root {
-  width: 22px !important;
-  height: 22px !important;
-  min-width: 22px !important;
-  min-height: 22px !important;
-  padding: 0 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  border-radius: 4px !important;
-  color: var(--color-text-muted, #bbb) !important;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  transition: color 0.1s, background 0.1s !important;
-}
-
-.bn-side-menu .mantine-ActionIcon-root:hover,
-.bn-side-menu .mantine-Button-root:hover {
-  color: var(--color-text-secondary, #555) !important;
-  background: var(--color-bg-hover, rgba(0, 0, 0, 0.06)) !important;
-}
-
-.bn-side-menu .mantine-ActionIcon-root svg,
-.bn-side-menu .mantine-Button-root svg {
-  width: 15px;
-  height: 15px;
-  display: block;
 }
 
 /* ── Table controls: task descriptions enable BlockNote table handles. Make the

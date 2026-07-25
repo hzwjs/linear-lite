@@ -528,7 +528,7 @@ export type BlockNoteEditorReactProps = {
   /** Called once when the editor is mounted, receives imperative API */
   onInit?: (api: EditorApi) => void
   'on-init'?: (api: EditorApi) => void
-  /** 任务描述：侧栏（+ / 拖拽）与 `/` slash 菜单；其它场景保持关闭以减小干扰 */
+  /** 任务描述：`/` slash 菜单与表格控制；其它场景保持关闭以减小干扰 */
   blockChrome?: boolean
   'block-chrome'?: boolean
   /** `@` 成员菜单顶栏占位（与清单「搜索成员」一致，由 Vue i18n 传入） */
@@ -883,7 +883,9 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
         onFocus={handleFocus}
         theme="light"
         slashMenu={blockChromeOn}
-        sideMenu={blockChromeOn}
+        // Keep the slash menu and table handles, but hide BlockNote's two
+        // line-start controls (add block + drag handle).
+        sideMenu={false}
         formattingToolbar={false}
         linkToolbar={false}
         filePanel={false}

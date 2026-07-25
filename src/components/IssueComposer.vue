@@ -315,6 +315,7 @@ async function handleCreate() {
             <BlockNoteEditorWrapper
               ref="descriptionEditorRef"
               v-model="description"
+              :block-chrome="true"
               @upload-state-change="onDescriptionUploadStateChange"
               :placeholder="t('issueComposer.descriptionPlaceholder')"
               :min-height="96"
