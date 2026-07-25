@@ -17,9 +17,13 @@ public class DailySummaryQueryService {
     }
 
     public List<DailySummaryTaskDto> findDueTasks(List<Long> projectIds, LocalDateTime startOfToday, LocalDateTime endOfToday) {
-        List<DailySummaryTaskDto> tasks = taskMapper.selectDueForDigest(projectIds, endOfToday);
+        List<DailySummaryTaskDto> tasks = taskMapper.selectDueForDigest(projectIds, startOfToday, endOfToday);
         for (DailySummaryTaskDto task : tasks) {
-            task.setOverdue(task.getDueDate() != null && task.getDueDate().isBefore(startOfToday));
+            boolean completedToday = "done".equalsIgnoreCase(task.getStatus())
+                    && task.getCompletedAt() != null
+                    && !task.getCompletedAt().isBefore(startOfToday)
+                    && task.getCompletedAt().isBefore(endOfToday);
+            task.setOverdue(!completedToday && task.getDueDate() != null && task.getDueDate().isBefore(startOfToday));
         }
         return tasks;
     }

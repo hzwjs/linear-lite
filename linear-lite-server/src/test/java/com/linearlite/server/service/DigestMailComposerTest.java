@@ -105,4 +105,27 @@ class DigestMailComposerTest {
         assertTrue(content.getHtmlBody().contains("&lt;script&gt;"));
         assertTrue(!content.getHtmlBody().contains("<script>alert"));
     }
+
+    @Test
+    void includesTasksCompletedOnBusinessDateInSummary() {
+        Project project = new Project();
+        project.setId(10L);
+        project.setName("Engineering");
+
+        DailySummaryTaskDto task = new DailySummaryTaskDto();
+        task.setTaskKey("ENG-2");
+        task.setTitle("当天完成的任务");
+        task.setStatus("done");
+        task.setProjectId(10L);
+        task.setCompletedAt(LocalDateTime.of(2026, 7, 24, 15, 30));
+        task.setProgressPercent(100);
+
+        DigestMailContent content = composer.compose(project, "alice", LocalDate.of(2026, 7, 24), List.of(task));
+
+        assertTrue(content.getHtmlBody().contains("今日完成 · 1"));
+        assertTrue(content.getHtmlBody().contains("当天完成的任务"));
+        assertTrue(content.getTextBody().contains("今日完成 1"));
+        assertTrue(content.getTextBody().contains("今日完成 · 1"));
+        assertEquals(1, content.getTaskCount());
+    }
 }

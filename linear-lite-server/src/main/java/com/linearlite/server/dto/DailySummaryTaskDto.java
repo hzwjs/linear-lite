@@ -14,6 +14,7 @@ public class DailySummaryTaskDto {
     private String assigneeEmail;
     private Integer progressPercent;
     private LocalDateTime dueDate;
+    private LocalDateTime completedAt;
     private Boolean overdue;
 
     public Long getTaskId() { return taskId; }
@@ -38,6 +39,8 @@ public class DailySummaryTaskDto {
     public void setProgressPercent(Integer progressPercent) { this.progressPercent = progressPercent; }
     public LocalDateTime getDueDate() { return dueDate; }
     public void setDueDate(LocalDateTime dueDate) { this.dueDate = dueDate; }
+    public LocalDateTime getCompletedAt() { return completedAt; }
+    public void setCompletedAt(LocalDateTime completedAt) { this.completedAt = completedAt; }
     public Boolean getOverdue() { return overdue; }
     public void setOverdue(Boolean overdue) { this.overdue = overdue; }
 }

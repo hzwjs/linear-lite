@@ -119,20 +119,27 @@ public interface TaskMapper extends BaseMapper<Task> {
               u.username AS assigneeUsername,
               u.email AS assigneeEmail,
               t.progress_percent AS progressPercent,
-              t.due_date AS dueDate
+              t.due_date AS dueDate,
+              t.completed_at AS completedAt
             FROM tasks t
             JOIN users u ON u.id = t.assignee_id
             WHERE t.project_id IN
             <foreach collection="projectIds" item="pid" open="(" separator="," close=")">
               #{pid}
             </foreach>
-              AND t.due_date IS NOT NULL
-              AND t.due_date &lt; #{endOfToday}
-              AND LOWER(t.status) NOT IN ('done', 'canceled', 'duplicate')
-            ORDER BY t.due_date ASC, t.id ASC
+              AND (
+                (t.due_date IS NOT NULL
+                 AND t.due_date &lt; #{endOfToday}
+                 AND LOWER(t.status) NOT IN ('done', 'canceled', 'duplicate'))
+                OR (LOWER(t.status) = 'done'
+                    AND t.completed_at &gt;= #{startOfToday}
+                    AND t.completed_at &lt; #{endOfToday})
+              )
+            ORDER BY t.completed_at DESC, t.due_date ASC, t.id ASC
             </script>
             """)
     List<com.linearlite.server.dto.DailySummaryTaskDto> selectDueForDigest(
             @Param("projectIds") List<Long> projectIds,
+            @Param("startOfToday") java.time.LocalDateTime startOfToday,
             @Param("endOfToday") java.time.LocalDateTime endOfToday);
 }

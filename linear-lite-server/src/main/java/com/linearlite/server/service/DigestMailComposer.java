@@ -37,17 +37,25 @@ public class DigestMailComposer {
         String subject = "【今日汇总】" + project.getName() + " · " + businessDay;
 
         List<DailySummaryTaskDto> overdue = tasks.stream().filter(t -> Boolean.TRUE.equals(t.getOverdue())).toList();
-        List<DailySummaryTaskDto> dueToday = tasks.stream().filter(t -> !Boolean.TRUE.equals(t.getOverdue())).toList();
+        List<DailySummaryTaskDto> completedToday = tasks.stream()
+                .filter(t -> "done".equalsIgnoreCase(t.getStatus())
+                        && t.getCompletedAt() != null
+                        && businessDate.equals(t.getCompletedAt().toLocalDate()))
+                .toList();
+        List<DailySummaryTaskDto> dueToday = tasks.stream()
+                .filter(t -> !Boolean.TRUE.equals(t.getOverdue()) && !completedToday.contains(t))
+                .toList();
 
-        String html = buildHtml(project, recipientName, businessDay, dueToday, overdue);
-        String text = buildText(project, recipientName, businessDay, dueToday, overdue);
+        String html = buildHtml(project, recipientName, businessDay, dueToday, overdue, completedToday);
+        String text = buildText(project, recipientName, businessDay, dueToday, overdue, completedToday);
 
         return new DigestMailContent(subject, html, text, tasks.size());
     }
 
     private String buildHtml(Project project, String recipientName, String businessDay,
-                             List<DailySummaryTaskDto> dueToday, List<DailySummaryTaskDto> overdue) {
-        int total = dueToday.size() + overdue.size();
+                             List<DailySummaryTaskDto> dueToday, List<DailySummaryTaskDto> overdue,
+                             List<DailySummaryTaskDto> completedToday) {
+        int total = dueToday.size() + overdue.size() + completedToday.size();
         String rootUrl = buildRootUrl();
         StringBuilder sb = new StringBuilder();
         sb.append("<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>");
@@ -67,6 +75,7 @@ public class DigestMailComposer {
         sb.append(summaryCell("总任务", String.valueOf(total), "#0f172a"));
         sb.append(summaryCell("已逾期", String.valueOf(overdue.size()), "#dc2626"));
         sb.append(summaryCell("今日到期", String.valueOf(dueToday.size()), "#0284c7"));
+        sb.append(summaryCell("今日完成", String.valueOf(completedToday.size()), "#16a34a"));
         sb.append("</tr></table>");
         sb.append("</td></tr>");
 
@@ -78,6 +87,11 @@ public class DigestMailComposer {
         if (!dueToday.isEmpty()) {
             sb.append("<tr><td style=\"padding:20px 32px 0 32px;\"><h2 style=\"margin:0 0 10px 0;font-size:15px;font-weight:700;color:#0f172a;\">今日到期 · ").append(dueToday.size()).append("</h2>");
             sb.append(buildTaskRowsHtml(dueToday));
+            sb.append("</td></tr>");
+        }
+        if (!completedToday.isEmpty()) {
+            sb.append("<tr><td style=\"padding:20px 32px 0 32px;\"><h2 style=\"margin:0 0 10px 0;font-size:15px;font-weight:700;color:#16a34a;\">今日完成 · ").append(completedToday.size()).append("</h2>");
+            sb.append(buildTaskRowsHtml(completedToday));
             sb.append("</td></tr>");
         }
 
@@ -129,15 +143,17 @@ public class DigestMailComposer {
     }
 
     private String buildText(Project project, String recipientName, String businessDay,
-                             List<DailySummaryTaskDto> dueToday, List<DailySummaryTaskDto> overdue) {
-        int total = dueToday.size() + overdue.size();
+                             List<DailySummaryTaskDto> dueToday, List<DailySummaryTaskDto> overdue,
+                             List<DailySummaryTaskDto> completedToday) {
+        int total = dueToday.size() + overdue.size() + completedToday.size();
         String rootUrl = buildRootUrl();
         StringBuilder sb = new StringBuilder();
         sb.append("Hi ").append(nullSafe(recipientName)).append("\n\n");
         sb.append(project.getName()).append(" · 今日汇总\n");
-        sb.append(businessDay).append(" · 共 ").append(total).append(" 个待处理任务");
+        sb.append(businessDay).append(" · 共 ").append(total).append(" 个任务");
         sb.append(" · 已逾期 ").append(overdue.size());
-        sb.append(" · 今日到期 ").append(dueToday.size()).append("\n\n");
+        sb.append(" · 今日到期 ").append(dueToday.size());
+        sb.append(" · 今日完成 ").append(completedToday.size()).append("\n\n");
         if (!overdue.isEmpty()) {
             sb.append("已逾期 · ").append(overdue.size()).append("\n");
             appendTaskText(sb, overdue);
@@ -146,6 +162,11 @@ public class DigestMailComposer {
         if (!dueToday.isEmpty()) {
             sb.append("今日到期 · ").append(dueToday.size()).append("\n");
             appendTaskText(sb, dueToday);
+            sb.append("\n");
+        }
+        if (!completedToday.isEmpty()) {
+            sb.append("今日完成 · ").append(completedToday.size()).append("\n");
+            appendTaskText(sb, completedToday);
             sb.append("\n");
         }
         sb.append("打开 Linear Lite：")
