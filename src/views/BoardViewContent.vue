@@ -524,11 +524,13 @@ onUnmounted(() => {
 .empty-state,
 .error-state,
 .loading-state {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
   color: var(--color-text-secondary);
   gap: 16px;
 }
