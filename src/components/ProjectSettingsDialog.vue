@@ -93,10 +93,11 @@ function onRepositoryChange(event: Event) { const value = (event.target as HTMLS
         </button>
       </div>
       <form class="modal-body" @submit.prevent="onSubmit">
-        <div class="section-panel">
+        <div class="settings-section basic-section">
           <div class="section-header">
-            <p class="section-title">{{ t('projectModal.title') }}</p>
+            <p class="section-title">{{ t('projectSettingsModal.basicTitle') }}</p>
           </div>
+          <div class="basic-fields">
           <div class="form-group">
             <label>{{ t('projectModal.form.nameLabel') }}</label>
             <input
@@ -118,9 +119,10 @@ function onRepositoryChange(event: Event) { const value = (event.target as HTMLS
               @input="onIdentifierInput"
             />
           </div>
+          </div>
         </div>
         <p v-if="error" class="error-msg">{{ error }}</p>
-        <div class="section-panel invite-zone">
+        <div class="settings-section invite-zone">
           <div class="section-header">
             <p class="section-title">{{ t('projectSettingsModal.inviteTitle') }}</p>
             <p class="section-text">{{ t('projectSettingsModal.inviteDescription') }}</p>
@@ -147,7 +149,7 @@ function onRepositoryChange(event: Event) { const value = (event.target as HTMLS
           </div>
           <p v-if="inviteMessage" class="invite-success">{{ inviteMessage }}</p>
         </div>
-        <div class="section-panel import-zone">
+        <div class="settings-section import-zone">
           <div class="section-header">
             <p class="section-title">{{ t('projectSettingsModal.importTitle') }}</p>
             <p class="section-text">{{ t('projectSettingsModal.importDescription') }}</p>
@@ -162,7 +164,7 @@ function onRepositoryChange(event: Event) { const value = (event.target as HTMLS
             {{ t('projectSettingsModal.importButton') }}
           </button>
         </div>
-        <div v-if="canDelete" class="section-panel email-zone">
+        <div v-if="canDelete" class="settings-section email-zone">
           <div class="section-header">
             <p class="section-title">{{ t('projectSettingsModal.emailTitle') }}</p>
             <p class="section-text">{{ t('projectSettingsModal.emailDescription') }}</p>
@@ -212,7 +214,7 @@ function onRepositoryChange(event: Event) { const value = (event.target as HTMLS
             <button type="button" class="btn-primary" data-testid="codex-save-binding" :disabled="isCodexLoading || !codexRunnerId || !codexRepositoryId || !codexBaseBranch.trim()" @click="emit('saveCodexBinding')">保存 Codex 绑定</button>
           </div>
         </div>
-        <div v-if="canDelete" class="section-panel danger-zone">
+        <div v-if="canDelete" class="settings-section danger-zone">
           <div class="section-header">
             <p class="danger-zone-title">{{ t('projectSettingsModal.deleteTitle') }}</p>
             <p class="danger-zone-text">{{ t('projectSettingsModal.deleteDescription') }}</p>
@@ -1000,6 +1002,186 @@ function onRepositoryChange(event: Event) { const value = (event.target as HTMLS
   .btn-danger,
   .close-btn {
     transition: none;
+  }
+}
+
+/* Settings surfaces stay close to the app shell: one panel, compact rows,
+   and dividers instead of a stack of elevated cards. */
+.modal {
+  width: min(640px, 100%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
+}
+.modal-header {
+  min-height: 48px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.modal-header h3 {
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing);
+  line-height: 20px;
+}
+.modal-header .close-btn {
+  width: 28px;
+  height: 28px;
+  margin-right: -4px;
+  font-size: 22px;
+}
+.modal-body {
+  padding: 0 16px 12px;
+}
+.settings-section {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: transparent;
+}
+.settings-section .section-header {
+  margin-bottom: 10px;
+}
+.settings-section .section-title {
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 18px;
+}
+.settings-section .section-text {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 17px;
+}
+.basic-section {
+  padding-top: 14px;
+}
+.basic-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 156px;
+  gap: 12px;
+}
+.form-group,
+.codex-zone .form-group {
+  margin-bottom: 0;
+}
+.form-group label {
+  margin-bottom: 5px;
+  font-size: 11px;
+  line-height: 15px;
+}
+.modal .input {
+  min-height: 34px;
+  padding: 7px 9px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  box-shadow: none;
+}
+.invite-zone,
+.import-zone,
+.email-zone,
+.danger-zone,
+.codex-zone {
+  margin-top: 0;
+}
+.invite-controls {
+  gap: 8px;
+}
+.import-zone,
+.danger-zone {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+}
+.import-zone .section-header,
+.danger-zone .section-header {
+  margin-bottom: 0;
+}
+.email-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.email-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.email-toggle input {
+  accent-color: var(--color-accent);
+}
+.codex-zone {
+  padding: 16px 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.codex-zone .section-header {
+  margin-bottom: 10px;
+}
+.codex-enrollment-row {
+  min-height: 38px;
+  margin-bottom: 12px;
+  padding: 4px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
+  box-shadow: none;
+}
+.codex-zone .input {
+  min-height: 34px;
+  padding: 7px 9px;
+  border-radius: var(--radius-md);
+  box-shadow: none;
+}
+.codex-zone .form-group {
+  margin-bottom: 10px;
+}
+.codex-save-row {
+  margin-top: 12px;
+}
+.danger-zone {
+  border-bottom: 0;
+  background: transparent;
+}
+.danger-zone-title {
+  font-size: 13px;
+}
+.danger-zone-text {
+  font-size: 12px;
+}
+.error-msg {
+  margin: 10px 0 0;
+  border-radius: var(--radius-md);
+}
+.modal-footer {
+  margin-top: 0;
+  padding: 12px 0 0;
+  border-top: 0;
+}
+.btn-cancel,
+.btn-secondary,
+.btn-primary,
+.btn-danger {
+  min-height: 34px;
+  padding: 7px 12px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  line-height: 18px;
+}
+@media (max-width: 520px) {
+  .basic-fields {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .email-zone {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 }
 </style>
