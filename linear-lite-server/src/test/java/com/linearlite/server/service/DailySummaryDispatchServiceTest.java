@@ -3,10 +3,8 @@ package com.linearlite.server.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.linearlite.server.dto.DailySummaryTaskDto;
 import com.linearlite.server.dto.DigestMailContent;
-import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.ProjectEmailDispatch;
 import com.linearlite.server.mapper.ProjectEmailDispatchMapper;
-import com.linearlite.server.mapper.ProjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,7 +30,6 @@ class DailySummaryDispatchServiceTest {
 
     @Mock private ProjectEmailPreferenceService preferenceService;
     @Mock private DailySummaryQueryService queryService;
-    @Mock private ProjectMapper projectMapper;
     @Mock private DigestMailComposer composer;
     @Mock private DigestMailSender sender;
     @Mock private ProjectEmailDispatchMapper dispatchMapper;
@@ -42,7 +39,7 @@ class DailySummaryDispatchServiceTest {
     @BeforeEach
     void setUp() {
         service = new DailySummaryDispatchService(
-                preferenceService, queryService, projectMapper,
+                preferenceService, queryService,
                 composer, sender, dispatchMapper);
     }
 
@@ -59,34 +56,23 @@ class DailySummaryDispatchServiceTest {
     }
 
     @Test
-    void sendsAndRecordsPerRecipient() {
+    void sendsOneCrossProjectSummaryPerRecipient() {
         LocalDate date = LocalDate.of(2026, 7, 24);
 
-        Project project = new Project();
-        project.setId(10L);
-        project.setName("Engineering");
+        DailySummaryTaskDto engineeringTask = assignedTask(1L, "ENG-1", 10L);
+        DailySummaryTaskDto productTask = assignedTask(2L, "PROD-1", 20L);
 
-        DailySummaryTaskDto task = new DailySummaryTaskDto();
-        task.setTaskId(1L);
-        task.setTaskKey("ENG-1");
-        task.setTitle("修复");
-        task.setProjectId(10L);
-        task.setAssigneeId(7L);
-        task.setAssigneeUsername("alice");
-        task.setAssigneeEmail("a@example.com");
-
-        when(preferenceService.listEnabledProjectIds("daily_summary")).thenReturn(List.of(10L));
-        when(projectMapper.selectById(10L)).thenReturn(project);
-        when(queryService.findDueTasks(eq(List.of(10L)), any(), any())).thenReturn(List.of(task));
+        when(preferenceService.listEnabledProjectIds("daily_summary")).thenReturn(List.of(10L, 20L));
+        when(queryService.findDueTasks(eq(List.of(10L, 20L)), any(), any())).thenReturn(List.of(engineeringTask, productTask));
         when(dispatchMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
         when(dispatchMapper.update(any(), any())).thenReturn(1);
-        when(composer.compose(eq(project), eq("alice"), eq(date), any())).thenReturn(
-                new DigestMailContent("主题", "<html/>", "text", 1));
+        when(composer.compose(eq("alice"), eq(date), any())).thenReturn(
+                new DigestMailContent("主题", "<html/>", "text", 2));
 
         service.dispatchForDate(date);
 
         InOrder inOrder = org.mockito.Mockito.inOrder(composer, dispatchMapper, sender);
-        inOrder.verify(composer).compose(eq(project), eq("alice"), eq(date), any());
+        inOrder.verify(composer).compose(eq("alice"), eq(date), org.mockito.ArgumentMatchers.argThat(tasks -> tasks.size() == 2));
         inOrder.verify(dispatchMapper).insert(any(ProjectEmailDispatch.class));
         inOrder.verify(sender).send(eq("a@example.com"), any(DigestMailContent.class));
         ArgumentCaptor<ProjectEmailDispatch> captor = ArgumentCaptor.forClass(ProjectEmailDispatch.class);
@@ -95,7 +81,7 @@ class DailySummaryDispatchServiceTest {
         ProjectEmailDispatch recorded = captor.getValue();
         assertEquals("daily_summary", recorded.getScenarioKey());
         assertEquals("主题", recorded.getSubject());
-        assertEquals(1, recorded.getTaskCount());
+        assertEquals(2, recorded.getTaskCount());
         assertEquals("sent", recorded.getStatus());
     }
 
@@ -103,36 +89,23 @@ class DailySummaryDispatchServiceTest {
     void skipsWhenAnotherWorkerAlreadyClaimedDispatch() {
         LocalDate date = LocalDate.of(2026, 7, 24);
 
-        Project project = new Project();
-        project.setId(10L);
-        project.setName("Engineering");
-
         ProjectEmailDispatch existing = new ProjectEmailDispatch();
         existing.setId(99L);
-        existing.setProjectId(10L);
         existing.setScenarioKey("daily_summary");
         existing.setBusinessDate(date);
         existing.setRecipientUserId(7L);
         existing.setStatus("pending");
 
-        DailySummaryTaskDto task = new DailySummaryTaskDto();
-        task.setTaskId(1L);
-        task.setTaskKey("ENG-1");
-        task.setTitle("修复");
-        task.setProjectId(10L);
-        task.setAssigneeId(7L);
-        task.setAssigneeUsername("alice");
-        task.setAssigneeEmail("a@example.com");
+        DailySummaryTaskDto task = assignedTask(1L, "ENG-1", 10L);
 
         when(preferenceService.listEnabledProjectIds("daily_summary")).thenReturn(List.of(10L));
-        when(projectMapper.selectById(10L)).thenReturn(project);
         when(queryService.findDueTasks(eq(List.of(10L)), any(), any())).thenReturn(List.of(task));
         when(dispatchMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
         when(dispatchMapper.update(any(), any())).thenReturn(0);
 
         service.dispatchForDate(date);
 
-        verify(composer).compose(eq(project), eq("alice"), eq(date), any());
+        verify(composer).compose(eq("alice"), eq(date), any());
         verify(sender, never()).send(anyString(), any());
         verify(dispatchMapper, never()).updateById(any());
         verify(dispatchMapper, never()).insert(any());
@@ -141,10 +114,6 @@ class DailySummaryDispatchServiceTest {
     @Test
     void skipsRecipientWithoutEmail() {
         LocalDate date = LocalDate.of(2026, 7, 24);
-
-        Project project = new Project();
-        project.setId(10L);
-        project.setName("Engineering");
 
         DailySummaryTaskDto task = new DailySummaryTaskDto();
         task.setTaskId(1L);
@@ -155,12 +124,23 @@ class DailySummaryDispatchServiceTest {
         task.setAssigneeEmail(null);
 
         when(preferenceService.listEnabledProjectIds("daily_summary")).thenReturn(List.of(10L));
-        when(projectMapper.selectById(10L)).thenReturn(project);
         when(queryService.findDueTasks(eq(List.of(10L)), any(), any())).thenReturn(List.of(task));
 
         service.dispatchForDate(date);
 
         verify(sender, never()).send(anyString(), any());
         verify(dispatchMapper, never()).insert(any());
+    }
+
+    private DailySummaryTaskDto assignedTask(Long taskId, String taskKey, Long projectId) {
+        DailySummaryTaskDto task = new DailySummaryTaskDto();
+        task.setTaskId(taskId);
+        task.setTaskKey(taskKey);
+        task.setTitle("修复");
+        task.setProjectId(projectId);
+        task.setAssigneeId(7L);
+        task.setAssigneeUsername("alice");
+        task.setAssigneeEmail("a@example.com");
+        return task;
     }
 }

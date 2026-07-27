@@ -115,6 +115,7 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.status AS status,
               t.priority AS priority,
               t.project_id AS projectId,
+              p.name AS projectName,
               t.assignee_id AS assigneeId,
               u.username AS assigneeUsername,
               u.email AS assigneeEmail,
@@ -122,6 +123,7 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.due_date AS dueDate,
               t.completed_at AS completedAt
             FROM tasks t
+            JOIN projects p ON p.id = t.project_id
             JOIN users u ON u.id = t.assignee_id
             WHERE t.project_id IN
             <foreach collection="projectIds" item="pid" open="(" separator="," close=")">

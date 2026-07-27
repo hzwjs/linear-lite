@@ -381,10 +381,9 @@ CREATE TABLE IF NOT EXISTS project_email_preferences (
 
 CREATE INDEX idx_project_email_preferences_project ON project_email_preferences (project_id);
 
--- 项目邮件发送记录（幂等与可追踪）
+-- 用户邮件发送记录（按用户、场景、业务日幂等）
 CREATE TABLE IF NOT EXISTS project_email_dispatches (
     id                 BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    project_id         BIGINT       NOT NULL,
     scenario_key       VARCHAR(32)  NOT NULL,
     business_date      DATE         NOT NULL,
     recipient_user_id  BIGINT       NOT NULL,
@@ -395,8 +394,40 @@ CREATE TABLE IF NOT EXISTS project_email_dispatches (
     sent_at            DATETIME     DEFAULT NULL,
     created_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_project_email_dispatches_key (project_id, scenario_key, business_date, recipient_user_id)
+    UNIQUE KEY uk_project_email_dispatches_user_key (scenario_key, business_date, recipient_user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE INDEX idx_project_email_dispatches_project_date
-ON project_email_dispatches (project_id, scenario_key, business_date);
+-- 已有库增量：发送记录从项目维度迁移到用户维度，保证同一用户每天每场景只发送一次。
+-- 旧模型可能为同一用户写入多个项目发送记录；先合并任务数，再保留最早记录作为唯一审计记录。
+UPDATE project_email_dispatches keeper
+JOIN (
+    SELECT MIN(id) AS keeper_id, SUM(task_count) AS aggregated_task_count
+    FROM project_email_dispatches
+    GROUP BY scenario_key, business_date, recipient_user_id
+    HAVING COUNT(*) > 1
+) duplicates ON duplicates.keeper_id = keeper.id
+SET keeper.task_count = duplicates.aggregated_task_count;
+
+DELETE duplicate
+FROM project_email_dispatches duplicate
+JOIN project_email_dispatches keeper
+  ON keeper.scenario_key = duplicate.scenario_key
+ AND keeper.business_date = duplicate.business_date
+ AND keeper.recipient_user_id = duplicate.recipient_user_id
+ AND keeper.id < duplicate.id;
+
+SET @dispatch_project_id_exists = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'project_email_dispatches' AND COLUMN_NAME = 'project_id'
+);
+SET @dispatch_user_scope_ddl = IF(
+    @dispatch_project_id_exists = 1,
+    'ALTER TABLE project_email_dispatches DROP INDEX uk_project_email_dispatches_key, DROP INDEX idx_project_email_dispatches_project_date, DROP COLUMN project_id, ADD UNIQUE KEY uk_project_email_dispatches_user_key (scenario_key, business_date, recipient_user_id)',
+    'SELECT 1'
+);
+PREPARE dispatch_user_scope_stmt FROM @dispatch_user_scope_ddl;
+EXECUTE dispatch_user_scope_stmt;
+DEALLOCATE PREPARE dispatch_user_scope_stmt;
+
+CREATE INDEX idx_project_email_dispatches_user_date
+ON project_email_dispatches (recipient_user_id, scenario_key, business_date);

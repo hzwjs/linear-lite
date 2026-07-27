@@ -9,6 +9,7 @@ public class DailySummaryTaskDto {
     private String status;
     private String priority;
     private Long projectId;
+    private String projectName;
     private Long assigneeId;
     private String assigneeUsername;
     private String assigneeEmail;
@@ -29,6 +30,8 @@ public class DailySummaryTaskDto {
     public void setPriority(String priority) { this.priority = priority; }
     public Long getProjectId() { return projectId; }
     public void setProjectId(Long projectId) { this.projectId = projectId; }
+    public String getProjectName() { return projectName; }
+    public void setProjectName(String projectName) { this.projectName = projectName; }
     public Long getAssigneeId() { return assigneeId; }
     public void setAssigneeId(Long assigneeId) { this.assigneeId = assigneeId; }
     public String getAssigneeUsername() { return assigneeUsername; }

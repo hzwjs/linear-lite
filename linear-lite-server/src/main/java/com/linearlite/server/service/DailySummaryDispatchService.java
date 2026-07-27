@@ -4,10 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.linearlite.server.dto.DailySummaryTaskDto;
 import com.linearlite.server.dto.DigestMailContent;
-import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.ProjectEmailDispatch;
 import com.linearlite.server.mapper.ProjectEmailDispatchMapper;
-import com.linearlite.server.mapper.ProjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -26,7 +24,6 @@ public class DailySummaryDispatchService {
 
     private final ProjectEmailPreferenceService preferenceService;
     private final DailySummaryQueryService queryService;
-    private final ProjectMapper projectMapper;
     private final DigestMailComposer composer;
     private final DigestMailSender sender;
     private final ProjectEmailDispatchMapper dispatchMapper;
@@ -34,13 +31,11 @@ public class DailySummaryDispatchService {
     public DailySummaryDispatchService(
             ProjectEmailPreferenceService preferenceService,
             DailySummaryQueryService queryService,
-            ProjectMapper projectMapper,
             DigestMailComposer composer,
             DigestMailSender sender,
             ProjectEmailDispatchMapper dispatchMapper) {
         this.preferenceService = preferenceService;
         this.queryService = queryService;
-        this.projectMapper = projectMapper;
         this.composer = composer;
         this.sender = sender;
         this.dispatchMapper = dispatchMapper;
@@ -56,21 +51,7 @@ public class DailySummaryDispatchService {
         List<DailySummaryTaskDto> tasks = queryService.findDueTasks(projectIds, startOfToday, endOfToday);
         if (tasks.isEmpty()) return;
 
-        Map<Long, List<DailySummaryTaskDto>> tasksByProject = tasks.stream()
-                .collect(Collectors.groupingBy(DailySummaryTaskDto::getProjectId));
-
-        for (Long projectId : projectIds) {
-            List<DailySummaryTaskDto> projectTasks = tasksByProject.get(projectId);
-            if (projectTasks == null || projectTasks.isEmpty()) continue;
-
-            Project project = projectMapper.selectById(projectId);
-            if (project == null) continue;
-
-            dispatchForProject(project, projectTasks, businessDate);
-        }
-    }
-
-    private void dispatchForProject(Project project, List<DailySummaryTaskDto> tasks, LocalDate businessDate) {
+        // 汇总到用户后发送，确保同一用户当天只收到一封跨项目邮件。
         Map<Long, List<DailySummaryTaskDto>> tasksByAssignee = tasks.stream()
                 .filter(t -> t.getAssigneeId() != null)
                 .collect(Collectors.groupingBy(DailySummaryTaskDto::getAssigneeId));
@@ -81,15 +62,14 @@ public class DailySummaryDispatchService {
             String username = first.getAssigneeUsername();
             if (email == null || email.isBlank()) continue;
 
-            dispatchOne(project, entry.getKey(), username, email, entry.getValue(), businessDate);
+            dispatchOne(entry.getKey(), username, email, entry.getValue(), businessDate);
         }
     }
 
-    private void dispatchOne(Project project, Long recipientUserId, String recipientName,
+    private void dispatchOne(Long recipientUserId, String recipientName,
                              String recipientEmail, List<DailySummaryTaskDto> tasks, LocalDate businessDate) {
         ProjectEmailDispatch record = dispatchMapper.selectOne(
                 new LambdaQueryWrapper<ProjectEmailDispatch>()
-                        .eq(ProjectEmailDispatch::getProjectId, project.getId())
                         .eq(ProjectEmailDispatch::getScenarioKey,
                                 ProjectEmailPreferenceService.SCENARIO_DAILY_SUMMARY)
                         .eq(ProjectEmailDispatch::getBusinessDate, businessDate)
@@ -98,15 +78,14 @@ public class DailySummaryDispatchService {
 
         DigestMailContent content;
         try {
-            content = composer.compose(project, recipientName, businessDate, tasks);
+            content = composer.compose(recipientName, businessDate, tasks);
         } catch (RuntimeException e) {
-            log.warn("今日汇总邮件编排失败 projectId={} userId={}", project.getId(), recipientUserId, e);
+            log.warn("今日汇总邮件编排失败 userId={}", recipientUserId, e);
             return;
         }
 
         if (record == null) {
             record = new ProjectEmailDispatch();
-            record.setProjectId(project.getId());
             record.setScenarioKey(ProjectEmailPreferenceService.SCENARIO_DAILY_SUMMARY);
             record.setBusinessDate(businessDate);
             record.setRecipientUserId(recipientUserId);
@@ -120,7 +99,6 @@ public class DailySummaryDispatchService {
             } catch (DuplicateKeyException ignored) {
                 record = dispatchMapper.selectOne(
                         new LambdaQueryWrapper<ProjectEmailDispatch>()
-                                .eq(ProjectEmailDispatch::getProjectId, project.getId())
                                 .eq(ProjectEmailDispatch::getScenarioKey,
                                         ProjectEmailPreferenceService.SCENARIO_DAILY_SUMMARY)
                                 .eq(ProjectEmailDispatch::getBusinessDate, businessDate)
@@ -159,7 +137,7 @@ public class DailySummaryDispatchService {
             record.setLastError(msg == null ? null : msg.substring(0, Math.min(msg.length(), 1024)));
             record.setUpdatedAt(LocalDateTime.now());
             dispatchMapper.updateById(record);
-            log.warn("今日汇总邮件发送失败 projectId={} userId={}", project.getId(), recipientUserId, e);
+            log.warn("今日汇总邮件发送失败 userId={}", recipientUserId, e);
         }
     }
 }

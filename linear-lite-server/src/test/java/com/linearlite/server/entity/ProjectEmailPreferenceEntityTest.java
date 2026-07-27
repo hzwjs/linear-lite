@@ -31,7 +31,6 @@ class ProjectEmailPreferenceEntityTest {
     void dispatchHoldsBusinessDateAndStatus() {
         ProjectEmailDispatch dispatch = new ProjectEmailDispatch();
         dispatch.setId(2L);
-        dispatch.setProjectId(10L);
         dispatch.setScenarioKey("daily_summary");
         dispatch.setBusinessDate(LocalDate.of(2026, 7, 24));
         dispatch.setRecipientUserId(7L);

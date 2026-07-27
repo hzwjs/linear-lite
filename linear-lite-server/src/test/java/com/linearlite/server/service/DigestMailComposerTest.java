@@ -2,7 +2,6 @@ package com.linearlite.server.service;
 
 import com.linearlite.server.dto.DailySummaryTaskDto;
 import com.linearlite.server.dto.DigestMailContent;
-import com.linearlite.server.entity.Project;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -24,11 +23,6 @@ class DigestMailComposerTest {
 
     @Test
     void composesTranslatedStatusProgressAndLinks() {
-        Project project = new Project();
-        project.setId(10L);
-        project.setName("Engineering");
-        project.setIdentifier("ENG");
-
         DailySummaryTaskDto task = new DailySummaryTaskDto();
         task.setTaskId(1L);
         task.setTaskKey("ENG-1");
@@ -36,16 +30,18 @@ class DigestMailComposerTest {
         task.setStatus("in_progress");
         task.setPriority("high");
         task.setProjectId(10L);
+        task.setProjectName("Engineering");
         task.setProgressPercent(65);
         task.setDueDate(LocalDateTime.of(2026, 7, 24, 18, 0));
         task.setOverdue(false);
 
-        DigestMailContent content = composer.compose(project, "alice", LocalDate.of(2026, 7, 24), List.of(task));
+        DigestMailContent content = composer.compose("alice", LocalDate.of(2026, 7, 24), List.of(task));
 
-        assertTrue(content.getSubject().contains("Engineering"));
+        assertTrue(content.getSubject().contains("2026-07-24"));
         assertTrue(content.getHtmlBody().contains("修复登录"));
         assertTrue(content.getHtmlBody().contains("2026-07-24"));
         assertTrue(content.getHtmlBody().contains("进行中"));
+        assertTrue(content.getHtmlBody().contains("项目 Engineering"));
         assertTrue(content.getHtmlBody().contains("进度 65%"));
         assertTrue(content.getHtmlBody().contains("href=\"https://app.example.com/\""));
         assertTrue(content.getHtmlBody().contains("https://app.example.com/projects/10/tasks/ENG-1"));
@@ -61,21 +57,18 @@ class DigestMailComposerTest {
     void degradesSafelyWhenBaseUrlIsBlankAndProgressIsMissing() {
         DigestMailComposer blankBaseUrlComposer = new DigestMailComposer("");
 
-        Project project = new Project();
-        project.setId(10L);
-        project.setName("Engineering");
-
         DailySummaryTaskDto task = new DailySummaryTaskDto();
         task.setTaskId(1L);
         task.setTaskKey("ENG-1");
         task.setTitle("修复登录");
         task.setStatus(null);
         task.setProjectId(10L);
+        task.setProjectName("Engineering");
         task.setProgressPercent(null);
         task.setDueDate(LocalDateTime.of(2026, 7, 24, 18, 0));
         task.setOverdue(false);
 
-        DigestMailContent content = blankBaseUrlComposer.compose(project, "alice", LocalDate.of(2026, 7, 24), List.of(task));
+        DigestMailContent content = blankBaseUrlComposer.compose("alice", LocalDate.of(2026, 7, 24), List.of(task));
 
         assertTrue(content.getHtmlBody().contains("状态 未设置"));
         assertTrue(content.getHtmlBody().contains("进度 --"));
@@ -86,21 +79,17 @@ class DigestMailComposerTest {
 
     @Test
     void htmlEscapesTaskTitle() {
-        Project project = new Project();
-        project.setId(10L);
-        project.setName("Engineering");
-        project.setIdentifier("ENG");
-
         DailySummaryTaskDto task = new DailySummaryTaskDto();
         task.setTaskId(1L);
         task.setTaskKey("ENG-1");
         task.setTitle("<script>alert(1)</script>");
         task.setProjectId(10L);
+        task.setProjectName("Engineering");
         task.setProgressPercent(20);
         task.setDueDate(LocalDateTime.of(2026, 7, 24, 18, 0));
         task.setOverdue(false);
 
-        DigestMailContent content = composer.compose(project, "alice", LocalDate.of(2026, 7, 24), List.of(task));
+        DigestMailContent content = composer.compose("alice", LocalDate.of(2026, 7, 24), List.of(task));
 
         assertTrue(content.getHtmlBody().contains("&lt;script&gt;"));
         assertTrue(!content.getHtmlBody().contains("<script>alert"));
@@ -108,19 +97,16 @@ class DigestMailComposerTest {
 
     @Test
     void includesTasksCompletedOnBusinessDateInSummary() {
-        Project project = new Project();
-        project.setId(10L);
-        project.setName("Engineering");
-
         DailySummaryTaskDto task = new DailySummaryTaskDto();
         task.setTaskKey("ENG-2");
         task.setTitle("当天完成的任务");
         task.setStatus("done");
         task.setProjectId(10L);
+        task.setProjectName("Engineering");
         task.setCompletedAt(LocalDateTime.of(2026, 7, 24, 15, 30));
         task.setProgressPercent(100);
 
-        DigestMailContent content = composer.compose(project, "alice", LocalDate.of(2026, 7, 24), List.of(task));
+        DigestMailContent content = composer.compose("alice", LocalDate.of(2026, 7, 24), List.of(task));
 
         assertTrue(content.getHtmlBody().contains("今日完成 · 1"));
         assertTrue(content.getHtmlBody().contains("当天完成的任务"));
