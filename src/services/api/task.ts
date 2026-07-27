@@ -55,6 +55,13 @@ export const taskApi = {
       .then((res) => asArray(unwrap(res)).map(toTask))
   },
 
+  search(query: string): Promise<Task[]> {
+    return api
+      // Embedding + Qdrant are remote calls; keep the search dialog from waiting indefinitely.
+      .get<ApiResponse<ApiTask[]>>('/tasks/search', { params: { query }, timeout: 10000 })
+      .then((res) => asArray(unwrap(res)).map(toTask))
+  },
+
   create(body: CreateTaskRequest): Promise<Task> {
     return api
       .post<ApiResponse<ApiTask>>('/tasks', body)

@@ -20,6 +20,7 @@ import com.linearlite.server.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.context.ApplicationEventPublisher;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -64,6 +65,8 @@ class ProjectServiceTest {
     private InAppNotificationMapper inAppNotificationMapper;
     @Mock
     private ProjectEmailPreferenceService projectEmailPreferenceService;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     private ProjectService projectService;
 
@@ -84,6 +87,7 @@ class ProjectServiceTest {
                 inAppNotificationMapper,
                 projectEmailPreferenceService
         );
+        projectService.setEventPublisher(eventPublisher);
     }
 
     @Test
@@ -294,6 +298,7 @@ class ProjectServiceTest {
         verify(projectInvitationMapper).delete(any(LambdaQueryWrapper.class));
         verify(projectMemberMapper).delete(any(LambdaQueryWrapper.class));
         verify(projectMapper).deleteById(3L);
+        verify(eventPublisher).publishEvent(new TaskSemanticDeleteRequestedEvent(List.of(11L)));
     }
 
     @Test

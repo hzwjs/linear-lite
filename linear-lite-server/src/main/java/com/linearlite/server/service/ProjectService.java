@@ -23,6 +23,8 @@ import com.linearlite.server.mapper.UserMapper;
 import com.linearlite.server.entity.User;
 import com.linearlite.server.dto.UserSummaryDto;
 import com.linearlite.server.util.EmailNormalization;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,6 +57,7 @@ public class ProjectService {
     private final CommentMentionMapper commentMentionMapper;
     private final InAppNotificationMapper inAppNotificationMapper;
     private final ProjectEmailPreferenceService projectEmailPreferenceService;
+    private ApplicationEventPublisher eventPublisher;
 
     public ProjectService(
             ProjectMapper projectMapper,
@@ -83,6 +86,11 @@ public class ProjectService {
         this.commentMentionMapper = commentMentionMapper;
         this.inAppNotificationMapper = inAppNotificationMapper;
         this.projectEmailPreferenceService = projectEmailPreferenceService;
+    }
+
+    @Autowired
+    public void setEventPublisher(ApplicationEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -318,6 +326,9 @@ public class ProjectService {
         projectInvitationMapper.delete(new LambdaQueryWrapper<ProjectInvitation>().eq(ProjectInvitation::getProjectId, id));
         projectMemberMapper.delete(new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getProjectId, id));
         projectMapper.deleteById(id);
+        if (!taskIds.isEmpty() && eventPublisher != null) {
+            eventPublisher.publishEvent(new TaskSemanticDeleteRequestedEvent(taskIds));
+        }
     }
 
     public void requireProjectMember(Long projectId, Long userId) {

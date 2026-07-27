@@ -54,6 +54,18 @@ describe('taskApi', () => {
     expect(tasks[0].priority).toBe('low')
   })
 
+  it('search: GET /tasks/search with the cross-project query', async () => {
+    vi.mocked(api.get).mockResolvedValue(mockApiResponse([mockApiTask]))
+
+    const tasks = await taskApi.search('login failure')
+
+    expect(api.get).toHaveBeenCalledWith('/tasks/search', {
+      params: { query: 'login failure' },
+      timeout: 10000
+    })
+    expect(tasks.map((task) => task.id)).toEqual([mockApiTask.taskKey])
+  })
+
   it('create: POST /tasks', async () => {
     const created = { ...mockApiTask, taskKey: 'ENG-2', title: 'Test Create' }
     vi.mocked(api.post).mockResolvedValue(mockApiResponse(created))

@@ -90,6 +90,14 @@ public class TaskController {
         return ResponseEntity.ok(ApiResponse.success(list));
     }
 
+    @GetMapping("/search")
+    public ResponseEntity<ApiResponse<List<Task>>> search(
+            HttpServletRequest request,
+            @RequestParam String query) {
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        return ResponseEntity.ok(ApiResponse.success(taskQueryService.searchTasks(query, userId)));
+    }
+
     @GetMapping("/favorites")
     public ResponseEntity<ApiResponse<List<Task>>> listFavorites(HttpServletRequest request) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);

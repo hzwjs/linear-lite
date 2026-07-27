@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.dto.TaskListItemResponse;
+import com.linearlite.server.entity.ProjectMember;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.mapper.LabelMapper;
@@ -23,6 +24,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TaskQueryServiceTest {
 
@@ -177,6 +180,183 @@ class TaskQueryServiceTest {
                 permissionGuard);
 
         assertThrows(ForbiddenOperationException.class, () -> service.listItemsByProjectId(7L, false, null, 9L));
+    }
+
+    @Test
+    void searchTaskKeysRequiresSemanticSearchService() {
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), Task.class);
+        TaskMapper taskMapper = proxy(TaskMapper.class, invocation -> {
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
+        ProjectMemberMapper projectMemberMapper = proxy(ProjectMemberMapper.class, invocation -> {
+            if ("selectCount".equals(invocation.getMethod().getName())) {
+                return 1L;
+            }
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
+        TaskFavoriteMapper taskFavoriteMapper = proxy(TaskFavoriteMapper.class, invocation -> defaultValue(invocation.getMethod().getReturnType()));
+        TaskLabelMapper taskLabelMapper = proxy(TaskLabelMapper.class, invocation -> defaultValue(invocation.getMethod().getReturnType()));
+        LabelMapper labelMapper = proxy(LabelMapper.class, invocation -> defaultValue(invocation.getMethod().getReturnType()));
+        LabelService labelService = new LabelService(labelMapper, taskLabelMapper, projectMemberMapper);
+        TaskPermissionGuard permissionGuard = new TaskPermissionGuard(taskMapper, projectMemberMapper);
+        TaskQueryService service = new TaskQueryService(taskMapper, taskFavoriteMapper, labelService, permissionGuard);
+
+        assertThrows(IllegalStateException.class, () -> service.searchTaskKeys(7L, "semantic query", 9L));
+    }
+
+    @Test
+    void searchTasksRanksTitleThenDescriptionThenVectorResults() {
+        Task titleMatch = searchTask(1L, "ENG-1", "搜索原则", "[]");
+        Task descriptionMatch = searchTask(
+                2L,
+                "ENG-2",
+                "其他任务",
+                """
+                [{"type":"paragraph","content":[{"type":"text","text":"描述中的搜索词","styles":{}}],"children":[]}]
+                """);
+        Task vectorMatch = searchTask(3L, "ENG-3", "向量任务", "[]");
+        TaskMapper taskMapper = proxy(TaskMapper.class, invocation -> {
+            if ("selectList".equals(invocation.getMethod().getName())) {
+                return List.of(titleMatch, descriptionMatch, vectorMatch);
+            }
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
+        ProjectMemberMapper projectMemberMapper = projectMemberMapper(9L, 7L);
+        TaskSemanticSearchService semanticSearchService = mock(TaskSemanticSearchService.class);
+        when(semanticSearchService.search(List.of(7L), "搜索")).thenReturn(List.of("ENG-3"));
+
+        TaskQueryService service = searchService(taskMapper, projectMemberMapper, semanticSearchService);
+
+        assertEquals(List.of("ENG-1", "ENG-2", "ENG-3"), service.searchTasks("搜索", 9L).stream()
+                .map(Task::getTaskKey)
+                .toList());
+    }
+
+    @Test
+    void searchTasksMatchesVisibleBlockNoteDescriptionText() {
+        Task descriptionMatch = searchTask(
+                1L,
+                "ENG-1",
+                "其他任务",
+                """
+                [{"id":"block-1","type":"paragraph","props":{"textColor":"default"},"content":[{"type":"text","text":"遵循轻量原则","styles":{}}],"children":[]}]
+                """);
+        TaskMapper taskMapper = proxy(TaskMapper.class, invocation -> {
+            if ("selectList".equals(invocation.getMethod().getName())) {
+                return List.of(descriptionMatch);
+            }
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
+        ProjectMemberMapper projectMemberMapper = projectMemberMapper(9L, 7L);
+        TaskSemanticSearchService semanticSearchService = mock(TaskSemanticSearchService.class);
+        when(semanticSearchService.search(List.of(7L), "原则")).thenReturn(List.of());
+
+        TaskQueryService service = searchService(taskMapper, projectMemberMapper, semanticSearchService);
+
+        assertEquals(List.of("ENG-1"), service.searchTasks("原则", 9L).stream()
+                .map(Task::getTaskKey)
+                .toList());
+    }
+
+    @Test
+    void searchTasksDeduplicatesTaskMatchedByLiteralAndVectorSearch() {
+        Task sameTask = searchTask(1L, "ENG-1", "语义搜索", "[]");
+        TaskMapper taskMapper = proxy(TaskMapper.class, invocation -> {
+            if ("selectList".equals(invocation.getMethod().getName())) {
+                return List.of(sameTask);
+            }
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
+        ProjectMemberMapper projectMemberMapper = projectMemberMapper(9L, 7L);
+        TaskSemanticSearchService semanticSearchService = mock(TaskSemanticSearchService.class);
+        when(semanticSearchService.search(List.of(7L), "搜索")).thenReturn(List.of("ENG-1"));
+
+        TaskQueryService service = searchService(taskMapper, projectMemberMapper, semanticSearchService);
+
+        assertEquals(List.of("ENG-1"), service.searchTasks("搜索", 9L).stream()
+                .map(Task::getTaskKey)
+                .toList());
+    }
+
+    @Test
+    void searchTasksDoesNotFallBackToLiteralResultsWhenVectorSearchFails() {
+        Task literalMatch = searchTask(1L, "ENG-1", "搜索原则", "[]");
+        TaskMapper taskMapper = proxy(TaskMapper.class, invocation -> {
+            if ("selectList".equals(invocation.getMethod().getName())) {
+                return List.of(literalMatch);
+            }
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
+        ProjectMemberMapper projectMemberMapper = projectMemberMapper(9L, 7L);
+        TaskSemanticSearchService semanticSearchService = mock(TaskSemanticSearchService.class);
+        when(semanticSearchService.search(List.of(7L), "搜索"))
+                .thenThrow(new IllegalStateException("Qdrant unavailable"));
+
+        TaskQueryService service = searchService(taskMapper, projectMemberMapper, semanticSearchService);
+
+        assertThrows(IllegalStateException.class, () -> service.searchTasks("搜索", 9L));
+    }
+
+    @Test
+    void searchTasksDoesNotMatchInvisibleBlockNoteMetadata() {
+        Task metadataOnly = searchTask(
+                1L,
+                "ENG-1",
+                "其他任务",
+                """
+                [{"id":"secret-token","type":"paragraph","props":{"backgroundColor":"secret-token"},"content":[],"children":[]}]
+                """);
+        TaskMapper taskMapper = proxy(TaskMapper.class, invocation -> {
+            if ("selectList".equals(invocation.getMethod().getName())) {
+                return List.of(metadataOnly);
+            }
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
+        ProjectMemberMapper projectMemberMapper = projectMemberMapper(9L, 7L);
+        TaskSemanticSearchService semanticSearchService = mock(TaskSemanticSearchService.class);
+        when(semanticSearchService.search(List.of(7L), "secret-token")).thenReturn(List.of());
+
+        TaskQueryService service = searchService(taskMapper, projectMemberMapper, semanticSearchService);
+
+        assertEquals(List.of(), service.searchTasks("secret-token", 9L));
+    }
+
+    private static TaskQueryService searchService(
+            TaskMapper taskMapper,
+            ProjectMemberMapper projectMemberMapper,
+            TaskSemanticSearchService semanticSearchService) {
+        TaskFavoriteMapper favoriteMapper = proxy(TaskFavoriteMapper.class,
+                invocation -> defaultValue(invocation.getMethod().getReturnType()));
+        TaskLabelMapper taskLabelMapper = proxy(TaskLabelMapper.class,
+                invocation -> defaultValue(invocation.getMethod().getReturnType()));
+        LabelMapper labelMapper = proxy(LabelMapper.class,
+                invocation -> defaultValue(invocation.getMethod().getReturnType()));
+        LabelService labelService = new LabelService(labelMapper, taskLabelMapper, projectMemberMapper);
+        TaskPermissionGuard permissionGuard = new TaskPermissionGuard(taskMapper, projectMemberMapper);
+        return new TaskQueryService(
+                taskMapper, favoriteMapper, labelService, permissionGuard, semanticSearchService, projectMemberMapper);
+    }
+
+    private static ProjectMemberMapper projectMemberMapper(Long userId, Long projectId) {
+        ProjectMember member = new ProjectMember();
+        member.setUserId(userId);
+        member.setProjectId(projectId);
+        return proxy(ProjectMemberMapper.class, invocation -> {
+            if ("selectList".equals(invocation.getMethod().getName())) {
+                return List.of(member);
+            }
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
+    }
+
+    private static Task searchTask(Long id, String key, String title, String description) {
+        Task task = new Task();
+        task.setId(id);
+        task.setTaskKey(key);
+        task.setTitle(title);
+        task.setDescription(description);
+        task.setProjectId(7L);
+        return task;
     }
 
     private static TaskListItemResponse task(Long id, String key, Long parentId, String status) {

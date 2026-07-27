@@ -155,7 +155,7 @@ const zhCN = {
   },
   boardView: {
     newIssue: '新建任务',
-    searchIssues: '搜索任务...',
+    searchIssues: '搜索标题和描述...',
     allIssues: '全部任务',
     active: '进行中',
     backlog: '待规划',

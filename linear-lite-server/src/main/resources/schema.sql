@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     due_date    DATETIME     DEFAULT NULL COMMENT '预计完成/截止日期',
     planned_start_date DATETIME DEFAULT NULL COMMENT '计划开始日期',
     progress_percent TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '完成进度 0–100',
+    semantic_index_hash CHAR(64) DEFAULT NULL COMMENT '最近成功写入语义索引的标题/描述内容哈希',
     completed_at DATETIME    DEFAULT NULL COMMENT '实际完成时间，终态时由系统写入',
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -115,6 +116,19 @@ CREATE INDEX idx_tasks_project_due_date ON tasks (project_id, due_date);
 CREATE INDEX idx_tasks_project_status ON tasks (project_id, status);
 CREATE INDEX idx_tasks_project_assignee ON tasks (project_id, assignee_id);
 CREATE INDEX idx_tasks_project_priority ON tasks (project_id, priority);
+
+-- 语义索引异步任务：task_id 唯一，连续自动保存只会覆盖同一条待执行任务。
+CREATE TABLE IF NOT EXISTS task_semantic_index_jobs (
+    task_id      BIGINT       NOT NULL PRIMARY KEY,
+    operation    VARCHAR(16)  NOT NULL COMMENT 'UPSERT 或 DELETE',
+    content_hash CHAR(64)     DEFAULT NULL,
+    run_after    DATETIME     NOT NULL,
+    version      BIGINT       NOT NULL DEFAULT 1,
+    attempts     INT UNSIGNED NOT NULL DEFAULT 0,
+    created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_task_semantic_index_jobs_due (run_after)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS task_favorites (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,

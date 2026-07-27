@@ -69,3 +69,20 @@ app:
       bucket: ${R2_BUCKET:}
       public-base-url: ${R2_PUBLIC_BASE_URL:}
       region: ${R2_REGION:auto}
+  semantic-search:
+    enabled: ${SEMANTIC_SEARCH_ENABLED:false}
+    qdrant-url: ${QDRANT_URL:http://127.0.0.1:6333}
+    qdrant-api-key: ${QDRANT_API_KEY:}
+    collection: ${QDRANT_COLLECTION:linear_lite_tasks}
+    # 与 KB local 配置保持一致；密钥只能由部署环境注入，不写入仓库。
+    embedding-base-url: ${LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    embedding-api-key: ${API_KEY:}
+    embedding-model: ${LLM_EMBEDDING_MODEL:qwen3.7-text-embedding}
+    dimension: ${EMBEDDING_DIMENSION:1024}
+    max-results: ${SEMANTIC_SEARCH_MAX_RESULTS:100}
+    min-score: ${SEMANTIC_SEARCH_MIN_SCORE:0.35}
+    index-debounce-seconds: ${SEMANTIC_SEARCH_INDEX_DEBOUNCE_SECONDS:30}
+    index-worker-batch-size: ${SEMANTIC_SEARCH_INDEX_WORKER_BATCH_SIZE:20}
+    index-worker-delay-millis: ${SEMANTIC_SEARCH_INDEX_WORKER_DELAY_MILLIS:1000}
+    # 首次全量回填需人工显式开启；默认只处理新建或标题/描述变更的任务。
+    initial-backfill-enabled: ${SEMANTIC_SEARCH_INITIAL_BACKFILL_ENABLED:false}

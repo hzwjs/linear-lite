@@ -32,6 +32,7 @@ public class Task {
     private LocalDateTime plannedStartDate;
     /** 完成进度 0–100 */
     private Integer progressPercent;
+    private String semanticIndexHash;
     private LocalDateTime completedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -159,6 +160,14 @@ public class Task {
 
     public void setProgressPercent(Integer progressPercent) {
         this.progressPercent = progressPercent;
+    }
+
+    public String getSemanticIndexHash() {
+        return semanticIndexHash;
+    }
+
+    public void setSemanticIndexHash(String semanticIndexHash) {
+        this.semanticIndexHash = semanticIndexHash;
     }
 
     public LocalDateTime getCompletedAt() {

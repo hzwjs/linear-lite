@@ -7,6 +7,7 @@ import { useProjectStore } from '../store/projectStore'
 import { useViewModeStore } from '../store/viewModeStore'
 import { useIssuePanelStore } from '../store/issuePanelStore'
 import AddIssueFilterMenu from '../components/issue-filters/AddIssueFilterMenu.vue'
+import GlobalTaskSearchModal from '../components/GlobalTaskSearchModal.vue'
 import CustomSelect from '../components/ui/CustomSelect.vue'
 import type { CustomSelectOption } from '../components/ui/CustomSelect.vue'
 import { projectApi } from '../services/api/project'
@@ -55,6 +56,7 @@ const router = useRouter()
 const { t } = useI18n()
 const users = ref<User[]>([])
 const searchInputRef = ref<HTMLInputElement | null>(null)
+const globalSearchOpen = ref(false)
 const filterPopoverOpen = ref(false)
 const displayPopoverOpen = ref(false)
 const filterTriggerRef = ref<HTMLElement | null>(null)
@@ -68,12 +70,6 @@ const deepLinkResolveSeq = ref(0)
 const routeTaskId = computed(() => getRouteTaskId(route))
 const routeProjectId = computed(() => getRouteProjectId(route))
 const isEditorOpen = computed(() => routeTaskId.value != null)
-
-// Sync store properties for v-model
-const searchQuery = computed({
-  get: () => store.searchQuery,
-  set: (val) => { store.searchQuery = val }
-})
 
 const applyingBoardPrefs = ref(false)
 let boardPrefsSaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -187,6 +183,15 @@ function labelColor(id: number): string {
 
 function clearAllFilters() {
   store.clearIssueFilters()
+}
+
+async function openGlobalSearchTask(task: Task) {
+  globalSearchOpen.value = false
+  if (task.projectId != null && projectStore.activeProjectId !== task.projectId) {
+    projectStore.setActiveProject(task.projectId)
+    await store.fetchTasks()
+  }
+  await router.push(buildTaskRoute(task.id, task.projectId))
 }
 
 const statusFilterLabel = computed(() => {
@@ -580,15 +585,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
         </button>
       </div>
       <div class="toolbar-spacer" aria-hidden="true" />
-      <div class="toolbar-search">
-        <input
-          ref="searchInputRef"
-          v-model="searchQuery"
-          :placeholder="t('boardView.searchIssues')"
-          class="search-input"
-          :aria-label="t('boardView.searchIssues')"
-        />
-      </div>
+      <div class="toolbar-search"><button class="search-input" type="button" @click="globalSearchOpen = true">{{ t('boardView.searchIssues') }}</button></div>
       <div class="toolbar-options">
         <div ref="filterTriggerRef" class="popover-anchor popover-anchor-right">
           <button
@@ -847,6 +844,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
       </template>
     </Suspense>
   </div>
+  <GlobalTaskSearchModal :open="globalSearchOpen" @close="globalSearchOpen = false" @select="openGlobalSearchTask" />
 </template>
 
 <style scoped>

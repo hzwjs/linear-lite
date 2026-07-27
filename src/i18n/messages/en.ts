@@ -155,7 +155,7 @@ const en = {
   },
   boardView: {
     newIssue: 'New issue',
-    searchIssues: 'Search issues...',
+    searchIssues: 'Search titles and descriptions...',
     allIssues: 'All issues',
     active: 'Active',
     backlog: 'Backlog',

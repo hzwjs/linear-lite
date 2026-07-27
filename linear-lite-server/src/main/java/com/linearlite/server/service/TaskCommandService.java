@@ -15,6 +15,8 @@ import com.linearlite.server.mapper.TaskMapper;
 import com.linearlite.server.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -40,6 +42,7 @@ public class TaskCommandService {
     private final TaskQueryService taskQueryService;
     private final UserMapper userMapper;
     private final CodexDispatchService codexDispatchService;
+    private ApplicationEventPublisher eventPublisher;
 
     public TaskCommandService(
             TaskMapper taskMapper,
@@ -62,6 +65,11 @@ public class TaskCommandService {
         this.taskQueryService = taskQueryService;
         this.userMapper = userMapper;
         this.codexDispatchService = codexDispatchService;
+    }
+
+    @Autowired
+    public void setEventPublisher(ApplicationEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -126,6 +134,7 @@ public class TaskCommandService {
             codexDispatchService.dispatchAssignedTask(inserted, creatorId);
         }
         taskQueryService.enrichForUser(Collections.singletonList(inserted), creatorId);
+        publishSemanticIndexRequest(inserted.getId());
         return inserted;
     }
 
@@ -145,11 +154,13 @@ public class TaskCommandService {
         UpdateWrapper<Task> wrapper = new UpdateWrapper<Task>()
                 .eq("id", existing.getId());
         boolean hasUpdate = false;
+        boolean semanticTextChanged = false;
         if (request.getTitle() != null) {
             String nextTitle = request.getTitle().trim();
             if (!nextTitle.equals(existing.getTitle())) {
                 wrapper.set("title", nextTitle);
                 hasUpdate = true;
+                semanticTextChanged = true;
             }
         }
         if (request.getDescription() != null) {
@@ -158,6 +169,7 @@ public class TaskCommandService {
             if (!equalsNullable(nextDesc, existing.getDescription())) {
                 wrapper.set("description", nextDesc);
                 hasUpdate = true;
+                semanticTextChanged = true;
             }
         }
         boolean touchStatusOrProgress =
@@ -289,7 +301,14 @@ public class TaskCommandService {
                     labelService.sortedNamesJoined(updated.getId()));
         }
         taskQueryService.enrichForUser(Collections.singletonList(updated), userId);
+        if (semanticTextChanged) {
+            publishSemanticIndexRequest(updated.getId());
+        }
         return updated;
+    }
+
+    private void publishSemanticIndexRequest(Long taskId) {
+        if (eventPublisher != null) eventPublisher.publishEvent(new TaskSemanticIndexRequestedEvent(taskId));
     }
 
     @Transactional(rollbackFor = Exception.class)
