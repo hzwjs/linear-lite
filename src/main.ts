@@ -1,7 +1,7 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
 import "./style.css";
-import App from "./App.vue";
+import AdaptiveRoot from "./AdaptiveRoot.vue";
 import router, { setupRouterGuards } from "./router";
 import { i18n } from "./i18n";
 import { useLocaleStore } from "./store/localeStore";
@@ -14,7 +14,7 @@ setVeauryOptions({
   }
 });
 
-const app = createApp(App);
+const app = createApp(AdaptiveRoot);
 const pinia = createPinia();
 
 app.use(pinia);
