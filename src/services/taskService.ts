@@ -19,7 +19,7 @@ export const taskService = {
   async createTask(
     data: Omit<Task, 'id' | 'createdAt' | 'updatedAt'> & { projectId: number }
   ): Promise<Task> {
-    return taskApi.create({
+    const mutation = await taskApi.create({
       projectId: data.projectId,
       title: data.title,
       description: data.description,
@@ -27,22 +27,25 @@ export const taskService = {
       priority: data.priority,
       assigneeId: data.assigneeId ?? null
     })
+    return mutation.task
   },
 
   async updateTask(
     id: string,
     updates: Partial<Omit<Task, 'id' | 'createdAt' | 'updatedAt'>>
   ): Promise<Task> {
-    return taskApi.update(id, {
+    const mutation = await taskApi.update(id, {
       title: updates.title,
       description: updates.description,
       status: updates.status,
       priority: updates.priority,
       assigneeId: updates.assigneeId
     })
+    return mutation.task
   },
 
   async transitionTask(id: string, newStatus: Status): Promise<Task> {
-    return taskApi.update(id, { status: newStatus })
+    const mutation = await taskApi.update(id, { status: newStatus })
+    return mutation.task
   }
 }

@@ -68,9 +68,12 @@ describe('taskApi', () => {
 
   it('create: POST /tasks', async () => {
     const created = { ...mockApiTask, taskKey: 'ENG-2', title: 'Test Create' }
-    vi.mocked(api.post).mockResolvedValue(mockApiResponse(created))
+    vi.mocked(api.post).mockResolvedValue(mockApiResponse({
+      task: created,
+      autoCompletedAncestors: []
+    }))
 
-    const task = await taskApi.create({
+    const result = await taskApi.create({
       projectId: MOCK_PROJECT_ID,
       title: 'Test Create',
       status: 'todo',
@@ -83,13 +86,16 @@ describe('taskApi', () => {
       status: 'todo',
       priority: 'low'
     })
-    expect(task.id).toBe('ENG-2')
-    expect(task.title).toBe('Test Create')
+    expect(result.task.id).toBe('ENG-2')
+    expect(result.task.title).toBe('Test Create')
   })
 
   it('update: PUT /tasks/ENG-1', async () => {
     const updated = { ...mockApiTask, title: 'New Title', priority: 'high' }
-    vi.mocked(api.put).mockResolvedValue(mockApiResponse(updated))
+    vi.mocked(api.put).mockResolvedValue(mockApiResponse({
+      task: updated,
+      autoCompletedAncestors: []
+    }))
 
     const result = await taskApi.update('ENG-1', {
       title: 'New Title',
@@ -100,18 +106,41 @@ describe('taskApi', () => {
       title: 'New Title',
       priority: 'high'
     })
-    expect(result.title).toBe('New Title')
-    expect(result.priority).toBe('high')
+    expect(result.task.title).toBe('New Title')
+    expect(result.task.priority).toBe('high')
   })
 
   it('transition: PUT /tasks/ENG-1 with status', async () => {
     const transitioned = { ...mockApiTask, status: 'done' }
-    vi.mocked(api.put).mockResolvedValue(mockApiResponse(transitioned))
+    vi.mocked(api.put).mockResolvedValue(mockApiResponse({
+      task: transitioned,
+      autoCompletedAncestors: []
+    }))
 
     const result = await taskApi.update('ENG-1', { status: 'done' })
 
     expect(api.put).toHaveBeenCalledWith('/tasks/ENG-1', { status: 'done' })
-    expect(result.status).toBe('done')
+    expect(result.task.status).toBe('done')
+  })
+
+  it('maps explicit auto-completed ancestor state from a mutation response', async () => {
+    vi.mocked(api.put).mockResolvedValue(mockApiResponse({
+      task: { ...mockApiTask, taskKey: 'ENG-2', status: 'done' },
+      autoCompletedAncestors: [{
+        id: 1,
+        taskKey: 'ENG-1',
+        status: 'done',
+        progressPercent: 100,
+        completedAt: '2026-07-28T12:00:00',
+        updatedAt: '2026-07-28T12:00:00'
+      }]
+    }))
+
+    const result = await taskApi.update('ENG-2', { status: 'done' })
+
+    expect(result.autoCompletedAncestors).toEqual([
+      expect.objectContaining({ id: 'ENG-1', numericId: 1, status: 'done', progressPercent: 100 })
+    ])
   })
 
   it('maps favorited field from task payload', async () => {

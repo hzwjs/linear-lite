@@ -52,14 +52,18 @@ public class TaskActivityService {
             "title", "progressPercent", "dueDate", "plannedStartDate", "labels");
 
     public void recordFieldChange(Long taskId, Long userId, String fieldName, String oldValue, String newValue) {
+        recordFieldChangeAt(taskId, userId, fieldName, oldValue, newValue, LocalDateTime.now());
+    }
+
+    public void recordFieldChangeAt(Long taskId, Long userId, String fieldName, String oldValue, String newValue,
+                                    LocalDateTime occurredAt) {
         String compactOld = compactValue(fieldName, oldValue);
         String compactNew = compactValue(fieldName, newValue);
         if (Objects.equals(compactOld, compactNew)) {
             return;
         }
         if (shouldCoalesce(fieldName)) {
-            LocalDateTime now = LocalDateTime.now();
-            LocalDateTime cutoff = now.minusMinutes(coalesceMinutesFor(fieldName));
+            LocalDateTime cutoff = occurredAt.minusMinutes(coalesceMinutesFor(fieldName));
             Page<TaskActivity> page = new Page<>(1, COALESCE_LOOKBACK_LIMIT);
             List<TaskActivity> last = taskActivityMapper.selectPage(page,
                     new LambdaQueryWrapper<TaskActivity>()
@@ -75,7 +79,7 @@ public class TaskActivityService {
                 TaskActivity oldest = last.get(last.size() - 1);
                 act.setOldValue(oldest.getOldValue());
                 act.setNewValue(compactNew);
-                act.setCreatedAt(now);
+                act.setCreatedAt(occurredAt);
                 taskActivityMapper.updateById(act);
                 deleteDuplicateActivities(last, act.getId());
                 return;
@@ -88,7 +92,7 @@ public class TaskActivityService {
         activity.setFieldName(fieldName);
         activity.setOldValue(compactOld);
         activity.setNewValue(compactNew);
-        activity.setCreatedAt(LocalDateTime.now());
+        activity.setCreatedAt(occurredAt);
         taskActivityMapper.insert(activity);
     }
 

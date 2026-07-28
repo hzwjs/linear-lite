@@ -10,6 +10,7 @@ import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -35,21 +36,24 @@ public class TaskImportService {
     private final TaskPermissionGuard taskPermissionGuard;
     private final TaskSequenceService taskSequenceService;
     private final TaskActivityService taskActivityService;
+    private final TaskHierarchyCompletionService taskHierarchyCompletionService;
 
     public TaskImportService(
             ProjectMapper projectMapper,
             TaskMapper taskMapper,
             TaskPermissionGuard taskPermissionGuard,
             TaskSequenceService taskSequenceService,
-            TaskActivityService taskActivityService) {
+            TaskActivityService taskActivityService,
+            TaskHierarchyCompletionService taskHierarchyCompletionService) {
         this.projectMapper = projectMapper;
         this.taskMapper = taskMapper;
         this.taskPermissionGuard = taskPermissionGuard;
         this.taskSequenceService = taskSequenceService;
         this.taskActivityService = taskActivityService;
+        this.taskHierarchyCompletionService = taskHierarchyCompletionService;
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public TaskImportResponse importTasks(TaskImportRequest request, Long creatorId) {
         if (request == null) {
             throw new IllegalArgumentException("导入请求不能为空");
@@ -145,6 +149,20 @@ public class TaskImportService {
             taskMapper.updateById(update);
         }
 
+        LocalDateTime occurredAt = LocalDateTime.now();
+        // Evaluate each imported parent once, deepest first, after the complete tree exists.
+        Set<String> importedParentIds = rows.stream()
+                .map(TaskImportRowRequest::getParentImportId)
+                .map(TaskImportService::trimToNull)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        rowByImportId.values().stream()
+                .filter(row -> importedParentIds.contains(row.getImportId().trim()))
+                .sorted((left, right) -> Integer.compare(
+                        importDepth(right, rowByImportId), importDepth(left, rowByImportId)))
+                .forEach(row -> taskHierarchyCompletionService.completeEligibleParent(
+                        createdTaskByImportId.get(row.getImportId().trim()).getId(), creatorId, occurredAt));
+
         TaskImportResponse response = new TaskImportResponse();
         response.setCreatedCount(rows.size());
         response.setParentCount((int) rows.stream().filter(row -> trimToNull(row.getParentImportId()) == null).count());
@@ -195,6 +213,16 @@ public class TaskImportService {
         }
     }
 
+    private int importDepth(TaskImportRowRequest row, Map<String, TaskImportRowRequest> rowByImportId) {
+        int depth = 0;
+        String parentId = trimToNull(row.getParentImportId());
+        while (parentId != null) {
+            depth++;
+            parentId = trimToNull(rowByImportId.get(parentId).getParentImportId());
+        }
+        return depth;
+    }
+
     private String defaultStatus(String status) {
         String value = trimToNull(status);
         return value != null ? value : "backlog";
@@ -231,7 +259,7 @@ public class TaskImportService {
     }
 
     private static boolean isTerminalStatus(String status) {
-        return status != null && Set.of("done", "canceled").contains(status.toLowerCase());
+        return status != null && Set.of("done", "canceled", "duplicate").contains(status.toLowerCase());
     }
 
     private static boolean isOpenForProgressLinkage(String status) {

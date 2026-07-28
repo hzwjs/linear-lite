@@ -3,6 +3,8 @@ package com.linearlite.server.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.linearlite.server.dto.TaskLabelItemRequest;
+import com.linearlite.server.dto.TaskMutationResponse;
+import com.linearlite.server.dto.TaskStateChange;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.Task;
@@ -15,6 +17,7 @@ import com.linearlite.server.mapper.TaskMapper;
 import com.linearlite.server.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -28,7 +31,7 @@ import java.util.Set;
 @Service
 public class TaskCommandService {
 
-    private static final Set<String> TERMINAL_STATUSES = Set.of("done", "canceled");
+    private static final Set<String> TERMINAL_STATUSES = Set.of("done", "canceled", "duplicate");
     private static final Set<String> OPEN_STATUSES_FOR_PROGRESS_LINKAGE = Set.of(
             "backlog", "todo", "in_progress", "in_review");
 
@@ -42,6 +45,8 @@ public class TaskCommandService {
     private final TaskQueryService taskQueryService;
     private final UserMapper userMapper;
     private final CodexDispatchService codexDispatchService;
+    private final TaskStatusService taskStatusService;
+    private final TaskHierarchyCompletionService taskHierarchyCompletionService;
     private ApplicationEventPublisher eventPublisher;
 
     public TaskCommandService(
@@ -54,7 +59,9 @@ public class TaskCommandService {
             LabelService labelService,
             TaskQueryService taskQueryService,
             UserMapper userMapper,
-            CodexDispatchService codexDispatchService) {
+            CodexDispatchService codexDispatchService,
+            TaskStatusService taskStatusService,
+            TaskHierarchyCompletionService taskHierarchyCompletionService) {
         this.taskMapper = taskMapper;
         this.projectMapper = projectMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
@@ -65,6 +72,8 @@ public class TaskCommandService {
         this.taskQueryService = taskQueryService;
         this.userMapper = userMapper;
         this.codexDispatchService = codexDispatchService;
+        this.taskStatusService = taskStatusService;
+        this.taskHierarchyCompletionService = taskHierarchyCompletionService;
     }
 
     @Autowired
@@ -72,8 +81,8 @@ public class TaskCommandService {
         this.eventPublisher = eventPublisher;
     }
 
-    @Transactional(rollbackFor = Exception.class)
-    public Task create(Long projectId, Long creatorId, Long parentId, String title, String description,
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
+    public TaskMutationResponse create(Long projectId, Long creatorId, Long parentId, String title, String description,
                        String status, String priority, Long assigneeId, LocalDateTime dueDate,
                        LocalDateTime plannedStartDate, Integer progressPercent, List<TaskLabelItemRequest> labels) {
         if (projectId == null) {
@@ -119,8 +128,9 @@ public class TaskCommandService {
         task.setPlannedStartDate(plannedStartDate);
         task.setProgressPercent(clampProgressPercent(progressPercent));
         normalizeProgressStatusForNewTask(task);
+        LocalDateTime occurredAt = LocalDateTime.now();
         if (isTerminalStatus(task.getStatus())) {
-            task.setCompletedAt(LocalDateTime.now());
+            task.setCompletedAt(occurredAt);
         }
 
         taskMapper.insert(task);
@@ -135,11 +145,13 @@ public class TaskCommandService {
         }
         taskQueryService.enrichForUser(Collections.singletonList(inserted), creatorId);
         publishSemanticIndexRequest(inserted.getId());
-        return inserted;
+        List<TaskStateChange> ancestorChanges = taskHierarchyCompletionService.completeEligibleAncestors(
+                inserted.getId(), creatorId, occurredAt);
+        return new TaskMutationResponse(inserted, ancestorChanges);
     }
 
-    @Transactional(rollbackFor = Exception.class)
-    public Task update(String taskKey, UpdateTaskRequest request, Long userId) {
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
+    public TaskMutationResponse update(String taskKey, UpdateTaskRequest request, Long userId) {
         if (taskKey == null || taskKey.isBlank()) {
             throw new IllegalArgumentException("任务 ID 不能为空");
         }
@@ -155,6 +167,7 @@ public class TaskCommandService {
                 .eq("id", existing.getId());
         boolean hasUpdate = false;
         boolean semanticTextChanged = false;
+        TaskService.ResolvedStatusProgress resolvedState = null;
         if (request.getTitle() != null) {
             String nextTitle = request.getTitle().trim();
             if (!nextTitle.equals(existing.getTitle())) {
@@ -186,25 +199,8 @@ public class TaskCommandService {
             }
             boolean statusTouched = request.getStatus() != null && !request.getStatus().isBlank();
             boolean progressTouched = request.getProgressPercent() != null;
-            TaskService.ResolvedStatusProgress resolved = TaskService.resolveStatusProgressLinkage(
+            resolvedState = TaskService.resolveStatusProgressLinkage(
                     existing, statusTouched, progressTouched, proposedStatus, proposedProgress);
-
-            if (!resolved.status.equalsIgnoreCase(existing.getStatus())) {
-                wrapper.set("status", resolved.status);
-                hasUpdate = true;
-                boolean wasTerminal = isTerminalStatus(existing.getStatus());
-                boolean nowTerminal = isTerminalStatus(resolved.status);
-                if (nowTerminal) {
-                    wrapper.set("completed_at", LocalDateTime.now());
-                } else if (wasTerminal) {
-                    wrapper.set("completed_at", null);
-                }
-            }
-            int existingProgress = existing.getProgressPercent() != null ? existing.getProgressPercent() : 0;
-            if (resolved.progressPercent != existingProgress) {
-                wrapper.set("progress_percent", resolved.progressPercent);
-                hasUpdate = true;
-            }
         }
         if (request.getPriority() != null && !request.getPriority().isBlank()) {
             if (!request.getPriority().equals(existing.getPriority())) {
@@ -284,6 +280,11 @@ public class TaskCommandService {
         if (hasUpdate) {
             taskMapper.update(null, wrapper);
         }
+        LocalDateTime occurredAt = LocalDateTime.now();
+        if (resolvedState != null) {
+            taskStatusService.updateState(
+                    existing.getId(), resolvedState.status, resolvedState.progressPercent, userId, occurredAt);
+        }
         if (request.getLabels() != null) {
             labelService.replaceTaskLabels(existing.getId(), existing.getProjectId(), request.getLabels());
         }
@@ -304,7 +305,17 @@ public class TaskCommandService {
         if (semanticTextChanged) {
             publishSemanticIndexRequest(updated.getId());
         }
-        return updated;
+        List<TaskStateChange> ancestorChanges = new java.util.ArrayList<>();
+        boolean parentChanged = !Objects.equals(existing.getParentId(), updated.getParentId());
+        if (parentChanged && existing.getParentId() != null) {
+            ancestorChanges.addAll(taskHierarchyCompletionService.completeEligibleParentChain(
+                    existing.getParentId(), userId, occurredAt));
+        }
+        if (resolvedState != null || parentChanged) {
+            ancestorChanges.addAll(taskHierarchyCompletionService.completeEligibleAncestors(
+                    updated.getId(), userId, occurredAt));
+        }
+        return new TaskMutationResponse(updated, ancestorChanges);
     }
 
     private void publishSemanticIndexRequest(Long taskId) {
@@ -406,7 +417,6 @@ public class TaskCommandService {
             return;
         }
         recordFieldChange(existing.getId(), userId, "title", existing.getTitle(), updated.getTitle());
-        recordFieldChange(existing.getId(), userId, "status", existing.getStatus(), updated.getStatus());
         recordFieldChange(existing.getId(), userId, "priority", existing.getPriority(), updated.getPriority());
         if (!equalsNullable(existing.getAssigneeId(), updated.getAssigneeId())) {
             taskActivityService.recordAssigneeChange(existing.getId(), userId, existing.getAssigneeId(), updated.getAssigneeId());
@@ -418,12 +428,6 @@ public class TaskCommandService {
                 "plannedStartDate",
                 stringify(existing.getPlannedStartDate()),
                 stringify(updated.getPlannedStartDate()));
-        recordFieldChange(
-                existing.getId(),
-                userId,
-                "progressPercent",
-                stringifyProgress(existing.getProgressPercent()),
-                stringifyProgress(updated.getProgressPercent()));
     }
 
     private void recordFieldChange(Long taskId, Long userId, String fieldName, String oldValue, String newValue) {

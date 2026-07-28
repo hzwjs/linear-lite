@@ -867,7 +867,12 @@ function syncCodexTaskRefresh() {
   }
   if (props.mode !== 'edit' || !props.task) return
   const assignee = userList.value.find((user) => user.id === props.task?.assigneeId)
-  if (assignee?.userType !== 'codex' || props.task.status === 'done' || props.task.status === 'canceled') return
+  if (
+    assignee?.userType !== 'codex'
+    || props.task.status === 'done'
+    || props.task.status === 'canceled'
+    || props.task.status === 'duplicate'
+  ) return
   codexTaskRefreshTimer = setInterval(() => {
     if (!props.task || saveStatus.value === 'saving' || autoSaveTimer != null || isDescriptionEditing.value) return
     const previousProgress = props.task.progressPercent ?? 0

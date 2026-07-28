@@ -33,6 +33,20 @@ export interface ApiTask {
   labels?: { id: number; name: string }[]
 }
 
+export interface ApiTaskStateChange {
+  id: number
+  taskKey: string
+  status: string
+  progressPercent: number
+  completedAt: string
+  updatedAt: string
+}
+
+export interface ApiTaskMutationResponse {
+  task: ApiTask
+  autoCompletedAncestors: ApiTaskStateChange[]
+}
+
 export interface ApiTaskActivity {
   id: number
   actionType: 'created' | 'changed' | 'favorited' | 'unfavorited'

@@ -48,7 +48,7 @@ describe('taskService', () => {
       createdAt: Date.now(),
       updatedAt: Date.now()
     }
-    vi.mocked(taskApi.create).mockResolvedValue(created)
+    vi.mocked(taskApi.create).mockResolvedValue({ task: created, autoCompletedAncestors: [] })
 
     const task = await taskService.createTask({
       projectId: MOCK_PROJECT_ID,
@@ -78,7 +78,7 @@ describe('taskService', () => {
       createdAt: 0,
       updatedAt: Date.now()
     }
-    vi.mocked(taskApi.update).mockResolvedValue(updated)
+    vi.mocked(taskApi.update).mockResolvedValue({ task: updated, autoCompletedAncestors: [] })
 
     const result = await taskService.updateTask('ENG-1', {
       title: 'New Title',
@@ -105,7 +105,7 @@ describe('taskService', () => {
       createdAt: 0,
       updatedAt: Date.now()
     }
-    vi.mocked(taskApi.update).mockResolvedValue(transitioned)
+    vi.mocked(taskApi.update).mockResolvedValue({ task: transitioned, autoCompletedAncestors: [] })
 
     const result = await taskService.transitionTask('ENG-1', 'done')
     expect(result.status).toBe('done')

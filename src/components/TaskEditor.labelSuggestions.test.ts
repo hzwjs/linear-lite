@@ -161,12 +161,15 @@ describe('TaskEditor label suggestions', () => {
         return { id: 99, name: label.name }
       })
       return {
-        ...createTask(),
-        id,
-        ...payload,
-        ...(labels ? { labels } : {}),
-        favorited: false
-      } as Task
+        task: {
+          ...createTask(),
+          id,
+          ...payload,
+          ...(labels ? { labels } : {}),
+          favorited: false
+        },
+        autoCompletedAncestors: []
+      }
     })
     vi.mocked(projectApi.listLabels).mockResolvedValue([
       { id: 1, name: '运维任务' },

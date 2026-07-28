@@ -212,7 +212,7 @@ describe('TaskEditor due state', () => {
     vi.mocked(taskApi.list).mockResolvedValue([])
     vi.mocked(projectApi.listMembers).mockResolvedValue([])
     vi.mocked(projectApi.listLabels).mockResolvedValue([])
-    vi.mocked(taskApi.update).mockResolvedValue(createTask())
+    vi.mocked(taskApi.update).mockResolvedValue({ task: createTask(), autoCompletedAncestors: [] })
   })
 
   afterEach(() => {

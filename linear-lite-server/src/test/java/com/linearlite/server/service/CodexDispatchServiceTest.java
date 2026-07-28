@@ -46,6 +46,8 @@ class CodexDispatchServiceTest {
     @Mock private UserMapper userMapper;
     @Mock private LabelService labelService;
     @Mock private ObjectMapper objectMapper;
+    @Mock private TaskStatusService taskStatusService;
+    @Mock private TaskHierarchyCompletionService taskHierarchyCompletionService;
     private CodexDispatchService service;
 
     @BeforeEach
@@ -55,7 +57,8 @@ class CodexDispatchServiceTest {
         }
         service = new CodexDispatchService(runnerMapper, enrollmentMapper, repositoryMapper, bindingMapper,
                 runMapper, eventMapper, messageMapper, taskMapper, taskCommentMapper, projectMapper,
-                projectMemberMapper, userMapper, labelService, objectMapper);
+                projectMemberMapper, userMapper, labelService, objectMapper, taskStatusService,
+                taskHierarchyCompletionService);
     }
 
     @Test
@@ -84,13 +87,11 @@ class CodexDispatchServiceTest {
         assertEquals("**Codex 执行结果**\n\n最终结果", comment.getValue().getBody());
         assertEquals(0, comment.getValue().getDepth());
         verify(runMapper, times(1)).updateById(run);
-        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<Task>> taskUpdate =
-                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper.class);
-        verify(taskMapper, times(1)).update(org.mockito.ArgumentMatchers.isNull(), taskUpdate.capture());
-        String taskSqlSet = taskUpdate.getValue().getSqlSet();
-        assertTrue(taskSqlSet.contains("status"));
-        assertTrue(taskSqlSet.contains("progress_percent"));
-        assertTrue(taskSqlSet.contains("completed_at"));
+        verify(taskStatusService).updateState(
+                org.mockito.ArgumentMatchers.eq(11L), org.mockito.ArgumentMatchers.eq("done"),
+                org.mockito.ArgumentMatchers.eq(100), org.mockito.ArgumentMatchers.eq(42L), any());
+        verify(taskHierarchyCompletionService).completeEligibleAncestors(
+                org.mockito.ArgumentMatchers.eq(11L), org.mockito.ArgumentMatchers.eq(42L), any());
         assertEquals("completed", run.getStatus());
         assertEquals("thread-1", run.getCodexThreadId());
     }

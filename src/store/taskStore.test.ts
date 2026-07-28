@@ -3,7 +3,13 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useProjectStore } from './projectStore'
 import { useTaskStore } from './taskStore'
 import { taskApi } from '../services/api/task'
+import type { TaskMutationResult } from '../services/api/task'
 import type { Task } from '../types/domain'
+
+const mutation = (task: Task): TaskMutationResult => ({
+  task,
+  autoCompletedAncestors: []
+})
 
 vi.mock('../services/api/task', () => ({
   taskApi: {
@@ -52,18 +58,66 @@ describe('taskStore', () => {
     }
     store.tasks = [parentTask, childTask]
 
-    vi.mocked(taskApi.update).mockResolvedValue({
+    vi.mocked(taskApi.update).mockResolvedValue(mutation({
       ...childTask,
       status: 'done',
       updatedAt: 2,
       completedAt: 2
-    })
+    }))
 
     await store.transitionTask('ENG-2', 'done')
 
     expect(store.tasks.find((task) => task.id === 'ENG-1')).toMatchObject({
       subIssueCount: 1,
       completedSubIssueCount: 1
+    })
+  })
+
+  it('merges server-confirmed ancestor completion and counts all terminal child statuses', async () => {
+    const projectStore = useProjectStore()
+    projectStore.setActiveProject(1)
+    const store = useTaskStore()
+    const parent: Task = {
+      id: 'ENG-1', numericId: 101, title: 'Parent', status: 'todo', priority: 'medium',
+      progressPercent: 20, createdAt: 1, updatedAt: 1, subIssueCount: 3, completedSubIssueCount: 2
+    }
+    const child: Task = {
+      id: 'ENG-2', numericId: 102, title: 'Child', status: 'todo', priority: 'medium',
+      parentId: '101', createdAt: 1, updatedAt: 1
+    }
+    const canceled: Task = {
+      id: 'ENG-3', numericId: 103, title: 'Canceled', status: 'canceled', priority: 'medium',
+      parentId: '101', createdAt: 1, updatedAt: 1
+    }
+    const duplicate: Task = {
+      id: 'ENG-4', numericId: 104, title: 'Duplicate', status: 'duplicate', priority: 'medium',
+      parentId: '101', createdAt: 1, updatedAt: 1
+    }
+    store.tasks = [parent, child, canceled, duplicate]
+    vi.mocked(taskApi.update).mockResolvedValue({
+      task: {
+        ...child,
+        status: 'done',
+        progressPercent: 100,
+        completedAt: 200,
+        updatedAt: 200
+      },
+      autoCompletedAncestors: [{
+        numericId: 101,
+        id: 'ENG-1',
+        status: 'done',
+        progressPercent: 100,
+        completedAt: 200,
+        updatedAt: 200
+      }]
+    })
+
+    await store.transitionTask('ENG-2', 'done')
+
+    expect(store.tasks.find((task) => task.id === 'ENG-1')).toMatchObject({
+      status: 'done',
+      progressPercent: 100,
+      completedSubIssueCount: 3
     })
   })
 
@@ -82,11 +136,11 @@ describe('taskStore', () => {
     }
     store.tasks = [task]
 
-    vi.mocked(taskApi.update).mockResolvedValue({
+    vi.mocked(taskApi.update).mockResolvedValue(mutation({
       ...task,
       assigneeId: 2,
       updatedAt: 2
-    })
+    }))
 
     await store.updateTask('ENG-3', {
       assigneeId: 2,
@@ -110,8 +164,8 @@ describe('taskStore', () => {
       updatedAt: 100
     }
     store.tasks = [task]
-    let resolveApi!: (value: Task) => void
-    const deferred = new Promise<Task>((resolve) => {
+    let resolveApi!: (value: TaskMutationResult) => void
+    const deferred = new Promise<TaskMutationResult>((resolve) => {
       resolveApi = resolve
     })
     vi.mocked(taskApi.update).mockReturnValue(deferred)
@@ -121,7 +175,7 @@ describe('taskStore', () => {
     expect(row0()).toBeDefined()
     expect(row0()!.title).toBe('New')
     expect(row0()!.updatedAt).toBeGreaterThanOrEqual(100)
-    resolveApi({ ...task, title: 'New', updatedAt: 200 })
+    resolveApi(mutation({ ...task, title: 'New', updatedAt: 200 }))
     await done
     expect(row0()!.title).toBe('New')
     expect(row0()!.updatedAt).toBe(200)
@@ -254,8 +308,8 @@ describe('taskStore', () => {
     projectStore.setActiveProject(1)
 
     const store = useTaskStore()
-    let resolveCreate!: (v: Task) => void
-    const create = new Promise<Task>((resolve) => {
+    let resolveCreate!: (v: TaskMutationResult) => void
+    const create = new Promise<TaskMutationResult>((resolve) => {
       resolveCreate = resolve
     })
     vi.mocked(taskApi.create).mockReturnValueOnce(create)
@@ -277,7 +331,7 @@ describe('taskStore', () => {
     })
     expect(store.tasks[0]?.id).toMatch(/^optimistic-/)
 
-    resolveCreate(baseTask({ id: 'ENG-NEW', title: 'New task', projectId: 1, updatedAt: 2 }))
+    resolveCreate(mutation(baseTask({ id: 'ENG-NEW', title: 'New task', projectId: 1, updatedAt: 2 })))
     await done
 
     expect(store.tasks.map((t) => t.id)).toEqual(['ENG-NEW'])
@@ -438,21 +492,21 @@ describe('taskStore', () => {
       updatedAt: 1
     }
     store.tasks = [task]
-    let resolveA!: (value: Task) => void
-    const reqA = new Promise<Task>((resolve) => {
+    let resolveA!: (value: TaskMutationResult) => void
+    const reqA = new Promise<TaskMutationResult>((resolve) => {
       resolveA = resolve
     })
-    vi.mocked(taskApi.update).mockReturnValueOnce(reqA).mockResolvedValueOnce({
+    vi.mocked(taskApi.update).mockReturnValueOnce(reqA).mockResolvedValueOnce(mutation({
       ...task,
       title: 'B',
       updatedAt: 3
-    })
+    }))
 
     const pA = store.updateTask('ENG-L1', { title: 'A' })
     const pB = store.updateTask('ENG-L1', { title: 'B' })
     expect(store.tasks[0]?.title).toBe('B')
 
-    resolveA({ ...task, title: 'A', updatedAt: 2 })
+    resolveA(mutation({ ...task, title: 'A', updatedAt: 2 }))
     await pA
     expect(store.tasks[0]?.title).toBe('B')
     await pB
@@ -472,14 +526,14 @@ describe('taskStore', () => {
     }
     store.tasks = [task]
     let rejectA!: (reason?: unknown) => void
-    const reqA = new Promise<Task>((_resolve, reject) => {
+    const reqA = new Promise<TaskMutationResult>((_resolve, reject) => {
       rejectA = reject
     })
-    vi.mocked(taskApi.update).mockReturnValueOnce(reqA).mockResolvedValueOnce({
+    vi.mocked(taskApi.update).mockReturnValueOnce(reqA).mockResolvedValueOnce(mutation({
       ...task,
       title: 'B',
       updatedAt: 3
-    })
+    }))
 
     const pA = store.updateTask('ENG-L2', { title: 'A' })
     const pB = store.updateTask('ENG-L2', { title: 'B' })
@@ -504,21 +558,21 @@ describe('taskStore', () => {
       updatedAt: 1
     }
     store.tasks = [doneTask]
-    let resolveA!: (value: Task) => void
-    const reqA = new Promise<Task>((resolve) => {
+    let resolveA!: (value: TaskMutationResult) => void
+    const reqA = new Promise<TaskMutationResult>((resolve) => {
       resolveA = resolve
     })
-    vi.mocked(taskApi.update).mockReturnValueOnce(reqA).mockResolvedValueOnce({
+    vi.mocked(taskApi.update).mockReturnValueOnce(reqA).mockResolvedValueOnce(mutation({
       ...doneTask,
       status: 'todo',
       progressPercent: 0,
       completedAt: null,
       updatedAt: 3
-    })
+    }))
 
     const pA = store.updateTask('ENG-DERIVE', { status: 'done' })
     const pB = store.updateTask('ENG-DERIVE', { status: 'todo', progressPercent: 0 })
-    resolveA({ ...doneTask, status: 'done', progressPercent: 100, completedAt: 1200, updatedAt: 2 })
+    resolveA(mutation({ ...doneTask, status: 'done', progressPercent: 100, completedAt: 1200, updatedAt: 2 }))
     await pA
     expect(store.tasks[0]?.status).toBe('todo')
     expect(store.tasks[0]?.completedAt).toBeFalsy()
@@ -544,11 +598,11 @@ describe('taskStore', () => {
     expect(r1.ok).toBe(false)
     if (!r1.ok) expect(r1.reason).toBe('save_failed')
 
-    vi.mocked(taskApi.update).mockRejectedValueOnce(new Error('a')).mockResolvedValueOnce({
+    vi.mocked(taskApi.update).mockRejectedValueOnce(new Error('a')).mockResolvedValueOnce(mutation({
       ...task,
       title: 'B',
       updatedAt: 3
-    })
+    }))
     void store.updateTask('ENG-DRAIN', { title: 'A' }).catch(() => {})
     void store.updateTask('ENG-DRAIN', { title: 'B' }).catch(() => {})
     const r2 = await store.drainTask('ENG-DRAIN', { timeoutMs: 1000 })
@@ -568,11 +622,11 @@ describe('taskStore', () => {
       updatedAt: 1
     }
     store.tasks = [task]
-    vi.mocked(taskApi.update).mockResolvedValueOnce({
+    vi.mocked(taskApi.update).mockResolvedValueOnce(mutation({
       ...task,
       parentId: null,
       updatedAt: 2
-    })
+    }))
 
     await store.updateTask('ENG-PARENT', { parentId: '300', clearParent: true })
 
@@ -600,8 +654,8 @@ describe('taskStore', () => {
       updatedAt: 1
     }
     store.tasks = [task]
-    let resolveApi!: (value: Task) => void
-    const deferred = new Promise<Task>((resolve) => {
+    let resolveApi!: (value: TaskMutationResult) => void
+    const deferred = new Promise<TaskMutationResult>((resolve) => {
       resolveApi = resolve
     })
     vi.mocked(taskApi.update).mockReturnValueOnce(deferred)
@@ -617,14 +671,14 @@ describe('taskStore', () => {
     expect(Number.isFinite(optimisticLabels[1]?.id)).toBe(true)
     expect(optimisticLabels[1]?.id).toBeLessThan(0)
 
-    resolveApi({
+    resolveApi(mutation({
       ...task,
       labels: [
         { id: 1, name: 'Bug' },
         { id: 2, name: 'New Label' }
       ],
       updatedAt: 2
-    })
+    }))
     await done
   })
 })

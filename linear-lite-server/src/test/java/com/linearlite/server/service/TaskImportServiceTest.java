@@ -38,6 +38,8 @@ class TaskImportServiceTest {
     private TaskSequenceService taskSequenceService;
     @Mock
     private TaskActivityService taskActivityService;
+    @Mock
+    private TaskHierarchyCompletionService taskHierarchyCompletionService;
 
     private TaskImportService taskImportService;
 
@@ -48,7 +50,8 @@ class TaskImportServiceTest {
                 taskMapper,
                 taskPermissionGuard,
                 taskSequenceService,
-                taskActivityService
+                taskActivityService,
+                taskHierarchyCompletionService
         );
     }
 
@@ -101,6 +104,8 @@ class TaskImportServiceTest {
                 task.getId().equals(102L) && task.getParentId().equals(101L)
         ));
         verify(taskPermissionGuard).requireProjectMember(1L, 7L);
+        verify(taskHierarchyCompletionService).completeEligibleParent(
+                org.mockito.ArgumentMatchers.eq(101L), org.mockito.ArgumentMatchers.eq(7L), any());
     }
 
     @Test

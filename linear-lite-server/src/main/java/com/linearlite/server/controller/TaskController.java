@@ -10,6 +10,7 @@ import com.linearlite.server.dto.TaskActivityResponse;
 import com.linearlite.server.dto.TaskAttachmentResponse;
 import com.linearlite.server.dto.TaskCommentResponse;
 import com.linearlite.server.dto.TaskListItemResponse;
+import com.linearlite.server.dto.TaskMutationResponse;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -153,11 +154,11 @@ public class TaskController {
      * 创建任务。后端绑定当前登录用户为 creator_id，并生成带项目前缀的 task_key（如 PROD-1、ENG-2）。
      */
     @PostMapping
-    public ResponseEntity<ApiResponse<Task>> create(
+    public ResponseEntity<ApiResponse<TaskMutationResponse>> create(
             HttpServletRequest request,
             @RequestBody CreateTaskRequest body) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
-        Task created = taskCommandService.create(
+        TaskMutationResponse created = taskCommandService.create(
                 body.getProjectId(),
                 userId,
                 body.getParentId(),
@@ -185,12 +186,12 @@ public class TaskController {
      * 更新任务。{id} 为任务对外 ID（task_key，如 ENG-1）。仅更新请求体中提供的字段。
      */
     @PutMapping("/{id}")
-    public ResponseEntity<ApiResponse<Task>> update(
+    public ResponseEntity<ApiResponse<TaskMutationResponse>> update(
             HttpServletRequest request,
             @PathVariable("id") String taskKey,
             @RequestBody UpdateTaskRequest body) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
-        Task updated = taskCommandService.update(taskKey, body, userId);
+        TaskMutationResponse updated = taskCommandService.update(taskKey, body, userId);
         return ResponseEntity.ok(ApiResponse.success(updated));
     }
 

@@ -2,7 +2,6 @@ package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.dto.TaskLabelResponse;
@@ -12,6 +11,7 @@ import com.linearlite.server.exception.*;
 import com.linearlite.server.mapper.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -26,8 +26,8 @@ public class CodexDispatchService {
     private static final Set<String> EVENT_TYPES = Set.of("status_changed", "command_started", "command_completed", "file_changed", "verification_completed", "input_requested", "run_completed", "run_failed", "desktop_session_started");
     private static final Set<String> TERMINAL = Set.of("completed", "failed", "canceled");
     private static final SecureRandom RANDOM = new SecureRandom();
-    private final CodexRunnerMapper runnerMapper; private final CodexRunnerEnrollmentCodeMapper enrollmentMapper; private final CodexRepositoryMapper repositoryMapper; private final ProjectCodexBindingMapper bindingMapper; private final CodexRunMapper runMapper; private final CodexRunEventMapper eventMapper; private final CodexRunMessageMapper messageMapper; private final TaskMapper taskMapper; private final TaskCommentMapper taskCommentMapper; private final ProjectMapper projectMapper; private final ProjectMemberMapper projectMemberMapper; private final UserMapper userMapper; private final LabelService labelService; private final ObjectMapper objectMapper;
-    public CodexDispatchService(CodexRunnerMapper a, CodexRunnerEnrollmentCodeMapper b, CodexRepositoryMapper c, ProjectCodexBindingMapper d, CodexRunMapper e, CodexRunEventMapper f, CodexRunMessageMapper g, TaskMapper h, TaskCommentMapper i, ProjectMapper j, ProjectMemberMapper k, UserMapper l, LabelService m, ObjectMapper n) { runnerMapper=a; enrollmentMapper=b; repositoryMapper=c; bindingMapper=d; runMapper=e; eventMapper=f; messageMapper=g; taskMapper=h; taskCommentMapper=i; projectMapper=j; projectMemberMapper=k; userMapper=l; labelService=m; objectMapper=n; }
+    private final CodexRunnerMapper runnerMapper; private final CodexRunnerEnrollmentCodeMapper enrollmentMapper; private final CodexRepositoryMapper repositoryMapper; private final ProjectCodexBindingMapper bindingMapper; private final CodexRunMapper runMapper; private final CodexRunEventMapper eventMapper; private final CodexRunMessageMapper messageMapper; private final TaskMapper taskMapper; private final TaskCommentMapper taskCommentMapper; private final ProjectMapper projectMapper; private final ProjectMemberMapper projectMemberMapper; private final UserMapper userMapper; private final LabelService labelService; private final ObjectMapper objectMapper; private final TaskStatusService taskStatusService; private final TaskHierarchyCompletionService taskHierarchyCompletionService;
+    public CodexDispatchService(CodexRunnerMapper a, CodexRunnerEnrollmentCodeMapper b, CodexRepositoryMapper c, ProjectCodexBindingMapper d, CodexRunMapper e, CodexRunEventMapper f, CodexRunMessageMapper g, TaskMapper h, TaskCommentMapper i, ProjectMapper j, ProjectMemberMapper k, UserMapper l, LabelService m, ObjectMapper n, TaskStatusService o, TaskHierarchyCompletionService p) { runnerMapper=a; enrollmentMapper=b; repositoryMapper=c; bindingMapper=d; runMapper=e; eventMapper=f; messageMapper=g; taskMapper=h; taskCommentMapper=i; projectMapper=j; projectMemberMapper=k; userMapper=l; labelService=m; objectMapper=n; taskStatusService=o; taskHierarchyCompletionService=p; }
 
     public CodexDtos.EnrollmentCodeResponse createEnrollmentCode(Long userId) {
         requireUser(userId); String code = randomSecret(); CodexRunnerEnrollmentCode row = new CodexRunnerEnrollmentCode(); row.setUserId(userId); row.setCodeHash(hash(code)); row.setExpiresAt(LocalDateTime.now().plusMinutes(10)); enrollmentMapper.insert(row); return new CodexDtos.EnrollmentCodeResponse(code, row.getExpiresAt());
@@ -75,7 +75,7 @@ public class CodexDispatchService {
     @Transactional(rollbackFor=Exception.class)
     public CodexDtos.RunnerMessageResponse claimMessage(String id,Long runnerId){ CodexRun run=requireRunnerRun(id,runnerId);if(!"needs_input".equals(run.getStatus()))return null;CodexRunMessage msg=messageMapper.selectOne(new LambdaQueryWrapper<CodexRunMessage>().eq(CodexRunMessage::getRunId,id).eq(CodexRunMessage::getStatus,"pending").orderByAsc(CodexRunMessage::getCreatedAt).last("FOR UPDATE"));if(msg==null)return null;msg.setStatus("claimed");msg.setClaimedAt(LocalDateTime.now());messageMapper.updateById(msg);return new CodexDtos.RunnerMessageResponse(msg.getId(),msg.getContent());}
     public void consumeMessage(String id,Long runnerId,Long messageId){ CodexRun run=requireRunnerRun(id,runnerId);CodexRunMessage msg=messageMapper.selectById(messageId);if(msg==null||!id.equals(msg.getRunId())||!"claimed".equals(msg.getStatus()))throw new ConflictOperationException("补充消息不能确认消费");msg.setStatus("consumed");msg.setConsumedAt(LocalDateTime.now());messageMapper.updateById(msg);run.setStatus("running");runMapper.updateById(run);}
-    @Transactional(rollbackFor=Exception.class)
+    @Transactional(rollbackFor=Exception.class, isolation=Isolation.READ_COMMITTED)
     public void complete(String id,Long runnerId,CodexDtos.CompleteRequest request){
         CodexRun run=runMapper.selectOne(new LambdaQueryWrapper<CodexRun>().eq(CodexRun::getId,id).last("FOR UPDATE"));
         if(run==null)throw new ResourceNotFoundException("Codex 执行不存在: "+id);
@@ -86,14 +86,12 @@ public class CodexDispatchService {
         if("failed".equals(request.status())&&blank(request.errorCode()))throw new IllegalArgumentException("失败执行必须提供错误码");
         if("completed".equals(request.status())){
             LocalDateTime completedAt=LocalDateTime.now();
-            taskMapper.update(null,new UpdateWrapper<Task>()
-                    .eq("id",run.getTaskId())
-                    .set("status","done")
-                    .set("progress_percent",100)
-                    .set("completed_at",completedAt));
+            User codexUser = requireCodexUser();
+            taskStatusService.updateState(run.getTaskId(), "done", 100, codexUser.getId(), completedAt);
+            taskHierarchyCompletionService.completeEligibleAncestors(run.getTaskId(), codexUser.getId(), completedAt);
             TaskComment comment=new TaskComment();
             comment.setTaskId(run.getTaskId());
-            comment.setAuthorId(requireCodexUser().getId());
+            comment.setAuthorId(codexUser.getId());
             comment.setBody("**Codex 执行结果**\n\n"+request.resultSummary().trim());
             comment.setDepth(0);
             comment.setCreatedAt(completedAt);

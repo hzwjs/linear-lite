@@ -41,7 +41,7 @@ public class TaskService {
                        String status, String priority, Long assigneeId, LocalDateTime dueDate,
                        LocalDateTime plannedStartDate, Integer progressPercent, List<TaskLabelItemRequest> labels) {
         return taskCommandService.create(projectId, creatorId, parentId, title, description, status, priority,
-                assigneeId, dueDate, plannedStartDate, progressPercent, labels);
+                assigneeId, dueDate, plannedStartDate, progressPercent, labels).task();
     }
 
     public TaskImportResponse importTasks(TaskImportRequest request, Long creatorId) {
@@ -53,7 +53,7 @@ public class TaskService {
     }
 
     public Task update(String taskKey, UpdateTaskRequest request, Long userId) {
-        return taskCommandService.update(taskKey, request, userId);
+        return taskCommandService.update(taskKey, request, userId).task();
     }
 
     public Task getByKeyOrThrow(String taskKey, Long userId) {

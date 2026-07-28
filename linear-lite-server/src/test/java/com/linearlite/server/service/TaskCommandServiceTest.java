@@ -55,6 +55,10 @@ class TaskCommandServiceTest {
     private UserMapper userMapper;
     @Mock
     private CodexDispatchService codexDispatchService;
+    @Mock
+    private TaskStatusService taskStatusService;
+    @Mock
+    private TaskHierarchyCompletionService taskHierarchyCompletionService;
 
     private TaskCommandService taskCommandService;
 
@@ -70,8 +74,14 @@ class TaskCommandServiceTest {
                 labelService,
                 taskQueryService,
                 userMapper,
-                codexDispatchService
+                codexDispatchService,
+                taskStatusService,
+                taskHierarchyCompletionService
         );
+        org.mockito.Mockito.lenient().when(taskHierarchyCompletionService.completeEligibleAncestors(
+                anyLong(), anyLong(), any())).thenReturn(List.of());
+        org.mockito.Mockito.lenient().when(taskHierarchyCompletionService.completeEligibleParentChain(
+                anyLong(), anyLong(), any())).thenReturn(List.of());
     }
 
     @Test
@@ -95,7 +105,7 @@ class TaskCommandServiceTest {
 
         Task result = taskCommandService.create(
                 1L, 7L, null, "Title", "Desc", "todo", "high", 2L,
-                null, null, 50, Collections.emptyList());
+                null, null, 50, Collections.emptyList()).task();
 
         assertEquals("ENG-9", result.getTaskKey());
         verify(taskPermissionGuard).requireProjectMember(1L, 7L);
@@ -203,7 +213,9 @@ class TaskCommandServiceTest {
 
         verify(taskPermissionGuard).requireProjectMember(1L, 7L);
         verify(taskActivityService).recordFieldChange(21L, 7L, "title", "Old title", "New title");
-        verify(taskActivityService).recordFieldChange(21L, 7L, "status", "todo", "in_progress");
+        verify(taskStatusService).updateState(
+                org.mockito.ArgumentMatchers.eq(21L), org.mockito.ArgumentMatchers.eq("in_progress"),
+                org.mockito.ArgumentMatchers.eq(0), org.mockito.ArgumentMatchers.eq(7L), any());
         verify(taskActivityService).recordFieldChange(21L, 7L, "priority", "medium", "high");
         verify(taskActivityService).recordAssigneeChange(21L, 7L, 1L, 2L);
     }

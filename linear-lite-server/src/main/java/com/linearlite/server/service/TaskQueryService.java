@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
 @Service
 public class TaskQueryService {
 
-    private static final Set<String> TERMINAL_STATUSES = Set.of("done", "canceled");
+    private static final Set<String> TERMINAL_STATUSES = Set.of("done", "canceled", "duplicate");
     private static final int MAX_SEARCH_QUERY_LENGTH = 200;
 
     private final TaskMapper taskMapper;

@@ -5,6 +5,7 @@ import type { Task, Status, Priority } from '../types/domain'
 /** 处理人筛选项：'unassigned' 无负责人；number 为 assigneeId */
 export type AssigneeFilterItem = 'unassigned' | number
 import { taskApi } from '../services/api/task'
+import type { TaskAncestorStateChange } from '../services/api/task'
 import type { TaskLabelWriteItem, UpdateTaskRequest } from '../services/api/types'
 import { useProjectStore } from './projectStore'
 import { useFavoriteStore } from './favoriteStore'
@@ -360,7 +361,8 @@ export const useTaskStore = defineStore('taskStore', () => {
     if (parentIndex === -1) return
 
     const children = tasks.value.filter((task) => task.parentId != null && String(task.parentId) === parentIdStr)
-    const completedChildren = children.filter((task) => task.status === 'done').length
+    const terminalStatuses = new Set<Status>(['done', 'canceled', 'duplicate'])
+    const completedChildren = children.filter((task) => terminalStatuses.has(task.status)).length
     const parent = tasks.value[parentIndex]
     if (!parent) return
 
@@ -369,6 +371,40 @@ export const useTaskStore = defineStore('taskStore', () => {
       subIssueCount: children.length,
       completedSubIssueCount: completedChildren
     }
+  }
+
+  function mergeAutoCompletedAncestors(changes: TaskAncestorStateChange[]) {
+    for (const change of changes) {
+      const index = getTaskIndexById(change.id)
+      if (index === -1) continue
+      const current = tasks.value[index]
+      if (current == null) continue
+      const next: Task = {
+        ...current,
+        status: change.status,
+        progressPercent: change.progressPercent,
+        completedAt: change.completedAt,
+        updatedAt: change.updatedAt
+      }
+      const lane = saveLanes.get(change.id)
+      if (lane?.ackBase != null) {
+        // Only acknowledge fields authored by the server-side ancestor transition;
+        // unrelated optimistic edits in the current row must remain rollback-capable.
+        lane.ackBase = {
+          ...lane.ackBase,
+          status: change.status,
+          progressPercent: change.progressPercent,
+          completedAt: change.completedAt,
+          updatedAt: change.updatedAt
+        }
+        syncLaneRow(change.id)
+        continue
+      }
+      tasks.value[index] = next
+      cacheTask(next)
+      recomputeParentSubIssueProgress(next.parentId)
+    }
+    syncCurrentProjectSnapshot()
   }
 
   async function fetchTasks() {
@@ -479,7 +515,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     cacheTask(optimisticTask)
     syncCurrentProjectSnapshot()
     try {
-      const newTask = await taskApi.create({
+      const mutation = await taskApi.create({
         projectId,
         title: data.title,
         description: data.description,
@@ -491,6 +527,7 @@ export const useTaskStore = defineStore('taskStore', () => {
         parentId: data.parentId ?? undefined,
         progressPercent: data.progressPercent ?? 0
       })
+      const newTask = mutation.task
       const optimisticIndex = tasks.value.findIndex((task) => task.id === optimisticTask.id)
       if (optimisticIndex === -1) {
         tasks.value = [newTask, ...tasks.value]
@@ -498,6 +535,8 @@ export const useTaskStore = defineStore('taskStore', () => {
         tasks.value[optimisticIndex] = newTask
       }
       cacheTask(newTask)
+      recomputeParentSubIssueProgress(newTask.parentId)
+      mergeAutoCompletedAncestors(mutation.autoCompletedAncestors)
       syncCurrentProjectSnapshot()
       return newTask
     } catch (err: unknown) {
@@ -536,7 +575,9 @@ export const useTaskStore = defineStore('taskStore', () => {
 
     lane.inFlightPromise = taskApi
       .update(id, requestBody)
-      .then((updated) => {
+      .then((mutation) => {
+        const updated = mutation.task
+        mergeAutoCompletedAncestors(mutation.autoCompletedAncestors)
         lane.ackBase = cloneTask(updated)
         lane.hasUnsavedFailure = false
         lane.lastError = undefined

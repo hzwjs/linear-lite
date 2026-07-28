@@ -3,6 +3,7 @@ package com.linearlite.server.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.linearlite.server.dto.TaskListItemResponse;
 import com.linearlite.server.dto.TaskSubIssueCount;
+import com.linearlite.server.dto.DirectChildCompletion;
 import com.linearlite.server.entity.Task;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -12,6 +13,23 @@ import java.util.List;
 
 @Mapper
 public interface TaskMapper extends BaseMapper<Task> {
+    @Select("""
+            SELECT *
+            FROM tasks
+            WHERE id = #{id}
+            FOR UPDATE
+            """)
+    Task selectByIdForUpdate(@Param("id") Long id);
+
+    @Select("""
+            SELECT
+              COUNT(*) AS totalCount,
+              COALESCE(SUM(CASE WHEN LOWER(status) IN ('done', 'canceled', 'duplicate') THEN 1 ELSE 0 END), 0) AS terminalCount
+            FROM tasks
+            WHERE parent_id = #{parentId}
+            """)
+    DirectChildCompletion selectDirectChildCompletion(@Param("parentId") Long parentId);
+
     @Select("""
             <script>
             SELECT
@@ -95,7 +113,7 @@ public interface TaskMapper extends BaseMapper<Task> {
             SELECT
               parent_id AS parentId,
               COUNT(*) AS totalCount,
-              SUM(CASE WHEN LOWER(status) IN ('done', 'canceled') THEN 1 ELSE 0 END) AS completedCount
+              SUM(CASE WHEN LOWER(status) IN ('done', 'canceled', 'duplicate') THEN 1 ELSE 0 END) AS completedCount
             FROM tasks
             WHERE parent_id IN
             <foreach collection="parentIds" item="id" open="(" separator="," close=")">

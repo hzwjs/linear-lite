@@ -225,7 +225,7 @@ describe('TaskEditor comments', () => {
     vi.mocked(taskApi.list).mockResolvedValue([])
     vi.mocked(projectApi.listMembers).mockResolvedValue([{ id: 2, username: 'Alice' }])
     vi.mocked(projectApi.listLabels).mockResolvedValue([])
-    vi.mocked(taskApi.update).mockResolvedValue(createTask())
+    vi.mocked(taskApi.update).mockResolvedValue({ task: createTask(), autoCompletedAncestors: [] })
   })
 
   it('shows a shortcut hint and a clearer notify-members prompt', async () => {

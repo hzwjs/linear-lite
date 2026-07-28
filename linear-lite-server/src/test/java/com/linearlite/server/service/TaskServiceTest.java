@@ -2,6 +2,7 @@ package com.linearlite.server.service;
 
 import com.linearlite.server.dto.TaskImportRequest;
 import com.linearlite.server.dto.TaskImportResponse;
+import com.linearlite.server.dto.TaskMutationResponse;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Task;
 import org.junit.jupiter.api.Test;
@@ -35,7 +36,8 @@ class TaskServiceTest {
         List<Task> tasks = List.of(task);
 
         when(taskQueryService.listByProjectId(1L, true, null, 9L)).thenReturn(tasks);
-        when(taskCommandService.update("ENG-1", updateTaskRequest, 9L)).thenReturn(task);
+        when(taskCommandService.update("ENG-1", updateTaskRequest, 9L))
+                .thenReturn(new TaskMutationResponse(task, List.of()));
         when(taskImportService.importTasks(importRequest, 9L)).thenReturn(importResponse);
 
         assertEquals(tasks, service.listByProjectId(1L, true, null, 9L));

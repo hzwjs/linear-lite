@@ -3,11 +3,27 @@ import type { ApiResponse } from './types'
 import type { Task } from '../../types/domain'
 import type {
   ApiTask,
+  ApiTaskMutationResponse,
+  ApiTaskStateChange,
   CreateTaskRequest,
   TaskImportRequest,
   TaskImportResponse,
   UpdateTaskRequest
 } from './types'
+
+export interface TaskAncestorStateChange {
+  numericId: number
+  id: string
+  status: Task['status']
+  progressPercent: number
+  completedAt: number
+  updatedAt: number
+}
+
+export interface TaskMutationResult {
+  task: Task
+  autoCompletedAncestors: TaskAncestorStateChange[]
+}
 
 function toTask(t: ApiTask): Task {
   return {
@@ -39,6 +55,24 @@ function asArray<T>(value: T[] | null | undefined): T[] {
   return Array.isArray(value) ? value : []
 }
 
+function toAncestorStateChange(change: ApiTaskStateChange): TaskAncestorStateChange {
+  return {
+    numericId: change.id,
+    id: change.taskKey,
+    status: change.status as Task['status'],
+    progressPercent: change.progressPercent,
+    completedAt: new Date(change.completedAt).getTime(),
+    updatedAt: new Date(change.updatedAt).getTime()
+  }
+}
+
+function toMutationResult(response: ApiTaskMutationResponse): TaskMutationResult {
+  return {
+    task: toTask(response.task),
+    autoCompletedAncestors: response.autoCompletedAncestors.map(toAncestorStateChange)
+  }
+}
+
 export const taskApi = {
   get(taskKey: string): Promise<Task> {
     return api
@@ -62,10 +96,10 @@ export const taskApi = {
       .then((res) => asArray(unwrap(res)).map(toTask))
   },
 
-  create(body: CreateTaskRequest): Promise<Task> {
+  create(body: CreateTaskRequest): Promise<TaskMutationResult> {
     return api
-      .post<ApiResponse<ApiTask>>('/tasks', body)
-      .then((res) => toTask(unwrap(res)))
+      .post<ApiResponse<ApiTaskMutationResponse>>('/tasks', body)
+      .then((res) => toMutationResult(unwrap(res)))
   },
 
   import(body: TaskImportRequest): Promise<TaskImportResponse> {
@@ -74,10 +108,10 @@ export const taskApi = {
       .then((res) => unwrap(res))
   },
 
-  update(taskKey: string, body: UpdateTaskRequest): Promise<Task> {
+  update(taskKey: string, body: UpdateTaskRequest): Promise<TaskMutationResult> {
     return api
-      .put<ApiResponse<ApiTask>>(`/tasks/${taskKey}`, body)
-      .then((res) => toTask(unwrap(res)))
+      .put<ApiResponse<ApiTaskMutationResponse>>(`/tasks/${taskKey}`, body)
+      .then((res) => toMutationResult(unwrap(res)))
   },
 
   listFavorites(): Promise<Task[]> {
