@@ -528,8 +528,10 @@ describe('Outline document migration', () => {
     let maxActiveDownloads = 0
     const tempFiles: string[] = []
     const mentionCalls: string[] = []
+    const documentReadCalls: string[] = []
     const outlineApi = {
       async getDocument(outlineDocumentId: string) {
+        documentReadCalls.push(outlineDocumentId)
         const value = documents.get(outlineDocumentId)!
         return { outlineDocumentId, ...value }
       },
@@ -604,6 +606,79 @@ describe('Outline document migration', () => {
       '68f202a9-5425-4ae3-9318-4ef37d1bdffc',
       '11111111-2222-4333-8444-555555555555'
     ])
+
+    documents.set('RZAdPKfrmZ', {
+      ...documents.get('RZAdPKfrmZ')!,
+      markdown: `${documents.get('RZAdPKfrmZ')!.markdown}\n\n增量更新`
+    })
+    documentReadCalls.length = 0
+    const targeted = await migrateOutlineApiDocuments({
+      manifest,
+      statePath: sample.statePath,
+      linearLiteApi: api,
+      outlineApi,
+      targetOutlineDocumentId: 'RZAdPKfrmZ'
+    })
+
+    expect(targeted).toMatchObject({
+      documents: 1,
+      createdDocuments: 0,
+      updatedDocuments: 1,
+      uploadedAttachments: 0
+    })
+    expect(documentReadCalls).toEqual(['RZAdPKfrmZ'])
+    expect(api.documentsByExternalId.get('RZAdPKfrmZ')?.content).toContain('增量更新')
+    expect(api.documentsByExternalId.get('RZAdPKfrmZ')?.content).toContain('/projects/7/documents/')
+
+    documentReadCalls.length = 0
+    const idempotent = await migrateOutlineApiDocuments({
+      manifest,
+      statePath: sample.statePath,
+      linearLiteApi: api,
+      outlineApi,
+      targetOutlineDocumentId: 'RZAdPKfrmZ'
+    })
+    expect(idempotent).toMatchObject({
+      documents: 1,
+      createdDocuments: 0,
+      updatedDocuments: 0,
+      uploadedAttachments: 0
+    })
+    expect(documentReadCalls).toEqual(['RZAdPKfrmZ'])
+  })
+
+  it('rejects a targeted API migration when the target is absent from the manifest', async () => {
+    const sample = fixture()
+    const manifest = {
+      ...sample.manifest,
+      sourceMode: 'outline-api',
+      outlineBaseUrl: 'http://outline.example'
+    }
+
+    await expect(migrateOutlineApiDocuments({
+      manifest,
+      statePath: sample.statePath,
+      linearLiteApi: new FakeApi(),
+      outlineApi: {},
+      targetOutlineDocumentId: 'Missing01'
+    })).rejects.toThrow('目标文档不在迁移清单中: Missing01')
+  })
+
+  it('requires every non-target manifest document to have an existing state mapping', async () => {
+    const sample = fixture()
+    const manifest = {
+      ...sample.manifest,
+      sourceMode: 'outline-api',
+      outlineBaseUrl: 'http://outline.example'
+    }
+
+    await expect(migrateOutlineApiDocuments({
+      manifest,
+      statePath: sample.statePath,
+      linearLiteApi: new FakeApi(),
+      outlineApi: {},
+      targetOutlineDocumentId: 'RZAdPKfrmZ'
+    })).rejects.toThrow('单节点迁移的清单引用尚未映射: jIbDVtIQLv')
   })
 
   it('does not treat a non-document mention as a document-link fallback', async () => {

@@ -7,6 +7,7 @@
  *   OUTLINE_BASE_URL=http://outline.example OUTLINE_API_TOKEN=<read-only-token> JWT=<token> \
  *     node scripts/migrate-outline-documents.mjs \
  *     --manifest docs/migrations/outline-jlnx-api-pilot-manifest.json \
+ *     --document-id <outline-url-id> \
  *     --state /tmp/jlnx-pilot-state.json
  *
  * 旧导出目录兼容模式：
@@ -628,6 +629,7 @@ export async function migrateOutlineApiDocuments({
   statePath,
   linearLiteApi,
   outlineApi,
+  targetOutlineDocumentId,
   maxAttachmentBytes = DEFAULT_MAX_ATTACHMENT_BYTES
 }) {
   validateOutlineApiManifest(manifest)
@@ -635,13 +637,29 @@ export async function migrateOutlineApiDocuments({
   if (!linearLiteApi || !outlineApi) throw new Error('在线迁移缺少 API 客户端')
 
   const state = loadState(statePath, manifest.projectIdentifier)
+  const targetDocuments = targetOutlineDocumentId == null
+    ? manifest.documents
+    : manifest.documents.filter(document => document.outlineDocumentId === targetOutlineDocumentId)
+  if (targetDocuments.length === 0) {
+    throw new Error(`目标文档不在迁移清单中: ${targetOutlineDocumentId}`)
+  }
+  const targetOutlineIds = new Set(targetDocuments.map(document => document.outlineDocumentId))
+  const referenceOutlineIds = manifest.documents
+    .map(document => document.outlineDocumentId)
+    .filter(outlineDocumentId => !targetOutlineIds.has(outlineDocumentId))
+  // 单节点模式下，清单其余节点只提供父子和链接映射，禁止隐式迁移或按标题猜测。
+  for (const outlineDocumentId of referenceOutlineIds) {
+    if (!state.documents[outlineDocumentId]) {
+      throw new Error(`单节点迁移的清单引用尚未映射: ${outlineDocumentId}`)
+    }
+  }
   const projects = await linearLiteApi.listProjects()
   const matches = projects.filter(project => project.identifier === manifest.projectIdentifier)
   if (matches.length !== 1) {
     throw new Error(`必须唯一定位项目 identifier=${manifest.projectIdentifier}，实际匹配 ${matches.length} 个`)
   }
   const project = matches[0]
-  const orderedDocuments = orderDocuments(manifest.documents)
+  const orderedDocuments = orderDocuments(targetDocuments, referenceOutlineIds)
   const selectedBySourceUrl = new Map(manifest.documents.map(document => [
     normalizeUrl(document.sourceUrl), document.outlineDocumentId
   ]))
@@ -986,10 +1004,10 @@ async function rewriteHref(href, context) {
   return uploaded.url
 }
 
-function orderDocuments(documents) {
+function orderDocuments(documents, preEmittedOutlineIds = []) {
   const pending = [...documents]
   const ordered = []
-  const emitted = new Set()
+  const emitted = new Set(preEmittedOutlineIds)
   while (pending.length > 0) {
     const ready = pending
       .filter(document => document.parentOutlineDocumentId == null
@@ -1172,9 +1190,11 @@ async function main() {
       statePath: args.state,
       linearLiteApi: api,
       outlineApi,
+      targetOutlineDocumentId: args['document-id'],
       maxAttachmentBytes
     })
   } else {
+    if (args['document-id']) throw new Error('--document-id 仅支持 Outline API 在线模式')
     if (!args['export-dir']) throw new Error('旧目录模式必须提供 --export-dir')
     result = await migrateOutlineDocuments({
       exportDir: args['export-dir'],
