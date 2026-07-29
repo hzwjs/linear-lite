@@ -11,6 +11,9 @@ public interface ObjectStorageService {
 
     ImageUploadResponse uploadAttachment(MultipartFile file, long taskId);
 
+    ImageUploadResponse uploadProjectDocumentAttachment(
+            MultipartFile file, long projectId, long documentId, long maxBytes);
+
     InputStream openObjectStreamByKey(String key);
 
     void deleteObjectByKey(String key);

@@ -12,6 +12,8 @@ public class ProjectDocument {
     private Long id;
     private Long projectId;
     private Long parentDocumentId;
+    private String externalSource;
+    private String externalSourceId;
     private String title;
     private String contentJson;
     private Integer sortOrder;
@@ -28,6 +30,10 @@ public class ProjectDocument {
     public void setProjectId(Long projectId) { this.projectId = projectId; }
     public Long getParentDocumentId() { return parentDocumentId; }
     public void setParentDocumentId(Long parentDocumentId) { this.parentDocumentId = parentDocumentId; }
+    public String getExternalSource() { return externalSource; }
+    public void setExternalSource(String externalSource) { this.externalSource = externalSource; }
+    public String getExternalSourceId() { return externalSourceId; }
+    public void setExternalSourceId(String externalSourceId) { this.externalSourceId = externalSourceId; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
     public String getContentJson() { return contentJson; }

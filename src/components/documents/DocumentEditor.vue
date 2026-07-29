@@ -3,7 +3,10 @@ import { Archive, Check, Clock3, Copy, Loader2, RefreshCw, TriangleAlert } from 
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StructuredDocumentEditor from '../StructuredDocumentEditor.vue'
+import { documentApi } from '../../services/api/documents'
 import type { DocumentSaveState, ProjectDocument, ProjectDocumentTreeNode } from '../../types/document'
+
+const DOCUMENT_ATTACHMENT_PATH = /^\/api\/project-documents\/(\d+)\/attachments\/(\d+)\/download$/
 
 const props = defineProps<{
   document: ProjectDocument
@@ -26,6 +29,24 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const copied = ref(false)
 const bodyEditorRef = ref<InstanceType<typeof StructuredDocumentEditor> | null>(null)
+const attachmentDownloadError = ref('')
+const attachmentDownloadPending = ref(false)
+
+function matchDocumentAttachmentPath(anchor: HTMLAnchorElement): RegExpMatchArray | null {
+  try {
+    const url = new URL(anchor.getAttribute('href') ?? '', window.location.href)
+    if (url.origin !== window.location.origin || url.search !== '' || url.hash !== '') return null
+    return url.pathname.match(DOCUMENT_ATTACHMENT_PATH)
+  } catch {
+    return null
+  }
+}
+
+function matchDocumentAttachmentEvent(event: MouseEvent): RegExpMatchArray | null {
+  if (!(event.target instanceof Element)) return null
+  const anchor = event.target.closest<HTMLAnchorElement>('a[href]')
+  return anchor == null ? null : matchDocumentAttachmentPath(anchor)
+}
 
 const breadcrumbs = computed(() => {
   const byId = new Map(props.treeNodes.map((node) => [node.id, node]))
@@ -51,6 +72,38 @@ async function copyDraft() {
   await navigator.clipboard.writeText(`${props.document.title}\n\n${props.document.content}`)
   copied.value = true
   window.setTimeout(() => { copied.value = false }, 1800)
+}
+
+function handleDocumentBodyMouseDown(event: MouseEvent) {
+  if (matchDocumentAttachmentEvent(event) == null) return
+  // ProseMirror 会在 mousedown 后注册 document mouseup，并在 click 前通过 window.open 打开链接。
+  event.stopPropagation()
+}
+
+async function handleDocumentBodyClick(event: MouseEvent) {
+  const match = matchDocumentAttachmentEvent(event)
+  if (match == null) return
+
+  // 只接管附件路由，并阻止 Tiptap 的链接处理器再次通过 window.open 打开未鉴权地址。
+  event.preventDefault()
+  event.stopPropagation()
+  const documentId = Number(match[1])
+  const attachmentId = Number(match[2])
+  if (documentId !== props.document.id) {
+    attachmentDownloadError.value = t('documents.attachmentDocumentMismatch')
+    return
+  }
+  if (attachmentDownloadPending.value) return
+
+  attachmentDownloadError.value = ''
+  attachmentDownloadPending.value = true
+  try {
+    await documentApi.downloadAttachment(documentId, attachmentId)
+  } catch {
+    attachmentDownloadError.value = t('attachments.downloadFailed')
+  } finally {
+    attachmentDownloadPending.value = false
+  }
 }
 </script>
 
@@ -111,16 +164,25 @@ async function copyDraft() {
         @input="emit('updateTitle', ($event.target as HTMLInputElement).value)"
         @keydown="handleTitleKeydown"
       />
-      <StructuredDocumentEditor
-        ref="bodyEditorRef"
-        :key="document.id"
-        :model-value="document.content"
-        :readonly="saveState === 'conflict'"
-        :placeholder="t('documents.bodyPlaceholder')"
-        :mention-members="mentionMembers"
-        :mention-documents="mentionDocuments"
-        @update:model-value="emit('updateContent', $event)"
-      />
+      <div
+        class="document-editor__body"
+        @mousedown.capture="handleDocumentBodyMouseDown"
+        @click.capture="handleDocumentBodyClick"
+      >
+        <StructuredDocumentEditor
+          ref="bodyEditorRef"
+          :key="document.id"
+          :model-value="document.content"
+          :readonly="saveState === 'conflict'"
+          :placeholder="t('documents.bodyPlaceholder')"
+          :mention-members="mentionMembers"
+          :mention-documents="mentionDocuments"
+          @update:model-value="emit('updateContent', $event)"
+        />
+      </div>
+      <p v-if="attachmentDownloadError" class="document-editor__attachment-error" role="alert">
+        <TriangleAlert aria-hidden="true" />{{ attachmentDownloadError }}
+      </p>
     </div>
   </article>
 </template>
@@ -220,6 +282,17 @@ async function copyDraft() {
 
 .document-editor__title:focus-visible { outline: none; }
 .document-editor__title[readonly] { color: var(--color-text-secondary); }
+
+.document-editor__attachment-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-caption);
+}
+
+.document-editor__attachment-error svg { width: 14px; height: 14px; }
 
 .sr-only {
   position: absolute;

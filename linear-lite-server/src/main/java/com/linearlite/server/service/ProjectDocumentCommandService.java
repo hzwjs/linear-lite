@@ -51,7 +51,23 @@ public class ProjectDocumentCommandService {
     public ProjectDocumentResponse create(Long projectId, CreateProjectDocumentRequest request, Long userId) {
         projectAccessGuard.requireMember(projectId, userId);
         documentMapper.lockProjectDocumentMutations(projectId);
+        String externalSource = normalizeExternalSource(request == null ? null : request.externalSource());
+        String externalSourceId = normalizeExternalSourceId(
+                request == null ? null : request.externalSourceId(), externalSource);
+        if (externalSource != null) {
+            ProjectDocument existing = documentMapper.selectOne(new LambdaQueryWrapper<ProjectDocument>()
+                    .eq(ProjectDocument::getProjectId, projectId)
+                    .eq(ProjectDocument::getExternalSource, externalSource)
+                    .eq(ProjectDocument::getExternalSourceId, externalSourceId));
+            if (existing != null) {
+                requireActive(existing);
+                return ProjectDocumentQueryService.toResponse(existing);
+            }
+        }
         String title = requireTitle(request == null ? null : request.title());
+        String content = request == null || request.content() == null
+                ? EMPTY_BLOCK_NOTE_DOCUMENT
+                : requireBlockNoteJson(request.content());
         Long parentId = request == null ? null : request.parentDocumentId();
         if (parentId != null) {
             ProjectDocument parent = requireDocument(parentId);
@@ -62,8 +78,11 @@ public class ProjectDocumentCommandService {
         ProjectDocument document = new ProjectDocument();
         document.setProjectId(projectId);
         document.setParentDocumentId(parentId);
+        document.setExternalSource(externalSource);
+        document.setExternalSourceId(externalSourceId);
         document.setTitle(title);
-        document.setContentJson(EMPTY_BLOCK_NOTE_DOCUMENT);
+        // 导入场景允许原子创建首版正文，避免附件处理失败时遗留只有标题的文档。
+        document.setContentJson(content);
         document.setSortOrder(loadSiblings(projectId, parentId, false).size());
         document.setVersion(1L);
         document.setCreatorId(userId);
@@ -245,6 +264,31 @@ public class ProjectDocumentCommandService {
             throw new IllegalArgumentException("文档标题不能超过 256 个字符");
         }
         return normalized;
+    }
+
+    private String normalizeExternalSource(String externalSource) {
+        String source = externalSource == null ? null : externalSource.trim();
+        if (source == null || source.isEmpty()) {
+            return null;
+        }
+        if (source.length() > 64) {
+            throw new IllegalArgumentException("外部来源不能超过 64 个字符");
+        }
+        return source;
+    }
+
+    private String normalizeExternalSourceId(String externalSourceId, String externalSource) {
+        String sourceId = externalSourceId == null ? null : externalSourceId.trim();
+        if (externalSource == null && (sourceId == null || sourceId.isEmpty())) {
+            return null;
+        }
+        if (externalSource == null || sourceId == null || sourceId.isEmpty()) {
+            throw new IllegalArgumentException("externalSource 与 externalSourceId 必须同时提供");
+        }
+        if (sourceId.length() > 128) {
+            throw new IllegalArgumentException("外部来源文档 ID 不能超过 128 个字符");
+        }
+        return sourceId;
     }
 
     private String requireBlockNoteJson(String content) {

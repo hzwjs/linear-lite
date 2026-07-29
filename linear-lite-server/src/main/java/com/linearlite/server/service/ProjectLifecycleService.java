@@ -43,6 +43,7 @@ public class ProjectLifecycleService {
     private final ProjectMapper projectMapper;
     private final ProjectDocumentMapper documentMapper;
     private final ProjectDocumentRevisionMapper revisionMapper;
+    private final ProjectDocumentAttachmentService documentAttachmentService;
     private final TaskMapper taskMapper;
     private final TaskCommentMapper taskCommentMapper;
     private final CommentMentionMapper mentionMapper;
@@ -62,6 +63,7 @@ public class ProjectLifecycleService {
     public ProjectLifecycleService(
             ProjectAccessGuard accessGuard, ProjectMapper projectMapper,
             ProjectDocumentMapper documentMapper, ProjectDocumentRevisionMapper revisionMapper,
+            ProjectDocumentAttachmentService documentAttachmentService,
             TaskMapper taskMapper, TaskCommentMapper taskCommentMapper, CommentMentionMapper mentionMapper,
             InAppNotificationMapper notificationMapper, TaskActivityMapper activityMapper,
             TaskFavoriteMapper favoriteMapper, TaskAttachmentMapper attachmentMapper,
@@ -73,6 +75,7 @@ public class ProjectLifecycleService {
         this.projectMapper = projectMapper;
         this.documentMapper = documentMapper;
         this.revisionMapper = revisionMapper;
+        this.documentAttachmentService = documentAttachmentService;
         this.taskMapper = taskMapper;
         this.taskCommentMapper = taskCommentMapper;
         this.mentionMapper = mentionMapper;
@@ -98,7 +101,8 @@ public class ProjectLifecycleService {
                         .eq(ProjectDocument::getProjectId, projectId))
                 .stream().map(ProjectDocument::getId).toList();
         if (!documentIds.isEmpty()) {
-            // 先清理不可变版本，再清理当前文档，保持无外键数据库中的引用顺序。
+            // 先清理对象存储与附件元数据，再清理不可变版本和当前文档。
+            documentAttachmentService.deleteForProject(projectId);
             revisionMapper.delete(new LambdaQueryWrapper<ProjectDocumentRevision>()
                     .in(ProjectDocumentRevision::getDocumentId, documentIds));
             documentMapper.deleteBatchIds(documentIds);

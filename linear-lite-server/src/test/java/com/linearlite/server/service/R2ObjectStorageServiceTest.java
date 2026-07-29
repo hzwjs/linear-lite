@@ -93,4 +93,34 @@ class R2ObjectStorageServiceTest {
 
         assertEquals("图片大小不能超过 10MB", error.getMessage());
     }
+
+    @Test
+    void uploadProjectDocumentAttachmentUsesDedicatedProjectAndDocumentNamespace() {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "扫描报告.pdf", "application/pdf", "pdf".getBytes());
+
+        ImageUploadResponse response = storageService.uploadProjectDocumentAttachment(
+                file, 7L, 11L, 50L * 1024 * 1024);
+
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(storageClient).putObject(
+                org.mockito.ArgumentMatchers.eq("linear-lite-assets"),
+                keyCaptor.capture(),
+                org.mockito.ArgumentMatchers.eq("application/pdf"),
+                org.mockito.ArgumentMatchers.any(byte[].class));
+        assertTrue(keyCaptor.getValue().matches(
+                "document-attachments/7/11/[0-9a-f\\-]+-[A-Za-z0-9._-]+\\.pdf"));
+        assertEquals(keyCaptor.getValue(), response.getKey());
+    }
+
+    @Test
+    void uploadProjectDocumentAttachmentEnforcesItsConfiguredLimit() {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "large.pdf", "application/pdf", new byte[5]);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> storageService.uploadProjectDocumentAttachment(file, 7L, 11L, 4L));
+
+        assertEquals("文档附件超过大小限制", error.getMessage());
+    }
 }

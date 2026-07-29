@@ -83,7 +83,8 @@ public class ProjectDocumentQueryService {
 
     static ProjectDocumentResponse toResponse(ProjectDocument document) {
         return new ProjectDocumentResponse(
-                document.getId(), document.getProjectId(), document.getParentDocumentId(), document.getTitle(),
+                document.getId(), document.getProjectId(), document.getParentDocumentId(),
+                document.getExternalSource(), document.getExternalSourceId(), document.getTitle(),
                 document.getContentJson(), document.getSortOrder(), document.getVersion(), document.getCreatorId(),
                 document.getLastEditorId(), document.getArchivedAt(), document.getCreatedAt(), document.getUpdatedAt());
     }

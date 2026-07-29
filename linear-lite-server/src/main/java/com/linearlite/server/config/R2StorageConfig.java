@@ -52,6 +52,13 @@ public class R2StorageConfig {
             }
 
             @Override
+            public ImageUploadResponse uploadProjectDocumentAttachment(
+                    MultipartFile file, long projectId, long documentId, long maxBytes) {
+                throwDisabled();
+                return null;
+            }
+
+            @Override
             public java.io.InputStream openObjectStreamByKey(String key) {
                 throwDisabled();
                 return null;

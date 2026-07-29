@@ -6,6 +6,8 @@ public record ProjectDocumentResponse(
         Long id,
         Long projectId,
         Long parentDocumentId,
+        String externalSource,
+        String externalSourceId,
         String title,
         String content,
         Integer sortOrder,

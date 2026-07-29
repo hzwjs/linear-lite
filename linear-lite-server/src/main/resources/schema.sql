@@ -81,6 +81,8 @@ CREATE TABLE IF NOT EXISTS project_documents (
     id                 BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     project_id         BIGINT       NOT NULL,
     parent_document_id BIGINT       DEFAULT NULL,
+    external_source    VARCHAR(64)  DEFAULT NULL COMMENT '外部迁移来源',
+    external_source_id VARCHAR(128) DEFAULT NULL COMMENT '外部来源内稳定文档 ID',
     title              VARCHAR(256) NOT NULL,
     content_json       LONGTEXT     NOT NULL,
     sort_order         INT          NOT NULL DEFAULT 0,
@@ -92,7 +94,8 @@ CREATE TABLE IF NOT EXISTS project_documents (
     updated_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_project_documents_project_parent_order (project_id, parent_document_id, sort_order, id),
     INDEX idx_project_documents_parent (parent_document_id),
-    INDEX idx_project_documents_project_updated (project_id, updated_at, id)
+    INDEX idx_project_documents_project_updated (project_id, updated_at, id),
+    UNIQUE KEY uk_project_documents_external_source (project_id, external_source, external_source_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS project_document_revisions (
@@ -105,6 +108,22 @@ CREATE TABLE IF NOT EXISTS project_document_revisions (
     created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_project_document_revisions_document_version (document_id, version),
     INDEX idx_project_document_revisions_document_created (document_id, created_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS project_document_attachments (
+    id           BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    project_id   BIGINT       NOT NULL COMMENT '逻辑关联 projects.id',
+    document_id  BIGINT       NOT NULL COMMENT '逻辑关联 project_documents.id',
+    source_id    VARCHAR(512) DEFAULT NULL COMMENT '外部迁移来源内的稳定附件标识',
+    object_key   VARCHAR(512) NOT NULL,
+    file_name    VARCHAR(256) NOT NULL,
+    file_size    BIGINT       NOT NULL,
+    content_type VARCHAR(128) DEFAULT NULL,
+    sha256       CHAR(64)     NOT NULL,
+    created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_project_document_attachments_source (document_id, source_id),
+    INDEX idx_project_document_attachments_project (project_id, id),
+    INDEX idx_project_document_attachments_document (document_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS project_task_seq (

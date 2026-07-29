@@ -3,6 +3,7 @@ package com.linearlite.server.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.dto.CreateProjectDocumentRequest;
 import com.linearlite.server.dto.MoveProjectDocumentRequest;
+import com.linearlite.server.dto.ProjectDocumentResponse;
 import com.linearlite.server.dto.UpdateProjectDocumentRequest;
 import com.linearlite.server.entity.ProjectDocument;
 import com.linearlite.server.entity.ProjectDocumentRevision;
@@ -75,6 +76,62 @@ class ProjectDocumentCommandServiceTest {
         assertEquals(1L, revisionCaptor.getValue().getVersion());
         verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.DOCUMENT, 11L));
+    }
+
+    @Test
+    void createAtomicallyPersistsProvidedInitialContent() {
+        doAnswer(invocation -> {
+            ProjectDocument document = invocation.getArgument(0);
+            document.setId(12L);
+            return 1;
+        }).when(documentMapper).insert(any(ProjectDocument.class));
+        when(documentMapper.selectList(any())).thenReturn(List.of());
+        when(documentMapper.selectById(12L)).thenAnswer(invocation -> {
+            ProjectDocument saved = new ProjectDocument();
+            saved.setId(12L);
+            saved.setProjectId(3L);
+            saved.setTitle("迁移文档");
+            saved.setContentJson("[{\"type\":\"paragraph\"}]");
+            saved.setSortOrder(0);
+            saved.setVersion(1L);
+            saved.setCreatorId(7L);
+            saved.setLastEditorId(7L);
+            return saved;
+        });
+
+        service.create(3L, new CreateProjectDocumentRequest(
+                null, "迁移文档", "[{\"type\":\"paragraph\"}]"), 7L);
+
+        ArgumentCaptor<ProjectDocument> documentCaptor = ArgumentCaptor.forClass(ProjectDocument.class);
+        verify(documentMapper).insert(documentCaptor.capture());
+        assertEquals("[{\"type\":\"paragraph\"}]", documentCaptor.getValue().getContentJson());
+    }
+
+    @Test
+    void createReusesDocumentOnlyByProjectAndExternalSourceId() {
+        ProjectDocument existing = document(41L, 3L, null, 4L, 0);
+        existing.setExternalSource("outline");
+        existing.setExternalSourceId("EUEFsRqmJ4");
+        when(documentMapper.selectOne(any())).thenReturn(existing);
+
+        ProjectDocumentResponse response = service.create(3L, new CreateProjectDocumentRequest(
+                null, "不能用于匹配的标题", "[]", "outline", "EUEFsRqmJ4"), 7L);
+
+        assertEquals(41L, response.id());
+        assertEquals("outline", response.externalSource());
+        assertEquals("EUEFsRqmJ4", response.externalSourceId());
+        verify(documentMapper, never()).insert(any());
+        verify(revisionMapper, never()).insert(any());
+    }
+
+    @Test
+    void createRejectsPartialExternalBinding() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
+                service.create(3L, new CreateProjectDocumentRequest(
+                        null, "迁移文档", "[]", null, "EUEFsRqmJ4"), 7L));
+
+        assertEquals("externalSource 与 externalSourceId 必须同时提供", error.getMessage());
+        verify(documentMapper, never()).insert(any());
     }
 
     @Test

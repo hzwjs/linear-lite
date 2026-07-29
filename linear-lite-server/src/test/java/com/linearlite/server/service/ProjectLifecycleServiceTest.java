@@ -39,6 +39,7 @@ class ProjectLifecycleServiceTest {
     @Mock private ProjectMapper projectMapper;
     @Mock private ProjectDocumentMapper documentMapper;
     @Mock private ProjectDocumentRevisionMapper revisionMapper;
+    @Mock private ProjectDocumentAttachmentService documentAttachmentService;
     @Mock private TaskMapper taskMapper;
     @Mock private TaskCommentMapper taskCommentMapper;
     @Mock private CommentMentionMapper mentionMapper;
@@ -60,7 +61,8 @@ class ProjectLifecycleServiceTest {
     @BeforeEach
     void setUp() {
         service = new ProjectLifecycleService(
-                accessGuard, projectMapper, documentMapper, revisionMapper, taskMapper, taskCommentMapper,
+                accessGuard, projectMapper, documentMapper, revisionMapper, documentAttachmentService,
+                taskMapper, taskCommentMapper,
                 mentionMapper, notificationMapper, activityMapper, favoriteMapper, attachmentMapper,
                 labelService, labelMapper, invitationMapper, memberMapper, emailPreferenceMapper,
                 taskSeqMapper, codexBindingMapper, eventPublisher);

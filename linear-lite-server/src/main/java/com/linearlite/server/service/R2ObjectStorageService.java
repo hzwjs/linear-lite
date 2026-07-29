@@ -65,6 +65,27 @@ public class R2ObjectStorageService implements ObjectStorageService {
     }
 
     @Override
+    public ImageUploadResponse uploadProjectDocumentAttachment(
+            MultipartFile file, long projectId, long documentId, long maxBytes) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("文档附件不能为空");
+        }
+        if (maxBytes <= 0 || file.getSize() > maxBytes) {
+            throw new IllegalArgumentException("文档附件超过大小限制");
+        }
+        String contentType = normalizeContentType(file.getContentType());
+        if (contentType.isBlank()) {
+            contentType = "application/octet-stream";
+        }
+        // 文档附件使用独立命名空间，后续项目清理不会与任务附件相互影响。
+        String key = "document-attachments/" + projectId + "/" + documentId + "/"
+                + UUID.randomUUID() + "-" + sanitizeFilename(file.getOriginalFilename(), "file.bin");
+        byte[] bytes = readBytes(file);
+        storageClient.putObject(properties.getBucket(), key, contentType, bytes);
+        return new ImageUploadResponse(buildPublicUrl(key), key);
+    }
+
+    @Override
     public InputStream openObjectStreamByKey(String key) {
         return storageClient.openObjectStream(properties.getBucket(), key);
     }
