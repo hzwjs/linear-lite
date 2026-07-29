@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { blockNoteDocHasPersistableContent, parseBlockNoteStoredBlocks } from './blockNoteDescription'
 
 describe('blockNoteDocHasPersistableContent', () => {
+  it('lets BlockNote create its default paragraph for an empty stored document', () => {
+    expect(parseBlockNoteStoredBlocks('[]')).toEqual([])
+  })
+
   it('treats image-only BlockNote JSON as non-empty', () => {
     const raw = JSON.stringify([
       {

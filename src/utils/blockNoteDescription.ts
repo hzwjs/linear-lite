@@ -74,6 +74,7 @@ export function parseBlockNoteStoredBlocks(raw: string): unknown[] | undefined {
     return undefined
   }
   if (!Array.isArray(parsed)) return undefined
+  // 空数组由调用方识别为合法空文档，但不会作为 initialContent 传入 BlockNote。
   if (parsed.length === 0) return parsed
   for (const item of parsed) {
     if (typeof item !== 'object' || item === null) return undefined

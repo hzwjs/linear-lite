@@ -25,6 +25,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const copied = ref(false)
+const bodyEditorRef = ref<InstanceType<typeof StructuredDocumentEditor> | null>(null)
 
 const breadcrumbs = computed(() => {
   const byId = new Map(props.treeNodes.map((node) => [node.id, node]))
@@ -38,6 +39,13 @@ const breadcrumbs = computed(() => {
 })
 
 const saveLabel = computed(() => t(`documents.saveState.${props.saveState}`))
+
+function handleTitleKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Enter' || event.isComposing) return
+  // 标题是单行输入框；回车后把光标交给正文，保持文档编辑的连续键盘流。
+  event.preventDefault()
+  bodyEditorRef.value?.focus()
+}
 
 async function copyDraft() {
   await navigator.clipboard.writeText(`${props.document.title}\n\n${props.document.content}`)
@@ -101,8 +109,10 @@ async function copyDraft() {
         :value="document.title"
         :readonly="saveState === 'conflict'"
         @input="emit('updateTitle', ($event.target as HTMLInputElement).value)"
+        @keydown="handleTitleKeydown"
       />
       <StructuredDocumentEditor
+        ref="bodyEditorRef"
         :key="document.id"
         :model-value="document.content"
         :readonly="saveState === 'conflict'"

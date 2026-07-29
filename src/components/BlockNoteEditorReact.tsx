@@ -634,7 +634,9 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   const parsedJsonInitial = useMemo(() => {
     const raw = (initialContent ?? '').trim()
     if (!raw) return undefined
-    return parseBlockNoteStoredBlocks(raw)
+    const parsed = parseBlockNoteStoredBlocks(raw)
+    // 空文档交给 BlockNote 创建默认段落，但仍视为已识别的 JSON 存储格式。
+    return parsed && parsed.length > 0 ? parsed : undefined
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const editor = useCreateBlockNote(
