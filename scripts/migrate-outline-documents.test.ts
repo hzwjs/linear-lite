@@ -359,7 +359,10 @@ describe('Outline document migration', () => {
       }
       return new Response(stream, {
         status: 200,
-        headers: { 'Content-Type': 'application/pdf' }
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': "inline; filename=\"??????????report.pdf\"; filename*=UTF-8''%E3%80%90%E5%BA%94%E7%94%A8%E6%8A%A5%E5%91%8A%E3%80%91report.pdf"
+        }
       })
     })
 
@@ -373,12 +376,71 @@ describe('Outline document migration', () => {
     })
 
     expect(downloaded.fileSize).toBe(chunkSize * chunkCount)
+    expect(downloaded.fileName).toBe('【应用报告】report.pdf')
     expect(fs.statSync(tempFile).size).toBe(chunkSize * chunkCount)
     expect(emittedChunks).toBe(chunkCount)
     expect(calls).toEqual([
       { url: 'http://outline.example/api/attachments.redirect?id=attachment-1', authorization: 'Bearer read-only-token' },
       { url: 'https://objects.example/signed/report.pdf', authorization: undefined }
     ])
+  })
+
+  it('uses the authoritative ASCII filename when Outline omits filename*', async () => {
+    const sample = fixture()
+    const tempFile = path.join(sample.root, 'image.tmp')
+
+    const downloaded = await downloadOutlineAttachmentToFile({
+      attachmentUrl: '/api/attachments.redirect?id=image-1',
+      outlineBaseUrl: 'http://outline.example',
+      token: 'read-only-token',
+      tempFile,
+      maxBytes: 1024,
+      fetchImpl: async () => new Response(Buffer.from('png'), {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/png',
+          'Content-Disposition': 'inline; filename="1.png"'
+        }
+      })
+    })
+
+    expect(downloaded.fileName).toBe('1.png')
+  })
+
+  it('rejects an Outline attachment response without an authoritative filename', async () => {
+    const sample = fixture()
+    const tempFile = path.join(sample.root, 'missing-name.tmp')
+
+    await expect(downloadOutlineAttachmentToFile({
+      attachmentUrl: '/api/attachments.redirect?id=missing-name',
+      outlineBaseUrl: 'http://outline.example',
+      token: 'read-only-token',
+      tempFile,
+      maxBytes: 1024,
+      fetchImpl: async () => new Response(Buffer.from('data'), {
+        status: 200,
+        headers: { 'Content-Type': 'application/octet-stream' }
+      })
+    })).rejects.toThrow('Outline 附件响应缺少 Content-Disposition 文件名')
+  })
+
+  it('does not fall back to filename when filename* is not UTF-8', async () => {
+    const sample = fixture()
+    const tempFile = path.join(sample.root, 'non-utf8-name.tmp')
+
+    await expect(downloadOutlineAttachmentToFile({
+      attachmentUrl: '/api/attachments.redirect?id=non-utf8-name',
+      outlineBaseUrl: 'http://outline.example',
+      token: 'read-only-token',
+      tempFile,
+      maxBytes: 1024,
+      fetchImpl: async () => new Response(Buffer.from('data'), {
+        status: 200,
+        headers: {
+          'Content-Disposition': "attachment; filename=\"safe.txt\"; filename*=ISO-8859-1''unsafe.txt"
+        }
+      })
+    })).rejects.toThrow('Outline 附件响应的 filename* 必须使用 UTF-8')
   })
 
   it('uploads one attachment as streaming multipart instead of a File buffer', async () => {
@@ -435,7 +497,10 @@ describe('Outline document migration', () => {
       token: 'read-only-token',
       tempFile,
       maxBytes: 5,
-      fetchImpl: async () => new Response(stream, { status: 200 })
+      fetchImpl: async () => new Response(stream, {
+        status: 200,
+        headers: { 'Content-Disposition': 'attachment; filename="large.bin"' }
+      })
     })).rejects.toThrow('Outline 附件超过 5 字节')
     expect(fs.existsSync(tempFile)).toBe(false)
   })
@@ -447,7 +512,7 @@ describe('Outline document migration', () => {
       ['jIbDVtIQLv', { title: '安全扫描', markdown: '# 安全扫描' }],
       ['EUEFsRqmJ4', {
         title: '项目开发概述',
-        markdown: '# 项目开发概述\n\n[settings.xml](/api/attachments.redirect?id=settings-1)'
+        markdown: '# 项目开发概述\n\n![](/api/attachments.redirect?id=settings-1)'
       }],
       ['RZAdPKfrmZ', {
         title: '20260122结果',
@@ -495,6 +560,7 @@ describe('Outline document migration', () => {
         activeDownloads -= 1
         return {
           tempFile,
+          fileName: attachmentId === 'report-1' ? 'report.pdf' : 'settings.xml',
           fileSize: bytes.length,
           sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
           contentType: 'application/octet-stream'

@@ -404,6 +404,8 @@ export async function downloadOutlineAttachmentToFile({
   if (!response || !response.ok || !response.body) {
     throw new Error(`Outline 附件下载失败: HTTP ${response?.status ?? 'unknown'}`)
   }
+  const fileName = outlineAttachmentFileNameFromContentDisposition(
+    response.headers.get('content-disposition'))
 
   let size = 0
   const digest = crypto.createHash('sha256')
@@ -429,6 +431,7 @@ export async function downloadOutlineAttachmentToFile({
   }
   return {
     tempFile,
+    fileName,
     fileSize: size,
     sha256: digest.digest('hex'),
     contentType: response.headers.get('content-type') || 'application/octet-stream'
@@ -757,8 +760,7 @@ function requireExistingTarget(document, projectId, outlineDocumentId, parentId)
 async function rewriteOutlineApiMarkdown(context) {
   return replaceAsync(context.markdown, MARKDOWN_LINK_PATTERN, async (full, prefix, destination, suffix) => {
     const { href, titleSuffix, angled } = splitDestination(destination)
-    const label = prefix.slice(prefix.indexOf('[') + 1, -2).trim()
-    const rewritten = await rewriteOutlineApiHref(href, label, context)
+    const rewritten = await rewriteOutlineApiHref(href, context)
     const rewrittenPrefix = rewritten.attachmentFileName == null
       ? prefix
       : `${prefix.slice(0, prefix.indexOf('[') + 1)}${rewritten.attachmentFileName}](`
@@ -766,12 +768,11 @@ async function rewriteOutlineApiMarkdown(context) {
   })
 }
 
-async function rewriteOutlineApiHref(href, label, context) {
+async function rewriteOutlineApiHref(href, context) {
   if (isOutlineAttachmentHref(href, context.outlineBaseUrl)) {
     const attachmentUrl = new URL(href, context.outlineBaseUrl)
     const attachmentId = attachmentUrl.searchParams.get('id')
     if (!attachmentId) throw new Error(`Outline 附件地址缺少 id: ${href}`)
-    if (!label) throw new Error(`Outline 附件链接缺少文件名: ${attachmentId}`)
     const sourceId = `outline:${context.source.outlineDocumentId}:attachment:${attachmentId}`
     const downloaded = await context.outlineApi.downloadAttachment({
       attachmentUrl: attachmentUrl.toString(),
@@ -779,7 +780,7 @@ async function rewriteOutlineApiHref(href, label, context) {
       maxBytes: context.maxAttachmentBytes
     })
     try {
-      const fileName = outlineAttachmentFileName(label, downloaded.fileSize, attachmentId)
+      const fileName = downloaded.fileName
       const existing = context.documentState.attachments[sourceId]
       if (existing) {
         if (existing.sha256 !== downloaded.sha256 || existing.fileSize !== downloaded.fileSize) {
@@ -838,13 +839,35 @@ async function rewriteOutlineApiHref(href, label, context) {
   throw new Error(`在线 Outline 文档包含无法解析的相对链接: ${href}`)
 }
 
-function outlineAttachmentFileName(label, fileSize, attachmentId) {
-  const byteSizeSuffix = ` ${fileSize}`
-  // Outline 在链接标签末尾附加实际字节数；以下载后的同一文件字节数精确识别，避免猜测文件名。
-  const fileName = label.endsWith(byteSizeSuffix)
-    ? label.slice(0, -byteSizeSuffix.length).trim()
-    : label.trim()
-  if (!fileName) throw new Error(`Outline 附件链接文件名为空: ${attachmentId}`)
+function outlineAttachmentFileNameFromContentDisposition(contentDisposition) {
+  if (!contentDisposition) {
+    throw new Error('Outline 附件响应缺少 Content-Disposition 文件名')
+  }
+
+  const utf8Match = /(?:^|;)\s*filename\*=UTF-8''([^;]*)/i.exec(contentDisposition)
+  let fileName
+  if (utf8Match) {
+    try {
+      fileName = decodeURIComponent(utf8Match[1])
+    } catch {
+      throw new Error('Outline 附件响应的 UTF-8 filename* 非法')
+    }
+  } else {
+    if (/(?:^|;)\s*filename\*/i.test(contentDisposition)) {
+      throw new Error('Outline 附件响应的 filename* 必须使用 UTF-8')
+    }
+    // Outline 对纯 ASCII 文件名只返回 filename；非 ASCII 文件名必须走上面的 UTF-8 filename*。
+    const asciiMatch = /(?:^|;)\s*filename="([\x20-\x21\x23-\x5b\x5d-\x7e]+)"/i.exec(contentDisposition)
+    if (!asciiMatch) {
+      throw new Error('Outline 附件响应缺少 Content-Disposition 文件名')
+    }
+    fileName = asciiMatch[1]
+  }
+
+  // 响应头是在线迁移的唯一文件名来源；拒绝路径和控制字符，避免把服务端文件名当成本地路径。
+  if (!fileName || fileName !== fileName.trim() || /[\\/\u0000-\u001f\u007f]/.test(fileName)) {
+    throw new Error('Outline 附件响应的文件名非法')
+  }
   return fileName
 }
 
