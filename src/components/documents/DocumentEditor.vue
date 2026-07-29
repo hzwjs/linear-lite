@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Archive, Check, Clock3, Copy, Loader2, RefreshCw, TriangleAlert } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StructuredDocumentEditor from '../StructuredDocumentEditor.vue'
 import { documentApi } from '../../services/api/documents'
@@ -29,12 +29,17 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const copied = ref(false)
 const bodyEditorRef = ref<InstanceType<typeof StructuredDocumentEditor> | null>(null)
+const documentBodyRef = ref<HTMLElement | null>(null)
 const attachmentDownloadError = ref('')
 const attachmentDownloadPending = ref(false)
+const attachmentImageObjectUrls = new Map<HTMLImageElement, string>()
+const pendingAttachmentImages = new WeakSet<HTMLImageElement>()
+let attachmentImageObserver: MutationObserver | null = null
+let attachmentImageGeneration = 0
 
-function matchDocumentAttachmentPath(anchor: HTMLAnchorElement): RegExpMatchArray | null {
+function matchDocumentAttachmentPath(value: string | null): RegExpMatchArray | null {
   try {
-    const url = new URL(anchor.getAttribute('href') ?? '', window.location.href)
+    const url = new URL(value ?? '', window.location.href)
     if (url.origin !== window.location.origin || url.search !== '' || url.hash !== '') return null
     return url.pathname.match(DOCUMENT_ATTACHMENT_PATH)
   } catch {
@@ -45,8 +50,80 @@ function matchDocumentAttachmentPath(anchor: HTMLAnchorElement): RegExpMatchArra
 function matchDocumentAttachmentEvent(event: MouseEvent): RegExpMatchArray | null {
   if (!(event.target instanceof Element)) return null
   const anchor = event.target.closest<HTMLAnchorElement>('a[href]')
-  return anchor == null ? null : matchDocumentAttachmentPath(anchor)
+  return anchor == null ? null : matchDocumentAttachmentPath(anchor.getAttribute('href'))
 }
+
+function revokeAttachmentImageUrls() {
+  for (const objectUrl of attachmentImageObjectUrls.values()) URL.revokeObjectURL(objectUrl)
+  attachmentImageObjectUrls.clear()
+}
+
+async function hydrateAttachmentImages() {
+  const generation = attachmentImageGeneration
+  await nextTick()
+  const body = documentBodyRef.value
+  if (body == null || generation !== attachmentImageGeneration) return
+
+  for (const [image, objectUrl] of attachmentImageObjectUrls) {
+    if (body.contains(image)) continue
+    URL.revokeObjectURL(objectUrl)
+    attachmentImageObjectUrls.delete(image)
+  }
+
+  for (const image of body.querySelectorAll<HTMLImageElement>('img[src]')) {
+    const match = matchDocumentAttachmentPath(image.getAttribute('src'))
+    if (match == null || attachmentImageObjectUrls.has(image) || pendingAttachmentImages.has(image)) continue
+    const documentId = Number(match[1])
+    const attachmentId = Number(match[2])
+    if (documentId !== props.document.id) {
+      attachmentDownloadError.value = t('documents.attachmentDocumentMismatch')
+      continue
+    }
+
+    pendingAttachmentImages.add(image)
+    try {
+      const blob = await documentApi.getAttachmentBlob(documentId, attachmentId)
+      if (generation !== attachmentImageGeneration || !body.contains(image)) continue
+      // BlockNote 的原始 img 请求不会携带 JWT；只把精确附件路径替换为当前会话的 Blob URL。
+      const objectUrl = URL.createObjectURL(blob)
+      attachmentImageObjectUrls.set(image, objectUrl)
+      image.src = objectUrl
+    } catch {
+      if (generation === attachmentImageGeneration) {
+        attachmentDownloadError.value = t('attachments.downloadFailed')
+      }
+    } finally {
+      pendingAttachmentImages.delete(image)
+    }
+  }
+}
+
+onMounted(async () => {
+  await nextTick()
+  const body = documentBodyRef.value
+  if (body == null) return
+  // BlockNote 会在父组件 mounted 后继续异步构建图片节点，监听新增节点后再执行精确路径水合。
+  attachmentImageObserver = new MutationObserver(() => { void hydrateAttachmentImages() })
+  attachmentImageObserver.observe(body, { childList: true, subtree: true })
+  void hydrateAttachmentImages()
+})
+watch(
+  () => [props.document.id, props.document.content] as const,
+  ([documentId], previous) => {
+    if (previous != null && previous[0] !== documentId) {
+      attachmentImageGeneration += 1
+      revokeAttachmentImageUrls()
+    }
+    void hydrateAttachmentImages()
+  },
+  { flush: 'post' }
+)
+onBeforeUnmount(() => {
+  attachmentImageObserver?.disconnect()
+  attachmentImageObserver = null
+  attachmentImageGeneration += 1
+  revokeAttachmentImageUrls()
+})
 
 const breadcrumbs = computed(() => {
   const byId = new Map(props.treeNodes.map((node) => [node.id, node]))
@@ -165,6 +242,7 @@ async function handleDocumentBodyClick(event: MouseEvent) {
         @keydown="handleTitleKeydown"
       />
       <div
+        ref="documentBodyRef"
         class="document-editor__body"
         @mousedown.capture="handleDocumentBodyMouseDown"
         @click.capture="handleDocumentBodyClick"

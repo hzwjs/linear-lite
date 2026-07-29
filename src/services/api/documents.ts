@@ -31,6 +31,18 @@ export function parseDocumentAttachmentFileName(contentDisposition: string | und
 export interface DocumentConflict {
   currentVersion: number
 }
+
+async function requestDocumentAttachment(documentId: number, attachmentId: number) {
+  const response = await api.get<Blob>(
+    `/project-documents/${documentId}/attachments/${attachmentId}/download`,
+    { responseType: 'blob' }
+  )
+  const blob = response.data instanceof Blob
+    ? response.data
+    : new Blob([response.data], { type: response.headers['content-type'] })
+  return { blob, contentDisposition: response.headers['content-disposition'] as string | undefined }
+}
+
 export function getDocumentConflict(error: unknown): DocumentConflict | null {
   if (!isAxiosError(error) || error.response?.status !== 409) return null
   const body = error.response.data as { data?: { currentVersion?: unknown } } | undefined
@@ -61,15 +73,15 @@ export const documentApi = {
     return api.get<ApiResponse<ProjectDocument>>(`/project-documents/${documentId}`).then(unwrap)
   },
 
+  async getAttachmentBlob(documentId: number, attachmentId: number): Promise<Blob> {
+    return (await requestDocumentAttachment(documentId, attachmentId)).blob
+  },
+
   async downloadAttachment(documentId: number, attachmentId: number): Promise<void> {
-    const response = await api.get<Blob>(
-      `/project-documents/${documentId}/attachments/${attachmentId}/download`,
-      { responseType: 'blob' }
-    )
+    const response = await requestDocumentAttachment(documentId, attachmentId)
     // 服务端以 filename* 输出 UTF-8 文件名；缺失时必须中止，避免静默生成错误文件名。
-    const fileName = parseDocumentAttachmentFileName(response.headers['content-disposition'])
-    const blob = response.data instanceof Blob ? response.data : new Blob([response.data])
-    const objectUrl = URL.createObjectURL(blob)
+    const fileName = parseDocumentAttachmentFileName(response.contentDisposition)
+    const objectUrl = URL.createObjectURL(response.blob)
     const link = window.document.createElement('a')
     link.href = objectUrl
     link.download = fileName

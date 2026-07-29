@@ -1,23 +1,31 @@
-import { createApp, defineComponent, h, nextTick } from 'vue'
+import { createApp, defineComponent, h, nextTick, onMounted, ref } from 'vue'
 import { createI18n } from 'vue-i18n'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import DocumentEditor from './DocumentEditor.vue'
 import { documentApi } from '../../services/api/documents'
 
 vi.mock('../../services/api/documents', () => ({
-  documentApi: { downloadAttachment: vi.fn() }
+  documentApi: { downloadAttachment: vi.fn(), getAttachmentBlob: vi.fn() }
 }))
 
 vi.mock('../StructuredDocumentEditor.vue', () => ({
   default: defineComponent({
     name: 'StructuredDocumentEditorStub',
     setup() {
+      const showImage = ref(false)
+      onMounted(async () => {
+        await nextTick()
+        showImage.value = true
+      })
       return () => h('div', [
         h('a', { id: 'attachment', href: '/api/project-documents/12/attachments/34/download', target: '_blank' }, 'attachment'),
         h('a', { id: 'other-document', href: '/api/project-documents/99/attachments/35/download' }, 'other document'),
         h('a', { id: 'ordinary', href: '/projects/7', target: '_blank' }, 'ordinary'),
         h('a', { id: 'attachment-with-query', href: '/api/project-documents/12/attachments/34/download?preview=1', target: '_blank' }, 'preview'),
-        h('a', { id: 'invalid', href: 'http://[', target: '_blank' }, 'invalid')
+        h('a', { id: 'invalid', href: 'http://[', target: '_blank' }, 'invalid'),
+        showImage.value
+          ? h('img', { id: 'attachment-image', src: '/api/project-documents/12/attachments/36/download', alt: 'diagram' })
+          : null
       ])
     }
   })
@@ -71,13 +79,40 @@ function renderEditor() {
   return { app, host }
 }
 
+beforeEach(() => {
+  vi.mocked(documentApi.getAttachmentBlob).mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
+  Object.defineProperty(URL, 'createObjectURL', {
+    configurable: true,
+    value: vi.fn(() => 'blob:authenticated-image')
+  })
+  Object.defineProperty(URL, 'revokeObjectURL', {
+    configurable: true,
+    value: vi.fn()
+  })
+})
+
 afterEach(() => {
   vi.mocked(documentApi.downloadAttachment).mockReset()
+  vi.mocked(documentApi.getAttachmentBlob).mockReset()
   vi.restoreAllMocks()
   document.body.replaceChildren()
 })
 
 describe('DocumentEditor attachment links', () => {
+  it('hydrates a protected attachment image through the authenticated api client', async () => {
+    const view = renderEditor()
+    await nextTick()
+    await nextTick()
+    await nextTick()
+
+    expect(documentApi.getAttachmentBlob).toHaveBeenCalledWith(12, 36)
+    expect(view.host.querySelector<HTMLImageElement>('#attachment-image')?.src)
+      .toBe('blob:authenticated-image')
+
+    view.app.unmount()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:authenticated-image')
+  })
+
   it('intercepts the current document attachment and downloads it through the api client', async () => {
     vi.mocked(documentApi.downloadAttachment).mockResolvedValue()
     const view = renderEditor()
