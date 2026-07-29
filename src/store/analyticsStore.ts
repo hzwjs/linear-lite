@@ -17,13 +17,10 @@ export const useAnalyticsStore = defineStore('analyticsStore', () => {
   const taskPageLoading = ref(false)
   const taskPageError = ref<string | null>(null)
 
-  const granularity = ref<Granularity>('day')
+  const granularity = ref<Granularity>('week')
   const currentPage = ref(1)
 
   const showTrend = computed(() => granularity.value !== 'day')
-  const showTaskList = computed(
-    () => granularity.value === 'day' || granularity.value === 'week'
-  )
 
   async function fetchSummary(projectId: number, from: string, to: string) {
     summaryLoading.value = true
@@ -46,8 +43,8 @@ export const useAnalyticsStore = defineStore('analyticsStore', () => {
     projectId: number,
     from: string,
     to: string,
-    page = 1,
-    taskListScope: TaskListScope = 'all'
+    page: number,
+    taskListScope: TaskListScope
   ) {
     taskPageLoading.value = true
     taskPageError.value = null
@@ -91,7 +88,6 @@ export const useAnalyticsStore = defineStore('analyticsStore', () => {
     granularity,
     currentPage,
     showTrend,
-    showTaskList,
     fetchSummary,
     fetchTasks,
     setGranularity,

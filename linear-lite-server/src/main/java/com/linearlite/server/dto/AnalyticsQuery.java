@@ -9,7 +9,7 @@ public class AnalyticsQuery {
     private String granularity; // day | week | month | year
     private String from;        // ISO 日期时间
     private String to;          // ISO 日期时间
-    /** 任务明细口径：created | completed | due | all；空/all/created 均按 created_at 筛 */
+    /** 任务明细口径：created | completed | due | overdue。 */
     private String taskListScope;
 
     public Long getProjectId() {

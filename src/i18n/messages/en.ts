@@ -602,6 +602,13 @@ const en = {
   },
   analytics: {
     title: 'Project Analytics',
+    purpose: 'Assess project health, locate risk, and open the work that needs attention',
+    filterLabel: 'Analytics range',
+    granularityLabel: 'Review period',
+    previousPeriod: 'Previous period',
+    nextPeriod: 'Next period',
+    rangeStart: 'Start date',
+    rangeEnd: 'End date',
     granularity: {
       day: 'Day',
       week: 'Week',
@@ -612,9 +619,59 @@ const en = {
     dateSingle: 'Date',
     yearSingle: 'Year',
     trend: 'Trend',
+    trendAccessibleLabel: 'Created, completed, and due task trend',
     created: 'Created',
     completed: 'Completed',
     due: 'Due',
+    overdueNow: 'Overdue now',
+    currentProject: 'Current project',
+    keyMetrics: 'Drill-down metrics',
+    reviewConclusion: '{period} review',
+    period: {
+      day: 'Daily',
+      week: 'Weekly',
+      month: 'Monthly',
+      year: 'Annual'
+    },
+    health: {
+      healthy: {
+        title: 'Delivery pace is stable',
+        detail: 'There are no overdue tasks and completions are keeping up with intake. Net backlog reduced by {count}.'
+      },
+      attention: {
+        title: 'Intake is outpacing delivery',
+        detail: 'There are no overdue tasks, but created tasks exceed completions by {count}. Watch backlog growth.'
+      },
+      critical: {
+        title: 'Overdue work needs attention',
+        detail: 'This project has {count} overdue tasks. Open the overdue queue to confirm ownership and next steps.'
+      }
+    },
+    netFlowValue: 'Net intake {value}',
+    deliveryRhythm: 'Delivery rhythm',
+    deliveryRhythmDescription: 'Compare task intake, completion, and due dates to spot backlog changes.',
+    riskLocation: 'Risk location',
+    riskLocationDescription: 'Review current workflow backlog and team delivery during this period.',
+    workflowSnapshot: 'Current workflow',
+    workflowSnapshotDescription: 'All project tasks, independent of the selected period',
+    activeTasks: 'Open',
+    teamThroughput: 'Team delivery',
+    teamThroughputDescription: 'Ownership and completion of tasks created during this period',
+    assigneeCount: '{count} assignees',
+    assigneeResult: '{completed}/{total} completed',
+    inProgressCount: '{count} in progress',
+    actionQueue: 'Action queue',
+    actionQueueDescription: 'Metrics and task details share one definition. Open a task to take action.',
+    metric: {
+      created: 'Created in period',
+      completed: 'Completed in period',
+      due: 'Due in period',
+      overdue: 'Overdue now'
+    },
+    task: 'Task',
+    noMatchingTasks: 'No matching tasks',
+    noMatchingTasksDescription: 'Choose another metric or adjust the review period.',
+    pageOf: 'Page {page} of {total}',
     currentSnapshot: 'Current Snapshot',
     totalTasks: 'Total tasks',
     overdue: 'Overdue',

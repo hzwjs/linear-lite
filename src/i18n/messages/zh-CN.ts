@@ -602,6 +602,13 @@ const zhCN = {
   },
   analytics: {
     title: '项目统计',
+    purpose: '判断项目健康度，定位风险并进入具体任务',
+    filterLabel: '统计范围',
+    granularityLabel: '复盘周期',
+    previousPeriod: '上一个周期',
+    nextPeriod: '下一个周期',
+    rangeStart: '开始日期',
+    rangeEnd: '结束日期',
     granularity: {
       day: '天',
       week: '周',
@@ -612,9 +619,59 @@ const zhCN = {
     dateSingle: '日期',
     yearSingle: '年份',
     trend: '趋势',
+    trendAccessibleLabel: '新增、完成与到期任务趋势',
     created: '新建',
     completed: '完成',
     due: '到期',
+    overdueNow: '当前逾期',
+    currentProject: '当前项目',
+    keyMetrics: '可下钻的关键指标',
+    reviewConclusion: '{period}复盘结论',
+    period: {
+      day: '当日',
+      week: '本周',
+      month: '本月',
+      year: '本年'
+    },
+    health: {
+      healthy: {
+        title: '交付节奏稳定',
+        detail: '当前没有逾期任务，且完成量没有落后于新增量。净消化 {count} 项任务。'
+      },
+      attention: {
+        title: '任务流入快于交付',
+        detail: '当前没有逾期任务，但新增量比完成量多 {count} 项，需要关注积压增长。'
+      },
+      critical: {
+        title: '逾期任务需要处理',
+        detail: '当前项目有 {count} 项逾期任务。优先打开逾期队列，确认负责人和下一步。'
+      }
+    },
+    netFlowValue: '净流入 {value}',
+    deliveryRhythm: '交付节奏',
+    deliveryRhythmDescription: '对比任务进入、完成和到期节奏，识别积压变化。',
+    riskLocation: '风险定位',
+    riskLocationDescription: '查看当前工作流积压，以及本周期团队交付情况。',
+    workflowSnapshot: '当前工作流',
+    workflowSnapshotDescription: '全项目任务状态，不受所选周期影响',
+    activeTasks: '未结束',
+    teamThroughput: '团队交付',
+    teamThroughputDescription: '本周期新建任务的负责人及完成情况',
+    assigneeCount: '{count} 位负责人',
+    assigneeResult: '{completed}/{total} 完成',
+    inProgressCount: '{count} 进行中',
+    actionQueue: '行动队列',
+    actionQueueDescription: '关键指标与任务明细保持同一口径，点击任务进入处理。',
+    metric: {
+      created: '周期内新建',
+      completed: '周期内完成',
+      due: '周期内到期',
+      overdue: '当前逾期'
+    },
+    task: '任务',
+    noMatchingTasks: '当前没有匹配任务',
+    noMatchingTasksDescription: '切换上方指标或调整复盘周期查看其他任务。',
+    pageOf: '第 {page} / {total} 页',
     currentSnapshot: '当前快照',
     totalTasks: '总任务',
     overdue: '逾期',

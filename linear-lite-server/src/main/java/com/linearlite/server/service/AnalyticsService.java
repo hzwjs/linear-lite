@@ -23,7 +23,7 @@ import java.util.*;
 public class AnalyticsService {
 
     private static final Set<String> VALID_GRANULARITY = Set.of("day", "week", "month", "year");
-    private static final Set<String> VALID_TASK_LIST_SCOPE = Set.of("created", "completed", "due", "all");
+    private static final Set<String> VALID_TASK_LIST_SCOPE = Set.of("created", "completed", "due", "overdue");
     private static final int MAX_PAGE_SIZE = 200;
     private static final int DEFAULT_PAGE_SIZE = 50;
 
@@ -50,9 +50,8 @@ public class AnalyticsService {
         if (from.isAfter(to)) {
             throw new IllegalArgumentException("from 不能晚于 to");
         }
-        String scope = query.getTaskListScope();
-        if (scope != null && !scope.isBlank() && !VALID_TASK_LIST_SCOPE.contains(scope)) {
-            throw new IllegalArgumentException("不支持的 taskListScope: " + scope);
+        if (query.getTaskListScope() != null && !VALID_TASK_LIST_SCOPE.contains(query.getTaskListScope())) {
+            throw new IllegalArgumentException("不支持的 taskListScope: " + query.getTaskListScope());
         }
     }
 
@@ -67,8 +66,14 @@ public class AnalyticsService {
         String from = query.getFrom();
         String to = query.getTo();
 
-        // 趋势
-        List<TrendBucket> trend = buildTrend(projectId, from, to, query.getGranularity());
+        // 复盘周期与图表桶分离：周看日、月看周、年看月，确保每个趋势至少有可比较的时间点。
+        String trendBucketUnit = switch (query.getGranularity()) {
+            case "day", "week" -> "day";
+            case "month" -> "week";
+            case "year" -> "month";
+            default -> throw new IllegalArgumentException("不支持的粒度: " + query.getGranularity());
+        };
+        List<TrendBucket> trend = buildTrend(projectId, from, to, trendBucketUnit);
 
         // 全局快照（不受 from/to）
         int totalCount = analyticsMapper.countAllTasks(projectId);
@@ -82,7 +87,7 @@ public class AnalyticsService {
         List<PriorityCount> priorityBreakdown = analyticsMapper.selectPriorityBreakdown(projectId, from, to);
 
         AnalyticsSummaryResponse response = new AnalyticsSummaryResponse();
-        response.setMeta(new AnalyticsSummaryResponse.Meta(projectId, zone.getId(), query.getGranularity(), "MONDAY"));
+        response.setMeta(new AnalyticsSummaryResponse.Meta(projectId, zone.getId(), trendBucketUnit, "MONDAY"));
         response.setTrend(trend);
         response.setCurrentSnapshot(snapshot);
         response.setStatusBreakdown(statusBreakdown);
@@ -97,26 +102,35 @@ public class AnalyticsService {
     public TaskSnapshotPageResponse getTaskSnapshot(Long projectId, Long userId, AnalyticsQuery query, int page, int pageSize) {
         requireProjectMember(projectId, userId);
         validateQuery(query);
+        if (query.getTaskListScope() == null) {
+            throw new IllegalArgumentException("taskListScope 不能为空");
+        }
 
         int cappedPageSize = Math.min(Math.max(1, pageSize), MAX_PAGE_SIZE);
         int safePage = Math.max(1, page);
         int offset = (safePage - 1) * cappedPageSize;
 
-        String scope = query.getTaskListScope();
-        String normalized = (scope == null || scope.isBlank() || "all".equals(scope) || "created".equals(scope))
-                ? "created" : scope;
-
         List<TaskSnapshotItem> items;
         int total;
-        if ("completed".equals(normalized)) {
-            items = analyticsMapper.selectTaskSnapshotByCompleted(projectId, query.getFrom(), query.getTo(), cappedPageSize, offset);
-            total = analyticsMapper.countTaskSnapshotByCompleted(projectId, query.getFrom(), query.getTo());
-        } else if ("due".equals(normalized)) {
-            items = analyticsMapper.selectTaskSnapshotByDue(projectId, query.getFrom(), query.getTo(), cappedPageSize, offset);
-            total = analyticsMapper.countTaskSnapshotByDue(projectId, query.getFrom(), query.getTo());
-        } else {
-            items = analyticsMapper.selectTaskSnapshot(projectId, query.getFrom(), query.getTo(), cappedPageSize, offset);
-            total = analyticsMapper.countTaskSnapshot(projectId, query.getFrom(), query.getTo());
+        // 每个指标使用唯一查询口径，避免“all”等模糊值被静默归入 created。
+        switch (query.getTaskListScope()) {
+            case "created" -> {
+                items = analyticsMapper.selectTaskSnapshot(projectId, query.getFrom(), query.getTo(), cappedPageSize, offset);
+                total = analyticsMapper.countTaskSnapshot(projectId, query.getFrom(), query.getTo());
+            }
+            case "completed" -> {
+                items = analyticsMapper.selectTaskSnapshotByCompleted(projectId, query.getFrom(), query.getTo(), cappedPageSize, offset);
+                total = analyticsMapper.countTaskSnapshotByCompleted(projectId, query.getFrom(), query.getTo());
+            }
+            case "due" -> {
+                items = analyticsMapper.selectTaskSnapshotByDue(projectId, query.getFrom(), query.getTo(), cappedPageSize, offset);
+                total = analyticsMapper.countTaskSnapshotByDue(projectId, query.getFrom(), query.getTo());
+            }
+            case "overdue" -> {
+                items = analyticsMapper.selectOverdueTaskSnapshot(projectId, cappedPageSize, offset);
+                total = analyticsMapper.countOverdue(projectId);
+            }
+            default -> throw new IllegalArgumentException("不支持的 taskListScope: " + query.getTaskListScope());
         }
 
         return new TaskSnapshotPageResponse(items, total, safePage, cappedPageSize);

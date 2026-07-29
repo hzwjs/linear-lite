@@ -93,6 +93,16 @@ public interface AnalyticsMapper {
             "AND due_date >= #{from} AND due_date < #{to}")
     int countTaskSnapshotByDue(@Param("projectId") Long projectId, @Param("from") String from, @Param("to") String to);
 
+    @Select("SELECT t.task_key AS taskKey, t.title, t.status, t.priority, t.assignee_id AS assigneeId, " +
+            "COALESCE(u.username, '') AS assigneeName, t.created_at AS createdAt, t.completed_at AS completedAt, t.due_date AS dueDate " +
+            "FROM tasks t LEFT JOIN users u ON t.assignee_id = u.id " +
+            "WHERE t.project_id = #{projectId} AND t.due_date IS NOT NULL AND t.due_date < NOW() " +
+            "AND t.status NOT IN ('done', 'canceled', 'duplicate') " +
+            "ORDER BY t.due_date ASC, t.created_at DESC LIMIT #{limit} OFFSET #{offset}")
+    List<TaskSnapshotItem> selectOverdueTaskSnapshot(@Param("projectId") Long projectId,
+                                                     @Param("limit") int limit,
+                                                     @Param("offset") int offset);
+
     // -------- 趋势：created count per bucket --------
 
     @Select("SELECT DATE(created_at) AS bucketStart, COUNT(*) AS createdCount FROM tasks " +

@@ -3,116 +3,74 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AssigneeCount } from '../../types/analytics'
 
-const props = defineProps<{
-  breakdown: AssigneeCount[]
-}>()
-
+const props = defineProps<{ breakdown: AssigneeCount[] }>()
 const { t } = useI18n()
 
-const maxTotal = computed(() => Math.max(1, ...props.breakdown.map((b) => b.totalCount)))
+const rows = computed(() => props.breakdown.slice(0, 8))
+
+function displayName(item: AssigneeCount): string {
+  return item.assigneeId === null ? t('analytics.unassigned') : item.assigneeName
+}
+
+function initials(item: AssigneeCount): string {
+  if (item.assigneeId === null) return '—'
+  return item.assigneeName.slice(0, 1).toUpperCase()
+}
+
+function completionWidth(item: AssigneeCount): string {
+  return `${item.totalCount === 0 ? 0 : (item.completedCount / item.totalCount) * 100}%`
+}
 </script>
 
 <template>
-  <div class="breakdown-card">
-    <h3 class="card-title">{{ t('analytics.assigneeBreakdown') }}</h3>
-    <div v-if="!breakdown.length" class="card-empty">{{ t('analytics.noData') }}</div>
-    <div v-else class="breakdown-list">
-      <div v-for="item in breakdown" :key="item.assigneeId ?? 'unassigned'" class="assignee-card">
-        <div class="assignee-head">
-          <span class="assignee-name">{{ item.assigneeName || t('analytics.unassigned') }}</span>
-          <span class="stat stat--total">{{ item.totalCount }}</span>
+  <article class="assignee-panel">
+    <header class="panel-heading">
+      <div>
+        <h3>{{ t('analytics.teamThroughput') }}</h3>
+        <p>{{ t('analytics.teamThroughputDescription') }}</p>
+      </div>
+      <span class="panel-total">{{ t('analytics.assigneeCount', { count: breakdown.length }) }}</span>
+    </header>
+
+    <div v-if="rows.length" class="assignee-list">
+      <div v-for="item in rows" :key="item.assigneeId === null ? 'unassigned' : item.assigneeId" class="assignee-row">
+        <span class="assignee-avatar" aria-hidden="true">{{ initials(item) }}</span>
+        <div class="assignee-main">
+          <div class="assignee-copy">
+            <span class="assignee-name">{{ displayName(item) }}</span>
+            <span class="assignee-numbers">
+              {{ t('analytics.assigneeResult', { completed: item.completedCount, total: item.totalCount }) }}
+            </span>
+          </div>
+          <div class="throughput-track" aria-hidden="true">
+            <span class="throughput-fill" :style="{ width: completionWidth(item) }" />
+          </div>
         </div>
-        <div class="assignee-stats">
-          <span class="stat stat--completed" :title="t('analytics.completed')">{{ item.completedCount }}</span>
-          <span class="stat stat--progress" :title="'In progress'">{{ item.inProgressCount }}</span>
-        </div>
-        <div class="assignee-bar">
-          <div
-            class="bar-fill bar-fill--completed"
-            :style="{ width: (item.completedCount / maxTotal * 100) + '%' }"
-          />
-          <div
-            class="bar-fill bar-fill--progress"
-            :style="{ width: (item.inProgressCount / maxTotal * 100) + '%' }"
-          />
-        </div>
+        <span class="in-progress">{{ t('analytics.inProgressCount', { count: item.inProgressCount }) }}</span>
       </div>
     </div>
-  </div>
+    <div v-else class="panel-empty">{{ t('analytics.noData') }}</div>
+  </article>
 </template>
 
 <style scoped>
-.breakdown-card {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 16px;
-}
-.card-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  margin: 0 0 12px;
-}
-.card-empty {
-  color: var(--color-text-muted);
-  font-size: 13px;
-  padding: 12px 0;
-}
-.breakdown-list {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(170px, 1fr);
-  gap: 10px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-.assignee-card {
-  border: 1px solid var(--color-border-subtle, var(--color-border));
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-base);
-  padding: 10px;
-  min-height: 66px;
-}
-.assignee-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-.assignee-name {
-  font-size: 12px;
-  color: var(--color-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.assignee-stats {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 6px;
-}
-.stat {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 1px 4px;
-  border-radius: 3px;
-}
-.stat--total { color: var(--color-text-primary); background: var(--color-bg-hover); }
-.stat--completed { color: #30a46c; }
-.stat--progress { color: #6e56cf; }
-.assignee-bar {
-  display: flex;
-  height: 6px;
-  background: var(--color-bg-hover);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.bar-fill {
-  height: 100%;
-  transition: width 300ms ease;
-}
-.bar-fill--completed { background: #30a46c; }
-.bar-fill--progress { background: #6e56cf; }
+.assignee-panel { min-width: 0; padding: 22px 0 24px 24px; }
+.panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.panel-heading h3 { margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 650; }
+.panel-heading p { margin: 4px 0 0; color: var(--color-text-muted); font-size: var(--font-size-caption); line-height: 1.45; }
+.panel-total { color: var(--color-text-muted); font-size: var(--font-size-caption); white-space: nowrap; }
+.assignee-list { display: flex; flex-direction: column; max-height: 282px; overflow-y: auto; }
+.assignee-row { display: grid; grid-template-columns: 28px minmax(150px, 1fr) auto; align-items: center; gap: 10px; min-height: 50px; border-top: 1px solid var(--color-border-subtle); }
+.assignee-row:first-child { border-top: 0; }
+.assignee-avatar { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--color-bg-muted); color: var(--color-text-secondary); font-size: var(--font-size-caption); font-weight: 650; }
+.assignee-main { min-width: 0; }
+.assignee-copy { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.assignee-name { overflow: hidden; color: var(--color-text-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.assignee-numbers { color: var(--color-text-muted); font-size: var(--font-size-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.throughput-track { height: 3px; overflow: hidden; border-radius: var(--radius-xs); background: var(--color-bg-hover); }
+.throughput-fill { display: block; height: 100%; border-radius: inherit; background: var(--analytics-positive); }
+.in-progress { color: var(--color-text-muted); font-size: var(--font-size-caption); white-space: nowrap; }
+.panel-empty { padding: 32px 0; color: var(--color-text-muted); font-size: 12px; }
+
+@media (max-width: 980px) { .assignee-panel { padding-left: 0; } }
 </style>
