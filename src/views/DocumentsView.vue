@@ -46,6 +46,7 @@ function latestRootDocumentId(): number | null {
 async function loadWorkspace() {
   const sequence = ++workspaceLoadSequence
   const id = projectId.value
+  const requestedDocumentId = documentId.value
   if (!Number.isInteger(id)) {
     await router.replace('/')
     return
@@ -59,23 +60,35 @@ async function loadWorkspace() {
   ])
   if (sequence !== workspaceLoadSequence) return
   members.value = memberList.map((member) => ({ id: member.id, label: member.username }))
-  if (documentId.value == null) {
+  await loadRoutedDocument(sequence, id, requestedDocumentId)
+}
+
+async function loadDocumentRoute() {
+  const sequence = ++workspaceLoadSequence
+  await loadRoutedDocument(sequence, projectId.value, documentId.value)
+}
+
+async function loadRoutedDocument(sequence: number, id: number, requestedDocumentId: number | null) {
+  if (sequence !== workspaceLoadSequence) return
+  if (requestedDocumentId == null) {
     const latestId = latestRootDocumentId()
     store.activeDocument = null
     if (latestId != null) await router.replace(documentRoute(latestId))
     return
   }
-  const document = await store.loadDocument(documentId.value)
+  const document = await store.loadDocument(requestedDocumentId)
   if (sequence !== workspaceLoadSequence) return
   if (document.projectId !== id) await router.replace(`/projects/${id}/documents`)
 }
 
 watch(
-  () => [route.params.projectId, route.params.documentId],
-  async (_next, previous) => {
+  () => [route.params.projectId, route.params.documentId] as const,
+  async (next, previous) => {
     if (previous) await store.flushSaves()
     try {
-      await loadWorkspace()
+      // 项目切换才重载树和成员；项目内文档跳转只加载目标正文。
+      if (!previous || next[0] !== previous[0]) await loadWorkspace()
+      else if (next[1] !== previous[1]) await loadDocumentRoute()
     } catch {
       // 页面保留 store.error 的明确错误态，用户可原地重试。
     }
