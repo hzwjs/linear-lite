@@ -23,6 +23,7 @@ import MobileNotificationsView from './views/MobileNotificationsView.vue'
 import './mobile.css'
 
 const MobileCreateTaskView = defineAsyncComponent(() => import('./views/MobileCreateTaskView.vue'))
+const MobileDocumentReadView = defineAsyncComponent(() => import('./views/MobileDocumentReadView.vue'))
 const MobileTaskDetailView = defineAsyncComponent(() => import('./views/MobileTaskDetailView.vue'))
 
 const route = useRoute()
@@ -43,6 +44,13 @@ const createDirty = ref(false)
 
 const isLogin = computed(() => route.path === '/login')
 const routeTaskId = computed(() => getRouteTaskId(route))
+const routeDocumentContext = computed(() => {
+  if (route.name !== 'project-document-detail') return null
+  const projectId = Number(route.params.projectId)
+  const documentId = Number(route.params.documentId)
+  if (!Number.isInteger(projectId) || projectId <= 0 || !Number.isInteger(documentId) || documentId <= 0) return null
+  return { projectId, documentId }
+})
 
 async function loadProjectContext() {
   if (projectStore.activeProjectId == null) {
@@ -146,8 +154,14 @@ onBeforeUnmount(() => window.removeEventListener('popstate', onPopState))
   <div v-else class="mobile-app">
     <div class="mobile-shell">
       <Suspense>
+        <MobileDocumentReadView
+          v-if="routeDocumentContext"
+          :project-id="routeDocumentContext.projectId"
+          :document-id="routeDocumentContext.documentId"
+          @back="closeDetail"
+        />
         <MobileTaskDetailView
-          v-if="routeTaskId"
+          v-else-if="routeTaskId"
           :task-id="routeTaskId"
           @back="closeDetail"
           @open-task="openTask"

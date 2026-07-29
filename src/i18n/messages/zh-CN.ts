@@ -76,6 +76,9 @@ const zhCN = {
     favorites: '收藏',
     workspace: '工作区',
     projects: '项目',
+    tasks: '任务',
+    documents: '文档',
+    projectNavigation: '{project} 导航',
     newProjectTitle: '新建项目',
     projectSettings: '项目设置',
     analytics: '统计',
@@ -136,6 +139,35 @@ const zhCN = {
   emptyState: {
     noProjects: '暂无项目',
     selectProject: '请从左侧选择一个项目'
+  },
+  documents: {
+    title: '文档', issues: '任务', workspaceNavigation: '项目工作区',
+    newRoot: '新建文档', newChild: '新建子文档', untitled: '无标题',
+    filterLabel: '按标题筛选文档', filterPlaceholder: '筛选文档…', clearFilter: '清除文档筛选',
+    loadingTree: '正在加载文档…', loadingDocument: '正在加载文档正文…', loadFailed: '文档加载失败。',
+    emptyTree: '把项目知识和执行工作放在一起。', createFirst: '创建第一篇文档',
+    selectDocument: '选择一篇文档或创建新文档。', noSearchResults: '没有标题匹配的文档。', treeLabel: '项目文档树',
+    expand: '展开文档', collapse: '折叠文档', actionsFor: '{title} 的操作',
+    moveUp: '上移', moveDown: '下移', indent: '移入上一篇文档', outdent: '减少一级缩进',
+    archive: '归档', archiveConfirm: '归档“{title}”及其全部子文档？',
+    archived: '已归档', archivedDescription: '归档的文档子树会保留原有结构。', noArchived: '暂无已归档文档。', restore: '恢复',
+    history: '历史版本', version: '版本 {version}', backToHistory: '返回版本历史', historyLoadFailed: '版本历史加载失败。', noHistory: '暂无历史版本。',
+    restoreThisVersion: '恢复此版本', restoring: '正在恢复…', documentTitle: '文档标题',
+    bodyPlaceholder: '记录项目背景、决策与方案…', breadcrumbLabel: '文档位置',
+    conflictTitle: '服务端已有更新版本',
+    conflictDescription: '本地草稿已保留，服务端当前为版本 {version}。复制草稿或重新加载后再继续。',
+    copyDraft: '复制草稿', copied: '已复制', reloadServerVersion: '加载服务端版本',
+    saveFailedTitle: '修改保存失败', saveFailedDescription: '草稿仍保留在当前页面，请在连接恢复后重试。',
+    mentionMembersGroup: '成员', mentionDocumentsGroup: '文档', mentionNoMatches: '没有匹配的成员或文档。',
+    mobile: { title: '项目文档', readonly: '只读', back: '返回', loading: '加载文档…', loadFailed: '文档加载失败', projectMismatch: '该文档不属于当前项目。', bodyLabel: '文档正文' },
+    saveState: { idle: '尚未编辑', dirty: '有未保存修改', saving: '正在保存…', saved: '已保存', conflict: '保存冲突', failed: '保存失败' }
+  },
+  globalSearch: {
+    title: '搜索项目内容', placeholder: '搜索所有项目的任务和文档…', searchAria: '搜索所有项目的任务和文档', close: '关闭搜索',
+    loading: '正在搜索相关内容…', unavailableTitle: '搜索暂时不可用', unavailableDescription: '请检查网络连接后重试。',
+    emptyTitle: '搜索跨项目内容', emptyDescription: '输入标题或正文中的关键词，查找任务和文档。',
+    noResultsTitle: '没有找到相关内容', noResultsDescription: '换个关键词或尝试更简短的描述。', resultsAria: '搜索结果',
+    resultsCount: '找到 {count} 个相关结果', type: { task: '任务', document: '文档' }, selectHint: '选择', openHint: '打开', closeHint: '关闭'
   },
   command: {
     newTask: '新建任务',

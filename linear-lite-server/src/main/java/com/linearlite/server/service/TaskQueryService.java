@@ -8,15 +8,11 @@ import com.linearlite.server.entity.TaskFavorite;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
-import com.linearlite.server.mapper.ProjectMemberMapper;
 import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -28,46 +24,20 @@ import java.util.stream.Collectors;
 public class TaskQueryService {
 
     private static final Set<String> TERMINAL_STATUSES = Set.of("done", "canceled", "duplicate");
-    private static final int MAX_SEARCH_QUERY_LENGTH = 200;
-
     private final TaskMapper taskMapper;
     private final TaskFavoriteMapper taskFavoriteMapper;
     private final LabelService labelService;
     private final TaskPermissionGuard taskPermissionGuard;
-    private final TaskSemanticSearchService semanticSearchService;
-    private final ProjectMemberMapper projectMemberMapper;
 
     public TaskQueryService(
             TaskMapper taskMapper,
             TaskFavoriteMapper taskFavoriteMapper,
             LabelService labelService,
             TaskPermissionGuard taskPermissionGuard) {
-        this(taskMapper, taskFavoriteMapper, labelService, taskPermissionGuard, null, null);
-    }
-
-    public TaskQueryService(
-            TaskMapper taskMapper,
-            TaskFavoriteMapper taskFavoriteMapper,
-            LabelService labelService,
-            TaskPermissionGuard taskPermissionGuard,
-            TaskSemanticSearchService semanticSearchService) {
-        this(taskMapper, taskFavoriteMapper, labelService, taskPermissionGuard, semanticSearchService, null);
-    }
-
-    @Autowired
-    public TaskQueryService(
-            TaskMapper taskMapper,
-            TaskFavoriteMapper taskFavoriteMapper,
-            LabelService labelService,
-            TaskPermissionGuard taskPermissionGuard,
-            TaskSemanticSearchService semanticSearchService,
-            ProjectMemberMapper projectMemberMapper) {
         this.taskMapper = taskMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
         this.labelService = labelService;
         this.taskPermissionGuard = taskPermissionGuard;
-        this.semanticSearchService = semanticSearchService;
-        this.projectMemberMapper = projectMemberMapper;
     }
 
     public List<Task> listByProjectId(Long projectId, Boolean topLevelOnly, Long parentId, Long userId) {
@@ -104,71 +74,6 @@ public class TaskQueryService {
         }
         enrichListItems(response, projectId, userId, topLevelOnly, parentId);
         return response;
-    }
-
-    /**
-     * 语义搜索标题与描述，只返回 task key，避免把描述富文本带入轻量任务列表。
-     */
-    public List<Task> searchTasks(String query, Long userId) {
-        if (userId == null) {
-            throw new IllegalArgumentException("当前用户未登录");
-        }
-        String normalized = query == null ? "" : query.strip();
-        if (normalized.isEmpty()) {
-            return Collections.emptyList();
-        }
-        if (normalized.length() > MAX_SEARCH_QUERY_LENGTH) {
-            throw new IllegalArgumentException("搜索内容不能超过 " + MAX_SEARCH_QUERY_LENGTH + " 个字符");
-        }
-        if (semanticSearchService == null) {
-            throw new IllegalStateException("语义搜索服务未配置");
-        }
-        if (projectMemberMapper == null) {
-            throw new IllegalStateException("项目成员服务未配置");
-        }
-        List<Long> projectIds = projectMemberMapper.selectList(
-                        new LambdaQueryWrapper<com.linearlite.server.entity.ProjectMember>()
-                                .eq(com.linearlite.server.entity.ProjectMember::getUserId, userId))
-                .stream().map(com.linearlite.server.entity.ProjectMember::getProjectId).distinct().toList();
-        if (projectIds.isEmpty()) {
-            return Collections.emptyList();
-        }
-        List<Task> accessibleTasks = taskMapper.selectList(
-                new LambdaQueryWrapper<Task>()
-                        .in(Task::getProjectId, projectIds)
-                        .orderByAsc(Task::getId));
-        List<String> taskKeys = semanticSearchService.search(projectIds, normalized);
-        String literalQuery = normalized.toLowerCase(Locale.ROOT);
-        Map<String, Task> ordered = new LinkedHashMap<>();
-        // 字面标题命中优先，向量结果只补充未命中的任务。
-        accessibleTasks.stream()
-                .filter(task -> containsIgnoreCase(task.getTitle(), literalQuery))
-                .forEach(task -> ordered.put(task.getTaskKey(), task));
-        // 描述只使用 BlockNote/富文本中用户可见的文本，避免命中 JSON 结构与样式元数据。
-        accessibleTasks.stream()
-                .filter(task -> containsIgnoreCase(
-                        TaskDescriptionTextExtractor.extract(task.getDescription()), literalQuery))
-                .forEach(task -> ordered.putIfAbsent(task.getTaskKey(), task));
-        Map<String, Task> byKey = accessibleTasks.stream()
-                .filter(task -> task.getTaskKey() != null)
-                .collect(Collectors.toMap(Task::getTaskKey, task -> task));
-        taskKeys.stream().map(byKey::get).filter(Objects::nonNull)
-                .forEach(task -> ordered.putIfAbsent(task.getTaskKey(), task));
-        return List.copyOf(ordered.values());
-    }
-
-    /** 兼容旧调用方：仍使用语义检索，但只返回指定项目的 key。 */
-    public List<String> searchTaskKeys(Long projectId, String query, Long userId) {
-        if (projectId == null) throw new IllegalArgumentException("projectId 不能为空");
-        taskPermissionGuard.requireProjectMember(projectId, userId);
-        return searchTasks(query, userId).stream()
-                .filter(task -> projectId.equals(task.getProjectId()))
-                .map(Task::getTaskKey)
-                .toList();
-    }
-
-    private static boolean containsIgnoreCase(String text, String lowercaseQuery) {
-        return text != null && text.toLowerCase(Locale.ROOT).contains(lowercaseQuery);
     }
 
     public List<Task> listFavorites(Long userId) {

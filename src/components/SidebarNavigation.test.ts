@@ -76,6 +76,7 @@ describe('SidebarNavigation', () => {
     const onReorderProjects = vi.fn()
     const onCreateProject = vi.fn()
     const onSelectProject = vi.fn()
+    const onOpenProjectDocuments = vi.fn()
     const onOpenProjectSettings = vi.fn()
 
     const host = document.createElement('div')
@@ -100,6 +101,7 @@ describe('SidebarNavigation', () => {
       onReorderProjects,
       onCreateProject,
       onSelectProject,
+      onOpenProjectDocuments,
       onOpenProjectSettings
     })
     app.use(i18n)
@@ -158,6 +160,53 @@ describe('SidebarNavigation', () => {
     expect(onCreateProject).toHaveBeenCalledTimes(1)
     expect(onOpenProjectSettings).toHaveBeenCalledWith(1)
     expect(onSelectProject).not.toHaveBeenCalled()
+    expect(onOpenProjectDocuments).not.toHaveBeenCalled()
+
+    app.unmount()
+    host.remove()
+  })
+
+  it('expands only the active project and exposes task and document child navigation', async () => {
+    const onSelectProject = vi.fn()
+    const onOpenProjectDocuments = vi.fn()
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+
+    const app = createApp(SidebarNavigation, {
+      hidden: false,
+      userName: 'Alice',
+      userInitial: 'A',
+      locale: 'en',
+      favoritesCollapsed: false,
+      projectsCollapsed: false,
+      favorites: [],
+      projects: [buildProject(), buildProject({ id: 2, name: 'Design', identifier: 'DES' })],
+      routePath: '/projects/1/documents/42',
+      routeTaskId: null,
+      activeProjectId: 1,
+      onSelectProject,
+      onOpenProjectDocuments
+    })
+    app.use(i18n)
+    app.mount(host)
+    await nextTick()
+
+    const project = host.querySelector('[data-testid="sidebar-project-1"]') as HTMLElement
+    const tasks = host.querySelector('[data-testid="sidebar-project-tasks-1"]') as HTMLButtonElement
+    const documents = host.querySelector('[data-testid="sidebar-project-documents-1"]') as HTMLButtonElement
+
+    expect(project.classList.contains('sidebar-nav__item--active')).toBe(true)
+    expect(project.querySelector('.sidebar-nav__item-main')?.getAttribute('aria-expanded')).toBe('true')
+    expect(tasks).toBeTruthy()
+    expect(documents.getAttribute('aria-current')).toBe('page')
+    expect(tasks.getAttribute('aria-current')).toBeNull()
+    expect(host.querySelector('[data-testid="sidebar-project-tasks-2"]')).toBeNull()
+    expect(host.querySelector('[data-testid="sidebar-project-documents-2"]')).toBeNull()
+
+    tasks.click()
+    documents.click()
+    expect(onSelectProject).toHaveBeenCalledWith(1)
+    expect(onOpenProjectDocuments).toHaveBeenCalledWith(1)
 
     app.unmount()
     host.remove()

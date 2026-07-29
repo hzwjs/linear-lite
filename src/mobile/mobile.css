@@ -417,6 +417,63 @@
 }
 
 .mobile-detail-loading { display: flex; flex: 1; align-items: center; justify-content: center; gap: 9px; color: var(--m-secondary); }
+.mobile-document-view { overflow-x: hidden; }
+.mobile-document-nav-title {
+  overflow: hidden;
+  color: var(--m-ink);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-document-readonly-label {
+  justify-self: end;
+  margin-right: 12px;
+  color: var(--m-muted);
+  font-size: 13px;
+  font-weight: 560;
+}
+.mobile-document-content {
+  min-width: 0;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: calc(32px + env(safe-area-inset-bottom));
+  overscroll-behavior-y: contain;
+  scrollbar-width: none;
+  background: var(--m-surface);
+}
+.mobile-document-content::-webkit-scrollbar { display: none; }
+.mobile-document-heading {
+  padding: 28px var(--m-inset) 22px;
+  border-bottom: 1px solid var(--m-line);
+}
+.mobile-document-context {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  color: var(--m-muted);
+  font-size: 13px;
+}
+.mobile-document-context span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-document-context span[aria-hidden='true'] { flex: 0 0 auto; }
+.mobile-document-heading h1 {
+  margin: 0;
+  color: var(--m-ink);
+  font-size: clamp(26px, 7vw, 30px);
+  font-weight: 620;
+  line-height: 1.24;
+  letter-spacing: -.02em;
+  overflow-wrap: anywhere;
+}
+.mobile-document-body { min-width: 0; padding: 22px var(--m-inset) 0; }
+.mobile-document-body .structured-document-editor { min-width: 0; max-width: 100%; }
+.mobile-document-body .bn-container,
+.mobile-document-body .bn-editor { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.mobile-document-body pre { max-width: 100%; overflow-x: auto; }
 .mobile-action-error {
   position: sticky;
   z-index: 4;

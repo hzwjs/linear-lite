@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
+import org.apache.ibatis.annotations.Delete;
 
 @Mapper
 public interface ProjectTaskSeqMapper {
@@ -19,6 +20,9 @@ public interface ProjectTaskSeqMapper {
 
     @Update("UPDATE project_task_seq SET next_number = #{nextNumber} WHERE project_id = #{projectId}")
     int updateNextNumber(@Param("projectId") Long projectId, @Param("nextNumber") Long nextNumber);
+
+    @Delete("DELETE FROM project_task_seq WHERE project_id = #{projectId}")
+    int deleteByProjectId(@Param("projectId") Long projectId);
 
     @Select("SELECT COALESCE(MAX(CAST(SUBSTRING(task_key, #{startPos}) AS UNSIGNED)), 0) " +
             "FROM tasks WHERE project_id = #{projectId} AND task_key LIKE CONCAT(#{identifier}, '-%')")

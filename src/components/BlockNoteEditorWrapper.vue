@@ -14,10 +14,14 @@ const props = withDefaults(
     placeholder?: string
     minHeight?: number
     mentionMembers?: Array<{ id: number; label: string }>
+    mentionDocuments?: Array<{ id: number; title: string; projectId: number }>
+    readonly?: boolean
     /** `@` 成员菜单：与 TaskRowAssigneePicker 一致的搜索框占位与空态文案（仅传 mentionMembers 时生效） */
     mentionMenuSearchPlaceholder?: string
     mentionMenuNoMatchesText?: string
     mentionMenuLoadingText?: string
+    mentionMembersGroupText?: string
+    mentionDocumentsGroupText?: string
     /** 仅任务描述等场景：块侧栏 + `/` 命令菜单 */
     blockChrome?: boolean
   }>(),
@@ -26,9 +30,12 @@ const props = withDefaults(
     placeholder: '',
     minHeight: 120,
     blockChrome: false,
+    readonly: false,
     mentionMenuSearchPlaceholder: '',
     mentionMenuNoMatchesText: '',
     mentionMenuLoadingText: '',
+    mentionMembersGroupText: '',
+    mentionDocumentsGroupText: '',
   }
 )
 
@@ -118,16 +125,20 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
     class="blocknote-editor-wrap"
     :class="{ 'blocknote-editor-wrap--chrome': blockChrome }"
     :style="{ minHeight: `${minHeight}px` }"
-    @click.self="handleSurfaceClick()"
+    @click.self="!readonly && handleSurfaceClick()"
   >
     <BlockNoteVue
       :key="editorKey"
       :initialContent="internalValue"
       :placeholder="placeholder"
       :mentionMembers="mentionMembers"
+      :mentionDocuments="mentionDocuments"
       :mentionMenuSearchPlaceholder="mentionMenuSearchPlaceholder"
       :mentionMenuNoMatchesText="mentionMenuNoMatchesText"
       :mentionMenuLoadingText="mentionMenuLoadingText"
+      :mentionMembersGroupText="mentionMembersGroupText"
+      :mentionDocumentsGroupText="mentionDocumentsGroupText"
+      :editable="!readonly"
       :uploadFile="handleUploadFile"
       :onChange="handleChange"
       :onBlur="handleBlur"
@@ -157,6 +168,48 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
   background: color-mix(in srgb, var(--color-accent, #5e6ad2) 18%, transparent);
   color: var(--color-accent, #5e6ad2);
   font-weight: 500;
+}
+
+/* `@` 联合建议保持成员/文档两种语义可辨，且沿用现有浅色 Operate 表面。 */
+.blocknote-editor-wrap :deep(.bn-structured-suggestion-group) {
+  padding: 7px 8px 4px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+}
+
+.blocknote-editor-wrap :deep(.bn-structured-suggestion-item) {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+
+.blocknote-editor-wrap :deep(.bn-structured-suggestion-icon) {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.blocknote-editor-wrap :deep(.bn-structured-suggestion-title) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.blocknote-editor-wrap :deep(.bn-structured-suggestion-empty) {
+  padding: 12px;
+  color: var(--color-text-muted);
+  text-align: center;
 }
 
 /* Integrate BlockNote editor into the page's font/color scheme */

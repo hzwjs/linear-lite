@@ -76,6 +76,9 @@ const en = {
     favorites: 'Favorites',
     workspace: 'Workspace',
     projects: 'Projects',
+    tasks: 'Tasks',
+    documents: 'Documents',
+    projectNavigation: '{project} navigation',
     newProjectTitle: 'New project',
     projectSettings: 'Project settings',
     analytics: 'Analytics',
@@ -136,6 +139,35 @@ const en = {
   emptyState: {
     noProjects: 'No projects yet',
     selectProject: 'Select a project from the left'
+  },
+  documents: {
+    title: 'Documents', issues: 'Issues', workspaceNavigation: 'Project workspace',
+    newRoot: 'New document', newChild: 'New child document', untitled: 'Untitled',
+    filterLabel: 'Filter documents by title', filterPlaceholder: 'Filter documents…', clearFilter: 'Clear document filter',
+    loadingTree: 'Loading documents…', loadingDocument: 'Loading document…', loadFailed: 'Documents could not be loaded.',
+    emptyTree: 'Keep project knowledge alongside the work.', createFirst: 'Create the first document',
+    selectDocument: 'Select a document or create a new one.', noSearchResults: 'No documents match this title.', treeLabel: 'Project document tree',
+    expand: 'Expand document', collapse: 'Collapse document', actionsFor: 'Actions for {title}',
+    moveUp: 'Move up', moveDown: 'Move down', indent: 'Move under previous document', outdent: 'Move out one level',
+    archive: 'Archive', archiveConfirm: 'Archive “{title}” and all of its child documents?',
+    archived: 'Archived', archivedDescription: 'Archived document subtrees retain their original structure.', noArchived: 'No archived documents.', restore: 'Restore',
+    history: 'History', version: 'Version {version}', backToHistory: 'Back to version history', historyLoadFailed: 'Version history could not be loaded.', noHistory: 'No versions yet.',
+    restoreThisVersion: 'Restore this version', restoring: 'Restoring…', documentTitle: 'Document title',
+    bodyPlaceholder: 'Write project context, decisions, and plans…', breadcrumbLabel: 'Document location',
+    conflictTitle: 'A newer version exists on the server',
+    conflictDescription: 'Your draft is preserved. The server is now at version {version}. Copy the draft or reload before continuing.',
+    copyDraft: 'Copy draft', copied: 'Copied', reloadServerVersion: 'Reload server version',
+    saveFailedTitle: 'Changes could not be saved', saveFailedDescription: 'Your draft remains open. Retry when the connection is available.',
+    mentionMembersGroup: 'Members', mentionDocumentsGroup: 'Documents', mentionNoMatches: 'No members or documents match.',
+    mobile: { title: 'Project document', readonly: 'Read only', back: 'Back', loading: 'Loading document…', loadFailed: 'Document could not be loaded', projectMismatch: 'This document does not belong to the current project.', bodyLabel: 'Document content' },
+    saveState: { idle: 'Not edited', dirty: 'Unsaved changes', saving: 'Saving…', saved: 'Saved', conflict: 'Save conflict', failed: 'Save failed' }
+  },
+  globalSearch: {
+    title: 'Search project content', placeholder: 'Search tasks and documents across projects…', searchAria: 'Search tasks and documents across projects', close: 'Close search',
+    loading: 'Searching related content…', unavailableTitle: 'Search is temporarily unavailable', unavailableDescription: 'Check the connection and try again.',
+    emptyTitle: 'Search across projects', emptyDescription: 'Find tasks and documents by words in their title or content.',
+    noResultsTitle: 'No related content found', noResultsDescription: 'Try a shorter or different search.', resultsAria: 'Search results',
+    resultsCount: '{count} related results', type: { task: 'Task', document: 'Document' }, selectHint: 'Select', openHint: 'Open', closeHint: 'Close'
   },
   command: {
     newTask: 'New task',

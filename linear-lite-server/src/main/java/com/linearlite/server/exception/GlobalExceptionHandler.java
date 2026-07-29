@@ -1,6 +1,7 @@
 package com.linearlite.server.exception;
 
 import com.linearlite.server.common.ApiResponse;
+import com.linearlite.server.dto.DocumentVersionConflictResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -85,5 +86,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
                 .body(ApiResponse.fail(HttpStatus.CONFLICT.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(DocumentVersionConflictException.class)
+    public ResponseEntity<ApiResponse<DocumentVersionConflictResponse>> handleDocumentVersionConflict(
+            DocumentVersionConflictException e) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(new ApiResponse<>(
+                        HttpStatus.CONFLICT.value(),
+                        e.getMessage(),
+                        new DocumentVersionConflictResponse(e.getCurrentVersion())));
     }
 }

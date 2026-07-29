@@ -9,7 +9,7 @@ public class SemanticSearchProperties {
     private boolean enabled;
     private String qdrantUrl = "http://127.0.0.1:6333";
     private String qdrantApiKey;
-    private String collection = "linear_lite_tasks";
+    private String collection = "linear_lite_project_content";
     private String embeddingBaseUrl;
     private String embeddingApiKey;
     private String embeddingModel = "qwen3-embedding";

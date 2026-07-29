@@ -1,22 +1,21 @@
 package com.linearlite.server.entity;
 
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
-
 import java.time.LocalDateTime;
 
-@TableName("task_semantic_index_jobs")
-public class TaskSemanticIndexJob {
-    @TableId
-    private Long taskId;
+/** 任务与项目文档共用的去重索引任务。 */
+public class ProjectContentSemanticIndexJob {
+    private String contentType;
+    private Long resourceId;
     private String operation;
     private String contentHash;
     private LocalDateTime runAfter;
     private Long version;
     private Integer attempts;
 
-    public Long getTaskId() { return taskId; }
-    public void setTaskId(Long taskId) { this.taskId = taskId; }
+    public String getContentType() { return contentType; }
+    public void setContentType(String contentType) { this.contentType = contentType; }
+    public Long getResourceId() { return resourceId; }
+    public void setResourceId(Long resourceId) { this.resourceId = resourceId; }
     public String getOperation() { return operation; }
     public void setOperation(String operation) { this.operation = operation; }
     public String getContentHash() { return contentHash; }

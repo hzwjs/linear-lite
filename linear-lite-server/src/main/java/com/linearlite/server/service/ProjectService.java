@@ -1,30 +1,20 @@
 package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.linearlite.server.entity.CommentMention;
-import com.linearlite.server.entity.InAppNotification;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.ProjectInvitation;
 import com.linearlite.server.entity.ProjectMember;
 import com.linearlite.server.entity.Task;
-import com.linearlite.server.entity.TaskComment;
 import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.exception.ResourceNotFoundException;
-import com.linearlite.server.mapper.CommentMentionMapper;
-import com.linearlite.server.mapper.InAppNotificationMapper;
 import com.linearlite.server.mapper.ProjectInvitationMapper;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.ProjectMapper;
-import com.linearlite.server.mapper.TaskActivityMapper;
-import com.linearlite.server.mapper.TaskCommentMapper;
-import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
 import com.linearlite.server.mapper.UserMapper;
 import com.linearlite.server.entity.User;
 import com.linearlite.server.dto.UserSummaryDto;
 import com.linearlite.server.util.EmailNormalization;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,51 +36,36 @@ public class ProjectService {
 
     private final ProjectMapper projectMapper;
     private final TaskMapper taskMapper;
-    private final TaskFavoriteMapper taskFavoriteMapper;
-    private final TaskActivityMapper taskActivityMapper;
     private final ProjectMemberMapper projectMemberMapper;
     private final ProjectInvitationMapper projectInvitationMapper;
     private final UserMapper userMapper;
     private final EmailService emailService;
     private final LabelService labelService;
-    private final TaskCommentMapper taskCommentMapper;
-    private final CommentMentionMapper commentMentionMapper;
-    private final InAppNotificationMapper inAppNotificationMapper;
     private final ProjectEmailPreferenceService projectEmailPreferenceService;
-    private ApplicationEventPublisher eventPublisher;
+    private final ProjectAccessGuard projectAccessGuard;
+    private final ProjectLifecycleService projectLifecycleService;
 
     public ProjectService(
             ProjectMapper projectMapper,
             TaskMapper taskMapper,
-            TaskFavoriteMapper taskFavoriteMapper,
-            TaskActivityMapper taskActivityMapper,
             ProjectMemberMapper projectMemberMapper,
             ProjectInvitationMapper projectInvitationMapper,
             UserMapper userMapper,
             EmailService emailService,
             LabelService labelService,
-            TaskCommentMapper taskCommentMapper,
-            CommentMentionMapper commentMentionMapper,
-            InAppNotificationMapper inAppNotificationMapper,
-            ProjectEmailPreferenceService projectEmailPreferenceService) {
+            ProjectEmailPreferenceService projectEmailPreferenceService,
+            ProjectAccessGuard projectAccessGuard,
+            ProjectLifecycleService projectLifecycleService) {
         this.projectMapper = projectMapper;
         this.taskMapper = taskMapper;
-        this.taskFavoriteMapper = taskFavoriteMapper;
-        this.taskActivityMapper = taskActivityMapper;
         this.projectMemberMapper = projectMemberMapper;
         this.projectInvitationMapper = projectInvitationMapper;
         this.userMapper = userMapper;
         this.emailService = emailService;
         this.labelService = labelService;
-        this.taskCommentMapper = taskCommentMapper;
-        this.commentMentionMapper = commentMentionMapper;
-        this.inAppNotificationMapper = inAppNotificationMapper;
         this.projectEmailPreferenceService = projectEmailPreferenceService;
-    }
-
-    @Autowired
-    public void setEventPublisher(ApplicationEventPublisher eventPublisher) {
-        this.eventPublisher = eventPublisher;
+        this.projectAccessGuard = projectAccessGuard;
+        this.projectLifecycleService = projectLifecycleService;
     }
 
     /**
@@ -285,62 +260,12 @@ public class ProjectService {
         emailService.sendProjectInvitation(normalizedEmail, project.getName());
     }
 
-    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id, Long currentUserId) {
-        Project existing = projectMapper.selectById(id);
-        if (existing == null) {
-            throw new ResourceNotFoundException("项目不存在: " + id);
-        }
-        requireProjectMember(id, currentUserId);
-        if (currentUserId == null || !currentUserId.equals(existing.getCreatorId())) {
-            throw new ForbiddenOperationException("只有项目创建者可以删除项目");
-        }
-
-        List<Task> tasks = taskMapper.selectList(
-                new LambdaQueryWrapper<Task>().eq(Task::getProjectId, id));
-        List<Long> taskIds = tasks.stream()
-                .map(Task::getId)
-                .collect(Collectors.toList());
-
-        if (!taskIds.isEmpty()) {
-            inAppNotificationMapper.delete(
-                    new LambdaQueryWrapper<InAppNotification>().in(InAppNotification::getTaskId, taskIds));
-            List<TaskComment> comments = taskCommentMapper.selectList(
-                    new LambdaQueryWrapper<TaskComment>().in(TaskComment::getTaskId, taskIds));
-            List<Long> commentIds = comments.stream().map(TaskComment::getId).collect(Collectors.toList());
-            if (!commentIds.isEmpty()) {
-                commentMentionMapper.delete(
-                        new LambdaQueryWrapper<CommentMention>().in(CommentMention::getCommentId, commentIds));
-            }
-            taskCommentMapper.delete(new LambdaQueryWrapper<TaskComment>().in(TaskComment::getTaskId, taskIds));
-            labelService.deleteLinksForTaskIds(taskIds);
-            taskActivityMapper.delete(
-                    new LambdaQueryWrapper<com.linearlite.server.entity.TaskActivity>()
-                            .in(com.linearlite.server.entity.TaskActivity::getTaskId, taskIds));
-            taskFavoriteMapper.delete(
-                    new LambdaQueryWrapper<com.linearlite.server.entity.TaskFavorite>()
-                            .in(com.linearlite.server.entity.TaskFavorite::getTaskId, taskIds));
-        }
-
-        taskMapper.delete(new LambdaQueryWrapper<Task>().eq(Task::getProjectId, id));
-        projectInvitationMapper.delete(new LambdaQueryWrapper<ProjectInvitation>().eq(ProjectInvitation::getProjectId, id));
-        projectMemberMapper.delete(new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getProjectId, id));
-        projectMapper.deleteById(id);
-        if (!taskIds.isEmpty() && eventPublisher != null) {
-            eventPublisher.publishEvent(new TaskSemanticDeleteRequestedEvent(taskIds));
-        }
+        projectLifecycleService.deleteProject(id, currentUserId);
     }
 
     public void requireProjectMember(Long projectId, Long userId) {
-        requireMemberUserId(userId);
-        Long count = projectMemberMapper.selectCount(
-                new LambdaQueryWrapper<ProjectMember>()
-                        .eq(ProjectMember::getProjectId, projectId)
-                        .eq(ProjectMember::getUserId, userId)
-        );
-        if (count == null || count == 0) {
-            throw new ForbiddenOperationException("你不是该项目成员");
-        }
+        projectAccessGuard.requireMember(projectId, userId);
     }
 
     public Project loadProject(Long projectId) {

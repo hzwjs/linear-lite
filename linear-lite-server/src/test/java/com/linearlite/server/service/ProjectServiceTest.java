@@ -67,6 +67,10 @@ class ProjectServiceTest {
     private ProjectEmailPreferenceService projectEmailPreferenceService;
     @Mock
     private ApplicationEventPublisher eventPublisher;
+    @Mock
+    private ProjectAccessGuard projectAccessGuard;
+    @Mock
+    private ProjectLifecycleService projectLifecycleService;
 
     private ProjectService projectService;
 
@@ -75,19 +79,15 @@ class ProjectServiceTest {
         projectService = new ProjectService(
                 projectMapper,
                 taskMapper,
-                taskFavoriteMapper,
-                taskActivityMapper,
                 projectMemberMapper,
                 projectInvitationMapper,
                 userMapper,
                 emailService,
                 labelService,
-                taskCommentMapper,
-                commentMentionMapper,
-                inAppNotificationMapper,
-                projectEmailPreferenceService
+                projectEmailPreferenceService,
+                projectAccessGuard,
+                projectLifecycleService
         );
-        projectService.setEventPublisher(eventPublisher);
     }
 
     @Test
@@ -211,7 +211,6 @@ class ProjectServiceTest {
         project.setCreatorId(7L);
 
         when(projectMapper.selectById(3L)).thenReturn(project);
-        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L, 0L);
         when(projectInvitationMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
         when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
 
@@ -231,7 +230,6 @@ class ProjectServiceTest {
         project.setCreatorId(7L);
 
         when(projectMapper.selectById(3L)).thenReturn(project);
-        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
 
         assertThrows(ForbiddenOperationException.class, () -> projectService.invite(3L, 8L, "new@example.com"));
     }
@@ -243,7 +241,6 @@ class ProjectServiceTest {
         project.setIdentifier("ENG");
         project.setCreatorId(7L);
         when(projectMapper.selectById(3L)).thenReturn(project);
-        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
         when(taskMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
 
         IllegalArgumentException error = assertThrows(
@@ -261,7 +258,6 @@ class ProjectServiceTest {
         project.setIdentifier("ENG");
         project.setCreatorId(7L);
         when(projectMapper.selectById(3L)).thenReturn(project);
-        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
         when(taskMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
         when(projectMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
         when(projectMapper.selectById(3L)).thenReturn(project);
@@ -274,41 +270,14 @@ class ProjectServiceTest {
 
     @Test
     void deleteRemovesOwnedProjectAndRelatedTasks() {
-        Project project = new Project();
-        project.setId(3L);
-        project.setCreatorId(7L);
-
-        Task task = new Task();
-        task.setId(11L);
-        task.setProjectId(3L);
-
-        when(projectMapper.selectById(3L)).thenReturn(project);
-        when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(task));
-        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
-        when(taskCommentMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Collections.emptyList());
-
         projectService.delete(3L, 7L);
-
-        verify(inAppNotificationMapper).delete(any(LambdaQueryWrapper.class));
-        verify(taskCommentMapper).delete(any(LambdaQueryWrapper.class));
-        verify(labelService).deleteLinksForTaskIds(List.of(11L));
-        verify(taskActivityMapper).delete(any(LambdaQueryWrapper.class));
-        verify(taskFavoriteMapper).delete(any(LambdaQueryWrapper.class));
-        verify(taskMapper).delete(any(LambdaQueryWrapper.class));
-        verify(projectInvitationMapper).delete(any(LambdaQueryWrapper.class));
-        verify(projectMemberMapper).delete(any(LambdaQueryWrapper.class));
-        verify(projectMapper).deleteById(3L);
-        verify(eventPublisher).publishEvent(new TaskSemanticDeleteRequestedEvent(List.of(11L)));
+        verify(projectLifecycleService).deleteProject(3L, 7L);
     }
 
     @Test
     void deleteRejectsNonOwner() {
-        Project project = new Project();
-        project.setId(3L);
-        project.setCreatorId(7L);
-
-        when(projectMapper.selectById(3L)).thenReturn(project);
-        when(projectMemberMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        org.mockito.Mockito.doThrow(new ForbiddenOperationException("只有项目创建者可以执行此操作"))
+                .when(projectLifecycleService).deleteProject(3L, 8L);
 
         assertThrows(ForbiddenOperationException.class, () -> projectService.delete(3L, 8L));
     }

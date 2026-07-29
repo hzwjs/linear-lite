@@ -12,6 +12,7 @@ import {
   CircleX,
   Copy,
   Eye,
+  FileText,
   Folder,
   Loader2,
   LogOut,
@@ -19,7 +20,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
-  Search
+  Search,
+  ListTodo
 } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -49,6 +51,7 @@ const emit = defineEmits<{
   'reorder-projects': [projectIds: number[]]
   'create-project': []
   'select-project': [projectId: number]
+  'open-project-documents': [projectId: number]
   'open-project-settings': [projectId: number]
 }>()
 
@@ -118,6 +121,18 @@ function onClickOutsideUserMenu(event: MouseEvent) {
 function handleOpenProjectSettings(event: Event, projectId: number) {
   event.stopPropagation()
   emit('open-project-settings', projectId)
+}
+
+function isProjectDocumentsRoute(projectId: number): boolean {
+  const documentRoot = `/projects/${projectId}/documents`
+  return props.routePath === documentRoot || props.routePath.startsWith(`${documentRoot}/`)
+}
+
+function isProjectTasksRoute(projectId: number): boolean {
+  if (props.activeProjectId !== projectId) return false
+  return props.routePath === '/'
+    || props.routePath.startsWith(`/projects/${projectId}/tasks/`)
+    || props.routePath.startsWith('/tasks/')
 }
 
 function resetProjectDragState() {
@@ -378,44 +393,80 @@ onUnmounted(() => {
           <div
             v-for="project in projects"
             :key="project.id"
-            class="sidebar-nav__item sidebar-nav__item--project"
-            :class="{
-              'sidebar-nav__item--active': activeProjectId === project.id,
-              'sidebar-nav__item--dragging': draggedProjectId === project.id,
-              'sidebar-nav__item--drag-over': dragOverProjectId === project.id,
-              'sidebar-nav__item--drag-over-after':
-                dragOverProjectId === project.id && dragOverPlacement === 'after'
-            }"
-            :data-testid="`sidebar-project-${project.id}`"
-            data-item-kind="project"
-            :title="project.identifier"
-            draggable="true"
-            :aria-grabbed="draggedProjectId === project.id"
-            @dragstart="onProjectDragStart($event, project.id)"
-            @dragover="onProjectDragOver($event, project.id)"
-            @dragleave="dragOverProjectId === project.id && (dragOverProjectId = null)"
-            @drop="onProjectDrop($event, project.id)"
-            @dragend="resetProjectDragState"
+            class="sidebar-nav__project-group"
           >
-            <button
-              type="button"
-              class="sidebar-nav__item-main"
-              @click="emit('select-project', project.id)"
+            <div
+              class="sidebar-nav__item sidebar-nav__item--project"
+              :class="{
+                'sidebar-nav__item--active': activeProjectId === project.id,
+                'sidebar-nav__item--dragging': draggedProjectId === project.id,
+                'sidebar-nav__item--drag-over': dragOverProjectId === project.id,
+                'sidebar-nav__item--drag-over-after':
+                  dragOverProjectId === project.id && dragOverPlacement === 'after'
+              }"
+              :data-testid="`sidebar-project-${project.id}`"
+              data-item-kind="project"
+              :title="project.identifier"
+              draggable="true"
+              :aria-grabbed="draggedProjectId === project.id"
+              @dragstart="onProjectDragStart($event, project.id)"
+              @dragover="onProjectDragOver($event, project.id)"
+              @dragleave="dragOverProjectId === project.id && (dragOverProjectId = null)"
+              @drop="onProjectDrop($event, project.id)"
+              @dragend="resetProjectDragState"
             >
-              <Folder class="sidebar-nav__icon sidebar-nav__item-icon" />
-              <span class="sidebar-nav__item-label">{{ project.name }}</span>
-            </button>
+              <button
+                type="button"
+                class="sidebar-nav__item-main"
+                :aria-expanded="activeProjectId === project.id"
+                @click="emit('select-project', project.id)"
+              >
+                <Folder class="sidebar-nav__icon sidebar-nav__item-icon" />
+                <span class="sidebar-nav__item-label">{{ project.name }}</span>
+              </button>
 
-            <button
-              type="button"
-              class="sidebar-nav__item-action"
-              :title="t('sidebar.projectSettings')"
-              :aria-label="t('sidebar.projectSettings')"
-              :data-testid="`sidebar-project-settings-${project.id}`"
-              @click="handleOpenProjectSettings($event, project.id)"
+              <button
+                type="button"
+                class="sidebar-nav__item-action"
+                :title="t('sidebar.projectSettings')"
+                :aria-label="t('sidebar.projectSettings')"
+                :data-testid="`sidebar-project-settings-${project.id}`"
+                @click="handleOpenProjectSettings($event, project.id)"
+              >
+                <MoreVertical class="sidebar-nav__icon sidebar-nav__icon--xs" />
+              </button>
+            </div>
+
+            <!-- 项目子导航只展开当前项目，避免多项目文档入口挤占侧栏纵向空间。 -->
+            <div
+              v-if="activeProjectId === project.id"
+              class="sidebar-nav__project-children"
+              role="group"
+              :aria-label="t('sidebar.projectNavigation', { project: project.name })"
             >
-              <MoreVertical class="sidebar-nav__icon sidebar-nav__icon--xs" />
-            </button>
+              <button
+                type="button"
+                class="sidebar-nav__project-child"
+                :class="{ 'sidebar-nav__project-child--active': isProjectTasksRoute(project.id) }"
+                :aria-current="isProjectTasksRoute(project.id) ? 'page' : undefined"
+                :data-testid="`sidebar-project-tasks-${project.id}`"
+                @click="emit('select-project', project.id)"
+              >
+                <ListTodo class="sidebar-nav__icon sidebar-nav__project-child-icon" aria-hidden="true" />
+                <span class="sidebar-nav__item-label">{{ t('sidebar.tasks') }}</span>
+              </button>
+              <button
+                type="button"
+                class="sidebar-nav__project-child"
+                :class="{ 'sidebar-nav__project-child--active': isProjectDocumentsRoute(project.id) }"
+                :aria-current="isProjectDocumentsRoute(project.id) ? 'page' : undefined"
+                :data-testid="`sidebar-project-documents-${project.id}`"
+                @click="emit('open-project-documents', project.id)"
+              >
+                <FileText class="sidebar-nav__icon sidebar-nav__project-child-icon" aria-hidden="true" />
+                <span class="sidebar-nav__item-label">{{ t('sidebar.documents') }}</span>
+              </button>
+            </div>
           </div>
         </nav>
       </section>
@@ -718,6 +769,12 @@ onUnmounted(() => {
   min-height: 0;
 }
 
+.sidebar-nav__project-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
 .sidebar-nav__item {
   width: 100%;
   min-height: 30px;
@@ -751,6 +808,46 @@ onUnmounted(() => {
 
 .sidebar-nav__item--project:active {
   cursor: grabbing;
+}
+
+.sidebar-nav__project-children {
+  margin: 0 0 3px 22px;
+  padding-left: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-left: 1px solid var(--sidebar-border-muted);
+}
+
+.sidebar-nav__project-child {
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--sidebar-muted);
+  border-radius: 6px;
+  text-align: left;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.sidebar-nav__project-child:hover {
+  color: var(--sidebar-text);
+  background: var(--sidebar-item-hover);
+}
+
+.sidebar-nav__project-child--active {
+  color: var(--sidebar-text);
+  background: var(--sidebar-item-active-bg);
+  font-weight: 500;
+}
+
+.sidebar-nav__project-child-icon {
+  width: 14px;
+  height: 14px;
+  color: currentColor;
+  stroke-width: 1.8;
 }
 
 .sidebar-nav__item--dragging {

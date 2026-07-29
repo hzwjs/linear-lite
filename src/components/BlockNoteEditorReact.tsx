@@ -21,6 +21,10 @@ import { createCodeBlockSpec } from '@blocknote/core/blocks'
 import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
 import { normalizeMermaidRenderError, renderMermaidSvg } from '../utils/mermaidRenderer'
 import { MentionMemberSuggestionMenu } from './MentionMemberSuggestionMenu'
+import {
+  StructuredMentionSuggestionMenu,
+  type StructuredSuggestionItem,
+} from './StructuredMentionSuggestionMenu'
 
 // ─── Code block with language selector ─────────────────────────────────────────
 
@@ -81,6 +85,22 @@ type ImagePreviewItem = {
   height: number
   alt?: string
   element: HTMLImageElement
+}
+
+export function buildProjectDocumentMentionHref(projectId: number, documentId: number): string {
+  return `/projects/${projectId}/documents/${documentId}`
+}
+
+export function createProjectDocumentLinkInline(projectId: number, documentId: number, title: string) {
+  return {
+    type: 'link' as const,
+    href: buildProjectDocumentMentionHref(projectId, documentId),
+    content: title,
+  }
+}
+
+export function createMemberMentionInline(memberId: number, label: string) {
+  return { type: 'mention' as const, props: { userId: String(memberId), label } }
 }
 
 function getPreviewImageSize(img: HTMLImageElement): { width: number; height: number } {
@@ -515,6 +535,7 @@ export type BlockNoteEditorReactProps = {
   placeholder?: string
   editable?: boolean
   mentionMembers?: Array<{ id: number; label: string }>
+  mentionDocuments?: Array<{ id: number; title: string; projectId: number }>
   /** Should resolve the uploaded file URL */
   uploadFile?: (file: File) => Promise<string>
   'upload-file'?: (file: File) => Promise<string>
@@ -538,6 +559,10 @@ export type BlockNoteEditorReactProps = {
   'mention-menu-no-matches-text'?: string
   mentionMenuLoadingText?: string
   'mention-menu-loading-text'?: string
+  mentionMembersGroupText?: string
+  'mention-members-group-text'?: string
+  mentionDocumentsGroupText?: string
+  'mention-documents-group-text'?: string
 }
 
 export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
@@ -546,6 +571,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     placeholder,
     editable = true,
     mentionMembers,
+    mentionDocuments,
     uploadFile,
     onChange,
     onBlur,
@@ -561,6 +587,10 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     props.mentionMenuNoMatchesText ?? props['mention-menu-no-matches-text'] ?? ''
   const mentionLoadingPh =
     props.mentionMenuLoadingText ?? props['mention-menu-loading-text'] ?? '…'
+  const mentionMembersGroup =
+    props.mentionMembersGroupText ?? props['mention-members-group-text'] ?? 'Members'
+  const mentionDocumentsGroup =
+    props.mentionDocumentsGroupText ?? props['mention-documents-group-text'] ?? 'Documents'
 
   const uploadFileResolved =
     uploadFile ?? props['upload-file']
@@ -581,6 +611,8 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
 
   const mentionMembersRef = useRef(mentionMembers)
   mentionMembersRef.current = mentionMembers
+  const mentionDocumentsRef = useRef(mentionDocuments)
+  mentionDocumentsRef.current = mentionDocuments
 
   const onChangeResolved = onChange ?? props['on-change']
   const onChangeRef = useRef(onChangeResolved)
@@ -873,6 +905,62 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     [mentionSearchPh, mentionNoMatchPh, mentionLoadingPh],
   )
 
+  const handleStructuredMentionPick = useCallback(
+    (item: StructuredSuggestionItem) => {
+      if (item.kind === 'member') {
+        const existing = extractMentionIdsFromBlocks(editor.document as unknown as AnyBlock[])
+        if (existing.includes(item.memberId)) return
+        editor.insertInlineContent(
+          [createMemberMentionInline(item.memberId, item.label), ' '] as Parameters<
+            typeof editor.insertInlineContent
+          >[0],
+        )
+        return
+      }
+      // 文档引用只写稳定 ID 路由；标题仅作为当次插入的可读链接文本。
+      editor.insertInlineContent(
+        [createProjectDocumentLinkInline(item.projectId, item.documentId, item.label), ' '] as Parameters<
+          typeof editor.insertInlineContent
+        >[0],
+      )
+    },
+    [editor],
+  )
+
+  const renderStructuredMentionMenu = useCallback(
+    (menuProps: SuggestionMenuProps<StructuredSuggestionItem>) => (
+      <StructuredMentionSuggestionMenu
+        {...menuProps}
+        loadingText={mentionLoadingPh}
+        noMatchesText={mentionNoMatchPh}
+      />
+    ),
+    [mentionLoadingPh, mentionNoMatchPh],
+  )
+
+  const getStructuredMentionItems = useCallback(async (query: string): Promise<StructuredSuggestionItem[]> => {
+    const memberItems: StructuredSuggestionItem[] = (mentionMembersRef.current ?? []).map((member) => ({
+      kind: 'member',
+      memberId: member.id,
+      label: member.label,
+      title: member.label,
+      group: mentionMembersGroup,
+      aliases: [member.label.toLowerCase()],
+      onItemClick: () => {},
+    }))
+    const documentItems: StructuredSuggestionItem[] = (mentionDocumentsRef.current ?? []).map((document) => ({
+      kind: 'document',
+      documentId: document.id,
+      projectId: document.projectId,
+      label: document.title,
+      title: document.title,
+      group: mentionDocumentsGroup,
+      aliases: [document.title.toLowerCase()],
+      onItemClick: () => {},
+    }))
+    return filterSuggestionItems([...memberItems, ...documentItems], query)
+  }, [mentionDocumentsGroup, mentionMembersGroup])
+
   return (
     <div ref={editorRootRef} className="bn-mermaid-editor-root">
       <BlockNoteView
@@ -893,7 +981,14 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
         emojiPicker={false}
         comments={false}
       >
-        {mentionMembers !== undefined && (
+        {mentionDocuments !== undefined ? (
+          <SuggestionMenuController<typeof getStructuredMentionItems>
+            triggerCharacter="@"
+            suggestionMenuComponent={renderStructuredMentionMenu}
+            onItemClick={handleStructuredMentionPick}
+            getItems={getStructuredMentionItems}
+          />
+        ) : mentionMembers !== undefined && (
           <SuggestionMenuController
             triggerCharacter="@"
             suggestionMenuComponent={renderMentionMenu}

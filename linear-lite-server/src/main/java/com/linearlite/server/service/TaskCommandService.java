@@ -319,7 +319,10 @@ public class TaskCommandService {
     }
 
     private void publishSemanticIndexRequest(Long taskId) {
-        if (eventPublisher != null) eventPublisher.publishEvent(new TaskSemanticIndexRequestedEvent(taskId));
+        if (eventPublisher != null) {
+            eventPublisher.publishEvent(new ProjectContentSemanticIndexRequestedEvent(
+                    ProjectContentType.TASK, taskId));
+        }
     }
 
     @Transactional(rollbackFor = Exception.class)

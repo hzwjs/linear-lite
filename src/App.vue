@@ -12,8 +12,10 @@ import SidebarNavigation from './components/SidebarNavigation.vue'
 import CreateProjectModal from './components/CreateProjectModal.vue'
 import ProjectSettingsModal from './components/ProjectSettingsModal.vue'
 import CommandPalette from './components/CommandPalette.vue'
+import GlobalSearchModal from './components/GlobalSearchModal.vue'
 import type { CommandItem } from './components/CommandPalette.vue'
 import type { Project } from './types/domain'
+import type { ProjectContentSearchResult } from './types/search'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useLocaleStore } from './store/localeStore'
@@ -82,6 +84,7 @@ const { t } = useI18n()
 const createProjectOpen = ref(false)
 const settingsProject = ref<Project | null>(null)
 const commandPaletteOpen = ref(false)
+const globalSearchOpen = ref(false)
 const sidebarHidden = ref(false)
 const sidebarCollapsed = ref(readSidebarCollapsed())
 
@@ -133,7 +136,19 @@ function triggerNewTask() {
 }
 
 function triggerFocusSearch() {
-  window.dispatchEvent(new CustomEvent('command-palette:focus-search'))
+  commandPaletteOpen.value = false
+  globalSearchOpen.value = true
+}
+
+async function openGlobalSearchResult(result: ProjectContentSearchResult) {
+  globalSearchOpen.value = false
+  projectStore.setActiveProject(result.projectId)
+  if (result.contentType === 'document') {
+    await router.push(`/projects/${result.projectId}/documents/${result.resourceId}`)
+    return
+  }
+  await taskStore.fetchTasks()
+  await router.push(buildTaskRoute(result.resourceId, result.projectId))
 }
 
 const paletteCommands = computed<CommandItem[]>(() => [
@@ -209,6 +224,7 @@ watch(
     createProjectOpen.value = false
     settingsProject.value = null
     commandPaletteOpen.value = false
+    globalSearchOpen.value = false
     issuePanelStore.closeComposer()
     issuePanelStore.closeWorkspace()
     issuePanelStore.setSelectedTask(null)
@@ -221,6 +237,11 @@ function selectProject(id: number) {
   if (route.path !== '/') {
     router.push('/')
   }
+}
+
+function openProjectDocuments(id: number) {
+  projectStore.setActiveProject(id)
+  void router.push(`/projects/${id}/documents`)
 }
 
 async function reorderProjects(projectIds: number[]) {
@@ -277,6 +298,15 @@ watch(
   },
   { immediate: true }
 )
+watch(globalSearchOpen, (open) => {
+  if (open) {
+    overlayStore.push('global-search-modal', () => {
+      globalSearchOpen.value = false
+    })
+  } else {
+    overlayStore.remove('global-search-modal')
+  }
+})
 
 // P4-7.4: 浮层注册，供 Esc 关闭
 watch(createProjectOpen, (open) => {
@@ -329,10 +359,12 @@ function onGlobalKeydown(e: KeyboardEvent) {
 onMounted(() => {
   sidebarHidden.value = readSidebarHidden()
   document.addEventListener('keydown', onGlobalKeydown)
+  window.addEventListener('global-search:open', triggerFocusSearch)
 })
 watch(sidebarHidden, persistSidebarHidden)
 onUnmounted(() => {
   document.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('global-search:open', triggerFocusSearch)
 })
 </script>
 
@@ -365,6 +397,7 @@ onUnmounted(() => {
       @reorder-projects="reorderProjects"
       @create-project="createProjectOpen = true"
       @select-project="selectProject"
+      @open-project-documents="openProjectDocuments"
       @open-project-settings="openProjectSettings"
     >
       <template #notification>
@@ -387,6 +420,11 @@ onUnmounted(() => {
       :open="commandPaletteOpen"
       :commands="paletteCommands"
       @close="commandPaletteOpen = false"
+    />
+    <GlobalSearchModal
+      :open="globalSearchOpen"
+      @close="globalSearchOpen = false"
+      @select="openGlobalSearchResult"
     />
     <main class="main" :class="{ 'main--task-workspace': isTaskWorkspaceRoute }">
       <div v-if="showEmptyProjects" class="empty-projects">

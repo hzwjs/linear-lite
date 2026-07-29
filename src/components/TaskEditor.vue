@@ -15,6 +15,8 @@ import { useIssuePanelStore } from '../store/issuePanelStore'
 import { useRouter } from 'vue-router'
 import { toApiError } from '../services/api/index'
 import { projectApi } from '../services/api/project'
+import { documentApi } from '../services/api/documents'
+import type { ProjectDocumentTreeNode } from '../types/document'
 import { activityApi } from '../services/api/activity'
 import { taskCommentsApi, type TaskCommentDto } from '../services/api/taskComments'
 import { attachmentsApi } from '../services/api/attachments'
@@ -273,6 +275,13 @@ const mentionMembersForCommentEditor = computed(() =>
     id: u.id,
     label: (u.username ?? '').trim() || `user-${u.id}`,
   }))
+)
+
+const mentionDocumentsForDescription = ref<ProjectDocumentTreeNode[]>([])
+let mentionDocumentsLoadSequence = 0
+
+const mentionMembersForDescription = computed(() =>
+  mentionCandidates.value.map((user) => ({ id: user.id, label: user.username.trim() }))
 )
 
 const commentEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
@@ -860,6 +869,22 @@ async function loadProjectMembers(projectId: number | null) {
   }
 }
 
+async function loadProjectMentionDocuments(projectId: number | null) {
+  const sequence = ++mentionDocumentsLoadSequence
+  if (projectId == null) {
+    mentionDocumentsForDescription.value = []
+    return
+  }
+  try {
+    const documents = await documentApi.listTree(projectId)
+    if (sequence === mentionDocumentsLoadSequence) mentionDocumentsForDescription.value = documents
+  } catch (error) {
+    if (sequence !== mentionDocumentsLoadSequence) return
+    console.error('Failed to load project documents for mentions:', error)
+    mentionDocumentsForDescription.value = []
+  }
+}
+
 function syncCodexTaskRefresh() {
   if (codexTaskRefreshTimer != null) {
     clearInterval(codexTaskRefreshTimer)
@@ -885,7 +910,10 @@ function syncCodexTaskRefresh() {
 }
 
 onMounted(async () => {
-  await loadProjectMembers(effectiveProjectId.value)
+  await Promise.all([
+    loadProjectMembers(effectiveProjectId.value),
+    loadProjectMentionDocuments(effectiveProjectId.value)
+  ])
 })
 
 onMounted(() => {
@@ -897,6 +925,7 @@ onMounted(() => {
 
 watch(effectiveProjectId, (id) => {
   loadProjectMembers(id)
+  loadProjectMentionDocuments(id)
 })
 
 watch(
@@ -906,6 +935,7 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  mentionDocumentsLoadSequence += 1
   if (codexTaskRefreshTimer != null) {
     clearInterval(codexTaskRefreshTimer)
     codexTaskRefreshTimer = null
@@ -1571,6 +1601,12 @@ async function toggleDescriptionFullscreen() {
                 ref="descriptionEditorRef"
                 v-model="formDescription"
                 :block-chrome="true"
+                :mention-members="mentionMembersForDescription"
+                :mention-documents="mentionDocumentsForDescription"
+                :mention-members-group-text="t('documents.mentionMembersGroup')"
+                :mention-documents-group-text="t('documents.mentionDocumentsGroup')"
+                :mention-menu-no-matches-text="t('documents.mentionNoMatches')"
+                :mention-menu-loading-text="t('common.loading')"
                 @upload-state-change="onDescriptionUploadStateChange"
                 @focus="onDescriptionFocus"
                 @blur="onDescriptionBlur"

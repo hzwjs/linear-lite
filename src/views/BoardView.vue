@@ -7,7 +7,6 @@ import { useProjectStore } from '../store/projectStore'
 import { useViewModeStore } from '../store/viewModeStore'
 import { useIssuePanelStore } from '../store/issuePanelStore'
 import AddIssueFilterMenu from '../components/issue-filters/AddIssueFilterMenu.vue'
-import GlobalTaskSearchModal from '../components/GlobalTaskSearchModal.vue'
 import CustomSelect from '../components/ui/CustomSelect.vue'
 import type { CustomSelectOption } from '../components/ui/CustomSelect.vue'
 import { projectApi } from '../services/api/project'
@@ -55,8 +54,6 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const users = ref<User[]>([])
-const searchInputRef = ref<HTMLInputElement | null>(null)
-const globalSearchOpen = ref(false)
 const filterPopoverOpen = ref(false)
 const displayPopoverOpen = ref(false)
 const filterTriggerRef = ref<HTMLElement | null>(null)
@@ -183,15 +180,6 @@ function labelColor(id: number): string {
 
 function clearAllFilters() {
   store.clearIssueFilters()
-}
-
-async function openGlobalSearchTask(task: Task) {
-  globalSearchOpen.value = false
-  if (task.projectId != null && projectStore.activeProjectId !== task.projectId) {
-    projectStore.setActiveProject(task.projectId)
-    await store.fetchTasks()
-  }
-  await router.push(buildTaskRoute(task.id, task.projectId))
 }
 
 const statusFilterLabel = computed(() => {
@@ -454,17 +442,17 @@ function setView(v: ViewType) {
   viewModeStore.setView(v)
 }
 
-// P4-7.2: Command Palette / 快捷键 C 新建任务、聚焦搜索
+// P4-7.2: Command Palette / 快捷键 C 新建任务
 function onNewTaskCommand() {
   openCreateEditor()
 }
-function onFocusSearchCommand() {
-  searchInputRef.value?.focus()
+
+function openGlobalSearch() {
+  window.dispatchEvent(new CustomEvent('global-search:open'))
 }
 
 onMounted(() => {
   window.addEventListener('command-palette:new-task', onNewTaskCommand)
-  window.addEventListener('command-palette:focus-search', onFocusSearchCommand)
   window.addEventListener('click', onClickOutsideFilter, true)
   window.addEventListener('click', onClickOutsideDisplay, true)
 })
@@ -475,7 +463,6 @@ onUnmounted(() => {
   }
   flushSaveProjectBoard(projectStore.activeProjectId)
   window.removeEventListener('command-palette:new-task', onNewTaskCommand)
-  window.removeEventListener('command-palette:focus-search', onFocusSearchCommand)
   window.removeEventListener('click', onClickOutsideFilter, true)
   window.removeEventListener('click', onClickOutsideDisplay, true)
 })
@@ -585,7 +572,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
         </button>
       </div>
       <div class="toolbar-spacer" aria-hidden="true" />
-      <div class="toolbar-search"><button class="search-input" type="button" @click="globalSearchOpen = true">{{ t('boardView.searchIssues') }}</button></div>
+      <div class="toolbar-search"><button class="search-input" type="button" @click="openGlobalSearch">{{ t('boardView.searchIssues') }}</button></div>
       <div class="toolbar-options">
         <div ref="filterTriggerRef" class="popover-anchor popover-anchor-right">
           <button
@@ -844,7 +831,6 @@ function onClickOutsideDisplay(event: MouseEvent) {
       </template>
     </Suspense>
   </div>
-  <GlobalTaskSearchModal :open="globalSearchOpen" @close="globalSearchOpen = false" @select="openGlobalSearchTask" />
 </template>
 
 <style scoped>

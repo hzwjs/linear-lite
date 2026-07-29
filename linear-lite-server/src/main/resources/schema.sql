@@ -76,6 +76,37 @@ CREATE TABLE IF NOT EXISTS project_invitations (
 
 CREATE INDEX idx_project_invitations_project_email ON project_invitations (project_id, email, created_at);
 
+-- 项目文档：正文固定保存 BlockNote JSON 数组，树关系只由 parent_document_id 表达。
+CREATE TABLE IF NOT EXISTS project_documents (
+    id                 BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    project_id         BIGINT       NOT NULL,
+    parent_document_id BIGINT       DEFAULT NULL,
+    title              VARCHAR(256) NOT NULL,
+    content_json       LONGTEXT     NOT NULL,
+    sort_order         INT          NOT NULL DEFAULT 0,
+    version            BIGINT       NOT NULL DEFAULT 1,
+    creator_id         BIGINT       NOT NULL,
+    last_editor_id     BIGINT       NOT NULL,
+    archived_at        DATETIME     DEFAULT NULL,
+    created_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_project_documents_project_parent_order (project_id, parent_document_id, sort_order, id),
+    INDEX idx_project_documents_parent (parent_document_id),
+    INDEX idx_project_documents_project_updated (project_id, updated_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS project_document_revisions (
+    id            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    document_id   BIGINT       NOT NULL,
+    version       BIGINT       NOT NULL,
+    title         VARCHAR(256) NOT NULL,
+    content_json  LONGTEXT     NOT NULL,
+    editor_id     BIGINT       NOT NULL,
+    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_project_document_revisions_document_version (document_id, version),
+    INDEX idx_project_document_revisions_document_created (document_id, created_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS project_task_seq (
     project_id   BIGINT NOT NULL PRIMARY KEY COMMENT '逻辑关联 projects.id',
     next_number  BIGINT NOT NULL COMMENT '下一个可分配任务序号（从 1 开始）'
@@ -97,7 +128,6 @@ CREATE TABLE IF NOT EXISTS tasks (
     due_date    DATETIME     DEFAULT NULL COMMENT '预计完成/截止日期',
     planned_start_date DATETIME DEFAULT NULL COMMENT '计划开始日期',
     progress_percent TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '完成进度 0–100',
-    semantic_index_hash CHAR(64) DEFAULT NULL COMMENT '最近成功写入语义索引的标题/描述内容哈希',
     completed_at DATETIME    DEFAULT NULL COMMENT '实际完成时间，终态时由系统写入',
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -117,17 +147,17 @@ CREATE INDEX idx_tasks_project_status ON tasks (project_id, status);
 CREATE INDEX idx_tasks_project_assignee ON tasks (project_id, assignee_id);
 CREATE INDEX idx_tasks_project_priority ON tasks (project_id, priority);
 
--- 语义索引异步任务：task_id 唯一，连续自动保存只会覆盖同一条待执行任务。
-CREATE TABLE IF NOT EXISTS task_semantic_index_jobs (
-    task_id      BIGINT       NOT NULL PRIMARY KEY,
-    operation    VARCHAR(16)  NOT NULL COMMENT 'UPSERT 或 DELETE',
-    content_hash CHAR(64)     DEFAULT NULL,
-    run_after    DATETIME     NOT NULL,
-    version      BIGINT       NOT NULL DEFAULT 1,
-    attempts     INT UNSIGNED NOT NULL DEFAULT 0,
-    created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_task_semantic_index_jobs_due (run_after)
+-- 项目内容统一语义索引队列：任务与文档只通过 content_type + resource_id 标识。
+CREATE TABLE IF NOT EXISTS project_content_semantic_index_jobs (
+    content_type VARCHAR(16) NOT NULL,
+    resource_id  BIGINT      NOT NULL,
+    operation    VARCHAR(16) NOT NULL,
+    content_hash CHAR(64)    DEFAULT NULL,
+    run_after    DATETIME    NOT NULL,
+    version      BIGINT      NOT NULL DEFAULT 1,
+    attempts     INT         NOT NULL DEFAULT 0,
+    PRIMARY KEY (content_type, resource_id),
+    INDEX idx_project_content_semantic_jobs_due (run_after)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS task_favorites (
