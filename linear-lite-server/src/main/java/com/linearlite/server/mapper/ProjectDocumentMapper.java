@@ -25,6 +25,17 @@ public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
             @Param("contentJson") String contentJson,
             @Param("editorId") Long editorId);
 
+    @Update("""
+            UPDATE project_documents
+            SET parent_document_id = #{parentDocumentId}, sort_order = #{sortOrder},
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = #{id}
+            """)
+    int updatePosition(
+            @Param("id") Long id,
+            @Param("parentDocumentId") Long parentDocumentId,
+            @Param("sortOrder") Integer sortOrder);
+
     /** 数据库递归查询是循环校验和子树操作的唯一后代关系来源。 */
     @Select("""
             WITH RECURSIVE document_subtree AS (

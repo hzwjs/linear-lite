@@ -21,6 +21,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -173,11 +174,27 @@ class ProjectDocumentCommandServiceTest {
 
         assertEquals(20L, moving.getParentDocumentId());
         assertEquals(1, moving.getSortOrder());
-        verify(documentMapper).updateById(moving);
+        verify(documentMapper).updatePosition(11L, 20L, 1);
         var order = inOrder(documentMapper);
         order.verify(documentMapper).lockProjectDocumentMutations(3L);
-        order.verify(documentMapper).updateById(previousSibling);
-        order.verify(documentMapper).updateById(moving);
+        order.verify(documentMapper).updatePosition(30L, 20L, 0);
+        order.verify(documentMapper).updatePosition(11L, 20L, 1);
+    }
+
+    @Test
+    void moveToRootExplicitlyPersistsNullParent() {
+        ProjectDocument moving = document(34L, 7L, 9L, 1L, 4);
+        ProjectDocument management = document(9L, 7L, null, 1L, 3);
+        when(documentMapper.selectById(34L)).thenReturn(moving, moving);
+        when(documentMapper.selectById(9L)).thenReturn(management);
+        when(documentMapper.selectList(any())).thenReturn(List.of(management), List.of());
+
+        service.move(34L, new MoveProjectDocumentRequest(null, 9L), 7L);
+
+        assertNull(moving.getParentDocumentId());
+        assertEquals(1, moving.getSortOrder());
+        verify(documentMapper).updatePosition(9L, null, 0);
+        verify(documentMapper).updatePosition(34L, null, 1);
     }
 
     @Test

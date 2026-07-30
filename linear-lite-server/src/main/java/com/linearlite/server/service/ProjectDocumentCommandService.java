@@ -336,9 +336,9 @@ public class ProjectDocumentCommandService {
     private void persistOrder(List<ProjectDocument> siblings) {
         for (int index = 0; index < siblings.size(); index++) {
             ProjectDocument sibling = siblings.get(index);
-            // 每次移动都落盘父节点与连续顺序，避免 sortOrder 未变化时漏掉跨层移动。
+            // 显式 SQL 必须写入 null 父级；updateById 会按默认策略忽略 null，导致减少缩进未落库。
             sibling.setSortOrder(index);
-            documentMapper.updateById(sibling);
+            documentMapper.updatePosition(sibling.getId(), sibling.getParentDocumentId(), sibling.getSortOrder());
         }
     }
 
