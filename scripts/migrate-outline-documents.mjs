@@ -7,8 +7,9 @@
  *   OUTLINE_BASE_URL=http://outline.example OUTLINE_API_TOKEN=<read-only-token> JWT=<token> \
  *     node scripts/migrate-outline-documents.mjs \
  *     --manifest docs/migrations/outline-jlnx-api-pilot-manifest.json \
- *     --document-id <outline-url-id> \
- *     --state /tmp/jlnx-pilot-state.json
+ *     --subtree-root-id <outline-url-id> \
+ *     --state /tmp/jlnx-pilot-state.json \
+ *     --blocked-report docs/migrations/outline-jlnx-blocked-documents.md
  *
  * 旧导出目录兼容模式：
  *   JWT=<token> node scripts/migrate-outline-documents.mjs \
@@ -28,6 +29,7 @@ import { BlockNoteEditor } from '@blocknote/core'
 
 const DEFAULT_API_BASE_URL = 'http://localhost:5173/api'
 const DEFAULT_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+const DEFAULT_PREFLIGHT_CONCURRENCY = 3
 const MARKDOWN_LINK_PATTERN = /(!?\[[^\]]*]\()(<[^>\n]+>|[^)\n]+)(\))/g
 const OUTLINE_DOCUMENT_MENTION_PATTERN = /^mention:\/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/document\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
 
@@ -621,36 +623,295 @@ export function validateOutlineApiManifest(manifest) {
       throw new Error(`父文档不在迁移清单中: ${document.parentOutlineDocumentId}`)
     }
   }
+  const siblingsByParent = new Map()
+  for (const document of manifest.documents) {
+    const parentKey = document.parentOutlineDocumentId ?? '__ROOT__'
+    const siblings = siblingsByParent.get(parentKey) ?? []
+    siblings.push(document)
+    siblingsByParent.set(parentKey, siblings)
+  }
+  for (const siblings of siblingsByParent.values()) {
+    const orders = siblings.map(document => document.sortOrder).sort((a, b) => a - b)
+    if (orders.some((order, index) => order !== index)) {
+      throw new Error(`同级文档 sortOrder 必须从 0 连续排列: ${siblings[0].parentOutlineDocumentId ?? 'ROOT'}`)
+    }
+  }
   return manifest
+}
+
+function selectSubtreeDocuments(documents, subtreeRootOutlineDocumentId) {
+  if (!documents.some(document => document.outlineDocumentId === subtreeRootOutlineDocumentId)) {
+    throw new Error(`子树根节点不在迁移清单中: ${subtreeRootOutlineDocumentId}`)
+  }
+  const selectedIds = new Set([subtreeRootOutlineDocumentId])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const document of documents) {
+      if (!selectedIds.has(document.outlineDocumentId)
+          && selectedIds.has(document.parentOutlineDocumentId)) {
+        selectedIds.add(document.outlineDocumentId)
+        changed = true
+      }
+    }
+  }
+  return documents.filter(document => selectedIds.has(document.outlineDocumentId))
+}
+
+async function preflightOutlineApiBatch({
+  targetDocuments,
+  state,
+  project,
+  linearLiteApi,
+  outlineApi,
+  selectedBySourceUrl,
+  selectedOutlineIds,
+  outlineBaseUrl,
+  mentionReferenceCache,
+  tempDirectory,
+  maxAttachmentBytes,
+  concurrency
+}) {
+  const targetOutlineIds = new Set(targetDocuments.map(entry => entry.outlineDocumentId))
+  const inspected = await mapWithConcurrency(targetDocuments, concurrency, async entry => {
+    try {
+      const documentState = state.documents[entry.outlineDocumentId]
+      if (documentState) {
+        const parentId = entry.parentOutlineDocumentId == null
+          ? null
+          : requireMappedDocumentId(state, entry.parentOutlineDocumentId)
+        const existing = await linearLiteApi.getDocument(documentState.linearLiteDocumentId)
+        requireExistingTarget(existing, project.id, entry.outlineDocumentId, parentId)
+      }
+
+      const source = await outlineApi.getDocument(entry.outlineDocumentId)
+      requireExpectedOutlineTitle(source, entry)
+      // Markdown 必须在任何目标端写入前可完整转换，避免创建空壳文档。
+      convertMarkdownToBlockNote(source.markdown, entry.outlineDocumentId)
+      const attachments = new Map()
+      const references = new Set()
+      for (const match of source.markdown.matchAll(MARKDOWN_LINK_PATTERN)) {
+        const { href } = splitDestination(match[2])
+        if (isOutlineAttachmentHref(href, outlineBaseUrl)) {
+          const attachmentUrl = new URL(href, outlineBaseUrl)
+          const attachmentId = attachmentUrl.searchParams.get('id')
+          if (!attachmentId) throw new Error(`Outline 附件地址缺少 id: ${href}`)
+          const sourceId = `outline:${entry.outlineDocumentId}:attachment:${attachmentId}`
+          if (attachments.has(sourceId)) continue
+          attachments.set(sourceId, {
+            attachmentId,
+            attachmentUrl: attachmentUrl.toString(),
+            tempFile: path.join(tempDirectory, sha256(sourceId))
+          })
+          continue
+        }
+        await collectOutlineReference({
+          href,
+          entry,
+          selectedBySourceUrl,
+          selectedOutlineIds,
+          mentionReferenceCache,
+          outlineApi,
+          references
+        })
+      }
+      return { entry, source, attachments, references }
+    } catch (error) {
+      return { entry, error }
+    }
+  })
+
+  // 附件保持全批次串行，避免大文件并发占满 Outline、网络或本地磁盘。
+  for (const item of inspected) {
+    if (item.error) continue
+    for (const [sourceId, attachment] of item.attachments) {
+      try {
+        const downloaded = await outlineApi.downloadAttachment({
+          attachmentUrl: attachment.attachmentUrl,
+          tempFile: attachment.tempFile,
+          maxBytes: maxAttachmentBytes
+        })
+        item.attachments.set(sourceId, downloaded)
+      } catch (error) {
+        item.error = new Error(
+          `附件 ${attachment.attachmentId} 未通过门禁: ${error.message}`)
+        break
+      }
+    }
+  }
+
+  const documents = new Map()
+  const blocked = new Map()
+  for (const item of inspected) {
+    if (item.error) {
+      blocked.set(item.entry.outlineDocumentId, blockedEntry(
+        item.entry, classifyGateError(item.error), item.error.message))
+    } else {
+      documents.set(item.entry.outlineDocumentId, item)
+    }
+  }
+
+  // 父级或精确文档引用被阻断时，依赖节点也不能落库；循环传播直到状态稳定。
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const entry of targetDocuments) {
+      if (blocked.has(entry.outlineDocumentId)) continue
+      if (entry.parentOutlineDocumentId != null
+          && targetOutlineIds.has(entry.parentOutlineDocumentId)
+          && blocked.has(entry.parentOutlineDocumentId)) {
+        blocked.set(entry.outlineDocumentId, blockedEntry(
+          entry, 'PARENT_BLOCKED', `父节点 ${entry.parentOutlineDocumentId} 已被硬门禁阻断`))
+        changed = true
+        continue
+      }
+      const blockedReference = [...documents.get(entry.outlineDocumentId).references]
+        .find(outlineDocumentId => targetOutlineIds.has(outlineDocumentId) && blocked.has(outlineDocumentId))
+      if (blockedReference) {
+        blocked.set(entry.outlineDocumentId, blockedEntry(
+          entry, 'REFERENCE_BLOCKED', `引用节点 ${blockedReference} 已被硬门禁阻断`))
+        changed = true
+      }
+    }
+  }
+  return { documents, blocked }
+}
+
+async function collectOutlineReference({
+  href,
+  entry,
+  selectedBySourceUrl,
+  selectedOutlineIds,
+  mentionReferenceCache,
+  outlineApi,
+  references
+}) {
+  if (href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return
+  const documentMention = OUTLINE_DOCUMENT_MENTION_PATTERN.exec(href)
+  if (documentMention) {
+    const documentInternalId = documentMention[1]
+    let referencePromise = mentionReferenceCache.get(documentInternalId)
+    if (!referencePromise) {
+      referencePromise = outlineApi.resolveDocumentMention(documentInternalId)
+      mentionReferenceCache.set(documentInternalId, referencePromise)
+    }
+    const reference = await referencePromise
+    if (selectedOutlineIds.has(reference.outlineDocumentId)) {
+      references.add(reference.outlineDocumentId)
+    }
+    return
+  }
+  if (/^https?:\/\//i.test(href)) {
+    const selectedId = selectedBySourceUrl.get(normalizeUrl(href))
+    if (selectedId) references.add(selectedId)
+    return
+  }
+  if (href.startsWith('/doc/')) {
+    const selectedId = selectedBySourceUrl.get(normalizeUrl(new URL(href, entry.sourceUrl).toString()))
+    if (selectedId) references.add(selectedId)
+    return
+  }
+  throw new Error(`在线 Outline 文档包含无法解析的相对链接: ${href}`)
+}
+
+function blockedEntry(entry, code, reason) {
+  return { entry, code, reason }
+}
+
+function classifyGateError(error) {
+  const message = String(error?.message ?? '')
+  if (message.includes('标题与 manifest 不一致')) return 'TITLE_MISMATCH'
+  if (message.includes('附件')) return 'ATTACHMENT_BLOCKED'
+  if (message.includes('父级') || message.includes('映射')) return 'TARGET_MAPPING_INVALID'
+  if (message.includes('相对链接')) return 'LINK_INVALID'
+  return 'SOURCE_CONTENT_INVALID'
+}
+
+async function mapWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length)
+  let cursor = 0
+  async function run() {
+    while (cursor < items.length) {
+      const index = cursor
+      cursor += 1
+      results[index] = await worker(items[index])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run))
+  return results
+}
+
+function writeBlockedMigrationReport(reportPath, {
+  projectIdentifier,
+  subtreeRootOutlineDocumentId,
+  blocked
+}) {
+  const absolutePath = path.resolve(reportPath)
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true })
+  const rows = [...blocked.values()].map(({ entry, code, reason }) => [
+    entry.outlineDocumentId,
+    entry.title,
+    entry.parentOutlineDocumentId ?? '',
+    code,
+    reason,
+    entry.sourceUrl
+  ])
+  const lines = [
+    '# Outline → JLNX Wiki 阻断节点记录',
+    '',
+    `- 项目标识：${projectIdentifier}`,
+    `- 子树根节点：${subtreeRootOutlineDocumentId}`,
+    `- 生成时间：${new Date().toISOString()}`,
+    `- 待处理节点：${rows.length}`,
+    '',
+    '| Outline urlId | 标题 | 父 urlId | 阻断代码 | 阻断原因 | 源地址 |',
+    '| --- | --- | --- | --- | --- | --- |',
+    ...(rows.length === 0
+      ? ['| - | 无 | - | - | - | - |']
+      : rows.map(row => `| ${row.map(escapeMarkdownTableCell).join(' | ')} |`)),
+    '',
+    '> 本文件只记录创建前被硬门禁拦截的节点；处理完成后重新执行对应整棵子树批次。',
+    ''
+  ]
+  const temporaryPath = `${absolutePath}.tmp`
+  fs.writeFileSync(temporaryPath, lines.join('\n'), { mode: 0o600 })
+  fs.renameSync(temporaryPath, absolutePath)
+}
+
+function escapeMarkdownTableCell(value) {
+  return String(value).replaceAll('|', '\\|').replace(/[\r\n]+/g, ' ')
 }
 
 export async function migrateOutlineApiDocuments({
   manifest,
   statePath,
+  blockedReportPath,
   linearLiteApi,
   outlineApi,
-  targetOutlineDocumentId,
-  maxAttachmentBytes = DEFAULT_MAX_ATTACHMENT_BYTES
+  subtreeRootOutlineDocumentId,
+  maxAttachmentBytes = DEFAULT_MAX_ATTACHMENT_BYTES,
+  preflightConcurrency = DEFAULT_PREFLIGHT_CONCURRENCY
 }) {
   validateOutlineApiManifest(manifest)
   if (!statePath) throw new Error('在线迁移必须显式提供 --state')
+  if (!blockedReportPath) throw new Error('在线迁移必须显式提供 --blocked-report')
   if (!linearLiteApi || !outlineApi) throw new Error('在线迁移缺少 API 客户端')
+  if (!subtreeRootOutlineDocumentId) throw new Error('在线迁移必须显式提供 --subtree-root-id')
+  if (!Number.isInteger(preflightConcurrency) || preflightConcurrency < 1) {
+    throw new Error('preflightConcurrency 必须是正整数')
+  }
 
   const state = loadState(statePath, manifest.projectIdentifier)
-  const targetDocuments = targetOutlineDocumentId == null
-    ? manifest.documents
-    : manifest.documents.filter(document => document.outlineDocumentId === targetOutlineDocumentId)
-  if (targetDocuments.length === 0) {
-    throw new Error(`目标文档不在迁移清单中: ${targetOutlineDocumentId}`)
-  }
+  const targetDocuments = selectSubtreeDocuments(
+    manifest.documents, subtreeRootOutlineDocumentId)
   const targetOutlineIds = new Set(targetDocuments.map(document => document.outlineDocumentId))
   const referenceOutlineIds = manifest.documents
     .map(document => document.outlineDocumentId)
     .filter(outlineDocumentId => !targetOutlineIds.has(outlineDocumentId))
-  // 单节点模式下，清单其余节点只提供父子和链接映射，禁止隐式迁移或按标题猜测。
+  // 子树外节点只提供既有父子与链接映射，禁止隐式迁移或按标题猜测。
   for (const outlineDocumentId of referenceOutlineIds) {
     if (!state.documents[outlineDocumentId]) {
-      throw new Error(`单节点迁移的清单引用尚未映射: ${outlineDocumentId}`)
+      throw new Error(`子树迁移的清单引用尚未映射: ${outlineDocumentId}`)
     }
   }
   const projects = await linearLiteApi.listProjects()
@@ -659,7 +920,6 @@ export async function migrateOutlineApiDocuments({
     throw new Error(`必须唯一定位项目 identifier=${manifest.projectIdentifier}，实际匹配 ${matches.length} 个`)
   }
   const project = matches[0]
-  const orderedDocuments = orderDocuments(targetDocuments, referenceOutlineIds)
   const selectedBySourceUrl = new Map(manifest.documents.map(document => [
     normalizeUrl(document.sourceUrl), document.outlineDocumentId
   ]))
@@ -668,11 +928,43 @@ export async function migrateOutlineApiDocuments({
   let createdDocuments = 0
   let updatedDocuments = 0
   let uploadedAttachments = 0
+  let blockedDocuments = 0
+  let migratedDocuments = 0
   const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'outline-api-migration-'))
-  const tempFile = path.join(tempDirectory, 'attachment.tmp')
 
   try {
-    // 第一遍逐篇读取后立即丢弃 Markdown，只建立服务端 Outline ID 映射。
+    // 所有硬门禁都在写入前完成；附件只读预检并缓存到 0700 临时目录，避免创建后才发现超限。
+    fs.chmodSync(tempDirectory, 0o700)
+    const preflight = await preflightOutlineApiBatch({
+      targetDocuments,
+      state,
+      project,
+      linearLiteApi,
+      outlineApi,
+      selectedBySourceUrl,
+      selectedOutlineIds,
+      outlineBaseUrl: manifest.outlineBaseUrl,
+      mentionReferenceCache,
+      tempDirectory,
+      maxAttachmentBytes,
+      concurrency: preflightConcurrency
+    })
+    writeBlockedMigrationReport(blockedReportPath, {
+      projectIdentifier: manifest.projectIdentifier,
+      subtreeRootOutlineDocumentId,
+      blocked: preflight.blocked
+    })
+    blockedDocuments = preflight.blocked.size
+    migratedDocuments = targetDocuments.length - blockedDocuments
+
+    const eligibleDocuments = targetDocuments.filter(
+      entry => !preflight.blocked.has(entry.outlineDocumentId))
+    const orderedDocuments = orderDocuments(eligibleDocuments, [
+      ...referenceOutlineIds,
+      ...preflight.blocked.keys()
+    ])
+
+    // 单写入器严格按父子关系和 sortOrder 建立映射。
     for (const entry of orderedDocuments) {
       const parentId = entry.parentOutlineDocumentId == null
         ? null
@@ -685,8 +977,7 @@ export async function migrateOutlineApiDocuments({
         continue
       }
 
-      const source = await outlineApi.getDocument(entry.outlineDocumentId)
-      requireExpectedOutlineTitle(source, entry)
+      const source = preflight.documents.get(entry.outlineDocumentId).source
       const initialContent = convertMarkdownToBlockNote(source.markdown, entry.outlineDocumentId)
       const created = await linearLiteApi.createDocument(project.id, {
         parentDocumentId: parentId,
@@ -707,10 +998,10 @@ export async function migrateOutlineApiDocuments({
       createdDocuments += 1
     }
 
-    // 第二遍仍逐篇处理；附件严格串行下载到同一个临时文件并在上传后立即删除。
+    // 第二遍严格串行上传已通过门禁的附件，不再访问 Outline 附件端点。
     for (const entry of orderedDocuments) {
-      const source = await outlineApi.getDocument(entry.outlineDocumentId)
-      requireExpectedOutlineTitle(source, entry)
+      const inspected = preflight.documents.get(entry.outlineDocumentId)
+      const source = inspected.source
       const documentState = state.documents[entry.outlineDocumentId]
       const rewritten = await rewriteOutlineApiMarkdown({
         markdown: source.markdown,
@@ -725,7 +1016,7 @@ export async function migrateOutlineApiDocuments({
         mentionReferenceCache,
         outlineApi,
         linearLiteApi,
-        tempFile,
+        preflightAttachments: inspected.attachments,
         maxAttachmentBytes,
         onAttachmentUploaded: () => { uploadedAttachments += 1 }
       })
@@ -752,7 +1043,10 @@ export async function migrateOutlineApiDocuments({
 
   return {
     projectId: project.id,
-    documents: orderedDocuments.length,
+    documents: targetDocuments.length,
+    migratedDocuments,
+    blockedDocuments,
+    blockedReportPath: path.resolve(blockedReportPath),
     createdDocuments,
     updatedDocuments,
     uploadedAttachments
@@ -792,41 +1086,34 @@ async function rewriteOutlineApiHref(href, context) {
     const attachmentId = attachmentUrl.searchParams.get('id')
     if (!attachmentId) throw new Error(`Outline 附件地址缺少 id: ${href}`)
     const sourceId = `outline:${context.source.outlineDocumentId}:attachment:${attachmentId}`
-    const downloaded = await context.outlineApi.downloadAttachment({
-      attachmentUrl: attachmentUrl.toString(),
-      tempFile: context.tempFile,
-      maxBytes: context.maxAttachmentBytes
-    })
-    try {
-      const fileName = downloaded.fileName
-      const existing = context.documentState.attachments[sourceId]
-      if (existing) {
-        if (existing.sha256 !== downloaded.sha256 || existing.fileSize !== downloaded.fileSize) {
-          throw new Error(`同一来源附件内容已变化: ${sourceId}`)
-        }
-        return { href: existing.url, attachmentFileName: fileName }
+    const downloaded = context.preflightAttachments.get(sourceId)
+    if (!downloaded) throw new Error(`附件缺少批次预检结果: ${sourceId}`)
+    const fileName = downloaded.fileName
+    const existing = context.documentState.attachments[sourceId]
+    if (existing) {
+      if (existing.sha256 !== downloaded.sha256 || existing.fileSize !== downloaded.fileSize) {
+        throw new Error(`同一来源附件内容已变化: ${sourceId}`)
       }
-      const uploaded = await context.linearLiteApi.uploadAttachment(
-        context.documentState.linearLiteDocumentId,
-        sourceId,
-        downloaded.tempFile,
-        downloaded.contentType,
-        fileName)
-      if (uploaded.sha256 !== downloaded.sha256 || uploaded.fileSize !== downloaded.fileSize) {
-        throw new Error(`Linear Lite 附件校验失败: ${sourceId}`)
-      }
-      context.documentState.attachments[sourceId] = {
-        attachmentId: uploaded.id,
-        url: uploaded.url,
-        fileSize: uploaded.fileSize,
-        sha256: uploaded.sha256
-      }
-      saveState(context.statePath, context.state)
-      context.onAttachmentUploaded()
-      return { href: uploaded.url, attachmentFileName: fileName }
-    } finally {
-      fs.rmSync(context.tempFile, { force: true })
+      return { href: existing.url, attachmentFileName: fileName }
     }
+    const uploaded = await context.linearLiteApi.uploadAttachment(
+      context.documentState.linearLiteDocumentId,
+      sourceId,
+      downloaded.tempFile,
+      downloaded.contentType,
+      fileName)
+    if (uploaded.sha256 !== downloaded.sha256 || uploaded.fileSize !== downloaded.fileSize) {
+      throw new Error(`Linear Lite 附件校验失败: ${sourceId}`)
+    }
+    context.documentState.attachments[sourceId] = {
+      attachmentId: uploaded.id,
+      url: uploaded.url,
+      fileSize: uploaded.fileSize,
+      sha256: uploaded.sha256
+    }
+    saveState(context.statePath, context.state)
+    context.onAttachmentUploaded()
+    return { href: uploaded.url, attachmentFileName: fileName }
   }
   if (href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return { href }
   const documentMention = OUTLINE_DOCUMENT_MENTION_PATTERN.exec(href)
@@ -1163,7 +1450,7 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   if (!args.manifest) {
-    throw new Error('用法: --manifest <JSON> --state <JSON>（旧目录模式另需 --export-dir）')
+    throw new Error('用法: --manifest <JSON> --state <JSON> --subtree-root-id <ID> --blocked-report <MD>')
   }
   const manifest = JSON.parse(fs.readFileSync(path.resolve(args.manifest), 'utf8'))
   const api = args.dryRun && manifest.sourceMode !== 'outline-api' ? null : createHttpApi({
@@ -1176,7 +1463,8 @@ async function main() {
     process.env.DOCUMENT_ATTACHMENT_MAX_BYTES || DEFAULT_MAX_ATTACHMENT_BYTES)
   let result
   if (manifest.sourceMode === 'outline-api') {
-    if (args.dryRun) throw new Error('在线模式不支持无校验 dry-run；请对固定3篇执行幂等试迁移')
+    if (args.dryRun) throw new Error('在线模式由整批只读预检提供硬门禁，不支持跳过写入的 dry-run')
+    if (args['document-id']) throw new Error('在线模式已改为整棵子树批次；请使用 --subtree-root-id')
     const configuredBaseUrl = process.env.OUTLINE_BASE_URL
     if (configuredBaseUrl !== manifest.outlineBaseUrl) {
       throw new Error('OUTLINE_BASE_URL 必须与 manifest.outlineBaseUrl 完全一致')
@@ -1188,13 +1476,16 @@ async function main() {
     result = await migrateOutlineApiDocuments({
       manifest,
       statePath: args.state,
+      blockedReportPath: args['blocked-report'],
       linearLiteApi: api,
       outlineApi,
-      targetOutlineDocumentId: args['document-id'],
+      subtreeRootOutlineDocumentId: args['subtree-root-id'],
       maxAttachmentBytes
     })
   } else {
-    if (args['document-id']) throw new Error('--document-id 仅支持 Outline API 在线模式')
+    if (args['document-id'] || args['subtree-root-id'] || args['blocked-report']) {
+      throw new Error('子树批次参数仅支持 Outline API 在线模式')
+    }
     if (!args['export-dir']) throw new Error('旧目录模式必须提供 --export-dir')
     result = await migrateOutlineDocuments({
       exportDir: args['export-dir'],

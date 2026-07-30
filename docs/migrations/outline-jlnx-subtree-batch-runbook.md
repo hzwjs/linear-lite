@@ -1,0 +1,45 @@
+# Outline → JLNX Wiki 子树批次迁移
+
+## 批次输入
+
+- 用户明确指定的一棵 Outline 子树。
+- 一个在线模式 manifest，包含已有 state 映射节点和本批子树全部节点。
+- 子树根节点的 Outline `urlId`。
+- 独立的批次阻断报告路径，文件名使用子树 `urlId`，避免覆盖其他批次记录。
+
+## 执行流程
+
+1. 从 Outline 可见文档树清点整棵目标子树，固定记录 `outlineDocumentId`、标题、父级、`sortOrder` 和 `sourceUrl`。
+2. 创建权限为 `0700` 的批次目录，并准备最小权限 Outline Key 与权限为 `0600` 的 Linear Lite 认证文件。
+3. 一次生成完整 manifest；子树之外的 manifest 节点必须已经存在于迁移 state。
+4. 迁移器最多并行读取 3 篇文档，对整棵子树完成创建前预检：
+   - 标题与 manifest 完全一致；
+   - 父级和既有目标映射一致；
+   - Markdown 可转换；
+   - 文档链接只走精确 Outline ID；
+   - 附件文件名、大小、SHA-256 和响应头有效，单文件不超过 50 MiB。
+   附件下载在整个批次内保持串行。
+5. 被硬门禁阻断的节点不创建；依赖其父级或精确链接的节点同步阻断。所有阻断项原子写入本批 Markdown 报告，正常节点继续执行。
+6. 单写入器按父子关系与 `sortOrder` 连续创建文档，再串行上传预检通过的附件并更新正文。
+7. 使用相同命令整批复跑，确认没有新增文档、正文更新或附件上传。
+8. 整批只做一次 API 与 Chrome 验收，检查数量、顺序、层级以及代表性正文和附件下载。
+9. 吊销临时 Outline Key，删除批次凭据、manifest、附件缓存与结果文件；保留权限为 `0600` 的 state 和批次阻断报告。
+
+## 命令
+
+```bash
+OUTLINE_BASE_URL=http://outline.example \
+OUTLINE_API_TOKEN=<temporary-read-token> \
+JWT=<linear-lite-token> \
+node scripts/migrate-outline-documents.mjs \
+  --manifest /path/to/batch-manifest.json \
+  --subtree-root-id <outline-url-id> \
+  --state /tmp/outline-jlnx-api-pilot-state.json \
+  --blocked-report docs/migrations/outline-jlnx-blocked-<outline-url-id>.md
+```
+
+`--document-id` 已停用。在线迁移只能以 `--subtree-root-id` 选择整棵子树。
+
+## 阻断报告
+
+阻断报告只记录创建前未通过硬门禁的节点，包含 Outline `urlId`、标题、父级、阻断代码、原因和源地址。处理阻断原因后，重新执行该节点所在的整棵子树批次，不做标题匹配、字段回退或单节点临时兼容。

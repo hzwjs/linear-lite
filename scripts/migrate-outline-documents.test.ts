@@ -70,7 +70,13 @@ function fixture() {
       }
     ]
   }
-  return { root, exportDir, manifest, statePath: path.join(root, 'state.json') }
+  return {
+    root,
+    exportDir,
+    manifest,
+    statePath: path.join(root, 'state.json'),
+    blockedReportPath: path.join(root, 'blocked.md')
+  }
 }
 
 class FakeApi {
@@ -505,7 +511,7 @@ describe('Outline document migration', () => {
     expect(fs.existsSync(tempFile)).toBe(false)
   })
 
-  it('migrates API documents sequentially and deletes the single attachment temp file', async () => {
+  it('preflights a complete API subtree, then migrates it sequentially', async () => {
     const sample = fixture()
     const api = new FakeApi()
     const documents = new Map([
@@ -577,9 +583,9 @@ describe('Outline document migration', () => {
       documents: [
         { outlineDocumentId: 'jIbDVtIQLv', title: '安全扫描', parentOutlineDocumentId: null, sortOrder: 0,
           sourceUrl: 'http://outline.example/doc/scan-jIbDVtIQLv' },
-        { outlineDocumentId: 'EUEFsRqmJ4', title: '项目开发概述', parentOutlineDocumentId: null, sortOrder: 1,
+        { outlineDocumentId: 'EUEFsRqmJ4', title: '项目开发概述', parentOutlineDocumentId: 'jIbDVtIQLv', sortOrder: 0,
           sourceUrl: 'http://outline.example/doc/project-EUEFsRqmJ4' },
-        { outlineDocumentId: 'RZAdPKfrmZ', title: '20260122结果', parentOutlineDocumentId: 'jIbDVtIQLv', sortOrder: 0,
+        { outlineDocumentId: 'RZAdPKfrmZ', title: '20260122结果', parentOutlineDocumentId: 'jIbDVtIQLv', sortOrder: 1,
           sourceUrl: 'http://outline.example/doc/result-RZAdPKfrmZ' }
       ]
     }
@@ -587,8 +593,10 @@ describe('Outline document migration', () => {
     const result = await migrateOutlineApiDocuments({
       manifest,
       statePath: sample.statePath,
+      blockedReportPath: sample.blockedReportPath,
       linearLiteApi: api,
-      outlineApi
+      outlineApi,
+      subtreeRootOutlineDocumentId: 'jIbDVtIQLv'
     })
 
     expect(result.createdDocuments).toBe(3)
@@ -596,7 +604,7 @@ describe('Outline document migration', () => {
     expect(api.attachmentsBySourceId.get('outline:RZAdPKfrmZ:attachment:report-1')?.fileName)
       .toBe('report.pdf')
     expect(maxActiveDownloads).toBe(1)
-    expect(new Set(tempFiles).size).toBe(1)
+    expect(new Set(tempFiles).size).toBe(2)
     expect(tempFiles.every(file => !fs.existsSync(file))).toBe(true)
     const childContent = api.documentsByExternalId.get('RZAdPKfrmZ')?.content
     expect(childContent).toContain('/projects/7/documents/')
@@ -607,6 +615,25 @@ describe('Outline document migration', () => {
       '11111111-2222-4333-8444-555555555555'
     ])
 
+    documentReadCalls.length = 0
+    const batchIdempotent = await migrateOutlineApiDocuments({
+      manifest,
+      statePath: sample.statePath,
+      blockedReportPath: sample.blockedReportPath,
+      linearLiteApi: api,
+      outlineApi,
+      subtreeRootOutlineDocumentId: 'jIbDVtIQLv'
+    })
+    expect(batchIdempotent).toMatchObject({
+      documents: 3,
+      migratedDocuments: 3,
+      blockedDocuments: 0,
+      createdDocuments: 0,
+      updatedDocuments: 0,
+      uploadedAttachments: 0
+    })
+    expect(documentReadCalls).toEqual(['jIbDVtIQLv', 'EUEFsRqmJ4', 'RZAdPKfrmZ'])
+
     documents.set('RZAdPKfrmZ', {
       ...documents.get('RZAdPKfrmZ')!,
       markdown: `${documents.get('RZAdPKfrmZ')!.markdown}\n\n增量更新`
@@ -615,9 +642,10 @@ describe('Outline document migration', () => {
     const targeted = await migrateOutlineApiDocuments({
       manifest,
       statePath: sample.statePath,
+      blockedReportPath: sample.blockedReportPath,
       linearLiteApi: api,
       outlineApi,
-      targetOutlineDocumentId: 'RZAdPKfrmZ'
+      subtreeRootOutlineDocumentId: 'RZAdPKfrmZ'
     })
 
     expect(targeted).toMatchObject({
@@ -634,9 +662,10 @@ describe('Outline document migration', () => {
     const idempotent = await migrateOutlineApiDocuments({
       manifest,
       statePath: sample.statePath,
+      blockedReportPath: sample.blockedReportPath,
       linearLiteApi: api,
       outlineApi,
-      targetOutlineDocumentId: 'RZAdPKfrmZ'
+      subtreeRootOutlineDocumentId: 'RZAdPKfrmZ'
     })
     expect(idempotent).toMatchObject({
       documents: 1,
@@ -647,7 +676,7 @@ describe('Outline document migration', () => {
     expect(documentReadCalls).toEqual(['RZAdPKfrmZ'])
   })
 
-  it('rejects a targeted API migration when the target is absent from the manifest', async () => {
+  it('rejects an API subtree whose root is absent from the manifest', async () => {
     const sample = fixture()
     const manifest = {
       ...sample.manifest,
@@ -658,10 +687,11 @@ describe('Outline document migration', () => {
     await expect(migrateOutlineApiDocuments({
       manifest,
       statePath: sample.statePath,
+      blockedReportPath: sample.blockedReportPath,
       linearLiteApi: new FakeApi(),
       outlineApi: {},
-      targetOutlineDocumentId: 'Missing01'
-    })).rejects.toThrow('目标文档不在迁移清单中: Missing01')
+      subtreeRootOutlineDocumentId: 'Missing01'
+    })).rejects.toThrow('子树根节点不在迁移清单中: Missing01')
   })
 
   it('requires every non-target manifest document to have an existing state mapping', async () => {
@@ -675,10 +705,11 @@ describe('Outline document migration', () => {
     await expect(migrateOutlineApiDocuments({
       manifest,
       statePath: sample.statePath,
+      blockedReportPath: sample.blockedReportPath,
       linearLiteApi: new FakeApi(),
       outlineApi: {},
-      targetOutlineDocumentId: 'RZAdPKfrmZ'
-    })).rejects.toThrow('单节点迁移的清单引用尚未映射: jIbDVtIQLv')
+      subtreeRootOutlineDocumentId: 'RZAdPKfrmZ'
+    })).rejects.toThrow('子树迁移的清单引用尚未映射: jIbDVtIQLv')
   })
 
   it('does not treat a non-document mention as a document-link fallback', async () => {
@@ -709,13 +740,85 @@ describe('Outline document migration', () => {
       resolveDocumentMention
     }
 
-    await expect(migrateOutlineApiDocuments({
+    const result = await migrateOutlineApiDocuments({
       manifest,
       statePath: sample.statePath,
+      blockedReportPath: sample.blockedReportPath,
       linearLiteApi: api,
-      outlineApi
-    })).rejects.toThrow('在线 Outline 文档包含无法解析的相对链接')
+      outlineApi,
+      subtreeRootOutlineDocumentId: 'jIbDVtIQLv'
+    })
+    expect(result).toMatchObject({
+      documents: 1,
+      migratedDocuments: 0,
+      blockedDocuments: 1,
+      createdDocuments: 0
+    })
+    expect(fs.readFileSync(sample.blockedReportPath, 'utf8')).toContain('LINK_INVALID')
     expect(resolveDocumentMention).not.toHaveBeenCalled()
+  })
+
+  it('records a hard-gated node and continues migrating eligible siblings', async () => {
+    const sample = fixture()
+    const api = new FakeApi()
+    const manifest = {
+      version: 1,
+      sourceMode: 'outline-api',
+      outlineBaseUrl: 'http://outline.example',
+      projectIdentifier: 'JLNX',
+      documents: [
+        { outlineDocumentId: 'Root000001', title: '批次根', parentOutlineDocumentId: null, sortOrder: 0,
+          sourceUrl: 'http://outline.example/doc/root-Root000001' },
+        { outlineDocumentId: 'Blocked001', title: '超限附件', parentOutlineDocumentId: 'Root000001', sortOrder: 0,
+          sourceUrl: 'http://outline.example/doc/blocked-Blocked001' },
+        { outlineDocumentId: 'Dependent1', title: '依赖阻断父级', parentOutlineDocumentId: 'Blocked001', sortOrder: 0,
+          sourceUrl: 'http://outline.example/doc/dependent-Dependent1' },
+        { outlineDocumentId: 'Eligible01', title: '正常节点', parentOutlineDocumentId: 'Root000001', sortOrder: 1,
+          sourceUrl: 'http://outline.example/doc/eligible-Eligible01' }
+      ]
+    }
+    const outlineApi = {
+      async getDocument(outlineDocumentId: string) {
+        const entry = manifest.documents.find(item => item.outlineDocumentId === outlineDocumentId)!
+        return {
+          outlineDocumentId,
+          title: entry.title,
+          markdown: outlineDocumentId === 'Blocked001'
+            ? '[large.bin](/api/attachments.redirect?id=large)'
+            : `# ${entry.title}`
+        }
+      },
+      async downloadAttachment() {
+        throw new Error('Outline 附件超过 52428800 字节')
+      },
+      async resolveDocumentMention() {
+        throw new Error('unexpected mention')
+      }
+    }
+
+    const result = await migrateOutlineApiDocuments({
+      manifest,
+      statePath: sample.statePath,
+      blockedReportPath: sample.blockedReportPath,
+      linearLiteApi: api,
+      outlineApi,
+      subtreeRootOutlineDocumentId: 'Root000001'
+    })
+
+    expect(result).toMatchObject({
+      documents: 4,
+      migratedDocuments: 2,
+      blockedDocuments: 2,
+      createdDocuments: 2
+    })
+    expect(api.documentsByExternalId.has('Blocked001')).toBe(false)
+    expect(api.documentsByExternalId.has('Eligible01')).toBe(true)
+    const report = fs.readFileSync(sample.blockedReportPath, 'utf8')
+    expect(report).toContain('Blocked001')
+    expect(report).toContain('ATTACHMENT_BLOCKED')
+    expect(report).toContain('Outline 附件超过 52428800 字节')
+    expect(report).toContain('Dependent1')
+    expect(report).toContain('PARENT_BLOCKED')
   })
 
   it('keeps hierarchy, uses numeric project routes, and remains idempotent without local state', async () => {
