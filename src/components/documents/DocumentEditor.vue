@@ -64,7 +64,7 @@ function revokeAttachmentImageUrls() {
   attachmentImageObjectUrls.clear()
 }
 
-async function hydrateAttachmentImages() {
+async function hydrateDocumentAttachments() {
   const generation = attachmentImageGeneration
   await nextTick()
   const body = documentBodyRef.value
@@ -111,9 +111,9 @@ onMounted(async () => {
   const body = documentBodyRef.value
   if (body == null) return
   // BlockNote 会在父组件 mounted 后继续异步构建图片节点，监听新增节点后再执行精确路径水合。
-  attachmentImageObserver = new MutationObserver(() => { void hydrateAttachmentImages() })
+  attachmentImageObserver = new MutationObserver(() => { void hydrateDocumentAttachments() })
   attachmentImageObserver.observe(body, { childList: true, subtree: true })
-  void hydrateAttachmentImages()
+  void hydrateDocumentAttachments()
 })
 watch(
   () => [props.document.id, props.document.content] as const,
@@ -122,7 +122,7 @@ watch(
       attachmentImageGeneration += 1
       revokeAttachmentImageUrls()
     }
-    void hydrateAttachmentImages()
+    void hydrateDocumentAttachments()
   },
   { flush: 'post' }
 )
