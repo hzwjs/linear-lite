@@ -26,10 +26,18 @@ import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import { JSDOM } from 'jsdom'
 import { BlockNoteEditor } from '@blocknote/core'
+import {
+  createAttachmentSpool,
+  isFatalMigrationError,
+  isTransientMigrationError,
+  verifyTargetTree,
+  withTransientRetry
+} from './outline-sync-session.mjs'
 
 const DEFAULT_API_BASE_URL = 'http://localhost:5173/api'
 const DEFAULT_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 const DEFAULT_PREFLIGHT_CONCURRENCY = 3
+const DEFAULT_TRANSIENT_RETRY_ATTEMPTS = 3
 const MARKDOWN_LINK_PATTERN = /(!?\[[^\]]*]\()(<[^>\n]+>|[^)\n]+)(\))/g
 const OUTLINE_DOCUMENT_MENTION_PATTERN = /^mention:\/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/document\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
 
@@ -247,6 +255,9 @@ export function createHttpApi({
     async listProjects() {
       return (await request('/projects')).data
     },
+    async listDocumentTree(projectId) {
+      return (await request(`/projects/${projectId}/documents/tree`)).data
+    },
     async getDocument(documentId) {
       return (await request(`/project-documents/${documentId}`)).data
     },
@@ -375,7 +386,7 @@ async function readOutlineApiBody(response) {
     throw new Error(`Outline API 返回非 JSON 响应: HTTP ${response.status}`)
   }
   if (!response.ok || body.ok === false || body.data == null) {
-    throw new Error(body.error || body.message || `Outline API 请求失败: HTTP ${response.status}`)
+    throw new Error(`Outline API 请求失败: HTTP ${response.status}`)
   }
   return body
 }
@@ -449,7 +460,7 @@ async function readApiBody(response) {
     throw new Error(`API 返回非 JSON 响应: HTTP ${response.status}`)
   }
   if (!response.ok || body.code !== 200) {
-    throw new Error(body.message || `API 请求失败: HTTP ${response.status}`)
+    throw new Error(`API 请求失败: HTTP ${response.status}`)
   }
   return body
 }
@@ -668,10 +679,26 @@ async function preflightOutlineApiBatch({
   selectedOutlineIds,
   outlineBaseUrl,
   mentionReferenceCache,
-  tempDirectory,
+  attachmentSpool,
   maxAttachmentBytes,
-  concurrency
+  concurrency,
+  transientRetryAttempts,
+  transientRetryDelayMs,
+  onProgress
 }) {
+  const metrics = {
+    attachmentBytesDownloaded: 0,
+    attachmentCacheHits: 0,
+    transientRetries: 0
+  }
+  const retry = (operation, details) => withTransientRetry(operation, {
+    attempts: transientRetryAttempts,
+    delayMs: transientRetryDelayMs,
+    onRetry: retryDetails => {
+      metrics.transientRetries += 1
+      onProgress('transient_retry', { ...details, ...retryDetails })
+    }
+  })
   const targetOutlineIds = new Set(targetDocuments.map(entry => entry.outlineDocumentId))
   const inspected = await mapWithConcurrency(targetDocuments, concurrency, async entry => {
     try {
@@ -680,11 +707,15 @@ async function preflightOutlineApiBatch({
         const parentId = entry.parentOutlineDocumentId == null
           ? null
           : requireMappedDocumentId(state, entry.parentOutlineDocumentId)
-        const existing = await linearLiteApi.getDocument(documentState.linearLiteDocumentId)
+        const existing = await retry(
+          () => linearLiteApi.getDocument(documentState.linearLiteDocumentId),
+          { operation: 'target_document_read', outlineDocumentId: entry.outlineDocumentId })
         requireExistingTarget(existing, project.id, entry.outlineDocumentId, parentId)
       }
 
-      const source = await outlineApi.getDocument(entry.outlineDocumentId)
+      const source = await retry(
+        () => outlineApi.getDocument(entry.outlineDocumentId),
+        { operation: 'source_document_read', outlineDocumentId: entry.outlineDocumentId })
       requireExpectedOutlineTitle(source, entry)
       // Markdown 必须在任何目标端写入前可完整转换，避免创建空壳文档。
       convertMarkdownToBlockNote(source.markdown, entry.outlineDocumentId)
@@ -701,7 +732,7 @@ async function preflightOutlineApiBatch({
           attachments.set(sourceId, {
             attachmentId,
             attachmentUrl: attachmentUrl.toString(),
-            tempFile: path.join(tempDirectory, sha256(sourceId))
+            tempFile: attachmentSpool.filePath(sourceId)
           })
           continue
         }
@@ -712,11 +743,14 @@ async function preflightOutlineApiBatch({
           selectedOutlineIds,
           mentionReferenceCache,
           outlineApi,
-          references
+          references,
+          retry
         })
       }
-      return { entry, source, attachments, references }
+      return { entry, source, attachments, references, sourceSha256: sha256(source.markdown) }
     } catch (error) {
+      // 临时网络故障不是内容门禁；重试耗尽后终止批次，保留现场供原批次恢复。
+      if (isTransientMigrationError(error) || isFatalMigrationError(error)) throw error
       return { entry, error }
     }
   })
@@ -726,13 +760,43 @@ async function preflightOutlineApiBatch({
     if (item.error) continue
     for (const [sourceId, attachment] of item.attachments) {
       try {
-        const downloaded = await outlineApi.downloadAttachment({
-          attachmentUrl: attachment.attachmentUrl,
-          tempFile: attachment.tempFile,
-          maxBytes: maxAttachmentBytes
+        const cached = attachmentSpool.load(
+          attachment.tempFile, sourceId, item.sourceSha256)
+        if (cached) {
+          metrics.attachmentCacheHits += 1
+          onProgress('attachment_cache_hit', {
+            outlineDocumentId: item.entry.outlineDocumentId,
+            sourceId,
+            bytes: cached.fileSize
+          })
+          item.attachments.set(sourceId, cached)
+          continue
+        }
+        onProgress('attachment_download_started', {
+          outlineDocumentId: item.entry.outlineDocumentId,
+          sourceId
+        })
+        const downloaded = await retry(
+          () => outlineApi.downloadAttachment({
+            attachmentUrl: attachment.attachmentUrl,
+            tempFile: attachment.tempFile,
+            maxBytes: maxAttachmentBytes
+          }),
+          {
+            operation: 'attachment_download',
+            outlineDocumentId: item.entry.outlineDocumentId,
+            sourceId
+          })
+        attachmentSpool.save(downloaded, sourceId, item.sourceSha256)
+        metrics.attachmentBytesDownloaded += downloaded.fileSize
+        onProgress('attachment_download_completed', {
+          outlineDocumentId: item.entry.outlineDocumentId,
+          sourceId,
+          bytes: downloaded.fileSize
         })
         item.attachments.set(sourceId, downloaded)
       } catch (error) {
+        if (isTransientMigrationError(error) || isFatalMigrationError(error)) throw error
         item.error = new Error(
           `附件 ${attachment.attachmentId} 未通过门禁: ${error.message}`)
         break
@@ -774,7 +838,7 @@ async function preflightOutlineApiBatch({
       }
     }
   }
-  return { documents, blocked }
+  return { documents, blocked, metrics }
 }
 
 async function collectOutlineReference({
@@ -784,7 +848,8 @@ async function collectOutlineReference({
   selectedOutlineIds,
   mentionReferenceCache,
   outlineApi,
-  references
+  references,
+  retry
 }) {
   if (href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return
   const documentMention = OUTLINE_DOCUMENT_MENTION_PATTERN.exec(href)
@@ -792,7 +857,13 @@ async function collectOutlineReference({
     const documentInternalId = documentMention[1]
     let referencePromise = mentionReferenceCache.get(documentInternalId)
     if (!referencePromise) {
-      referencePromise = outlineApi.resolveDocumentMention(documentInternalId)
+      referencePromise = retry(
+        () => outlineApi.resolveDocumentMention(documentInternalId),
+        {
+          operation: 'source_mention_read',
+          outlineDocumentId: entry.outlineDocumentId,
+          documentInternalId
+        })
       mentionReferenceCache.set(documentInternalId, referencePromise)
     }
     const reference = await referencePromise
@@ -891,6 +962,9 @@ export async function migrateOutlineApiDocuments({
   subtreeRootOutlineDocumentId,
   maxAttachmentBytes = DEFAULT_MAX_ATTACHMENT_BYTES,
   preflightConcurrency = DEFAULT_PREFLIGHT_CONCURRENCY,
+  attachmentCacheDirectory,
+  transientRetryAttempts = DEFAULT_TRANSIENT_RETRY_ATTEMPTS,
+  transientRetryDelayMs = 250,
   onProgress = () => {}
 }) {
   validateOutlineApiManifest(manifest)
@@ -900,6 +974,9 @@ export async function migrateOutlineApiDocuments({
   if (!subtreeRootOutlineDocumentId) throw new Error('在线迁移必须显式提供 --subtree-root-id')
   if (!Number.isInteger(preflightConcurrency) || preflightConcurrency < 1) {
     throw new Error('preflightConcurrency 必须是正整数')
+  }
+  if (!Number.isInteger(transientRetryAttempts) || transientRetryAttempts < 1) {
+    throw new Error('transientRetryAttempts 必须是正整数')
   }
 
   const state = loadState(statePath, manifest.projectIdentifier)
@@ -931,11 +1008,21 @@ export async function migrateOutlineApiDocuments({
   let uploadedAttachments = 0
   let blockedDocuments = 0
   let migratedDocuments = 0
-  const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'outline-api-migration-'))
+  let preflightMetrics = {
+    attachmentBytesDownloaded: 0,
+    attachmentCacheHits: 0,
+    transientRetries: 0
+  }
+  const ownsTempDirectory = attachmentCacheDirectory == null
+  const tempDirectory = ownsTempDirectory
+    ? fs.mkdtempSync(path.join(os.tmpdir(), 'outline-api-migration-'))
+    : path.resolve(attachmentCacheDirectory)
 
   try {
     // 所有硬门禁都在写入前完成；附件只读预检并缓存到 0700 临时目录，避免创建后才发现超限。
+    fs.mkdirSync(tempDirectory, { recursive: true, mode: 0o700 })
     fs.chmodSync(tempDirectory, 0o700)
+    const attachmentSpool = createAttachmentSpool(tempDirectory)
     onProgress('preflight_started', { documents: targetDocuments.length })
     const preflight = await preflightOutlineApiBatch({
       targetDocuments,
@@ -947,10 +1034,14 @@ export async function migrateOutlineApiDocuments({
       selectedOutlineIds,
       outlineBaseUrl: manifest.outlineBaseUrl,
       mentionReferenceCache,
-      tempDirectory,
+      attachmentSpool,
       maxAttachmentBytes,
-      concurrency: preflightConcurrency
+      concurrency: preflightConcurrency,
+      transientRetryAttempts,
+      transientRetryDelayMs,
+      onProgress
     })
+    preflightMetrics = preflight.metrics
     writeBlockedMigrationReport(blockedReportPath, {
       projectIdentifier: manifest.projectIdentifier,
       subtreeRootOutlineDocumentId,
@@ -958,7 +1049,11 @@ export async function migrateOutlineApiDocuments({
     })
     blockedDocuments = preflight.blocked.size
     migratedDocuments = targetDocuments.length - blockedDocuments
-    onProgress('preflight_completed', { migratedDocuments, blockedDocuments })
+    onProgress('preflight_completed', {
+      migratedDocuments,
+      blockedDocuments,
+      ...preflight.metrics
+    })
 
     const eligibleDocuments = targetDocuments.filter(
       entry => !preflight.blocked.has(entry.outlineDocumentId))
@@ -1029,7 +1124,11 @@ export async function migrateOutlineApiDocuments({
         linearLiteApi,
         preflightAttachments: inspected.attachments,
         maxAttachmentBytes,
-        onAttachmentUploaded: () => { uploadedAttachments += 1 }
+        onProgress,
+        onAttachmentUploaded: details => {
+          uploadedAttachments += 1
+          onProgress('attachment_upload_completed', details)
+        }
       })
       if (rewritten.includes('/api/attachments.redirect')) {
         throw new Error(`文档仍包含 Outline 附件地址: ${entry.outlineDocumentId}`)
@@ -1058,8 +1157,32 @@ export async function migrateOutlineApiDocuments({
         linearLiteDocumentId: updated.id
       })
     }
+
+    // 目标树是层级和顺序的最终事实来源；批次成功前必须与已映射 catalog 精确一致。
+    const targetTree = await withTransientRetry(
+      () => linearLiteApi.listDocumentTree(project.id),
+      {
+        attempts: transientRetryAttempts,
+        delayMs: transientRetryDelayMs,
+        onRetry: retryDetails => {
+          preflightMetrics.transientRetries += 1
+          onProgress('transient_retry', {
+            operation: 'target_tree_read',
+            ...retryDetails
+          })
+        }
+      })
+    verifyTargetTree({
+      projectId: project.id,
+      manifestDocuments: manifest.documents,
+      targetDocuments: eligibleDocuments,
+      state,
+      targetTree,
+      requireMappedDocumentId
+    })
+    onProgress('target_tree_verified', { documents: eligibleDocuments.length })
   } finally {
-    fs.rmSync(tempDirectory, { recursive: true, force: true })
+    if (ownsTempDirectory) fs.rmSync(tempDirectory, { recursive: true, force: true })
   }
 
   return {
@@ -1070,7 +1193,9 @@ export async function migrateOutlineApiDocuments({
     blockedReportPath: path.resolve(blockedReportPath),
     createdDocuments,
     updatedDocuments,
-    uploadedAttachments
+    uploadedAttachments,
+    verifiedDocuments: migratedDocuments,
+    ...preflightMetrics
   }
 }
 
@@ -1117,6 +1242,11 @@ async function rewriteOutlineApiHref(href, context) {
       }
       return { href: existing.url, attachmentFileName: fileName }
     }
+    context.onProgress('attachment_upload_started', {
+      outlineDocumentId: context.source.outlineDocumentId,
+      sourceId,
+      bytes: downloaded.fileSize
+    })
     const uploaded = await context.linearLiteApi.uploadAttachment(
       context.documentState.linearLiteDocumentId,
       sourceId,
@@ -1133,7 +1263,11 @@ async function rewriteOutlineApiHref(href, context) {
       sha256: uploaded.sha256
     }
     saveState(context.statePath, context.state)
-    context.onAttachmentUploaded()
+    context.onAttachmentUploaded({
+      outlineDocumentId: context.source.outlineDocumentId,
+      sourceId,
+      bytes: uploaded.fileSize
+    })
     return { href: uploaded.url, attachmentFileName: fileName }
   }
   if (href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return { href }

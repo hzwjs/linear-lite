@@ -93,6 +93,16 @@ class FakeApi {
     return this.projects
   }
 
+  async listDocumentTree(projectId: number) {
+    return [...this.documents.values()]
+      .filter(document => document.projectId === projectId)
+      .sort((left, right) => {
+        const leftParent = left.parentDocumentId ?? -1
+        const rightParent = right.parentDocumentId ?? -1
+        return leftParent - rightParent || left.sortOrder - right.sortOrder
+      })
+  }
+
   async getDocument(documentId: number) {
     const document = this.documents.get(documentId)
     if (!document) throw new Error(`missing document ${documentId}`)
@@ -102,6 +112,8 @@ class FakeApi {
   async createDocument(projectId: number, body: Record<string, any>) {
     const existing = this.documentsByExternalId.get(body.externalSourceId)
     if (existing) return existing
+    const sortOrder = [...this.documents.values()].filter(
+      item => item.projectId === projectId && item.parentDocumentId === body.parentDocumentId).length
     const document = {
       id: this.nextDocumentId++,
       projectId,
@@ -110,6 +122,7 @@ class FakeApi {
       externalSourceId: body.externalSourceId,
       title: body.title,
       content: body.content,
+      sortOrder,
       version: 1
     }
     this.documents.set(document.id, document)
@@ -254,6 +267,10 @@ describe('Outline document migration', () => {
         code: 200,
         data: [{ id: 7, identifier: 'JLNX' }]
       }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: 200,
+        data: []
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
     const api = createHttpApi({
       apiBaseUrl: 'http://localhost:5173/api',
       identity: 'hzw',
@@ -261,11 +278,14 @@ describe('Outline document migration', () => {
     })
 
     await api.listProjects()
+    await api.listDocumentTree(7)
 
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
       identity: 'hzw',
       password: 'secret'
     })
+    expect(String(fetchMock.mock.calls[2]?.[0]))
+      .toBe('http://localhost:5173/api/projects/7/documents/tree')
   })
 
   it('reads one Outline document through documents.info with a bearer token', async () => {
@@ -819,6 +839,170 @@ describe('Outline document migration', () => {
     expect(report).toContain('Outline 附件超过 52428800 字节')
     expect(report).toContain('Dependent1')
     expect(report).toContain('PARENT_BLOCKED')
+  })
+
+  it('reuses a verified attachment spool across apply and verification passes', async () => {
+    const sample = fixture()
+    const api = new FakeApi()
+    const attachmentCacheDirectory = path.join(sample.root, 'attachment-spool')
+    const manifest = {
+      version: 1,
+      sourceMode: 'outline-api',
+      outlineBaseUrl: 'http://outline.example',
+      projectIdentifier: 'JLNX',
+      documents: [{
+        outlineDocumentId: 'Cached0001',
+        title: '缓存节点',
+        parentOutlineDocumentId: null,
+        sortOrder: 0,
+        sourceUrl: 'http://outline.example/doc/cached-Cached0001'
+      }]
+    }
+    let downloads = 0
+    const outlineApi = {
+      async getDocument() {
+        return {
+          outlineDocumentId: 'Cached0001',
+          title: '缓存节点',
+          markdown: '[cache.bin](/api/attachments.redirect?id=cache-1)'
+        }
+      },
+      async downloadAttachment({ tempFile }: { tempFile: string }) {
+        downloads += 1
+        const bytes = Buffer.from('cache-body')
+        fs.writeFileSync(tempFile, bytes, { mode: 0o600 })
+        return {
+          tempFile,
+          fileName: 'cache.bin',
+          fileSize: bytes.length,
+          sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+          contentType: 'application/octet-stream'
+        }
+      }
+    }
+
+    const first = await migrateOutlineApiDocuments({
+      manifest,
+      statePath: sample.statePath,
+      blockedReportPath: sample.blockedReportPath,
+      linearLiteApi: api,
+      outlineApi,
+      attachmentCacheDirectory,
+      subtreeRootOutlineDocumentId: 'Cached0001'
+    })
+    const second = await migrateOutlineApiDocuments({
+      manifest,
+      statePath: sample.statePath,
+      blockedReportPath: sample.blockedReportPath,
+      linearLiteApi: api,
+      outlineApi,
+      attachmentCacheDirectory,
+      subtreeRootOutlineDocumentId: 'Cached0001'
+    })
+
+    expect(downloads).toBe(1)
+    expect(first).toMatchObject({ attachmentBytesDownloaded: 10, attachmentCacheHits: 0 })
+    expect(second).toMatchObject({
+      createdDocuments: 0,
+      updatedDocuments: 0,
+      uploadedAttachments: 0,
+      attachmentBytesDownloaded: 0,
+      attachmentCacheHits: 1
+    })
+  })
+
+  it('retries transient source failures and never records them as hard-gated nodes', async () => {
+    const sample = fixture()
+    const manifest = {
+      version: 1,
+      sourceMode: 'outline-api',
+      outlineBaseUrl: 'http://outline.example',
+      projectIdentifier: 'JLNX',
+      documents: [{
+        outlineDocumentId: 'Network001',
+        title: '网络节点',
+        parentOutlineDocumentId: null,
+        sortOrder: 0,
+        sourceUrl: 'http://outline.example/doc/network-Network001'
+      }]
+    }
+    const getDocument = vi.fn(async () => {
+      throw new TypeError('fetch failed')
+    })
+    const progress = vi.fn()
+
+    await expect(migrateOutlineApiDocuments({
+      manifest,
+      statePath: sample.statePath,
+      blockedReportPath: sample.blockedReportPath,
+      linearLiteApi: new FakeApi(),
+      outlineApi: { getDocument },
+      subtreeRootOutlineDocumentId: 'Network001',
+      transientRetryAttempts: 3,
+      transientRetryDelayMs: 0,
+      onProgress: progress
+    })).rejects.toThrow('fetch failed')
+
+    expect(getDocument).toHaveBeenCalledTimes(3)
+    expect(progress.mock.calls.filter(([event]) => event === 'transient_retry')).toHaveLength(2)
+    expect(fs.existsSync(sample.blockedReportPath)).toBe(false)
+  })
+
+  it('rejects a target tree whose persisted sibling order differs from the catalog', async () => {
+    const sample = fixture()
+    const api = new FakeApi()
+    const manifest = {
+      version: 1,
+      sourceMode: 'outline-api',
+      outlineBaseUrl: 'http://outline.example',
+      projectIdentifier: 'JLNX',
+      documents: [
+        {
+          outlineDocumentId: 'OrderRoot1',
+          title: '顺序根节点',
+          parentOutlineDocumentId: null,
+          sortOrder: 0,
+          sourceUrl: 'http://outline.example/doc/order-OrderRoot1'
+        },
+        {
+          outlineDocumentId: 'Order00001',
+          title: '顺序节点一',
+          parentOutlineDocumentId: 'OrderRoot1',
+          sortOrder: 0,
+          sourceUrl: 'http://outline.example/doc/order-Order00001'
+        },
+        {
+          outlineDocumentId: 'Order00002',
+          title: '顺序节点二',
+          parentOutlineDocumentId: 'OrderRoot1',
+          sortOrder: 1,
+          sourceUrl: 'http://outline.example/doc/order-Order00002'
+        }
+      ]
+    }
+    api.listDocumentTree = async projectId => (await FakeApi.prototype.listDocumentTree.call(api, projectId))
+      .map(document => document.parentDocumentId == null
+        ? document
+        : { ...document, sortOrder: 1 - document.sortOrder })
+    const outlineApi = {
+      async getDocument(outlineDocumentId: string) {
+        const entry = manifest.documents.find(document => document.outlineDocumentId === outlineDocumentId)!
+        return {
+          outlineDocumentId,
+          title: entry.title,
+          markdown: `# ${entry.title}`
+        }
+      }
+    }
+
+    await expect(migrateOutlineApiDocuments({
+      manifest,
+      statePath: sample.statePath,
+      blockedReportPath: sample.blockedReportPath,
+      linearLiteApi: api,
+      outlineApi,
+      subtreeRootOutlineDocumentId: 'OrderRoot1'
+    })).rejects.toThrow('目标同级文档顺序与 catalog 不一致: OrderRoot1')
   })
 
   it('keeps hierarchy, uses numeric project routes, and remains idempotent without local state', async () => {

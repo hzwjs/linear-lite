@@ -53,6 +53,8 @@ describe('outline-sync batch runner', () => {
     const sample = fixture()
     const migrate = vi.fn()
       .mockImplementationOnce(async options => {
+        fs.mkdirSync(options.attachmentCacheDirectory, { recursive: true })
+        fs.writeFileSync(path.join(options.attachmentCacheDirectory, 'cached.bin'), 'cached')
         options.onProgress('document_created', {
           outlineDocumentId: 'Root123456',
           linearLiteDocumentId: 63
@@ -90,6 +92,9 @@ describe('outline-sync batch runner', () => {
 
     expect(result.status).toBe('completed')
     expect(migrate).toHaveBeenCalledTimes(2)
+    expect(migrate.mock.calls[0][0].attachmentCacheDirectory)
+      .toBe(migrate.mock.calls[1][0].attachmentCacheDirectory)
+    expect(fs.existsSync(path.join(sample.runDirectory, 'attachment-spool'))).toBe(false)
     expect(createLinearLiteApi).toHaveBeenCalledWith({
       apiBaseUrl: 'http://localhost:5173/api',
       token: 'target-secret'
@@ -144,6 +149,29 @@ describe('outline-sync batch runner', () => {
     expect(JSON.parse(fs.readFileSync(path.join(sample.runDirectory, 'result.json'), 'utf8')))
       .toMatchObject({ status: 'failed' })
     expect(fs.existsSync(`${sample.statePath}.lock`)).toBe(false)
+  })
+
+  it('retains the private attachment spool when a batch fails', async () => {
+    const sample = fixture()
+    const migrate = vi.fn(async options => {
+      fs.mkdirSync(options.attachmentCacheDirectory, { recursive: true, mode: 0o700 })
+      fs.writeFileSync(path.join(options.attachmentCacheDirectory, 'cached.bin'), 'cached', { mode: 0o600 })
+      throw new TypeError('fetch failed')
+    })
+
+    await expect(runOutlineSync({
+      ...sample,
+      subtreeRootOutlineDocumentId: 'Root123456'
+    }, {
+      migrate,
+      createLinearLiteApi: () => ({}),
+      createOutlineApi: () => ({}),
+      now: () => new Date('2026-07-30T04:00:00.000Z')
+    })).rejects.toThrow('fetch failed')
+
+    const spool = path.join(sample.runDirectory, 'attachment-spool')
+    expect(fs.existsSync(path.join(spool, 'cached.bin'))).toBe(true)
+    expect(fs.statSync(spool).mode & 0o777).toBe(0o700)
   })
 
   it('rejects authentication files readable by group or others', () => {

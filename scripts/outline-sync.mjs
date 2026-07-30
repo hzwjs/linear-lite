@@ -139,6 +139,7 @@ export async function runOutlineSync(options, dependencies = {}) {
   const resultPath = path.join(runDirectory, 'result.json')
   const blockedReportPath = path.join(runDirectory, 'blocked.md')
   const journalPath = path.join(runDirectory, 'events.ndjson')
+  const attachmentCacheDirectory = path.join(runDirectory, 'attachment-spool')
   const journal = createEventJournal(journalPath, runId, deps.now)
   const releaseStateLock = acquireStateLock(options.statePath, runId, deps.now)
 
@@ -162,6 +163,7 @@ export async function runOutlineSync(options, dependencies = {}) {
       linearLiteApi,
       outlineApi,
       subtreeRootOutlineDocumentId: options.subtreeRootOutlineDocumentId,
+      attachmentCacheDirectory,
       maxAttachmentBytes: options.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES,
       preflightConcurrency: options.preflightConcurrency ?? DEFAULT_PREFLIGHT_CONCURRENCY
     }
@@ -202,6 +204,8 @@ export async function runOutlineSync(options, dependencies = {}) {
       }
     }
     writePrivateJson(resultPath, result)
+    // 成功终态不再需要敏感附件缓存；失败时保留 0700 spool 供同一批次续跑。
+    fs.rmSync(attachmentCacheDirectory, { recursive: true, force: true })
     journal('batch_completed', { status: result.status })
     return result
   } catch (error) {
