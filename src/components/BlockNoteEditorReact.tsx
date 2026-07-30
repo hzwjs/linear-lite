@@ -31,9 +31,38 @@ import {
 
 type CodeBlockLanguageLoader = () => Promise<{ default: LanguageInput }>
 
+const supportedCodeBlockLanguages = {
+  text:       { name: 'Plain Text' },
+  javascript: { name: 'JavaScript', aliases: ['js'] },
+  typescript: { name: 'TypeScript', aliases: ['ts'] },
+  python:     { name: 'Python', aliases: ['py'] },
+  java:       { name: 'Java' },
+  go:         { name: 'Go', aliases: ['golang'] },
+  rust:       { name: 'Rust' },
+  cpp:        { name: 'C++', aliases: ['c++'] },
+  c:          { name: 'C' },
+  csharp:     { name: 'C#', aliases: ['cs'] },
+  php:        { name: 'PHP' },
+  ruby:       { name: 'Ruby', aliases: ['rb'] },
+  swift:      { name: 'Swift' },
+  kotlin:     { name: 'Kotlin' },
+  html:       { name: 'HTML' },
+  css:        { name: 'CSS' },
+  scss:       { name: 'SCSS' },
+  sql:        { name: 'SQL' },
+  json:       { name: 'JSON' },
+  yaml:       { name: 'YAML', aliases: ['yml'] },
+  xml:        { name: 'XML' },
+  bash:       { name: 'Bash', aliases: ['sh', 'shell'] },
+  markdown:   { name: 'Markdown', aliases: ['md'] },
+  mermaid:    { name: 'Mermaid', aliases: ['mmd'] },
+} satisfies Record<string, { name: string; aliases?: string[] }>
+
+type HighlightedCodeBlockLanguage = Exclude<keyof typeof supportedCodeBlockLanguages, 'text'>
+
 // Keep grammar modules out of the editor's initial bundle. BlockNote requests the
 // selected grammar through this map only when a code block needs highlighting.
-const codeBlockLanguageLoaders: Record<string, CodeBlockLanguageLoader> = {
+const codeBlockLanguageLoaders: Record<HighlightedCodeBlockLanguage, CodeBlockLanguageLoader> = {
   javascript: () => import('@shikijs/langs/javascript'),
   typescript: () => import('@shikijs/langs/typescript'),
   python: () => import('@shikijs/langs/python'),
@@ -56,9 +85,11 @@ const codeBlockLanguageLoaders: Record<string, CodeBlockLanguageLoader> = {
   xml: () => import('@shikijs/langs/xml'),
   bash: () => import('@shikijs/langs/bash'),
   markdown: () => import('@shikijs/langs/markdown'),
+  // Mermaid 仍由独立预览层渲染 SVG，但必须加载 grammar 终止 BlockNote 的懒加载重试。
+  mermaid: () => import('@shikijs/langs/mermaid'),
 }
 
-async function createCodeBlockHighlighter() {
+export async function createCodeBlockHighlighter() {
   const [core, engine, theme] = await Promise.all([
     import('@shikijs/core'),
     import('@shikijs/engine-javascript'),
@@ -72,8 +103,8 @@ async function createCodeBlockHighlighter() {
   const loadLanguage = highlighter.loadLanguage.bind(highlighter)
   highlighter.loadLanguage = (language) => {
     if (typeof language !== 'string') return loadLanguage(language)
-    const loader = codeBlockLanguageLoaders[language]
-    return loader == null ? Promise.resolve() : loader().then(({ default: grammar }) => loadLanguage(grammar))
+    const loader = codeBlockLanguageLoaders[language as HighlightedCodeBlockLanguage]
+    return loader().then(({ default: grammar }) => loadLanguage(grammar))
   }
   return highlighter as unknown as HighlighterGeneric<any, any>
 }
@@ -81,32 +112,7 @@ async function createCodeBlockHighlighter() {
 const codeBlockOptions = {
   // BlockNote only renders language tokens after a Shiki highlighter is supplied.
   createHighlighter: createCodeBlockHighlighter,
-  supportedLanguages: {
-    text:       { name: 'Plain Text' },
-    javascript: { name: 'JavaScript', aliases: ['js'] },
-    typescript: { name: 'TypeScript', aliases: ['ts'] },
-    python:     { name: 'Python',     aliases: ['py'] },
-    java:       { name: 'Java' },
-    go:         { name: 'Go',         aliases: ['golang'] },
-    rust:       { name: 'Rust' },
-    cpp:        { name: 'C++',        aliases: ['c++'] },
-    c:          { name: 'C' },
-    csharp:     { name: 'C#',         aliases: ['cs'] },
-    php:        { name: 'PHP' },
-    ruby:       { name: 'Ruby',       aliases: ['rb'] },
-    swift:      { name: 'Swift' },
-    kotlin:     { name: 'Kotlin' },
-    html:       { name: 'HTML' },
-    css:        { name: 'CSS' },
-    scss:       { name: 'SCSS' },
-    sql:        { name: 'SQL' },
-    json:       { name: 'JSON' },
-    yaml:       { name: 'YAML',       aliases: ['yml'] },
-    xml:        { name: 'XML' },
-    bash:       { name: 'Bash',       aliases: ['sh', 'shell'] },
-    markdown:   { name: 'Markdown',   aliases: ['md'] },
-    mermaid:    { name: 'Mermaid',    aliases: ['mmd'] },
-  },
+  supportedLanguages: supportedCodeBlockLanguages,
 }
 
 const codeBlockWithLanguages = createCodeBlockSpec(codeBlockOptions)
