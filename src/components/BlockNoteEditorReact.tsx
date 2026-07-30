@@ -18,6 +18,7 @@ import {
   type PartialBlock,
 } from '@blocknote/core'
 import { createCodeBlockSpec } from '@blocknote/core/blocks'
+import type { HighlighterGeneric, LanguageInput } from '@shikijs/types'
 import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
 import { normalizeMermaidRenderError, renderMermaidSvg } from '../utils/mermaidRenderer'
 import { MentionMemberSuggestionMenu } from './MentionMemberSuggestionMenu'
@@ -28,7 +29,58 @@ import {
 
 // ─── Code block with language selector ─────────────────────────────────────────
 
+type CodeBlockLanguageLoader = () => Promise<{ default: LanguageInput }>
+
+// Keep grammar modules out of the editor's initial bundle. BlockNote requests the
+// selected grammar through this map only when a code block needs highlighting.
+const codeBlockLanguageLoaders: Record<string, CodeBlockLanguageLoader> = {
+  javascript: () => import('@shikijs/langs/javascript'),
+  typescript: () => import('@shikijs/langs/typescript'),
+  python: () => import('@shikijs/langs/python'),
+  java: () => import('@shikijs/langs/java'),
+  go: () => import('@shikijs/langs/go'),
+  rust: () => import('@shikijs/langs/rust'),
+  cpp: () => import('@shikijs/langs/cpp'),
+  c: () => import('@shikijs/langs/c'),
+  csharp: () => import('@shikijs/langs/csharp'),
+  php: () => import('@shikijs/langs/php'),
+  ruby: () => import('@shikijs/langs/ruby'),
+  swift: () => import('@shikijs/langs/swift'),
+  kotlin: () => import('@shikijs/langs/kotlin'),
+  html: () => import('@shikijs/langs/html'),
+  css: () => import('@shikijs/langs/css'),
+  scss: () => import('@shikijs/langs/scss'),
+  sql: () => import('@shikijs/langs/sql'),
+  json: () => import('@shikijs/langs/json'),
+  yaml: () => import('@shikijs/langs/yaml'),
+  xml: () => import('@shikijs/langs/xml'),
+  bash: () => import('@shikijs/langs/bash'),
+  markdown: () => import('@shikijs/langs/markdown'),
+}
+
+async function createCodeBlockHighlighter() {
+  const [core, engine, theme] = await Promise.all([
+    import('@shikijs/core'),
+    import('@shikijs/engine-javascript'),
+    import('@shikijs/themes/github-dark'),
+  ])
+  const highlighter = await core.createHighlighterCore({
+    themes: [theme.default],
+    langs: [],
+    engine: engine.createJavaScriptRegexEngine(),
+  })
+  const loadLanguage = highlighter.loadLanguage.bind(highlighter)
+  highlighter.loadLanguage = (language) => {
+    if (typeof language !== 'string') return loadLanguage(language)
+    const loader = codeBlockLanguageLoaders[language]
+    return loader == null ? Promise.resolve() : loader().then(({ default: grammar }) => loadLanguage(grammar))
+  }
+  return highlighter as unknown as HighlighterGeneric<any, any>
+}
+
 const codeBlockOptions = {
+  // BlockNote only renders language tokens after a Shiki highlighter is supplied.
+  createHighlighter: createCodeBlockHighlighter,
   supportedLanguages: {
     text:       { name: 'Plain Text' },
     javascript: { name: 'JavaScript', aliases: ['js'] },
