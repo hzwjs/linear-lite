@@ -37,8 +37,8 @@ vi.mock('../services/api/project', async () => {
 })
 
 const treeNodes: ProjectDocumentTreeNode[] = [
-  { id: 1, projectId: 7, parentDocumentId: null, title: 'First', sortOrder: 0, version: 1, updatedAt: '2026-07-29T08:00:00' },
-  { id: 2, projectId: 7, parentDocumentId: null, title: 'Second', sortOrder: 1, version: 1, updatedAt: '2026-07-29T08:00:00' }
+  { id: 1, projectId: 7, parentDocumentId: null, title: 'First', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
+  { id: 2, projectId: 7, parentDocumentId: null, title: 'Second', sortOrder: 1, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
 ]
 
 function projectDocument(id: number): ProjectDocument {

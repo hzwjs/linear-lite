@@ -7,6 +7,7 @@ import com.linearlite.server.mapper.InAppNotificationMapper;
 import com.linearlite.server.mapper.LabelMapper;
 import com.linearlite.server.mapper.ProjectCodexBindingMapper;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
+import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
 import com.linearlite.server.mapper.ProjectEmailPreferenceMapper;
 import com.linearlite.server.mapper.ProjectInvitationMapper;
@@ -38,6 +39,7 @@ class ProjectLifecycleServiceTest {
     @Mock private ProjectAccessGuard accessGuard;
     @Mock private ProjectMapper projectMapper;
     @Mock private ProjectDocumentMapper documentMapper;
+    @Mock private ProjectDocumentFavoriteMapper documentFavoriteMapper;
     @Mock private ProjectDocumentRevisionMapper revisionMapper;
     @Mock private ProjectDocumentAttachmentService documentAttachmentService;
     @Mock private TaskMapper taskMapper;
@@ -61,7 +63,7 @@ class ProjectLifecycleServiceTest {
     @BeforeEach
     void setUp() {
         service = new ProjectLifecycleService(
-                accessGuard, projectMapper, documentMapper, revisionMapper, documentAttachmentService,
+                accessGuard, projectMapper, documentMapper, revisionMapper, documentFavoriteMapper, documentAttachmentService,
                 taskMapper, taskCommentMapper,
                 mentionMapper, notificationMapper, activityMapper, favoriteMapper, attachmentMapper,
                 labelService, labelMapper, invitationMapper, memberMapper, emailPreferenceMapper,

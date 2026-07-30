@@ -21,6 +21,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
   const loadingDocument = ref(false)
   const error = ref<string | null>(null)
   const conflictVersion = ref<number | null>(null)
+  const favoritePendingIds = ref(new Set<number>())
 
   let saveTimer: ReturnType<typeof setTimeout> | null = null
   let editSequence = 0
@@ -51,6 +52,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
       title: document.title,
       sortOrder: document.sortOrder,
       version: document.version,
+      favorited: document.favorited,
       updatedAt: document.updatedAt
     }
     if (index === -1) treeNodes.value = [...treeNodes.value, node]
@@ -279,6 +281,24 @@ export const useDocumentStore = defineStore('documentStore', () => {
     await Promise.all([loadTree(projectId), loadArchive(projectId)])
   }
 
+  async function toggleFavorite(document: Pick<ProjectDocumentTreeNode, 'id' | 'favorited'>) {
+    const documentId = document.id
+    if (favoritePendingIds.value.has(documentId)) return
+    favoritePendingIds.value = new Set(favoritePendingIds.value).add(documentId)
+    try {
+      const updated = document.favorited
+        ? await documentApi.removeFavorite(documentId)
+        : await documentApi.addFavorite(documentId)
+      syncTreeNode(updated)
+      if (activeDocument.value?.id === documentId) activeDocument.value = updated
+      return updated
+    } finally {
+      const next = new Set(favoritePendingIds.value)
+      next.delete(documentId)
+      favoritePendingIds.value = next
+    }
+  }
+
   async function loadRevision(documentId: number, version: number) {
     activeRevision.value = await documentApi.getRevision(documentId, version)
   }
@@ -315,6 +335,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
     loadingDocument,
     error,
     conflictVersion,
+    favoritePendingIds,
     loadTree,
     loadArchive,
     loadDocument,
@@ -326,6 +347,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
     moveDocument,
     archiveDocument,
     restoreDocument,
+    toggleFavorite,
     loadRevision,
     restoreRevision,
     clear

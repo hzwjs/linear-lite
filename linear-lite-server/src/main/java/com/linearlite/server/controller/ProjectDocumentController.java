@@ -15,6 +15,7 @@ import com.linearlite.server.service.ProjectDocumentQueryService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -92,6 +93,18 @@ public class ProjectDocumentController {
             HttpServletRequest request, @PathVariable Long documentId) {
         commandService.restore(documentId, userId(request));
         return ResponseEntity.ok(ApiResponse.success());
+    }
+
+    @PostMapping("/project-documents/{documentId}/favorite")
+    public ResponseEntity<ApiResponse<ProjectDocumentResponse>> addFavorite(
+            HttpServletRequest request, @PathVariable Long documentId) {
+        return ResponseEntity.ok(ApiResponse.success(commandService.addFavorite(documentId, userId(request))));
+    }
+
+    @DeleteMapping("/project-documents/{documentId}/favorite")
+    public ResponseEntity<ApiResponse<ProjectDocumentResponse>> removeFavorite(
+            HttpServletRequest request, @PathVariable Long documentId) {
+        return ResponseEntity.ok(ApiResponse.success(commandService.removeFavorite(documentId, userId(request))));
     }
 
     @GetMapping("/project-documents/{documentId}/revisions")

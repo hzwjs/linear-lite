@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Archive, Check, Clock3, Copy, Loader2, RefreshCw, TriangleAlert } from 'lucide-vue-next'
+import { Archive, Check, Clock3, Copy, Loader2, RefreshCw, Star, TriangleAlert } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StructuredDocumentEditor from '../StructuredDocumentEditor.vue'
@@ -8,14 +8,17 @@ import type { DocumentSaveState, ProjectDocument, ProjectDocumentTreeNode } from
 
 const DOCUMENT_ATTACHMENT_PATH = /^\/api\/project-documents\/(\d+)\/attachments\/(\d+)\/download$/
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   document: ProjectDocument
   treeNodes: ProjectDocumentTreeNode[]
   saveState: DocumentSaveState
   conflictVersion: number | null
   mentionMembers: Array<{ id: number; label: string }>
   mentionDocuments: Array<{ id: number; title: string; projectId: number }>
-}>()
+  favoritePending?: boolean
+}>(), {
+  favoritePending: false
+})
 
 const emit = defineEmits<{
   updateTitle: [title: string]
@@ -24,6 +27,7 @@ const emit = defineEmits<{
   history: []
   reload: []
   retry: []
+  toggleFavorite: []
 }>()
 
 const { t } = useI18n()
@@ -200,6 +204,18 @@ async function handleDocumentBodyClick(event: MouseEvent) {
           <Check v-else-if="saveState === 'saved'" aria-hidden="true" />
           {{ saveLabel }}
         </span>
+        <button
+          type="button"
+          class="document-editor__favorite"
+          :class="{ 'document-editor__favorite--active': document.favorited }"
+          :disabled="favoritePending"
+          :aria-label="document.favorited ? t('documents.removeFavorite') : t('documents.addFavorite')"
+          :aria-pressed="document.favorited"
+          @click="emit('toggleFavorite')"
+        >
+          <Loader2 v-if="favoritePending" class="spin" aria-hidden="true" />
+          <Star v-else aria-hidden="true" />
+        </button>
         <button type="button" :title="t('documents.history')" @click="emit('history')">
           <Clock3 aria-hidden="true" /><span>{{ t('documents.history') }}</span>
         </button>
@@ -316,6 +332,8 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 .document-editor__actions { flex: none; gap: 6px; }
 .document-editor__actions button { gap: 6px; border-radius: var(--radius-sm); color: var(--color-text-secondary); }
 .document-editor__actions button:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.document-editor__actions .document-editor__favorite--active { color: var(--color-status-warning); }
+.document-editor__favorite--active svg { fill: currentColor; }
 .document-editor__actions button:focus-visible { outline: 2px solid var(--color-border-strong); outline-offset: 1px; }
 .document-editor__actions svg,
 .document-editor__save-state svg { width: 14px; height: 14px; }

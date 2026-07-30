@@ -16,6 +16,7 @@ const emit = defineEmits<{
   select: [documentId: number]
   createChild: [parentDocumentId: number]
   archive: [documentId: number]
+  toggleFavorite: [node: ProjectDocumentTreeNode]
   move: [payload: { documentId: number; parentDocumentId: number | null; previousSiblingId: number | null }]
 }>()
 
@@ -137,6 +138,7 @@ function onNavigateKey(payload: { event: KeyboardEvent; documentId: number }) {
         @toggle="toggle"
         @create-child="emit('createChild', $event)"
         @archive="emit('archive', $event)"
+        @toggle-favorite="emit('toggleFavorite', $event)"
         @move="emit('move', $event)"
         @navigate-key="onNavigateKey"
         @drag-start="draggingDocumentId = $event"

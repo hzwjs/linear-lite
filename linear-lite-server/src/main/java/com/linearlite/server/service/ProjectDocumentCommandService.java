@@ -10,10 +10,12 @@ import com.linearlite.server.dto.MoveProjectDocumentRequest;
 import com.linearlite.server.dto.ProjectDocumentResponse;
 import com.linearlite.server.dto.UpdateProjectDocumentRequest;
 import com.linearlite.server.entity.ProjectDocument;
+import com.linearlite.server.entity.ProjectDocumentFavorite;
 import com.linearlite.server.entity.ProjectDocumentRevision;
 import com.linearlite.server.exception.DocumentVersionConflictException;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
+import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +31,7 @@ public class ProjectDocumentCommandService {
     private static final String EMPTY_BLOCK_NOTE_DOCUMENT = "[]";
 
     private final ProjectDocumentMapper documentMapper;
+    private final ProjectDocumentFavoriteMapper favoriteMapper;
     private final ProjectDocumentRevisionMapper revisionMapper;
     private final ProjectAccessGuard projectAccessGuard;
     private final ObjectMapper objectMapper;
@@ -36,11 +39,13 @@ public class ProjectDocumentCommandService {
 
     public ProjectDocumentCommandService(
             ProjectDocumentMapper documentMapper,
+            ProjectDocumentFavoriteMapper favoriteMapper,
             ProjectDocumentRevisionMapper revisionMapper,
             ProjectAccessGuard projectAccessGuard,
             ObjectMapper objectMapper,
             ApplicationEventPublisher eventPublisher) {
         this.documentMapper = documentMapper;
+        this.favoriteMapper = favoriteMapper;
         this.revisionMapper = revisionMapper;
         this.projectAccessGuard = projectAccessGuard;
         this.objectMapper = objectMapper;
@@ -61,7 +66,7 @@ public class ProjectDocumentCommandService {
                     .eq(ProjectDocument::getExternalSourceId, externalSourceId));
             if (existing != null) {
                 requireActive(existing);
-                return ProjectDocumentQueryService.toResponse(existing);
+                return toResponse(existing, userId);
             }
         }
         String title = requireTitle(request == null ? null : request.title());
@@ -90,7 +95,7 @@ public class ProjectDocumentCommandService {
         documentMapper.insert(document);
         insertRevision(document, userId);
         publishUpsert(document.getId());
-        return ProjectDocumentQueryService.toResponse(requireDocument(document.getId()));
+        return toResponse(requireDocument(document.getId()), userId);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -109,7 +114,7 @@ public class ProjectDocumentCommandService {
         ProjectDocument saved = requireDocument(documentId);
         insertRevision(saved, userId);
         publishUpsert(saved.getId());
-        return ProjectDocumentQueryService.toResponse(saved);
+        return toResponse(saved, userId);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -220,7 +225,38 @@ public class ProjectDocumentCommandService {
         ProjectDocument saved = requireDocument(documentId);
         insertRevision(saved, userId);
         publishUpsert(saved.getId());
-        return ProjectDocumentQueryService.toResponse(saved);
+        return toResponse(saved, userId);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public ProjectDocumentResponse addFavorite(Long documentId, Long userId) {
+        ProjectDocument document = requireAccessibleActiveDocument(documentId, userId);
+        Long count = favoriteMapper.selectCount(new LambdaQueryWrapper<ProjectDocumentFavorite>()
+                .eq(ProjectDocumentFavorite::getUserId, userId)
+                .eq(ProjectDocumentFavorite::getDocumentId, documentId));
+        if (count == 0) {
+            ProjectDocumentFavorite favorite = new ProjectDocumentFavorite();
+            favorite.setUserId(userId);
+            favorite.setDocumentId(documentId);
+            favoriteMapper.insert(favorite);
+        }
+        return ProjectDocumentQueryService.toResponse(document, true);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public ProjectDocumentResponse removeFavorite(Long documentId, Long userId) {
+        ProjectDocument document = requireAccessibleActiveDocument(documentId, userId);
+        favoriteMapper.delete(new LambdaQueryWrapper<ProjectDocumentFavorite>()
+                .eq(ProjectDocumentFavorite::getUserId, userId)
+                .eq(ProjectDocumentFavorite::getDocumentId, documentId));
+        return ProjectDocumentQueryService.toResponse(document, false);
+    }
+
+    private ProjectDocumentResponse toResponse(ProjectDocument document, Long userId) {
+        boolean favorited = favoriteMapper.selectCount(new LambdaQueryWrapper<ProjectDocumentFavorite>()
+                .eq(ProjectDocumentFavorite::getUserId, userId)
+                .eq(ProjectDocumentFavorite::getDocumentId, document.getId())) > 0;
+        return ProjectDocumentQueryService.toResponse(document, favorited);
     }
 
     private ProjectDocument requireAccessibleActiveDocument(Long documentId, Long userId) {

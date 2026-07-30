@@ -3,13 +3,15 @@ import { api } from './index'
 import { documentApi, parseDocumentAttachmentFileName } from './documents'
 
 vi.mock('./index', () => ({
-  api: { get: vi.fn() },
+  api: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
   unwrap: (res: { data: { data: unknown } }) => res.data.data
 }))
 
 describe('document attachment download', () => {
   beforeEach(() => {
     vi.mocked(api.get).mockReset()
+    vi.mocked(api.post).mockReset()
+    vi.mocked(api.delete).mockReset()
   })
 
   afterEach(() => {
@@ -61,5 +63,16 @@ describe('document attachment download', () => {
 
     await expect(documentApi.downloadAttachment(12, 34)).rejects.toThrow('missing a UTF-8 filename')
     expect(createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('uses the document favorite resource for add and remove operations', async () => {
+    const favorited = { id: 12, favorited: true }
+    vi.mocked(api.post).mockResolvedValue({ data: { data: favorited } } as any)
+    vi.mocked(api.delete).mockResolvedValue({ data: { data: { ...favorited, favorited: false } } } as any)
+
+    await expect(documentApi.addFavorite(12)).resolves.toEqual(favorited)
+    await expect(documentApi.removeFavorite(12)).resolves.toMatchObject({ favorited: false })
+    expect(api.post).toHaveBeenCalledWith('/project-documents/12/favorite')
+    expect(api.delete).toHaveBeenCalledWith('/project-documents/12/favorite')
   })
 })

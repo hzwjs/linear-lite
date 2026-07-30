@@ -126,6 +126,16 @@ CREATE TABLE IF NOT EXISTS project_document_attachments (
     INDEX idx_project_document_attachments_document (document_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 文档收藏按用户独立存储，只允许一条用户-文档关系。
+CREATE TABLE IF NOT EXISTS project_document_favorites (
+    id          BIGINT   NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id     BIGINT   NOT NULL,
+    document_id BIGINT   NOT NULL,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_project_document_favorites_user_document (user_id, document_id),
+    INDEX idx_project_document_favorites_document_id (document_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS project_task_seq (
     project_id   BIGINT NOT NULL PRIMARY KEY COMMENT '逻辑关联 projects.id',
     next_number  BIGINT NOT NULL COMMENT '下一个可分配任务序号（从 1 开始）'

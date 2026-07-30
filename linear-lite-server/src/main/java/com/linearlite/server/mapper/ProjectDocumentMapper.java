@@ -18,24 +18,27 @@ public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
     /** 文档树只读取结构字段，禁止通用实体查询把所有 LONGTEXT 正文加载到服务端。 */
     @Select("""
             <script>
-            SELECT id,
-                   project_id AS projectId,
-                   parent_document_id AS parentDocumentId,
-                   title,
-                   sort_order AS sortOrder,
-                   version,
-                   updated_at AS updatedAt
-            FROM project_documents
-            WHERE project_id = #{projectId}
+            SELECT d.id,
+                   d.project_id AS projectId,
+                   d.parent_document_id AS parentDocumentId,
+                   d.title,
+                   d.sort_order AS sortOrder,
+                   d.version,
+                   favorite.id IS NOT NULL AS favorited,
+                   d.updated_at AS updatedAt
+            FROM project_documents d
+            LEFT JOIN project_document_favorites favorite
+              ON favorite.document_id = d.id AND favorite.user_id = #{userId}
+            WHERE d.project_id = #{projectId}
             <choose>
                 <when test="archived">
-                    AND archived_at IS NOT NULL
+                    AND d.archived_at IS NOT NULL
                 </when>
                 <otherwise>
-                    AND archived_at IS NULL
+                    AND d.archived_at IS NULL
                 </otherwise>
             </choose>
-            ORDER BY parent_document_id ASC, sort_order ASC, id ASC
+            ORDER BY d.parent_document_id ASC, d.sort_order ASC, d.id ASC
             </script>
             """)
     @ConstructorArgs({
@@ -45,10 +48,12 @@ public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
             @Arg(column = "title", javaType = String.class),
             @Arg(column = "sortOrder", javaType = Integer.class),
             @Arg(column = "version", javaType = Long.class),
+            @Arg(column = "favorited", javaType = boolean.class),
             @Arg(column = "updatedAt", javaType = java.time.LocalDateTime.class)
     })
     List<ProjectDocumentTreeNode> selectTreeNodes(
             @Param("projectId") Long projectId,
+            @Param("userId") Long userId,
             @Param("archived") boolean archived);
 
     @Update("""

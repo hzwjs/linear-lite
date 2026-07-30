@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArchiveRestore, FilePlus2, Inbox, Loader2, Plus, Search, TriangleAlert, X } from 'lucide-vue-next'
+import { ArchiveRestore, FilePlus2, Inbox, Loader2, Plus, Search, Star, TriangleAlert, X } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
@@ -32,6 +32,7 @@ const documentId = computed(() => {
   return Number.isInteger(id) ? id : null
 })
 const activeProject = computed(() => projectStore.projects.find((project) => project.id === projectId.value) ?? null)
+const favoriteDocuments = computed(() => store.treeNodes.filter((node) => node.favorited))
 
 function documentRoute(id: number) {
   return `/projects/${projectId.value}/documents/${id}`
@@ -201,6 +202,19 @@ onBeforeUnmount(() => {
         </label>
 
         <div class="documents-sidebar__tree-scroll">
+          <section v-if="favoriteDocuments.length > 0" class="documents-sidebar__favorites" :aria-label="t('documents.favorites')">
+            <h2><Star aria-hidden="true" />{{ t('documents.favorites') }}</h2>
+            <button
+              v-for="document in favoriteDocuments"
+              :key="document.id"
+              type="button"
+              :class="{ active: documentId === document.id }"
+              :title="document.title"
+              @click="openDocument(document.id)"
+            >
+              <Star aria-hidden="true" /><span>{{ document.title }}</span>
+            </button>
+          </section>
           <div v-if="store.loadingTree" class="documents-sidebar__state">
             <Loader2 class="spin" aria-hidden="true" />{{ t('documents.loadingTree') }}
           </div>
@@ -224,6 +238,7 @@ onBeforeUnmount(() => {
             @select="openDocument"
             @create-child="createDocument"
             @archive="archiveDocument"
+            @toggle-favorite="store.toggleFavorite"
             @move="moveDocument"
           />
         </div>
@@ -267,12 +282,14 @@ onBeforeUnmount(() => {
           :conflict-version="store.conflictVersion"
           :mention-members="members"
           :mention-documents="store.treeNodes.map((node) => ({ id: node.id, title: node.title, projectId: node.projectId }))"
+          :favorite-pending="store.favoritePendingIds.has(store.activeDocument.id)"
           @update-title="store.updateDraft({ title: $event })"
           @update-content="store.updateDraft({ content: $event })"
           @archive="archiveDocument(store.activeDocument.id)"
           @history="historyOpen = true"
           @reload="store.reloadAfterConflict"
           @retry="store.saveNow"
+          @toggle-favorite="store.toggleFavorite(store.activeDocument)"
         />
         <div v-else class="documents-content__state">
           <FilePlus2 aria-hidden="true" />
@@ -325,6 +342,14 @@ onBeforeUnmount(() => {
 .documents-sidebar__search input { width: 100%; }
 .documents-sidebar__search button { display: inline-flex; align-items: center; justify-content: center; padding: 0 7px; }
 .documents-sidebar__tree-scroll { min-height: 0; flex: 1; padding: 0 6px; overflow: auto; }
+.documents-sidebar__favorites { margin: 0 2px 8px; padding-bottom: 8px; border-bottom: 1px solid var(--color-border-subtle); }
+.documents-sidebar__favorites h2 { display: flex; align-items: center; gap: 7px; margin: 7px 8px 4px; color: var(--color-text-muted); font-size: var(--font-size-xs); font-weight: var(--font-weight-medium); }
+.documents-sidebar__favorites h2 svg,
+.documents-sidebar__favorites button > svg { width: 13px; height: 13px; color: var(--color-status-warning); fill: currentColor; }
+.documents-sidebar__favorites button { display: flex; width: 100%; min-height: 34px; align-items: center; gap: 7px; padding: 4px 10px; border-radius: var(--radius-sm); color: var(--color-text-secondary); text-align: left; }
+.documents-sidebar__favorites button:hover,
+.documents-sidebar__favorites button.active { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.documents-sidebar__favorites button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .documents-sidebar__state,
 .documents-sidebar__empty { display: flex; min-height: 160px; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 20px; color: var(--color-text-muted); text-align: center; }
 .documents-sidebar__state button,

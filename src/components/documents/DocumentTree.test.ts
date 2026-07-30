@@ -5,8 +5,8 @@ import type { ProjectDocumentTreeNode } from '../../types/document'
 import DocumentTree from './DocumentTree.vue'
 
 const nodes: ProjectDocumentTreeNode[] = [
-  { id: 1, projectId: 7, parentDocumentId: null, title: 'Root', sortOrder: 0, version: 1, updatedAt: '2026-07-29T08:00:00' },
-  { id: 2, projectId: 7, parentDocumentId: 1, title: 'Child', sortOrder: 0, version: 1, updatedAt: '2026-07-29T08:00:00' }
+  { id: 1, projectId: 7, parentDocumentId: null, title: 'Root', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
+  { id: 2, projectId: 7, parentDocumentId: 1, title: 'Child', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
 ]
 
 function createDragEvent(type: string, dataTransfer: Partial<DataTransfer>, clientX = 0, clientY = 0) {
@@ -79,7 +79,7 @@ describe('DocumentTree keyboard interaction', () => {
     ;(host.querySelector('[aria-label="Actions for Root"]') as HTMLButtonElement).click()
     await nextTick()
     const menuLabels = Array.from(host.querySelectorAll<HTMLElement>('[role="menuitem"]')).map((item) => item.textContent?.trim())
-    expect(menuLabels).toEqual(['New child document', 'Archive'])
+    expect(menuLabels).toEqual(['Add to favorites', 'New child document', 'Archive'])
     app.unmount()
   })
 

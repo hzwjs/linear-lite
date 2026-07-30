@@ -151,6 +151,7 @@ const zhCN = {
     dragHint: '拖动文档行到目标文档的上方、中间或下方。键盘使用 Alt 加方向键调整位置。',
     dropBefore: '放到“{title}”上方', dropInside: '移入“{title}”', dropAfter: '放到“{title}”下方',
     archive: '归档', archiveConfirm: '归档“{title}”及其全部子文档？',
+    favorites: '收藏', addFavorite: '收藏文档', removeFavorite: '取消收藏',
     archived: '已归档', archivedDescription: '归档的文档子树会保留原有结构。', noArchived: '暂无已归档文档。', restore: '恢复',
     history: '历史版本', version: '版本 {version}', backToHistory: '返回版本历史', historyLoadFailed: '版本历史加载失败。', noHistory: '暂无历史版本。',
     restoreThisVersion: '恢复此版本', restoring: '正在恢复…', documentTitle: '文档标题',

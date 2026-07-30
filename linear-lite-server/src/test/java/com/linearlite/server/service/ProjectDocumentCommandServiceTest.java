@@ -6,9 +6,11 @@ import com.linearlite.server.dto.MoveProjectDocumentRequest;
 import com.linearlite.server.dto.ProjectDocumentResponse;
 import com.linearlite.server.dto.UpdateProjectDocumentRequest;
 import com.linearlite.server.entity.ProjectDocument;
+import com.linearlite.server.entity.ProjectDocumentFavorite;
 import com.linearlite.server.entity.ProjectDocumentRevision;
 import com.linearlite.server.exception.DocumentVersionConflictException;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
+import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +35,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ProjectDocumentCommandServiceTest {
     @Mock private ProjectDocumentMapper documentMapper;
+    @Mock private ProjectDocumentFavoriteMapper favoriteMapper;
     @Mock private ProjectDocumentRevisionMapper revisionMapper;
     @Mock private ProjectAccessGuard accessGuard;
     @Mock private ApplicationEventPublisher eventPublisher;
@@ -42,7 +45,7 @@ class ProjectDocumentCommandServiceTest {
     @BeforeEach
     void setUp() {
         service = new ProjectDocumentCommandService(
-                documentMapper, revisionMapper, accessGuard, new ObjectMapper(), eventPublisher);
+                documentMapper, favoriteMapper, revisionMapper, accessGuard, new ObjectMapper(), eventPublisher);
     }
 
     @Test
@@ -208,6 +211,21 @@ class ProjectDocumentCommandServiceTest {
 
         verify(eventPublisher).publishEvent(new ProjectContentSemanticDeleteRequestedEvent(
                 ProjectContentType.DOCUMENT, List.of(11L, 12L)));
+    }
+
+    @Test
+    void addFavoritePersistsTheCurrentUserDocumentRelation() {
+        ProjectDocument document = document(11L, 3L, null, 2L, 0);
+        when(documentMapper.selectById(11L)).thenReturn(document);
+        when(favoriteMapper.selectCount(any())).thenReturn(0L);
+
+        ProjectDocumentResponse response = service.addFavorite(11L, 7L);
+
+        ArgumentCaptor<ProjectDocumentFavorite> favoriteCaptor = ArgumentCaptor.forClass(ProjectDocumentFavorite.class);
+        verify(favoriteMapper).insert(favoriteCaptor.capture());
+        assertEquals(7L, favoriteCaptor.getValue().getUserId());
+        assertEquals(11L, favoriteCaptor.getValue().getDocumentId());
+        assertEquals(true, response.favorited());
     }
 
     private ProjectDocument document(Long id, Long projectId, Long parentId, Long version, Integer sortOrder) {

@@ -5,6 +5,7 @@ export interface ProjectDocumentTreeNode {
   title: string
   sortOrder: number
   version: number
+  favorited: boolean
   updatedAt: string
 }
 

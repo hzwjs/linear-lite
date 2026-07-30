@@ -151,6 +151,7 @@ const en = {
     dragHint: 'Drag the document row above, inside, or below another document. Use Alt plus the arrow keys to move with the keyboard.',
     dropBefore: 'Place above “{title}”', dropInside: 'Move inside “{title}”', dropAfter: 'Place below “{title}”',
     archive: 'Archive', archiveConfirm: 'Archive “{title}” and all of its child documents?',
+    favorites: 'Favorites', addFavorite: 'Add to favorites', removeFavorite: 'Remove from favorites',
     archived: 'Archived', archivedDescription: 'Archived document subtrees retain their original structure.', noArchived: 'No archived documents.', restore: 'Restore',
     history: 'History', version: 'Version {version}', backToHistory: 'Back to version history', historyLoadFailed: 'Version history could not be loaded.', noHistory: 'No versions yet.',
     restoreThisVersion: 'Restore this version', restoring: 'Restoring…', documentTitle: 'Document title',

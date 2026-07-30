@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ChevronLeft, FileText, Loader2 } from 'lucide-vue-next'
+import { ChevronLeft, FileText, Loader2, Star } from 'lucide-vue-next'
 import StructuredDocumentEditor from '../../components/StructuredDocumentEditor.vue'
 import { documentApi } from '../../services/api/documents'
 import { useProjectStore } from '../../store/projectStore'
@@ -15,6 +15,7 @@ const projectStore = useProjectStore()
 const document = ref<ProjectDocument | null>(null)
 const loading = ref(true)
 const loadError = ref('')
+const favoritePending = ref(false)
 let loadSequence = 0
 
 const projectName = computed(() => (
@@ -46,6 +47,19 @@ async function loadDocument() {
   }
 }
 
+async function toggleFavorite() {
+  if (document.value == null || favoritePending.value) return
+  const current = document.value
+  favoritePending.value = true
+  try {
+    document.value = current.favorited
+      ? await documentApi.removeFavorite(current.id)
+      : await documentApi.addFavorite(current.id)
+  } finally {
+    favoritePending.value = false
+  }
+}
+
 watch(() => [props.projectId, props.documentId], loadDocument, { immediate: true })
 </script>
 
@@ -56,7 +70,20 @@ watch(() => [props.projectId, props.documentId], loadDocument, { immediate: true
         <ChevronLeft :size="24" />
       </button>
       <span class="mobile-document-nav-title">{{ t('documents.mobile.title') }}</span>
-      <span class="mobile-document-readonly-label">{{ t('documents.mobile.readonly') }}</span>
+      <button
+        v-if="document"
+        type="button"
+        class="mobile-document-favorite"
+        :class="{ 'is-active': document.favorited }"
+        :disabled="favoritePending"
+        :aria-label="document.favorited ? t('documents.removeFavorite') : t('documents.addFavorite')"
+        :aria-pressed="document.favorited"
+        @click="toggleFavorite"
+      >
+        <Loader2 v-if="favoritePending" :size="19" class="mobile-spinner" aria-hidden="true" />
+        <Star v-else :size="20" aria-hidden="true" />
+      </button>
+      <span v-else class="mobile-document-readonly-label">{{ t('documents.mobile.readonly') }}</span>
     </header>
 
     <div v-if="loading" class="mobile-detail-loading" role="status" aria-live="polite">

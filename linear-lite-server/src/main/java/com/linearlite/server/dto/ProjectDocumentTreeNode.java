@@ -9,5 +9,6 @@ public record ProjectDocumentTreeNode(
         String title,
         Integer sortOrder,
         Long version,
+        boolean favorited,
         LocalDateTime updatedAt) {
 }

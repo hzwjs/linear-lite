@@ -14,6 +14,7 @@ public record ProjectDocumentResponse(
         Long version,
         Long creatorId,
         Long lastEditorId,
+        boolean favorited,
         LocalDateTime archivedAt,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {

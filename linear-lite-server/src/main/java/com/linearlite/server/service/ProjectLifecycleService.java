@@ -6,6 +6,7 @@ import com.linearlite.server.entity.InAppNotification;
 import com.linearlite.server.entity.Label;
 import com.linearlite.server.entity.ProjectCodexBinding;
 import com.linearlite.server.entity.ProjectDocument;
+import com.linearlite.server.entity.ProjectDocumentFavorite;
 import com.linearlite.server.entity.ProjectDocumentRevision;
 import com.linearlite.server.entity.ProjectEmailPreference;
 import com.linearlite.server.entity.ProjectInvitation;
@@ -20,6 +21,7 @@ import com.linearlite.server.mapper.InAppNotificationMapper;
 import com.linearlite.server.mapper.LabelMapper;
 import com.linearlite.server.mapper.ProjectCodexBindingMapper;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
+import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
 import com.linearlite.server.mapper.ProjectEmailPreferenceMapper;
 import com.linearlite.server.mapper.ProjectInvitationMapper;
@@ -42,6 +44,7 @@ public class ProjectLifecycleService {
     private final ProjectAccessGuard accessGuard;
     private final ProjectMapper projectMapper;
     private final ProjectDocumentMapper documentMapper;
+    private final ProjectDocumentFavoriteMapper documentFavoriteMapper;
     private final ProjectDocumentRevisionMapper revisionMapper;
     private final ProjectDocumentAttachmentService documentAttachmentService;
     private final TaskMapper taskMapper;
@@ -63,6 +66,7 @@ public class ProjectLifecycleService {
     public ProjectLifecycleService(
             ProjectAccessGuard accessGuard, ProjectMapper projectMapper,
             ProjectDocumentMapper documentMapper, ProjectDocumentRevisionMapper revisionMapper,
+            ProjectDocumentFavoriteMapper documentFavoriteMapper,
             ProjectDocumentAttachmentService documentAttachmentService,
             TaskMapper taskMapper, TaskCommentMapper taskCommentMapper, CommentMentionMapper mentionMapper,
             InAppNotificationMapper notificationMapper, TaskActivityMapper activityMapper,
@@ -74,6 +78,7 @@ public class ProjectLifecycleService {
         this.accessGuard = accessGuard;
         this.projectMapper = projectMapper;
         this.documentMapper = documentMapper;
+        this.documentFavoriteMapper = documentFavoriteMapper;
         this.revisionMapper = revisionMapper;
         this.documentAttachmentService = documentAttachmentService;
         this.taskMapper = taskMapper;
@@ -103,6 +108,8 @@ public class ProjectLifecycleService {
         if (!documentIds.isEmpty()) {
             // 先清理对象存储与附件元数据，再清理不可变版本和当前文档。
             documentAttachmentService.deleteForProject(projectId);
+            documentFavoriteMapper.delete(new LambdaQueryWrapper<ProjectDocumentFavorite>()
+                    .in(ProjectDocumentFavorite::getDocumentId, documentIds));
             revisionMapper.delete(new LambdaQueryWrapper<ProjectDocumentRevision>()
                     .in(ProjectDocumentRevision::getDocumentId, documentIds));
             documentMapper.deleteBatchIds(documentIds);

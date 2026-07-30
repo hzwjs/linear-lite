@@ -434,6 +434,19 @@
   font-size: 13px;
   font-weight: 560;
 }
+.mobile-document-favorite {
+  display: inline-flex;
+  width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  justify-self: end;
+  border-radius: 50%;
+  color: var(--m-secondary);
+}
+.mobile-document-favorite.is-active { color: #b7791f; }
+.mobile-document-favorite.is-active svg { fill: currentColor; }
+.mobile-document-favorite:active { background: var(--m-surface-soft); }
 .mobile-document-content {
   min-width: 0;
   flex: 1;

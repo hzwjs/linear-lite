@@ -10,7 +10,8 @@ vi.mock('../services/api/documents', async () => {
     ...actual,
     documentApi: {
       listTree: vi.fn(), listArchive: vi.fn(), create: vi.fn(), get: vi.fn(), update: vi.fn(),
-      move: vi.fn(), archive: vi.fn(), restore: vi.fn(), listRevisions: vi.fn(), getRevision: vi.fn(), restoreRevision: vi.fn()
+      move: vi.fn(), archive: vi.fn(), restore: vi.fn(), addFavorite: vi.fn(), removeFavorite: vi.fn(),
+      listRevisions: vi.fn(), getRevision: vi.fn(), restoreRevision: vi.fn()
     }
   }
 })
@@ -18,7 +19,7 @@ vi.mock('../services/api/documents', async () => {
 function document(overrides: Partial<ProjectDocument> = {}): ProjectDocument {
   return {
     id: 8, projectId: 3, parentDocumentId: null, title: 'Spec', content: '[]',
-    sortOrder: 0, version: 1, creatorId: 1, lastEditorId: 1, archivedAt: null,
+    sortOrder: 0, version: 1, favorited: false, creatorId: 1, lastEditorId: 1, archivedAt: null,
     createdAt: '2026-07-29T08:00:00', updatedAt: '2026-07-29T08:00:00', ...overrides
   }
 }
@@ -31,6 +32,8 @@ describe('documentStore autosave', () => {
     vi.mocked(documentApi.get).mockReset()
     vi.mocked(documentApi.move).mockReset()
     vi.mocked(documentApi.listTree).mockReset()
+    vi.mocked(documentApi.addFavorite).mockReset()
+    vi.mocked(documentApi.removeFavorite).mockReset()
   })
 
   it('serializes edits made while an update is in flight onto the acknowledged version', async () => {
@@ -88,16 +91,31 @@ describe('documentStore autosave', () => {
     expect(store.error).toBe('Not found')
   })
 
+  it('persists a favorite and synchronizes the active document with the tree', async () => {
+    const favorited = document({ favorited: true })
+    vi.mocked(documentApi.addFavorite).mockResolvedValue(favorited)
+    const store = useDocumentStore()
+    store.activeDocument = document()
+    store.treeNodes = [document()]
+
+    await store.toggleFavorite(store.activeDocument)
+
+    expect(documentApi.addFavorite).toHaveBeenCalledWith(8)
+    expect(store.activeDocument?.favorited).toBe(true)
+    expect(store.treeNodes[0]?.favorited).toBe(true)
+    expect(store.favoritePendingIds.size).toBe(0)
+  })
+
   it('reloads the complete project tree after moving a document', async () => {
     const refreshedTree = [
-      { id: 8, projectId: 3, parentDocumentId: 9, title: 'Spec', sortOrder: 0, version: 1, updatedAt: '2026-07-29T08:00:00' }
+      { id: 8, projectId: 3, parentDocumentId: 9, title: 'Spec', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
     ]
     vi.mocked(documentApi.move).mockResolvedValue(undefined)
     vi.mocked(documentApi.listTree).mockResolvedValue(refreshedTree)
     const store = useDocumentStore()
     store.treeNodes = [
-      { id: 8, projectId: 3, parentDocumentId: null, title: 'Spec', sortOrder: 0, version: 1, updatedAt: '2026-07-29T08:00:00' },
-      { id: 9, projectId: 3, parentDocumentId: null, title: 'Parent', sortOrder: 1, version: 1, updatedAt: '2026-07-29T08:00:00' }
+      { id: 8, projectId: 3, parentDocumentId: null, title: 'Spec', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
+      { id: 9, projectId: 3, parentDocumentId: null, title: 'Parent', sortOrder: 1, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
     ]
 
     await store.moveDocument(3, 8, 9, null)
@@ -114,13 +132,13 @@ describe('documentStore autosave', () => {
       resolveMove = resolve
     }))
     vi.mocked(documentApi.listTree).mockResolvedValue([
-      { id: 9, projectId: 3, parentDocumentId: null, title: 'Second', sortOrder: 0, version: 1, updatedAt: '2026-07-29T08:00:00' },
-      { id: 8, projectId: 3, parentDocumentId: null, title: 'Spec', sortOrder: 1, version: 1, updatedAt: '2026-07-29T08:00:00' }
+      { id: 9, projectId: 3, parentDocumentId: null, title: 'Second', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
+      { id: 8, projectId: 3, parentDocumentId: null, title: 'Spec', sortOrder: 1, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
     ])
     const store = useDocumentStore()
     store.treeNodes = [
-      { id: 8, projectId: 3, parentDocumentId: null, title: 'Spec', sortOrder: 0, version: 1, updatedAt: '2026-07-29T08:00:00' },
-      { id: 9, projectId: 3, parentDocumentId: null, title: 'Second', sortOrder: 1, version: 1, updatedAt: '2026-07-29T08:00:00' }
+      { id: 8, projectId: 3, parentDocumentId: null, title: 'Spec', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
+      { id: 9, projectId: 3, parentDocumentId: null, title: 'Second', sortOrder: 1, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
     ]
 
     const movePromise = store.moveDocument(3, 8, null, 9)

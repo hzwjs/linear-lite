@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Archive, ChevronRight, FileText, MoreHorizontal, Plus } from 'lucide-vue-next'
+import { Archive, ChevronRight, FileText, MoreHorizontal, Plus, Star } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ProjectDocumentTreeNode } from '../../types/document'
@@ -23,6 +23,7 @@ const emit = defineEmits<{
   toggle: [documentId: number]
   createChild: [parentDocumentId: number]
   archive: [documentId: number]
+  toggleFavorite: [node: ProjectDocumentTreeNode]
   move: [payload: { documentId: number; parentDocumentId: number | null; previousSiblingId: number | null }]
   navigateKey: [payload: { event: KeyboardEvent; documentId: number }]
   dragStart: [documentId: number]
@@ -237,6 +238,7 @@ function onDocumentKeydown(event: KeyboardEvent) {
       >
         <FileText aria-hidden="true" />
         <span>{{ node.title }}</span>
+        <Star v-if="node.favorited" class="document-tree-row__favorite" aria-hidden="true" />
       </button>
       <button
         type="button"
@@ -249,6 +251,9 @@ function onDocumentKeydown(event: KeyboardEvent) {
         <MoreHorizontal aria-hidden="true" />
       </button>
       <div v-if="menuOpen" class="document-tree-row__menu" role="menu">
+        <button type="button" role="menuitem" @click="menuOpen = false; emit('toggleFavorite', node)">
+          <Star aria-hidden="true" />{{ node.favorited ? t('documents.removeFavorite') : t('documents.addFavorite') }}
+        </button>
         <button type="button" role="menuitem" @click="menuOpen = false; emit('createChild', node.id)">
           <Plus aria-hidden="true" />{{ t('documents.newChild') }}
         </button>
@@ -280,6 +285,7 @@ function onDocumentKeydown(event: KeyboardEvent) {
         @toggle="emit('toggle', $event)"
         @create-child="emit('createChild', $event)"
         @archive="emit('archive', $event)"
+        @toggle-favorite="emit('toggleFavorite', $event)"
         @move="emit('move', $event)"
         @navigate-key="emit('navigateKey', $event)"
         @drag-start="emit('dragStart', $event)"
@@ -378,9 +384,18 @@ function onDocumentKeydown(event: KeyboardEvent) {
 }
 
 .document-tree-row__main span {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.document-tree-row__main .document-tree-row__favorite {
+  width: 12px;
+  height: 12px;
+  color: var(--color-status-warning);
+  fill: currentColor;
 }
 
 .document-tree-row button:focus-visible {

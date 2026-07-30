@@ -121,6 +121,18 @@ export const documentApi = {
       .then((res) => { unwrap(res) })
   },
 
+  addFavorite(documentId: number): Promise<ProjectDocument> {
+    return api
+      .post<ApiResponse<ProjectDocument>>(`/project-documents/${documentId}/favorite`)
+      .then(unwrap)
+  },
+
+  removeFavorite(documentId: number): Promise<ProjectDocument> {
+    return api
+      .delete<ApiResponse<ProjectDocument>>(`/project-documents/${documentId}/favorite`)
+      .then(unwrap)
+  },
+
   listRevisions(documentId: number): Promise<ProjectDocumentRevisionSummary[]> {
     return api
       .get<ApiResponse<ProjectDocumentRevisionSummary[]>>(`/project-documents/${documentId}/revisions`)
