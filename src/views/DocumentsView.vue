@@ -54,13 +54,26 @@ async function loadWorkspace() {
   projectStore.setActiveProject(id)
   historyOpen.value = false
   archiveOpen.value = false
-  const [, memberList] = await Promise.all([
+  // 路由已明确文档 ID 时立即加载正文，禁止被树或成员接口串行阻塞。
+  const routedDocumentPromise = requestedDocumentId == null
+    ? Promise.resolve(null)
+    : store.loadDocument(requestedDocumentId)
+  const [, memberList, routedDocument] = await Promise.all([
     store.loadTree(id),
-    projectApi.listMembers(id)
+    projectApi.listMembers(id),
+    routedDocumentPromise
   ])
   if (sequence !== workspaceLoadSequence) return
   members.value = memberList.map((member) => ({ id: member.id, label: member.username }))
-  await loadRoutedDocument(sequence, id, requestedDocumentId)
+  if (requestedDocumentId == null) {
+    const latestId = latestRootDocumentId()
+    store.activeDocument = null
+    if (latestId != null) await router.replace(documentRoute(latestId))
+    return
+  }
+  if (routedDocument != null && routedDocument.projectId !== id) {
+    await router.replace(`/projects/${id}/documents`)
+  }
 }
 
 async function loadDocumentRoute() {

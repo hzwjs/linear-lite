@@ -1,7 +1,10 @@
 package com.linearlite.server.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.linearlite.server.dto.ProjectDocumentTreeNode;
 import com.linearlite.server.entity.ProjectDocument;
+import org.apache.ibatis.annotations.Arg;
+import org.apache.ibatis.annotations.ConstructorArgs;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -11,6 +14,42 @@ import java.util.List;
 
 @Mapper
 public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
+
+    /** 文档树只读取结构字段，禁止通用实体查询把所有 LONGTEXT 正文加载到服务端。 */
+    @Select("""
+            <script>
+            SELECT id,
+                   project_id AS projectId,
+                   parent_document_id AS parentDocumentId,
+                   title,
+                   sort_order AS sortOrder,
+                   version,
+                   updated_at AS updatedAt
+            FROM project_documents
+            WHERE project_id = #{projectId}
+            <choose>
+                <when test="archived">
+                    AND archived_at IS NOT NULL
+                </when>
+                <otherwise>
+                    AND archived_at IS NULL
+                </otherwise>
+            </choose>
+            ORDER BY parent_document_id ASC, sort_order ASC, id ASC
+            </script>
+            """)
+    @ConstructorArgs({
+            @Arg(column = "id", javaType = Long.class),
+            @Arg(column = "projectId", javaType = Long.class),
+            @Arg(column = "parentDocumentId", javaType = Long.class),
+            @Arg(column = "title", javaType = String.class),
+            @Arg(column = "sortOrder", javaType = Integer.class),
+            @Arg(column = "version", javaType = Long.class),
+            @Arg(column = "updatedAt", javaType = java.time.LocalDateTime.class)
+    })
+    List<ProjectDocumentTreeNode> selectTreeNodes(
+            @Param("projectId") Long projectId,
+            @Param("archived") boolean archived);
 
     @Update("""
             UPDATE project_documents

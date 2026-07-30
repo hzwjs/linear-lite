@@ -31,17 +31,7 @@ public class ProjectDocumentQueryService {
 
     public List<ProjectDocumentTreeNode> listTree(Long projectId, Long userId, boolean archived) {
         projectAccessGuard.requireMember(projectId, userId);
-        LambdaQueryWrapper<ProjectDocument> query = new LambdaQueryWrapper<ProjectDocument>()
-                .eq(ProjectDocument::getProjectId, projectId)
-                .orderByAsc(ProjectDocument::getParentDocumentId)
-                .orderByAsc(ProjectDocument::getSortOrder)
-                .orderByAsc(ProjectDocument::getId);
-        if (archived) {
-            query.isNotNull(ProjectDocument::getArchivedAt);
-        } else {
-            query.isNull(ProjectDocument::getArchivedAt);
-        }
-        return documentMapper.selectList(query).stream().map(this::toTreeNode).toList();
+        return documentMapper.selectTreeNodes(projectId, archived);
     }
 
     public ProjectDocumentResponse getDocument(Long documentId, Long userId) {
@@ -89,9 +79,4 @@ public class ProjectDocumentQueryService {
                 document.getLastEditorId(), document.getArchivedAt(), document.getCreatedAt(), document.getUpdatedAt());
     }
 
-    private ProjectDocumentTreeNode toTreeNode(ProjectDocument document) {
-        return new ProjectDocumentTreeNode(
-                document.getId(), document.getProjectId(), document.getParentDocumentId(), document.getTitle(),
-                document.getSortOrder(), document.getVersion(), document.getUpdatedAt());
-    }
 }

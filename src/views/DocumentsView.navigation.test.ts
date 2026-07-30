@@ -94,4 +94,42 @@ describe('DocumentsView navigation', () => {
     expect(documentApi.listTree).toHaveBeenCalledTimes(1)
     app.unmount()
   })
+
+  it('starts loading the routed document without waiting for the tree', async () => {
+    let resolveTree!: (nodes: ProjectDocumentTreeNode[]) => void
+    let resolveDocument!: (document: ProjectDocument) => void
+    vi.mocked(documentApi.listTree).mockReturnValue(new Promise((resolve) => {
+      resolveTree = resolve
+    }))
+    vi.mocked(documentApi.get).mockReturnValue(new Promise((resolve) => {
+      resolveDocument = resolve
+    }))
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/projects/:projectId/documents/:documentId', component: DocumentsView }
+      ]
+    })
+    await router.push('/projects/7/documents/1')
+    await router.isReady()
+
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const app = createApp({ template: '<RouterView />' })
+    app.use(createPinia())
+    app.use(router)
+    app.use(i18n)
+    app.mount(host)
+    await flushNavigation()
+
+    // 带文档 ID 的路由必须立即请求正文，不能被文档树的慢查询串行阻塞。
+    expect(documentApi.get).toHaveBeenCalledWith(1)
+    expect(host.querySelector('.documents-content .spin')).not.toBeNull()
+
+    resolveDocument(projectDocument(1))
+    resolveTree(treeNodes)
+    await flushNavigation()
+    app.unmount()
+  })
 })
