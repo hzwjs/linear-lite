@@ -10,7 +10,7 @@
 ## 执行流程
 
 1. 从 Outline 可见文档树清点整棵目标子树，固定记录 `outlineDocumentId`、标题、父级、`sortOrder` 和 `sourceUrl`。
-2. 创建权限为 `0700` 的批次目录，并准备最小权限 Outline Key 与权限为 `0600` 的 Linear Lite 认证文件。
+2. 准备最小权限 Outline Key 与 Linear Lite JWT，分别写入权限为 `0600` 的认证文件。
 3. 一次生成完整 manifest；子树之外的 manifest 节点必须已经存在于迁移 state。
 4. 迁移器最多并行读取 3 篇文档，对整棵子树完成创建前预检：
    - 标题与 manifest 完全一致；
@@ -21,25 +21,28 @@
    附件下载在整个批次内保持串行。
 5. 被硬门禁阻断的节点不创建；依赖其父级或精确链接的节点同步阻断。所有阻断项原子写入本批 Markdown 报告，正常节点继续执行。
 6. 单写入器按父子关系与 `sortOrder` 连续创建文档，再串行上传预检通过的附件并更新正文。
-7. 使用相同命令整批复跑，确认没有新增文档、正文更新或附件上传。
-8. 整批只做一次 API 与 Chrome 验收，检查数量、顺序、层级以及代表性正文和附件下载。
-9. 吊销临时 Outline Key，删除批次凭据、manifest、附件缓存与结果文件；保留权限为 `0600` 的 state 和批次阻断报告。
+7. 同一进程自动使用相同参数整批复跑，确认没有新增文档、正文更新或附件上传。
+8. 批次结果、结构化事件日志和阻断报告统一写入权限为 `0700` 的运行目录；state 写锁确保只有一个写入器。
+9. 整批只做一次 Chrome 验收，检查数量、顺序、层级以及代表性正文和附件下载。
+10. 吊销临时 Outline Key 并清理临时凭据；保留权限为 `0600` 的 state 和批次运行记录。
 
 ## 命令
 
 ```bash
-OUTLINE_BASE_URL=http://outline.example \
-OUTLINE_API_TOKEN=<temporary-read-token> \
-JWT=<linear-lite-token> \
-node scripts/migrate-outline-documents.mjs \
-  --manifest /path/to/batch-manifest.json \
+chmod 600 /path/to/outline-auth.env /path/to/target-auth.env
+
+npm run outline:sync -- run \
+  --catalog /path/to/batch-catalog.json \
   --subtree-root-id <outline-url-id> \
   --state /tmp/outline-jlnx-api-pilot-state.json \
-  --blocked-report docs/migrations/outline-jlnx-blocked-<outline-url-id>.md
+  --outline-auth-file /path/to/outline-auth.env \
+  --target-auth-file /path/to/target-auth.env
 ```
 
-`--document-id` 已停用。在线迁移只能以 `--subtree-root-id` 选择整棵子树。
+Outline 认证文件只读取一行 `OUTLINE_API_TOKEN=<临时 Key>`，目标端认证文件只读取一行 `JWT=<Linear Lite JWT>`。凭据不会写入事件日志或结果文件。未显式设置 `--run-dir` 时，运行记录写入 `docs/migrations/runs/<时间>-<项目>-<子树根>`。
+
+新入口只接受在线 API catalog 和 `--subtree-root-id`，不提供 collection/workspace export、标题匹配或字段回退。
 
 ## 阻断报告
 
-阻断报告只记录创建前未通过硬门禁的节点，包含 Outline `urlId`、标题、父级、阻断代码、原因和源地址。处理阻断原因后，重新执行该节点所在的整棵子树批次，不做标题匹配、字段回退或单节点临时兼容。
+运行目录中的 `blocked.md` 只记录创建前未通过硬门禁的节点，包含 Outline `urlId`、标题、父级、阻断代码、原因和源地址。处理阻断原因后，重新执行该节点所在的整棵子树批次，不做标题匹配、字段回退或单节点临时兼容。

@@ -890,7 +890,8 @@ export async function migrateOutlineApiDocuments({
   outlineApi,
   subtreeRootOutlineDocumentId,
   maxAttachmentBytes = DEFAULT_MAX_ATTACHMENT_BYTES,
-  preflightConcurrency = DEFAULT_PREFLIGHT_CONCURRENCY
+  preflightConcurrency = DEFAULT_PREFLIGHT_CONCURRENCY,
+  onProgress = () => {}
 }) {
   validateOutlineApiManifest(manifest)
   if (!statePath) throw new Error('在线迁移必须显式提供 --state')
@@ -935,6 +936,7 @@ export async function migrateOutlineApiDocuments({
   try {
     // 所有硬门禁都在写入前完成；附件只读预检并缓存到 0700 临时目录，避免创建后才发现超限。
     fs.chmodSync(tempDirectory, 0o700)
+    onProgress('preflight_started', { documents: targetDocuments.length })
     const preflight = await preflightOutlineApiBatch({
       targetDocuments,
       state,
@@ -956,6 +958,7 @@ export async function migrateOutlineApiDocuments({
     })
     blockedDocuments = preflight.blocked.size
     migratedDocuments = targetDocuments.length - blockedDocuments
+    onProgress('preflight_completed', { migratedDocuments, blockedDocuments })
 
     const eligibleDocuments = targetDocuments.filter(
       entry => !preflight.blocked.has(entry.outlineDocumentId))
@@ -974,6 +977,10 @@ export async function migrateOutlineApiDocuments({
         const existing = await linearLiteApi.getDocument(documentState.linearLiteDocumentId)
         requireExistingTarget(existing, project.id, entry.outlineDocumentId, parentId)
         documentState.version = existing.version
+        onProgress('document_reused', {
+          outlineDocumentId: entry.outlineDocumentId,
+          linearLiteDocumentId: existing.id
+        })
         continue
       }
 
@@ -996,6 +1003,10 @@ export async function migrateOutlineApiDocuments({
       }
       saveState(statePath, state)
       createdDocuments += 1
+      onProgress('document_created', {
+        outlineDocumentId: entry.outlineDocumentId,
+        linearLiteDocumentId: created.id
+      })
     }
 
     // 第二遍严格串行上传已通过门禁的附件，不再访问 Outline 附件端点。
@@ -1025,7 +1036,13 @@ export async function migrateOutlineApiDocuments({
       }
       const content = convertMarkdownToBlockNote(rewritten, entry.outlineDocumentId)
       const contentHash = sha256(content)
-      if (documentState.contentSha256 === contentHash && documentState.title === source.title) continue
+      if (documentState.contentSha256 === contentHash && documentState.title === source.title) {
+        onProgress('document_unchanged', {
+          outlineDocumentId: entry.outlineDocumentId,
+          linearLiteDocumentId: documentState.linearLiteDocumentId
+        })
+        continue
+      }
       const updated = await linearLiteApi.updateDocument(documentState.linearLiteDocumentId, {
         expectedVersion: documentState.version,
         title: source.title,
@@ -1036,6 +1053,10 @@ export async function migrateOutlineApiDocuments({
       documentState.contentSha256 = contentHash
       saveState(statePath, state)
       updatedDocuments += 1
+      onProgress('document_updated', {
+        outlineDocumentId: entry.outlineDocumentId,
+        linearLiteDocumentId: updated.id
+      })
     }
   } finally {
     fs.rmSync(tempDirectory, { recursive: true, force: true })
