@@ -156,6 +156,8 @@ const zhCN = {
     history: '历史版本', version: '版本 {version}', backToHistory: '返回版本历史', historyLoadFailed: '版本历史加载失败。', noHistory: '暂无历史版本。',
     restoreThisVersion: '恢复此版本', restoring: '正在恢复…', documentTitle: '文档标题',
     bodyPlaceholder: '记录项目背景、决策与方案…', breadcrumbLabel: '文档位置',
+    minimapLabel: '文档快速定位', minimapControlLabel: '拖动或使用方向键快速浏览文档',
+    minimapPosition: '文档阅读位置 {percent}%', minimapEmptyBlock: '空白段落',
     updatedBy: '{name} 已更新 {time}',
     updatedTime: { justNow: '刚刚', minutesAgo: '{count} 分钟前', hoursAgo: '{count} 小时前', daysAgo: '{count} 天前', monthsAgo: '{count} 个月前' },
     conflictTitle: '服务端已有更新版本',

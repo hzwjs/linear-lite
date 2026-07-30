@@ -3,6 +3,7 @@ import { Archive, Check, Clock3, Copy, Loader2, RefreshCw, Star, TriangleAlert }
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StructuredDocumentEditor from '../StructuredDocumentEditor.vue'
+import DocumentMinimap from './DocumentMinimap.vue'
 import { documentApi } from '../../services/api/documents'
 import type { DocumentSaveState, ProjectDocument, ProjectDocumentTreeNode } from '../../types/document'
 
@@ -33,6 +34,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const copied = ref(false)
 const bodyEditorRef = ref<InstanceType<typeof StructuredDocumentEditor> | null>(null)
+const documentPageRef = ref<HTMLElement | null>(null)
 const documentBodyRef = ref<HTMLElement | null>(null)
 const attachmentDownloadError = ref('')
 const attachmentDownloadPending = ref(false)
@@ -272,7 +274,8 @@ async function handleDocumentBodyClick(event: MouseEvent) {
       <button type="button" @click="emit('retry')"><RefreshCw aria-hidden="true" />{{ t('common.retry') }}</button>
     </div>
 
-    <div class="document-editor__page">
+    <DocumentMinimap :scroll-element="documentPageRef" :controls="`document-scroll-${document.id}`" />
+    <div :id="`document-scroll-${document.id}`" ref="documentPageRef" class="document-editor__page">
       <div class="document-editor__heading">
         <label class="sr-only" :for="`document-title-${document.id}`">{{ t('documents.documentTitle') }}</label>
         <input
@@ -313,6 +316,9 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 
 <style scoped>
 .document-editor {
+  --document-page-max-width: 860px;
+  container: document-editor / inline-size;
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -386,7 +392,7 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 .document-editor__conflict button svg { width: 14px; height: 14px; }
 
 .document-editor__page {
-  width: min(100%, 860px);
+  width: min(100%, var(--document-page-max-width));
   min-height: 0;
   flex: 1;
   margin: 0 auto;
