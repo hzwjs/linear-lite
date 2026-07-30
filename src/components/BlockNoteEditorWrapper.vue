@@ -392,32 +392,18 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
 
 /* ── Mermaid code blocks: render diagrams in-place by default, and reveal the
       editable source only when the block is activated. ── */
-.blocknote-editor-wrap--chrome .bn-mermaid-block {
+.blocknote-editor-wrap--chrome
+  .bn-block-outer:has(.bn-block-content[data-content-type="codeBlock"][data-language="mermaid"]) {
   margin: 4px 0;
+  /* 图表高度异步落定时，让浏览器选取正文作为滚动锚点，避免视口跟随图表回跳。 */
+  overflow-anchor: none;
 }
 
 .blocknote-editor-wrap--chrome
-  .bn-block-outer:not(.bn-mermaid-block--source)
   .bn-block-content[data-content-type="codeBlock"][data-language="mermaid"] {
   height: var(--bn-mermaid-preview-height, clamp(180px, 34vw, 520px));
   overflow: hidden;
   visibility: hidden;
-}
-
-.blocknote-editor-wrap--chrome
-  .bn-block-outer.bn-mermaid-block--source
-  .bn-block-content[data-content-type="codeBlock"][data-language="mermaid"] {
-  height: auto;
-  overflow: visible;
-  visibility: visible;
-}
-
-.blocknote-editor-wrap--chrome
-  .bn-mermaid-editor-root:has(.bn-mermaid-preview--source)
-  .bn-block-content[data-content-type="codeBlock"][data-language="mermaid"] {
-  height: auto;
-  overflow: visible;
-  visibility: visible;
 }
 
 .blocknote-editor-wrap--chrome .bn-mermaid-editor-root {

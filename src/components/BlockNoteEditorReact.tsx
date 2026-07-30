@@ -137,6 +137,55 @@ type MermaidBlockRef = {
   source: string
 }
 
+type MermaidLayoutState = {
+  heights: Map<string, number>
+  sourceBlockIds: Set<string>
+  style: HTMLStyleElement
+}
+
+const mermaidLayoutStates = new WeakMap<HTMLElement, MermaidLayoutState>()
+
+function escapeCssAttributeValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+function getMermaidLayoutState(layer: HTMLElement): MermaidLayoutState {
+  const existing = mermaidLayoutStates.get(layer)
+  if (existing) return existing
+  const style = document.createElement('style')
+  style.className = 'bn-mermaid-layout-styles'
+  layer.appendChild(style)
+  const created = { heights: new Map<string, number>(), sourceBlockIds: new Set<string>(), style }
+  mermaidLayoutStates.set(layer, created)
+  return created
+}
+
+function renderMermaidLayoutStyles(layer: HTMLElement) {
+  const state = getMermaidLayoutState(layer)
+  const rules: string[] = []
+  for (const [blockId, height] of state.heights) {
+    const id = escapeCssAttributeValue(blockId)
+    rules.push(
+      `.bn-block-outer[data-id="${id}"] .bn-block-content[data-content-type="codeBlock"][data-language="mermaid"] { --bn-mermaid-preview-height: ${height}px; }`
+    )
+  }
+  for (const blockId of state.sourceBlockIds) {
+    const id = escapeCssAttributeValue(blockId)
+    rules.push(
+      `.bn-block-outer[data-id="${id}"] .bn-block-content[data-content-type="codeBlock"][data-language="mermaid"] { height: auto; overflow: visible; visibility: visible; }`
+    )
+  }
+  const css = rules.join('\n')
+  if (state.style.textContent !== css) state.style.textContent = css
+}
+
+function setMermaidSourceMode(layer: HTMLElement, blockId: string, sourceVisible: boolean) {
+  const state = getMermaidLayoutState(layer)
+  if (sourceVisible) state.sourceBlockIds.add(blockId)
+  else state.sourceBlockIds.delete(blockId)
+  renderMermaidLayoutStyles(layer)
+}
+
 type ImagePreviewItem = {
   src: string
   width: number
@@ -336,20 +385,13 @@ function findMermaidBlockHost(root: HTMLElement, blockId: string): HTMLElement |
     '.bn-block-content[data-content-type="codeBlock"]'
   )
   if (!content) return null
-  blockOuter.classList.add('bn-mermaid-block')
   return blockOuter
 }
 
 function removeStaleMermaidOverlays(
-  root: HTMLElement,
   layer: HTMLElement,
   activeBlockIds: Set<string>
 ) {
-  for (const outer of root.querySelectorAll<HTMLElement>('.bn-mermaid-block')) {
-    const blockId = outer.dataset.id
-    if (blockId && activeBlockIds.has(blockId)) continue
-    outer.classList.remove('bn-mermaid-block', 'bn-mermaid-block--source')
-  }
   for (const overlay of layer.querySelectorAll<HTMLElement>('.bn-mermaid-preview')) {
     const blockId = overlay.dataset.blockId
     if (blockId && activeBlockIds.has(blockId)) continue
@@ -360,6 +402,14 @@ function removeStaleMermaidOverlays(
     if (blockId && activeBlockIds.has(blockId)) continue
     button.remove()
   }
+  const layoutState = getMermaidLayoutState(layer)
+  for (const blockId of layoutState.heights.keys()) {
+    if (!activeBlockIds.has(blockId)) layoutState.heights.delete(blockId)
+  }
+  for (const blockId of layoutState.sourceBlockIds) {
+    if (!activeBlockIds.has(blockId)) layoutState.sourceBlockIds.delete(blockId)
+  }
+  renderMermaidLayoutStyles(layer)
 }
 
 function positionMermaidPreview(root: HTMLElement, host: HTMLElement, preview: HTMLElement) {
@@ -377,17 +427,21 @@ function positionMermaidPreviewZoomButton(root: HTMLElement, host: HTMLElement, 
   button.style.top = `${hostRect.top - rootRect.top + 8}px`
 }
 
-function syncMermaidPreviewHeight(root: HTMLElement, preview: HTMLElement) {
+export function syncMermaidPreviewHeight(root: HTMLElement, preview: HTMLElement) {
   const blockId = preview.dataset.blockId
   if (!blockId) return
+  // 渲染期间保留稳定占位；只在终态提交一次真实高度，避免滚动时连续重排正文。
+  if (preview.dataset.renderState !== 'resolved' && preview.dataset.renderState !== 'rejected') return
   const host = findMermaidBlockHost(root, blockId)
-  if (!host || host.classList.contains('bn-mermaid-block--source')) return
+  if (!host || preview.classList.contains('bn-mermaid-preview--source')) return
+  const layer = preview.parentElement
+  if (!layer) return
   const height = Math.max(96, Math.ceil(preview.getBoundingClientRect().height))
-  root.style.setProperty('--bn-mermaid-preview-height', `${height}px`)
-  const content = host.querySelector<HTMLElement>(
-    '.bn-block-content[data-content-type="codeBlock"][data-language="mermaid"]'
-  )
-  content?.style.setProperty('--bn-mermaid-preview-height', `${height}px`)
+  // 高度写入独立预览层，避免 BlockNote 重建受控 DOM 时覆盖尺寸并触发反复重排。
+  const layoutState = getMermaidLayoutState(layer)
+  if (layoutState.heights.get(blockId) === height) return
+  layoutState.heights.set(blockId, height)
+  renderMermaidLayoutStyles(layer)
 }
 
 function ensureMermaidPreview(
@@ -488,17 +542,13 @@ function hydrateMermaidPreviewBlocks(root: HTMLElement, layer: HTMLElement, bloc
   for (const block of collectMermaidBlocksFromDom(root)) byId.set(block.id, block)
   const mermaidBlocks = Array.from(byId.values())
   const activeIds = new Set(mermaidBlocks.map((block) => block.id))
-  removeStaleMermaidOverlays(root, layer, activeIds)
+  removeStaleMermaidOverlays(layer, activeIds)
 
   for (const block of mermaidBlocks) {
     const host = findMermaidBlockHost(root, block.id)
     if (!host) continue
     const preview = ensureMermaidPreview(root, layer, host, block.id, block.source)
     const zoomButton = ensureMermaidPreviewZoomButton(root, layer, host, block.id)
-    host.classList.toggle(
-      'bn-mermaid-block--source',
-      preview.classList.contains('bn-mermaid-preview--source')
-    )
     positionMermaidPreview(root, host, preview)
     positionMermaidPreviewZoomButton(root, host, zoomButton)
     zoomButton.hidden =
@@ -787,28 +837,17 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       }, 80)
     }
     hydrate()
-    const timers = [
-      window.setTimeout(hydrate, 0),
-      window.setTimeout(hydrate, 120),
-      window.setTimeout(hydrate, 500),
-      window.setTimeout(hydrate, 1500),
-      window.setTimeout(hydrate, 3000),
-      window.setTimeout(hydrate, 5000),
-      window.setTimeout(hydrate, 8000),
-    ]
+    // BlockNote 后续构建节点并更新 data-language；两类变化都由观察器驱动，禁止定时轮询。
     const observer = new MutationObserver(queueHydrate)
-    observer.observe(root, { childList: true, subtree: true })
-    let intervalTicks = 0
-    const interval = window.setInterval(() => {
-      intervalTicks += 1
-      hydrate()
-      if (intervalTicks >= 24) window.clearInterval(interval)
-    }, 500)
+    observer.observe(root, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-id', 'data-content-type', 'data-language'],
+    })
     return () => {
       if (hydrationTimer != null) window.clearTimeout(hydrationTimer)
       observer.disconnect()
-      window.clearInterval(interval)
-      for (const timer of timers) window.clearTimeout(timer)
     }
   }, [editor])
 
@@ -863,8 +902,8 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       const blockId = preview.dataset.blockId
       if (!blockId) return
       const host = findMermaidBlockHost(root, blockId)
-      host?.classList.add('bn-mermaid-block--source')
       preview.classList.add('bn-mermaid-preview--source')
+      if (mermaidLayerRef.current) setMermaidSourceMode(mermaidLayerRef.current, blockId, true)
       host?.querySelector<HTMLElement>('[contenteditable="true"]')?.focus()
     }
 
@@ -874,10 +913,8 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
         if (!blockId) continue
         const host = findMermaidBlockHost(root, blockId)
         if (!host) {
-          document
-            .querySelector<HTMLElement>(`.bn-block-outer[data-id="${blockId}"]`)
-            ?.classList.remove('bn-mermaid-block--source')
           preview.classList.remove('bn-mermaid-preview--source')
+          if (mermaidLayerRef.current) setMermaidSourceMode(mermaidLayerRef.current, blockId, false)
           continue
         }
         const rect = host.getBoundingClientRect()
@@ -887,8 +924,8 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
           event.clientY >= rect.top &&
           event.clientY <= rect.bottom
         if (!inside) {
-          host.classList.remove('bn-mermaid-block--source')
           preview.classList.remove('bn-mermaid-preview--source')
+          if (mermaidLayerRef.current) setMermaidSourceMode(mermaidLayerRef.current, blockId, false)
           syncMermaidPreviewHeight(root, preview)
         }
       }
