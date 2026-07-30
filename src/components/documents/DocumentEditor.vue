@@ -36,10 +36,12 @@ const bodyEditorRef = ref<InstanceType<typeof StructuredDocumentEditor> | null>(
 const documentBodyRef = ref<HTMLElement | null>(null)
 const attachmentDownloadError = ref('')
 const attachmentDownloadPending = ref(false)
+const relativeTimeClock = ref(Date.now())
 const attachmentImageObjectUrls = new Map<HTMLImageElement, string>()
 const pendingAttachmentImages = new WeakSet<HTMLImageElement>()
 let attachmentImageObserver: MutationObserver | null = null
 let attachmentImageGeneration = 0
+let relativeTimeTimer: ReturnType<typeof setInterval> | null = null
 
 function matchDocumentAttachmentPath(value: string | null): RegExpMatchArray | null {
   try {
@@ -103,6 +105,8 @@ async function hydrateAttachmentImages() {
 }
 
 onMounted(async () => {
+  // 页面停留期间按分钟刷新相对时间，避免“最近更新”文案逐渐失真。
+  relativeTimeTimer = window.setInterval(() => { relativeTimeClock.value = Date.now() }, 60_000)
   await nextTick()
   const body = documentBodyRef.value
   if (body == null) return
@@ -123,6 +127,7 @@ watch(
   { flush: 'post' }
 )
 onBeforeUnmount(() => {
+  if (relativeTimeTimer != null) clearInterval(relativeTimeTimer)
   attachmentImageObserver?.disconnect()
   attachmentImageObserver = null
   attachmentImageGeneration += 1
@@ -141,6 +146,28 @@ const breadcrumbs = computed(() => {
 })
 
 const saveLabel = computed(() => t(`documents.saveState.${props.saveState}`))
+const lastEditor = computed(() => props.mentionMembers.find((member) => member.id === props.document.lastEditorId))
+
+function relativeUpdatedTime(updatedAt: string) {
+  const elapsedSeconds = Math.max(0, Math.floor((relativeTimeClock.value - Date.parse(updatedAt)) / 1000))
+  if (elapsedSeconds < 60) return t('documents.updatedTime.justNow')
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60)
+  if (elapsedMinutes < 60) return t('documents.updatedTime.minutesAgo', { count: elapsedMinutes })
+  const elapsedHours = Math.floor(elapsedMinutes / 60)
+  if (elapsedHours < 24) return t('documents.updatedTime.hoursAgo', { count: elapsedHours })
+  const elapsedDays = Math.floor(elapsedHours / 24)
+  if (elapsedDays < 30) return t('documents.updatedTime.daysAgo', { count: elapsedDays })
+  return t('documents.updatedTime.monthsAgo', { count: Math.floor(elapsedDays / 30) })
+}
+
+const updatedMetadata = computed(() => {
+  if (lastEditor.value == null) return null
+  // 更新人只按文档的 lastEditorId 关联项目成员，保持唯一字段链路。
+  return t('documents.updatedBy', {
+    name: lastEditor.value.label,
+    time: relativeUpdatedTime(props.document.updatedAt)
+  })
+})
 
 function handleTitleKeydown(event: KeyboardEvent) {
   if (event.key !== 'Enter' || event.isComposing) return
@@ -246,17 +273,20 @@ async function handleDocumentBodyClick(event: MouseEvent) {
     </div>
 
     <div class="document-editor__page">
-      <label class="sr-only" :for="`document-title-${document.id}`">{{ t('documents.documentTitle') }}</label>
-      <input
-        :id="`document-title-${document.id}`"
-        class="document-editor__title"
-        type="text"
-        maxlength="256"
-        :value="document.title"
-        :readonly="saveState === 'conflict'"
-        @input="emit('updateTitle', ($event.target as HTMLInputElement).value)"
-        @keydown="handleTitleKeydown"
-      />
+      <div class="document-editor__heading">
+        <label class="sr-only" :for="`document-title-${document.id}`">{{ t('documents.documentTitle') }}</label>
+        <input
+          :id="`document-title-${document.id}`"
+          class="document-editor__title"
+          type="text"
+          maxlength="256"
+          :value="document.title"
+          :readonly="saveState === 'conflict'"
+          @input="emit('updateTitle', ($event.target as HTMLInputElement).value)"
+          @keydown="handleTitleKeydown"
+        />
+        <p v-if="updatedMetadata" class="document-editor__updated">{{ updatedMetadata }}</p>
+      </div>
       <div
         ref="documentBodyRef"
         class="document-editor__body"
@@ -367,7 +397,6 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 .document-editor__title {
   width: 100%;
   min-height: 52px;
-  margin-bottom: 20px;
   padding: 0;
   color: var(--color-text-primary);
   font-size: 36px;
@@ -378,6 +407,15 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 
 .document-editor__title:focus-visible { outline: none; }
 .document-editor__title[readonly] { color: var(--color-text-secondary); }
+
+.document-editor__heading { margin-bottom: 20px; }
+
+.document-editor__updated {
+  margin: 8px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+  line-height: 1.5;
+}
 
 /* BlockNote owns the editable DOM; style the fixed attachment path directly to avoid mutation feedback loops. */
 .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]) {

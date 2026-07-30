@@ -156,6 +156,8 @@ const en = {
     history: 'History', version: 'Version {version}', backToHistory: 'Back to version history', historyLoadFailed: 'Version history could not be loaded.', noHistory: 'No versions yet.',
     restoreThisVersion: 'Restore this version', restoring: 'Restoring…', documentTitle: 'Document title',
     bodyPlaceholder: 'Write project context, decisions, and plans…', breadcrumbLabel: 'Document location',
+    updatedBy: '{name} updated {time}',
+    updatedTime: { justNow: 'just now', minutesAgo: '{count} minutes ago', hoursAgo: '{count} hours ago', daysAgo: '{count} days ago', monthsAgo: '{count} months ago' },
     conflictTitle: 'A newer version exists on the server',
     conflictDescription: 'Your draft is preserved. The server is now at version {version}. Copy the draft or reload before continuing.',
     copyDraft: 'Copy draft', copied: 'Copied', reloadServerVersion: 'Reload server version',
