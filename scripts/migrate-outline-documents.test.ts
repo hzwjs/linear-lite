@@ -806,10 +806,14 @@ describe('Outline document migration', () => {
           title: entry.title,
           markdown: outlineDocumentId === 'Blocked001'
             ? '[large.bin](/api/attachments.redirect?id=large)'
+            : outlineDocumentId === 'Dependent1'
+              ? '[should-not-download.bin](/api/attachments.redirect?id=dependent)'
             : `# ${entry.title}`
         }
       },
-      async downloadAttachment() {
+      async downloadAttachment({ attachmentUrl }: { attachmentUrl: string }) {
+        const attachmentId = new URL(attachmentUrl).searchParams.get('id')
+        if (attachmentId === 'dependent') throw new Error('依赖节点附件不应下载')
         throw new Error('Outline 附件超过 52428800 字节')
       },
       async resolveDocumentMention() {

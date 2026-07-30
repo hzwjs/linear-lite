@@ -760,9 +760,33 @@ async function preflightOutlineApiBatch({
     }
   })
 
-  // 附件保持全批次串行，避免大文件并发占满 Outline、网络或本地磁盘。
-  for (const item of inspected) {
+  const inspectedById = new Map(inspected.map(item => [item.entry.outlineDocumentId, item]))
+  const externalParentOutlineIds = targetDocuments
+    .map(entry => entry.parentOutlineDocumentId)
+    .filter(parentOutlineDocumentId => parentOutlineDocumentId != null
+      && !targetOutlineIds.has(parentOutlineDocumentId))
+  const attachmentOrder = orderDocuments(targetDocuments, externalParentOutlineIds).map(
+    entry => inspectedById.get(entry.outlineDocumentId))
+  // 附件保持全批次串行；父级已硬阻断的后代不再产生必然无效的下载流量。
+  for (const item of attachmentOrder) {
     if (item.error) continue
+    let ancestorOutlineDocumentId = item.entry.parentOutlineDocumentId
+    let failedAncestor
+    while (ancestorOutlineDocumentId != null && targetOutlineIds.has(ancestorOutlineDocumentId)) {
+      const ancestor = inspectedById.get(ancestorOutlineDocumentId)
+      if (ancestor?.error) {
+        failedAncestor = ancestorOutlineDocumentId
+        break
+      }
+      ancestorOutlineDocumentId = ancestor?.entry.parentOutlineDocumentId
+    }
+    if (failedAncestor) {
+      onProgress('attachment_preflight_skipped', {
+        outlineDocumentId: item.entry.outlineDocumentId,
+        blockedAncestorOutlineDocumentId: failedAncestor
+      })
+      continue
+    }
     for (const [sourceId, attachment] of item.attachments) {
       try {
         const cached = attachmentSpool.load(
