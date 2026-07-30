@@ -130,7 +130,7 @@ async function moveDocument(payload: { documentId: number; parentDocumentId: num
   if (moving.value) return
   moving.value = true
   try {
-    await store.moveDocument(payload.documentId, payload.parentDocumentId, payload.previousSiblingId)
+    await store.moveDocument(projectId.value, payload.documentId, payload.parentDocumentId, payload.previousSiblingId)
   } finally {
     moving.value = false
   }
@@ -215,10 +215,12 @@ onBeforeUnmount(() => {
           </div>
           <DocumentTree
             v-else
+            :key="store.treeSnapshotVersion"
             :project-id="projectId"
             :nodes="store.treeNodes"
             :active-id="documentId"
             :query="filterQuery"
+            :moving="moving"
             @select="openDocument"
             @create-child="createDocument"
             @archive="archiveDocument"

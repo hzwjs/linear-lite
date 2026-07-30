@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ChevronRight, FileText, MoreHorizontal, Plus, Archive } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { Archive, ChevronRight, FileText, MoreHorizontal, Plus } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ProjectDocumentTreeNode } from '../../types/document'
 
@@ -13,6 +13,9 @@ const props = defineProps<{
   previousSiblingId: number | null
   previousPreviousSiblingId: number | null
   nextSiblingId: number | null
+  draggingDocumentId: number | null
+  dragHintId: string
+  moving: boolean
 }>()
 
 const emit = defineEmits<{
@@ -22,6 +25,8 @@ const emit = defineEmits<{
   archive: [documentId: number]
   move: [payload: { documentId: number; parentDocumentId: number | null; previousSiblingId: number | null }]
   navigateKey: [payload: { event: KeyboardEvent; documentId: number }]
+  dragStart: [documentId: number]
+  dragEnd: []
 }>()
 
 const { t } = useI18n()
@@ -30,6 +35,27 @@ const dragPlacement = ref<'before' | 'inside' | 'after' | null>(null)
 const children = computed(() => props.childrenByParent.get(props.node.id) ?? [])
 const hasChildren = computed(() => children.value.length > 0)
 const isExpanded = computed(() => props.expandedIds.has(props.node.id))
+const isDragging = computed(() => props.draggingDocumentId === props.node.id)
+const dropLabel = computed(() => {
+  if (dragPlacement.value == null) return ''
+  const labelKeys = {
+    before: 'documents.dropBefore',
+    inside: 'documents.dropInside',
+    after: 'documents.dropAfter'
+  } as const
+  return t(labelKeys[dragPlacement.value], { title: props.node.title })
+})
+const nodesById = computed(() => {
+  const entries = [...props.childrenByParent.values()].flat().map((node) => [node.id, node] as const)
+  return new Map(entries)
+})
+
+watch(
+  () => props.draggingDocumentId,
+  (documentId) => {
+    if (documentId != null) menuOpen.value = false
+  }
+)
 const parentNode = computed(() => {
   if (props.node.parentDocumentId == null) return null
   for (const nodes of props.childrenByParent.values()) {
@@ -58,6 +84,7 @@ function moveDown() {
 
 function indent() {
   if (props.previousSiblingId == null) return
+  if (!props.expandedIds.has(props.previousSiblingId)) emit('toggle', props.previousSiblingId)
   emit('move', {
     documentId: props.node.id,
     parentDocumentId: props.previousSiblingId,
@@ -74,15 +101,38 @@ function outdent() {
   })
 }
 
+function isInsideDraggingSubtree(documentId: number) {
+  const sourceId = props.draggingDocumentId
+  if (sourceId == null) return false
+  let current = nodesById.value.get(documentId)
+  while (current) {
+    if (current.id === sourceId) return true
+    current = current.parentDocumentId == null ? undefined : nodesById.value.get(current.parentDocumentId)
+  }
+  return false
+}
+
 function onDragStart(event: DragEvent) {
+  if (props.moving || !event.dataTransfer) {
+    event.preventDefault()
+    return
+  }
+  menuOpen.value = false
   event.dataTransfer?.setData('application/x-linear-lite-document-id', String(props.node.id))
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.effectAllowed = 'move'
+  const row = (event.currentTarget as HTMLElement).closest<HTMLElement>('.document-tree-row')
+  if (row) {
+    const bounds = row.getBoundingClientRect()
+    event.dataTransfer.setDragImage(row, event.clientX - bounds.left, event.clientY - bounds.top)
+  }
+  emit('dragStart', props.node.id)
 }
 
 function onDragOver(event: DragEvent) {
-  const source = Number(event.dataTransfer?.getData('application/x-linear-lite-document-id'))
-  if (source === props.node.id) return
+  // 拖拽源只读取树组件维护的唯一状态，避免依赖浏览器在 dragover 阶段暴露 DataTransfer 数据。
+  if (props.draggingDocumentId == null || isInsideDraggingSubtree(props.node.id)) return
   event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
   const row = event.currentTarget as HTMLElement
   const bounds = row.getBoundingClientRect()
   const ratio = (event.clientY - bounds.top) / bounds.height
@@ -91,11 +141,13 @@ function onDragOver(event: DragEvent) {
 
 function onDrop(event: DragEvent) {
   event.preventDefault()
-  const documentId = Number(event.dataTransfer?.getData('application/x-linear-lite-document-id'))
+  const documentId = props.draggingDocumentId
   const placement = dragPlacement.value
   dragPlacement.value = null
-  if (!Number.isInteger(documentId) || documentId === props.node.id || placement == null) return
+  if (documentId == null || isInsideDraggingSubtree(props.node.id) || placement == null) return
   if (placement === 'inside') {
+    // 成为子文档后立即展开目标，确保移动结果在树中可见。
+    if (!isExpanded.value) emit('toggle', props.node.id)
     emit('move', { documentId, parentDocumentId: props.node.id, previousSiblingId: null })
   } else if (placement === 'before') {
     emit('move', {
@@ -109,6 +161,31 @@ function onDrop(event: DragEvent) {
       parentDocumentId: props.node.parentDocumentId,
       previousSiblingId: props.node.id
     })
+  }
+  emit('dragEnd')
+}
+
+function onDragEnd() {
+  dragPlacement.value = null
+  emit('dragEnd')
+}
+
+function onDocumentKeydown(event: KeyboardEvent) {
+  if (props.moving) return
+  if (event.altKey && event.key === 'ArrowUp' && props.previousSiblingId != null) {
+    event.preventDefault()
+    moveUp()
+  } else if (event.altKey && event.key === 'ArrowDown' && props.nextSiblingId != null) {
+    event.preventDefault()
+    moveDown()
+  } else if (event.altKey && event.key === 'ArrowRight' && props.previousSiblingId != null) {
+    event.preventDefault()
+    indent()
+  } else if (event.altKey && event.key === 'ArrowLeft' && parentNode.value) {
+    event.preventDefault()
+    outdent()
+  } else {
+    emit('navigateKey', { event, documentId: props.node.id })
   }
 }
 </script>
@@ -125,15 +202,16 @@ function onDrop(event: DragEvent) {
       class="document-tree-row"
       :class="[
         { 'document-tree-row--active': activeId === node.id },
+        { 'document-tree-row--dragging': isDragging },
         dragPlacement && `document-tree-row--drop-${dragPlacement}`
       ]"
       :style="{ '--document-depth': depth }"
-      draggable="true"
+      :draggable="!moving"
       @dragstart="onDragStart"
       @dragover="onDragOver"
       @dragleave="dragPlacement = null"
       @drop="onDrop"
-      @dragend="dragPlacement = null"
+      @dragend="onDragEnd"
     >
       <button
         type="button"
@@ -151,9 +229,11 @@ function onDrop(event: DragEvent) {
         class="document-tree-row__main"
         :data-document-tree-id="node.id"
         :aria-current="activeId === node.id ? 'page' : undefined"
+        :aria-describedby="dragHintId"
+        aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight"
         :title="node.title"
         @click="emit('select', node.id)"
-        @keydown="emit('navigateKey', { event: $event, documentId: node.id })"
+        @keydown="onDocumentKeydown"
       >
         <FileText aria-hidden="true" />
         <span>{{ node.title }}</span>
@@ -163,6 +243,7 @@ function onDrop(event: DragEvent) {
         class="document-tree-row__menu-trigger"
         :aria-label="t('documents.actionsFor', { title: node.title })"
         :aria-expanded="menuOpen"
+        aria-haspopup="menu"
         @click.stop="menuOpen = !menuOpen"
       >
         <MoreHorizontal aria-hidden="true" />
@@ -171,22 +252,13 @@ function onDrop(event: DragEvent) {
         <button type="button" role="menuitem" @click="menuOpen = false; emit('createChild', node.id)">
           <Plus aria-hidden="true" />{{ t('documents.newChild') }}
         </button>
-        <button v-if="previousSiblingId != null" type="button" role="menuitem" @click="menuOpen = false; moveUp()">
-          {{ t('documents.moveUp') }}
-        </button>
-        <button v-if="nextSiblingId != null" type="button" role="menuitem" @click="menuOpen = false; moveDown()">
-          {{ t('documents.moveDown') }}
-        </button>
-        <button v-if="previousSiblingId != null" type="button" role="menuitem" @click="menuOpen = false; indent()">
-          {{ t('documents.indent') }}
-        </button>
-        <button v-if="parentNode" type="button" role="menuitem" @click="menuOpen = false; outdent()">
-          {{ t('documents.outdent') }}
-        </button>
         <button type="button" role="menuitem" class="danger" @click="menuOpen = false; emit('archive', node.id)">
           <Archive aria-hidden="true" />{{ t('documents.archive') }}
         </button>
       </div>
+      <span v-if="dragPlacement" class="document-tree-row__drop-label" aria-hidden="true">
+        {{ dropLabel }}
+      </span>
     </div>
 
     <ul v-if="hasChildren && isExpanded" role="group">
@@ -201,12 +273,17 @@ function onDrop(event: DragEvent) {
         :previous-sibling-id="index > 0 ? children[index - 1]!.id : null"
         :previous-previous-sibling-id="index > 1 ? children[index - 2]!.id : null"
         :next-sibling-id="index < children.length - 1 ? children[index + 1]!.id : null"
+        :dragging-document-id="draggingDocumentId"
+        :drag-hint-id="dragHintId"
+        :moving="moving"
         @select="emit('select', $event)"
         @toggle="emit('toggle', $event)"
         @create-child="emit('createChild', $event)"
         @archive="emit('archive', $event)"
         @move="emit('move', $event)"
         @navigate-key="emit('navigateKey', $event)"
+        @drag-start="emit('dragStart', $event)"
+        @drag-end="emit('dragEnd')"
       />
     </ul>
   </li>
@@ -231,6 +308,14 @@ function onDrop(event: DragEvent) {
   color: var(--color-text-secondary);
 }
 
+.document-tree-row[draggable='true'] { cursor: grab; }
+
+.document-tree-row--dragging {
+  background: var(--color-bg-hover);
+  cursor: grabbing;
+  opacity: 0.48;
+}
+
 .document-tree-row:hover,
 .document-tree-row--active {
   background: var(--color-bg-hover);
@@ -253,7 +338,10 @@ function onDrop(event: DragEvent) {
 
 .document-tree-row--drop-before::before { top: -1px; }
 .document-tree-row--drop-after::after { bottom: -1px; }
-.document-tree-row--drop-inside { outline: 2px solid var(--color-accent-muted-border); }
+.document-tree-row--drop-inside {
+  background: var(--color-accent-muted);
+  outline: 2px solid var(--color-accent-muted-border);
+}
 
 .document-tree-row__toggle,
 .document-tree-row__menu-trigger {
@@ -325,5 +413,33 @@ function onDrop(event: DragEvent) {
 
 .document-tree-row__menu button:hover { background: var(--color-bg-hover); }
 .document-tree-row__menu svg { width: 14px; height: 14px; }
-.document-tree-row__menu .danger { color: var(--color-danger); }
+.document-tree-row__menu .danger {
+  margin-top: 4px;
+  border-top: 1px solid var(--color-border-subtle);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  color: var(--color-danger);
+}
+
+.document-tree-row__drop-label {
+  position: absolute;
+  z-index: 2;
+  right: 6px;
+  max-width: calc(100% - 32px);
+  overflow: hidden;
+  padding: 2px 6px;
+  border: 1px solid var(--color-accent-muted-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.document-tree-row--drop-before .document-tree-row__drop-label { top: 0; transform: translateY(-55%); }
+.document-tree-row--drop-inside .document-tree-row__drop-label { top: 50%; transform: translateY(-50%); }
+.document-tree-row--drop-after .document-tree-row__drop-label { bottom: 0; transform: translateY(55%); }
+
 </style>

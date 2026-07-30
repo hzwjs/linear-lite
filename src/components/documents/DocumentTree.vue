@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ProjectDocumentTreeNode } from '../../types/document'
 import DocumentTreeNode from './DocumentTreeNode.vue'
@@ -9,6 +9,7 @@ const props = defineProps<{
   nodes: ProjectDocumentTreeNode[]
   activeId: number | null
   query: string
+  moving: boolean
 }>()
 
 const emit = defineEmits<{
@@ -20,6 +21,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const STORAGE_PREFIX = 'linear-lite:document-tree-expanded:'
+const dragHintId = `${useId()}-document-tree-drag-hint`
 
 function readExpanded(): Set<number> {
   try {
@@ -34,6 +36,7 @@ function readExpanded(): Set<number> {
 
 const expandedIds = ref(readExpanded())
 const treeRef = ref<HTMLElement | null>(null)
+const draggingDocumentId = ref<number | null>(null)
 
 watch(
   () => props.projectId,
@@ -127,14 +130,20 @@ function onNavigateKey(payload: { event: KeyboardEvent; documentId: number }) {
         :previous-sibling-id="index > 0 ? rootNodes[index - 1]!.id : null"
         :previous-previous-sibling-id="index > 1 ? rootNodes[index - 2]!.id : null"
         :next-sibling-id="index < rootNodes.length - 1 ? rootNodes[index + 1]!.id : null"
+        :dragging-document-id="draggingDocumentId"
+        :drag-hint-id="dragHintId"
+        :moving="moving"
         @select="emit('select', $event)"
         @toggle="toggle"
         @create-child="emit('createChild', $event)"
         @archive="emit('archive', $event)"
         @move="emit('move', $event)"
         @navigate-key="onNavigateKey"
+        @drag-start="draggingDocumentId = $event"
+        @drag-end="draggingDocumentId = null"
       />
     </ul>
+    <p :id="dragHintId" class="sr-only">{{ t('documents.dragHint') }}</p>
   </div>
 </template>
 
@@ -146,4 +155,5 @@ function onNavigateKey(payload: { event: KeyboardEvent; documentId: number }) {
   color: var(--color-text-muted);
   text-align: center;
 }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 </style>

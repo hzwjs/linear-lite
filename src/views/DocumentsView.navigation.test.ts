@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { i18n } from '../i18n'
 import { documentApi } from '../services/api/documents'
 import { projectApi } from '../services/api/project'
+import { useDocumentStore } from '../store/documentStore'
 import type { ProjectDocument, ProjectDocumentTreeNode } from '../types/document'
 import DocumentsView from './DocumentsView.vue'
 
@@ -18,7 +19,8 @@ vi.mock('../services/api/documents', async () => {
     documentApi: {
       ...actual.documentApi,
       listTree: vi.fn(),
-      get: vi.fn()
+      get: vi.fn(),
+      move: vi.fn()
     }
   }
 })
@@ -62,6 +64,7 @@ describe('DocumentsView navigation', () => {
     localStorage.clear()
     vi.mocked(documentApi.listTree).mockReset().mockResolvedValue(treeNodes)
     vi.mocked(documentApi.get).mockReset().mockImplementation(async (id) => projectDocument(id))
+    vi.mocked(documentApi.move).mockReset().mockResolvedValue(undefined)
     vi.mocked(projectApi.listMembers).mockReset().mockResolvedValue([])
   })
 
@@ -130,6 +133,51 @@ describe('DocumentsView navigation', () => {
     resolveDocument(projectDocument(1))
     resolveTree(treeNodes)
     await flushNavigation()
+    app.unmount()
+  })
+
+  it('keeps the current tree mounted while a moved tree snapshot is loading, then recreates it', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/projects/:projectId/documents/:documentId', component: DocumentsView }
+      ]
+    })
+    await router.push('/projects/7/documents/1')
+    await router.isReady()
+
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const pinia = createPinia()
+    const app = createApp({ template: '<RouterView />' })
+    app.use(pinia)
+    app.use(router)
+    app.use(i18n)
+    app.mount(host)
+    await flushNavigation()
+    const firstTreeInstance = host.querySelector('.document-tree')
+
+    let resolveMovedTree!: (nodes: ProjectDocumentTreeNode[]) => void
+    vi.mocked(documentApi.listTree).mockReturnValueOnce(new Promise((resolve) => {
+      resolveMovedTree = resolve
+    }))
+    const store = useDocumentStore(pinia)
+    const movePromise = store.moveDocument(7, 1, null, 2)
+    await flushNavigation()
+
+    // 放下后的服务端同步在后台完成，期间不能卸载用户正在操作的整棵树。
+    expect(store.loadingTree).toBe(false)
+    expect(host.querySelector('.document-tree')).toBe(firstTreeInstance)
+    expect(Array.from(host.querySelectorAll('[role="tree"] > [role="treeitem"] [data-document-tree-id]'))
+      .map((element) => Number((element as HTMLElement).dataset.documentTreeId)))
+      .toEqual([2, 1])
+
+    resolveMovedTree(treeNodes)
+    await movePromise
+    await flushNavigation()
+
+    expect(documentApi.listTree).toHaveBeenCalledTimes(2)
+    expect(host.querySelector('.document-tree')).not.toBe(firstTreeInstance)
     app.unmount()
   })
 })

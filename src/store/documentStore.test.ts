@@ -29,6 +29,8 @@ describe('documentStore autosave', () => {
     vi.useFakeTimers()
     vi.mocked(documentApi.update).mockReset()
     vi.mocked(documentApi.get).mockReset()
+    vi.mocked(documentApi.move).mockReset()
+    vi.mocked(documentApi.listTree).mockReset()
   })
 
   it('serializes edits made while an update is in flight onto the acknowledged version', async () => {
@@ -84,5 +86,49 @@ describe('documentStore autosave', () => {
 
     expect(store.activeDocument).toBeNull()
     expect(store.error).toBe('Not found')
+  })
+
+  it('reloads the complete project tree after moving a document', async () => {
+    const refreshedTree = [
+      { id: 8, projectId: 3, parentDocumentId: 9, title: 'Spec', sortOrder: 0, version: 1, updatedAt: '2026-07-29T08:00:00' }
+    ]
+    vi.mocked(documentApi.move).mockResolvedValue(undefined)
+    vi.mocked(documentApi.listTree).mockResolvedValue(refreshedTree)
+    const store = useDocumentStore()
+    store.treeNodes = [
+      { id: 8, projectId: 3, parentDocumentId: null, title: 'Spec', sortOrder: 0, version: 1, updatedAt: '2026-07-29T08:00:00' },
+      { id: 9, projectId: 3, parentDocumentId: null, title: 'Parent', sortOrder: 1, version: 1, updatedAt: '2026-07-29T08:00:00' }
+    ]
+
+    await store.moveDocument(3, 8, 9, null)
+
+    expect(documentApi.move).toHaveBeenCalledWith(8, { parentDocumentId: 9, previousSiblingId: null })
+    expect(documentApi.listTree).toHaveBeenCalledWith(3)
+    expect(store.treeNodes).toEqual(refreshedTree)
+    expect(store.treeSnapshotVersion).toBe(1)
+  })
+
+  it('reorders the local tree before the move request resolves', async () => {
+    let resolveMove!: () => void
+    vi.mocked(documentApi.move).mockReturnValue(new Promise<void>((resolve) => {
+      resolveMove = resolve
+    }))
+    vi.mocked(documentApi.listTree).mockResolvedValue([
+      { id: 9, projectId: 3, parentDocumentId: null, title: 'Second', sortOrder: 0, version: 1, updatedAt: '2026-07-29T08:00:00' },
+      { id: 8, projectId: 3, parentDocumentId: null, title: 'Spec', sortOrder: 1, version: 1, updatedAt: '2026-07-29T08:00:00' }
+    ])
+    const store = useDocumentStore()
+    store.treeNodes = [
+      { id: 8, projectId: 3, parentDocumentId: null, title: 'Spec', sortOrder: 0, version: 1, updatedAt: '2026-07-29T08:00:00' },
+      { id: 9, projectId: 3, parentDocumentId: null, title: 'Second', sortOrder: 1, version: 1, updatedAt: '2026-07-29T08:00:00' }
+    ]
+
+    const movePromise = store.moveDocument(3, 8, null, 9)
+
+    expect([...store.treeNodes].sort((a, b) => a.sortOrder - b.sortOrder).map((node) => node.id)).toEqual([9, 8])
+    expect(documentApi.listTree).not.toHaveBeenCalled()
+
+    resolveMove()
+    await movePromise
   })
 })

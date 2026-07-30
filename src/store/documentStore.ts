@@ -17,6 +17,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
   const activeRevision = ref<ProjectDocumentRevision | null>(null)
   const saveState = ref<DocumentSaveState>('idle')
   const loadingTree = ref(false)
+  const treeSnapshotVersion = ref(0)
   const loadingDocument = ref(false)
   const error = ref<string | null>(null)
   const conflictVersion = ref<number | null>(null)
@@ -25,6 +26,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
   let editSequence = 0
   let activeSavePromise: Promise<void> | null = null
   let treeLoadSequence = 0
+  let visibleTreeLoadSequence = 0
   let documentLoadSequence = 0
 
   function cancelScheduledSave() {
@@ -55,18 +57,61 @@ export const useDocumentStore = defineStore('documentStore', () => {
     else treeNodes.value[index] = node
   }
 
-  async function loadTree(projectId: number) {
+  function createOptimisticTreeMove(
+    documentId: number,
+    parentDocumentId: number | null,
+    previousSiblingId: number | null
+  ) {
+    const movedNode = treeNodes.value.find((node) => node.id === documentId)
+    if (!movedNode) throw new Error(`Document ${documentId} is missing from the tree`)
+
+    const sourceParentDocumentId = movedNode.parentDocumentId
+    const movedSnapshot = { ...movedNode, parentDocumentId }
+    const bySortOrder = (a: ProjectDocumentTreeNode, b: ProjectDocumentTreeNode) =>
+      a.sortOrder - b.sortOrder || a.id - b.id
+    const targetSiblings = treeNodes.value
+      .filter((node) => node.id !== documentId && node.parentDocumentId === parentDocumentId)
+      .sort(bySortOrder)
+    const insertionIndex = previousSiblingId == null
+      ? 0
+      : targetSiblings.findIndex((node) => node.id === previousSiblingId) + 1
+    if (previousSiblingId != null && insertionIndex === 0) {
+      throw new Error(`Previous sibling ${previousSiblingId} is missing from the target parent`)
+    }
+    targetSiblings.splice(insertionIndex, 0, movedSnapshot)
+
+    const reordered = new Map<number, ProjectDocumentTreeNode>()
+    targetSiblings.forEach((node, index) => reordered.set(node.id, { ...node, sortOrder: index }))
+    if (sourceParentDocumentId !== parentDocumentId) {
+      treeNodes.value
+        .filter((node) => node.id !== documentId && node.parentDocumentId === sourceParentDocumentId)
+        .sort(bySortOrder)
+        .forEach((node, index) => reordered.set(node.id, { ...node, sortOrder: index }))
+    }
+    return treeNodes.value.map((node) => reordered.get(node.id) ?? node)
+  }
+
+  async function refreshTreeSnapshot(projectId: number) {
     const sequence = ++treeLoadSequence
+    const nodes = await documentApi.listTree(projectId)
+    if (sequence === treeLoadSequence) {
+      treeNodes.value = nodes
+      // 版本只随被接纳的服务端快照递增，供视图完整重建文档树实例。
+      treeSnapshotVersion.value += 1
+    }
+  }
+
+  async function loadTree(projectId: number) {
+    const visibleSequence = ++visibleTreeLoadSequence
     loadingTree.value = true
     error.value = null
     try {
-      const nodes = await documentApi.listTree(projectId)
-      if (sequence === treeLoadSequence) treeNodes.value = nodes
+      await refreshTreeSnapshot(projectId)
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : String(cause)
       throw cause
     } finally {
-      if (sequence === treeLoadSequence) loadingTree.value = false
+      if (visibleSequence === visibleTreeLoadSequence) loadingTree.value = false
     }
   }
 
@@ -185,13 +230,28 @@ export const useDocumentStore = defineStore('documentStore', () => {
   }
 
   async function moveDocument(
+    projectId: number,
     documentId: number,
     parentDocumentId: number | null,
     previousSiblingId: number | null
   ) {
-    await documentApi.move(documentId, { parentDocumentId, previousSiblingId })
-    const projectId = treeNodes.value.find((node) => node.id === documentId)?.projectId
-    if (projectId != null) await loadTree(projectId)
+    const previousTree = treeNodes.value
+    // 放下瞬间先更新本地排序，消除网络往返期间的视觉停顿。
+    const optimisticTree = createOptimisticTreeMove(documentId, parentDocumentId, previousSiblingId)
+    treeNodes.value = optimisticTree
+    try {
+      await documentApi.move(documentId, { parentDocumentId, previousSiblingId })
+    } catch (cause) {
+      if (treeNodes.value === optimisticTree) treeNodes.value = previousTree
+      throw cause
+    }
+    try {
+      // 放下后在后台获取权威快照；请求期间保留当前树，快照返回时再完整替换。
+      await refreshTreeSnapshot(projectId)
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : String(cause)
+      throw cause
+    }
   }
 
   async function archiveDocument(documentId: number) {
@@ -251,6 +311,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
     activeRevision,
     saveState,
     loadingTree,
+    treeSnapshotVersion,
     loadingDocument,
     error,
     conflictVersion,
