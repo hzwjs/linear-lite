@@ -99,6 +99,18 @@ afterEach(() => {
 })
 
 describe('DocumentEditor attachment links', () => {
+  it('does not mutate editor-owned attachment link attributes during hydration', async () => {
+    const view = renderEditor()
+    await nextTick()
+    await nextTick()
+
+    expect(view.host.querySelector('#attachment')?.classList.contains('document-attachment-link')).toBe(false)
+    expect(view.host.querySelector('#other-document')?.classList.contains('document-attachment-link')).toBe(false)
+    expect(view.host.querySelector('#ordinary')?.classList.contains('document-attachment-link')).toBe(false)
+    expect(view.host.querySelector('#attachment-with-query')?.classList.contains('document-attachment-link')).toBe(false)
+    view.app.unmount()
+  })
+
   it('hydrates a protected attachment image through the authenticated api client', async () => {
     const view = renderEditor()
     await nextTick()
