@@ -335,10 +335,15 @@ export function createOutlineApiClient({ outlineBaseUrl, token, fetchImpl = fetc
       if (typeof document.text !== 'string') {
         throw new Error(`Outline 文档正文不是 Markdown: ${outlineDocumentId}`)
       }
+      const sourceUrl = new URL(document.url, baseUrl)
+      if (sourceUrl.origin !== baseUrl.origin || !sourceUrl.pathname.startsWith('/doc/')) {
+        throw new Error(`Outline 文档 URL 非法: ${outlineDocumentId}`)
+      }
       return {
         outlineDocumentId: document.urlId,
         title: document.title.trim(),
-        markdown: document.text
+        markdown: document.text,
+        sourceUrl: sourceUrl.toString()
       }
     },
 

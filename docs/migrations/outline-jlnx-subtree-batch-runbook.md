@@ -11,7 +11,7 @@
 
 1. 从 Outline 可见文档树清点整棵目标子树，固定记录 `outlineDocumentId`、标题、父级、`sortOrder` 和 `sourceUrl`。
 2. 准备最小权限 Outline Key 与 Linear Lite JWT，分别写入权限为 `0600` 的认证文件。
-3. 一次生成完整 manifest；子树之外的 manifest 节点必须已经存在于迁移 state。
+3. 使用 catalog 编译器一次生成“state 全部已有节点 + 本批新节点”的完整 catalog；已有节点从目标文档树保留已验收布局，新节点按子树快照顺序追加。子树之外的 catalog 节点必须已经存在于迁移 state。
 4. 迁移器最多并行读取 3 篇文档，对整棵子树完成创建前预检：
    - 标题与 manifest 完全一致；
    - 父级和既有目标映射一致；
@@ -27,6 +27,21 @@
 10. 吊销临时 Outline Key 并清理临时凭据；保留权限为 `0600` 的 state 和批次运行记录。
 
 ## 命令
+
+先将浏览器清点出的目标子树写入权限为 `0600` 的 `subtree-snapshot.json`。快照只需包含本批子树节点的 `outlineDocumentId`、`parentOutlineDocumentId` 和 `sortOrder`；标题与 `sourceUrl` 统一通过逐个 `documents.info` 获取：
+
+```bash
+npm run outline:catalog -- \
+  --snapshot /path/to/subtree-snapshot.json \
+  --state /tmp/outline-jlnx-api-pilot-state.json \
+  --outline-auth-file /path/to/outline-auth.env \
+  --target-auth-file /path/to/target-auth.env \
+  --output /path/to/batch-catalog.json
+```
+
+编译器禁止 Outline export，也不按标题识别节点。已存在于 state 的节点只采用目标活动树中的父级与相对顺序，因此不会把已人工验收的目标布局重新改回 Outline 层级；仅快照中的新节点采用快照父级，并追加在已有受管同级节点之后。
+
+再执行同步：
 
 ```bash
 chmod 600 /path/to/outline-auth.env /path/to/target-auth.env

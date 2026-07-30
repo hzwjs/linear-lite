@@ -311,6 +311,7 @@ describe('Outline document migration', () => {
     const document = await outlineApi.getDocument('EUEFsRqmJ4')
 
     expect(document.title).toBe('项目开发概述')
+    expect(document.sourceUrl).toBe('http://outline.example/doc/project-EUEFsRqmJ4')
     expect(calls).toHaveLength(1)
     expect(calls[0]?.url).toBe('http://outline.example/api/documents.info')
     expect(calls[0]?.options.headers).toMatchObject({ Authorization: 'Bearer read-only-token' })
