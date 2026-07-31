@@ -27,6 +27,11 @@ const router = createRouter({
       component: () => import('../views/DocumentsView.vue')
     },
     {
+      path: '/projects/:projectId/settings',
+      name: 'project-settings',
+      component: () => import('../views/ProjectSettingsView.vue')
+    },
+    {
       path: '/tasks/:taskId',
       name: 'task-detail-legacy',
       component: () => import('../views/BoardView.vue')

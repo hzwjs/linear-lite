@@ -10,11 +10,9 @@ import { useViewModeStore } from './store/viewModeStore'
 import NotificationCenter from './components/NotificationCenter.vue'
 import SidebarNavigation from './components/SidebarNavigation.vue'
 import CreateProjectModal from './components/CreateProjectModal.vue'
-import ProjectSettingsModal from './components/ProjectSettingsModal.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import GlobalSearchModal from './components/GlobalSearchModal.vue'
 import type { CommandItem } from './components/CommandPalette.vue'
-import type { Project } from './types/domain'
 import type { ProjectContentSearchResult } from './types/search'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -82,7 +80,6 @@ const issuePanelStore = useIssuePanelStore()
 const { t } = useI18n()
 
 const createProjectOpen = ref(false)
-const settingsProject = ref<Project | null>(null)
 const commandPaletteOpen = ref(false)
 const globalSearchOpen = ref(false)
 const sidebarHidden = ref(false)
@@ -110,13 +107,7 @@ function toggleProjectsCollapsed() {
 
 function openProjectSettings(projectId: number) {
   const project = projectStore.projects.find((item) => item.id === projectId)
-  if (project) settingsProject.value = project
-}
-
-function handleProjectDeleted() {
-  settingsProject.value = null
-  favoriteStore.fetchFavorites()
-  router.push('/')
+  if (project) void router.push(`/projects/${project.id}/settings`)
 }
 
 function onLogout() {
@@ -128,7 +119,7 @@ function openActiveProjectSettings() {
   const id = projectStore.activeProjectId
   if (id == null) return
   const p = projectStore.projects.find((x) => x.id === id)
-  if (p) settingsProject.value = p
+  if (p) void router.push(`/projects/${p.id}/settings`)
 }
 
 function triggerNewTask() {
@@ -222,7 +213,6 @@ watch(
   (path) => {
     if (path !== '/login') return
     createProjectOpen.value = false
-    settingsProject.value = null
     commandPaletteOpen.value = false
     globalSearchOpen.value = false
     issuePanelStore.closeComposer()
@@ -318,18 +308,6 @@ watch(createProjectOpen, (open) => {
     overlayStore.remove('create-project-modal')
   }
 })
-watch(
-  () => settingsProject.value != null,
-  (open) => {
-    if (open) {
-      overlayStore.push('project-settings-modal', () => {
-        settingsProject.value = null
-      })
-    } else {
-      overlayStore.remove('project-settings-modal')
-    }
-  }
-)
 
 // P4-7.1 / P4-7.3 / P4-7.4: 全局快捷键 ⌘/Ctrl+K、C、Esc
 function isInputElement(el: EventTarget | null): boolean {
@@ -409,13 +387,6 @@ onUnmounted(() => {
       :open="createProjectOpen"
       @close="createProjectOpen = false"
       @created="() => {}"
-    />
-    <ProjectSettingsModal
-      :open="settingsProject != null"
-      :project="settingsProject"
-      @close="settingsProject = null"
-      @updated="() => {}"
-      @deleted="handleProjectDeleted"
     />
     <CommandPalette
       :open="commandPaletteOpen"

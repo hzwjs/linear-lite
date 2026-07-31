@@ -37,6 +37,7 @@ const isSubmitting = ref(false)
 const isInviting = ref(false)
 const error = ref('')
 const inviteMessage = ref('')
+const saveMessage = ref('')
 const canDelete = computed(
   () => !!props.project && authStore.currentUser?.id === props.project.creatorId
 )
@@ -63,6 +64,7 @@ watch(
       importUsers.value = []
       error.value = ''
       inviteMessage.value = ''
+      saveMessage.value = ''
       dailySummaryEnabled.value = false
       isEmailSaving.value = false
       gitlabRepositories.value = []
@@ -100,7 +102,7 @@ async function loadEmailSettings(project: Project) {
     dailySummaryEnabled.value = daily?.enabled ?? false
   } catch (e) {
     if (shouldIgnoreProjectResponse(requestSeq, emailSettingsRequestSeq, props.project?.id, projectId)) return
-    error.value = e instanceof Error ? e.message : '无法读取邮件设置'
+    error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.emailLoadFailed')
   }
 }
 
@@ -115,7 +117,7 @@ async function loadGitLabRepositories(project: Project) {
     gitlabRepositories.value = repositories
   } catch (e) {
     if (shouldIgnoreProjectResponse(requestSeq, gitlabRepositoriesRequestSeq, props.project?.id, projectId)) return
-    error.value = e instanceof Error ? e.message : '无法读取 GitLab 仓库配置'
+    error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.gitlabLoadFailed')
   } finally {
     if (!shouldIgnoreProjectResponse(requestSeq, gitlabRepositoriesRequestSeq, props.project?.id, projectId)) {
       isGitLabLoading.value = false
@@ -135,7 +137,7 @@ async function addGitLabRepository() {
     gitlabRepositoryUrl.value = ''
     gitlabWebhookToken.value = repository.webhookToken ?? ''
   } catch (e) {
-    if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : '无法添加 GitLab 仓库'
+    if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.gitlabAddFailed')
   } finally {
     if (props.project?.id === projectId) isGitLabLoading.value = false
   }
@@ -152,7 +154,7 @@ async function resetGitLabWebhookToken(repositoryId: number) {
     gitlabRepositories.value = gitlabRepositories.value.map((item) => item.id === repository.id ? repository : item)
     gitlabWebhookToken.value = repository.webhookToken ?? ''
   } catch (e) {
-    if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : '无法重置 GitLab Secret token'
+    if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.gitlabResetFailed')
   } finally {
     if (props.project?.id === projectId) isGitLabLoading.value = false
   }
@@ -161,7 +163,7 @@ async function resetGitLabWebhookToken(repositoryId: number) {
 async function deleteGitLabRepository(repositoryId: number) {
   if (!props.project || isGitLabLoading.value) return
   const repository = gitlabRepositories.value.find((item) => item.id === repositoryId)
-  if (!repository || !window.confirm(`移除 GitLab 仓库“${repository.repositoryPath}”？该仓库后续推送将不再同步评论。`)) return
+  if (!repository || !window.confirm(t('projectSettingsModal.gitlabRemoveConfirm', { repository: repository.repositoryPath }))) return
   const projectId = props.project.id
   isGitLabLoading.value = true
   error.value = ''
@@ -171,7 +173,7 @@ async function deleteGitLabRepository(repositoryId: number) {
     gitlabRepositories.value = gitlabRepositories.value.filter((item) => item.id !== repositoryId)
     gitlabWebhookToken.value = ''
   } catch (e) {
-    if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : '无法移除 GitLab 仓库'
+    if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.gitlabRemoveFailed')
   } finally {
     if (props.project?.id === projectId) isGitLabLoading.value = false
   }
@@ -180,7 +182,7 @@ async function deleteGitLabRepository(repositoryId: number) {
 async function loadGitHubRepositories(project: Project) {
   if (!canDelete.value) return
   try { githubRepositories.value = await projectApi.listGitHubRepositories(project.id) }
-  catch (e) { error.value = e instanceof Error ? e.message : '无法读取 GitHub 仓库配置' }
+  catch (e) { error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.githubLoadFailed') }
 }
 
 async function addGitHubRepository() {
@@ -192,7 +194,7 @@ async function addGitHubRepository() {
     if (props.project?.id !== projectId) return
     githubRepositories.value = [...githubRepositories.value, repository]
     githubRepositoryUrl.value = ''; githubWebhookSecret.value = repository.webhookSecret ?? ''
-  } catch (e) { if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : '无法添加 GitHub 仓库' }
+  } catch (e) { if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.githubAddFailed') }
   finally { if (props.project?.id === projectId) isGitHubLoading.value = false }
 }
 
@@ -204,20 +206,20 @@ async function resetGitHubWebhookSecret(repositoryId: number) {
     if (props.project?.id !== projectId) return
     githubRepositories.value = githubRepositories.value.map((item) => item.id === repository.id ? repository : item)
     githubWebhookSecret.value = repository.webhookSecret ?? ''
-  } catch (e) { if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : '无法重置 GitHub Secret' }
+  } catch (e) { if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.githubResetFailed') }
   finally { if (props.project?.id === projectId) isGitHubLoading.value = false }
 }
 
 async function deleteGitHubRepository(repositoryId: number) {
   if (!props.project || isGitHubLoading.value) return
   const repository = githubRepositories.value.find((item) => item.id === repositoryId)
-  if (!repository || !window.confirm(`移除 GitHub 仓库“${repository.repositoryPath}”？`)) return
+  if (!repository || !window.confirm(t('projectSettingsModal.githubRemoveConfirm', { repository: repository.repositoryPath }))) return
   const projectId = props.project.id; isGitHubLoading.value = true; error.value = ''
   try {
     await projectApi.deleteGitHubRepository(projectId, repositoryId)
     if (props.project?.id !== projectId) return
     githubRepositories.value = githubRepositories.value.filter((item) => item.id !== repositoryId); githubWebhookSecret.value = ''
-  } catch (e) { if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : '无法移除 GitHub 仓库' }
+  } catch (e) { if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.githubRemoveFailed') }
   finally { if (props.project?.id === projectId) isGitHubLoading.value = false }
 }
 
@@ -233,7 +235,7 @@ async function onToggleDailySummary(enabled: boolean) {
   } catch (e) {
     if (props.project?.id !== projectId) return
     dailySummaryEnabled.value = previous
-    error.value = e instanceof Error ? e.message : '无法保存邮件设置'
+    error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.emailSaveFailed')
   } finally {
     if (props.project?.id === projectId) {
       isEmailSaving.value = false
@@ -265,10 +267,11 @@ async function submit() {
   }
   isSubmitting.value = true
   error.value = ''
+  saveMessage.value = ''
   try {
     await projectStore.updateProject(props.project.id, { name: n, identifier: id })
     emit('updated')
-    emit('close')
+    saveMessage.value = t('projectSettingsModal.saved')
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.updateFailed')
   } finally {
@@ -355,6 +358,7 @@ onUnmounted(() => {
     :invite-email="inviteEmail"
     :error="error"
     :invite-message="inviteMessage"
+    :save-message="saveMessage"
     :is-submitting="isSubmitting"
     :is-inviting="isInviting"
     :can-delete="canDelete"
@@ -368,8 +372,8 @@ onUnmounted(() => {
     :github-repository-url="githubRepositoryUrl"
     :github-webhook-secret="githubWebhookSecret"
     :is-git-hub-loading="isGitHubLoading"
-    @update:name="name = $event"
-    @update:identifier="identifier = $event"
+    @update:name="name = $event; saveMessage = ''"
+    @update:identifier="identifier = $event; saveMessage = ''"
     @update:invite-email="inviteEmail = $event"
     @toggle-daily-summary="onToggleDailySummary"
     @update:gitlab-repository-url="gitlabRepositoryUrl = $event"
