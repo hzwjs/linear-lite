@@ -1,6 +1,7 @@
 package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.entity.ProjectGitHubRepository;
@@ -92,6 +93,8 @@ public class GitHubWebhookService {
     private static boolean blank(String v) { return v == null || v.isBlank(); }
 
     public record GitHubPushEvent(String ref, GitHubRepository repository, List<GitHubCommit> commits) {}
-    public record GitHubRepository(String fullName, String htmlUrl) {}
+    public record GitHubRepository(
+            @JsonProperty("full_name") String fullName,
+            @JsonProperty("html_url") String htmlUrl) {}
     public record GitHubCommit(String id, String message, String url) {}
 }
