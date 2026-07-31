@@ -37,6 +37,10 @@ spring:
 
 server:
   port: ${SERVER_PORT:9080}
+  compression:
+    enabled: true
+    min-response-size: 1KB
+    mime-types: text/html,text/plain,text/css,text/javascript,application/javascript,application/json,application/xml,image/svg+xml
 
 # CORS：Vite 默认开发地址，多源用逗号分隔
 cors:

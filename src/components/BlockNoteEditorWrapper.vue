@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref, watch, shallowRef } from 'vue'
-import { applyReactInVue } from 'veaury'
+import { applyReactInVue, setVeauryOptions } from 'veaury'
+import { createRoot } from 'react-dom/client'
 import 'photoswipe/style.css'
 import BlockNoteEditorReact from './BlockNoteEditorReact'
 import type { EditorApi } from './BlockNoteEditorReact'
 import { uploadApi } from '../services/api/upload'
 
+// 编辑器只在任务/文档编辑器真正打开时加载；将 veaury 初始化放到这里，避免首屏入口提前拉取 React 编辑器依赖。
+setVeauryOptions({ react: { createRoot } })
 const BlockNoteVue = applyReactInVue(BlockNoteEditorReact)
 
 const props = withDefaults(

@@ -34,7 +34,6 @@ import { useOverlayStore } from '../store/overlayStore'
 import { useIssuePanelStore } from '../store/issuePanelStore'
 import TaskCard from '../components/TaskCard.vue'
 import TaskListView from '../components/TaskListView.vue'
-import IssueComposer from '../components/IssueComposer.vue'
 import type { User } from '../types/domain'
 import type { Status } from '../types/domain'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
@@ -58,6 +57,8 @@ function resilientAsyncComponent<T extends Component>(loader: () => Promise<T>) 
 }
 
 const TaskEditor = resilientAsyncComponent(() => import('../components/TaskEditor.vue'))
+// 新建任务编辑器同样只在用户点击“新建任务”后需要，避免首屏预加载编辑器运行时。
+const IssueComposer = resilientAsyncComponent(() => import('../components/IssueComposer.vue'))
 const GanttChart = resilientAsyncComponent(() => import('../components/GanttChart.vue'))
 
 const props = defineProps<{

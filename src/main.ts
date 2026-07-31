@@ -5,14 +5,6 @@ import AdaptiveRoot from "./AdaptiveRoot.vue";
 import router, { setupRouterGuards } from "./router";
 import { i18n } from "./i18n";
 import { useLocaleStore } from "./store/localeStore";
-import { setVeauryOptions } from 'veaury';
-import { createRoot } from 'react-dom/client';
-
-setVeauryOptions({
-  react: {
-    createRoot
-  }
-});
 
 const app = createApp(AdaptiveRoot);
 const pinia = createPinia();

@@ -10,12 +10,9 @@ function vendorChunkName(id: string): string | undefined {
   if (/[\\/]node_modules[\\/](vue|@vue|vue-router|pinia|vue-i18n|@intlify)[\\/]/.test(id)) {
     return 'vendor-vue'
   }
-  if (/[\\/]node_modules[\\/](react|react-dom|scheduler|veaury|@blocknote|@mantine|prosemirror|yjs|lib0)[\\/]/.test(id)) {
-    return 'vendor-editor'
-  }
-  if (/[\\/]node_modules[\\/](mermaid|@mermaid-js|cytoscape|d3|dagre|dagre-d3-es|roughjs|katex)[\\/]/.test(id)) {
-    return 'vendor-diagrams'
-  }
+  // 编辑器依赖只在任务/文档编辑器分片中使用，不能集中成入口的公共 vendor。
+  // 否则 Vite 会为动态路由生成 modulepreload，导致首屏下载 1.6MB 编辑器包。
+  // Mermaid 只在文档/任务描述中渲染；保持其依赖随编辑器分片加载，避免成为首屏公共 preload。
   if (/[\\/]node_modules[\\/](xlsx)[\\/]/.test(id)) {
     return 'vendor-import'
   }

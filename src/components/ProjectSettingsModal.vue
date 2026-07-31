@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onUnmounted, ref, watch } from 'vue'
 import type { Project, User } from '../types/domain'
 import { useProjectStore } from '../store/projectStore'
 import { useAuthStore } from '../store/authStore'
@@ -10,7 +10,8 @@ import { projectApi } from '../services/api/project'
 import { shouldIgnoreProjectResponse } from '../utils/projectRequestGuard'
 import { codexApi, type CodexRepository, type CodexRunner } from '../services/api/codex'
 import ProjectSettingsDialog from './ProjectSettingsDialog.vue'
-import TaskImportModal from './TaskImportModal.vue'
+// Excel 导入只在项目设置中打开导入弹窗时需要，不能进入首屏入口包。
+const TaskImportModal = defineAsyncComponent(() => import('./TaskImportModal.vue'))
 
 const props = defineProps<{
   open: boolean

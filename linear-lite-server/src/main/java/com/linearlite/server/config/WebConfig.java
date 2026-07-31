@@ -9,12 +9,16 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.resource.PathResourceResolver;
 import org.springframework.web.servlet.resource.ResourceResolverChain;
+import org.springframework.http.CacheControl;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.time.Duration;
 
 /**
  * CORS 配置与 SPA 静态资源服务：允许 Vue (Vite) 本地开发域名访问；
@@ -54,6 +58,21 @@ public class WebConfig implements WebMvcConfigurer {
                 "file:../dist/",
                 "file:dist/"
         };
+    }
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        // 复用 SPA 的嵌入式 JAR 资源解析，同时只给 Vite hash 资源设置长期缓存，避免入口 index.html 被永久缓存。
+        registry.addInterceptor(new HandlerInterceptor() {
+            @Override
+            public boolean preHandle(HttpServletRequest request, jakarta.servlet.http.HttpServletResponse response,
+                    Object handler) {
+                if (request.getRequestURI().startsWith("/assets/")) {
+                    response.setHeader("Cache-Control", CacheControl.maxAge(Duration.ofDays(365)).cachePublic().immutable().getHeaderValue());
+                }
+                return true;
+            }
+        });
     }
 
     @Bean

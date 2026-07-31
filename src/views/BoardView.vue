@@ -34,8 +34,10 @@ import { buildTaskRoute, getRouteProjectId, getRouteTaskId } from '../utils/task
 import { tryRecoverDynamicImport } from '../utils/dynamicImportRecovery'
 import { preloadTaskDetail, readTaskDetailSnapshot } from '../utils/taskDetailPreload'
 
+// 路由外壳加载后立即预取任务内容分片，让首屏接口请求与 JS 分片下载并行。
+const boardViewContentModule = import('./BoardViewContent.vue')
 const BoardViewContent = defineAsyncComponent({
-  loader: () => import('./BoardViewContent.vue'),
+  loader: () => boardViewContentModule,
   onError(error, retry, fail, attempts) {
     if (tryRecoverDynamicImport(error)) return
     if (attempts <= 1) {
