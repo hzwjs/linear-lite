@@ -78,8 +78,21 @@ describe('document minimap geometry', () => {
       { top: 2, height: 20, indent: 0, emphasized: false, texts: ['Three'] }
     ]
     const positions = documentMinimapTickPositions(segments, 100)
-    expect(positions).toEqual([1, 50, 99])
+    expect(positions).toEqual([35, 50, 65])
     expect(closestDocumentMinimapTickIndex(positions, 51)).toBe(1)
+  })
+
+  it('keeps a short document compact instead of stretching ticks across the rail', () => {
+    const segments = Array.from({ length: 6 }, (_, index) => ({
+      top: index * 100,
+      height: 30,
+      indent: 0,
+      emphasized: index === 0,
+      texts: [`Section ${index}`]
+    }))
+    const positions = documentMinimapTickPositions(segments, 140)
+    expect(positions).toEqual([32.5, 47.5, 62.5, 77.5, 92.5, 107.5])
+    expect(positions[1]! - positions[0]!).toBe(15)
   })
 
   it('creates a continuous neighbour wave around the pointer', () => {

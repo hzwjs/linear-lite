@@ -21,6 +21,7 @@ export type DocumentMinimapSegment = {
 const PREFERRED_SEGMENT_COUNT = 8
 const MAX_SEGMENT_COUNT = 10
 const MIN_SEGMENT_SPAN = 420
+const MINIMAP_TICK_GAP = 15
 
 function mergeSegments(
   first: DocumentMinimapSegment,
@@ -133,16 +134,18 @@ export function closestDocumentMinimapSegmentIndex(
   return nearestIndex
 }
 
-/** 紧凑轨道只表达片段顺序，均匀节奏避免刻度被误认成正文标记。 */
+/**
+ * 刻度使用固定节奏并在轨道内居中；文档片段更少时保留紧凑间隔，避免被拉成稀疏长线。
+ */
 export function documentMinimapTickPositions(
   segments: DocumentMinimapSegment[],
   railHeight: number
 ): number[] {
   if (segments.length === 0 || railHeight <= 2) return []
-  const edge = 1
   if (segments.length === 1) return [railHeight / 2]
-  const gap = (railHeight - edge * 2) / (segments.length - 1)
-  return segments.map((_, index) => edge + index * gap)
+  const occupiedHeight = MINIMAP_TICK_GAP * (segments.length - 1)
+  const start = (railHeight - occupiedHeight) / 2
+  return segments.map((_, index) => start + index * MINIMAP_TICK_GAP)
 }
 
 export function closestDocumentMinimapTickIndex(positions: number[], pointerY: number): number {
