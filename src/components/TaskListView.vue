@@ -73,6 +73,7 @@ const collapsed = ref<Record<string, boolean>>({})
 const rowHoveredId = ref<string | null>(null)
 /** 复制成功后的短暂反馈（图标与提示文案） */
 const copyFeedbackTaskId = ref<string | null>(null)
+const copyFeedbackKind = ref<'title' | 'taskKey' | null>(null)
 let copyFeedbackClearTimer: ReturnType<typeof setTimeout> | null = null
 const COPY_FEEDBACK_MS = 1800
 
@@ -473,6 +474,7 @@ onUnmounted(() => {
     clearTimeout(copyFeedbackClearTimer)
     copyFeedbackClearTimer = null
   }
+  copyFeedbackKind.value = null
 })
 const subtaskRingRadius = 5
 const subtaskRingCircumference = 2 * Math.PI * subtaskRingRadius
@@ -707,8 +709,34 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
     clearTimeout(copyFeedbackClearTimer)
   }
   copyFeedbackTaskId.value = taskId
+  copyFeedbackKind.value = 'title'
   copyFeedbackClearTimer = setTimeout(() => {
     copyFeedbackTaskId.value = null
+    copyFeedbackKind.value = null
+    copyFeedbackClearTimer = null
+  }, COPY_FEEDBACK_MS)
+}
+
+async function copyTaskKey(e: MouseEvent, taskId: string) {
+  e.stopPropagation()
+  try {
+    await navigator.clipboard.writeText(taskId)
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = taskId
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    try { document.execCommand('copy') } finally { document.body.removeChild(ta) }
+  }
+  if (copyFeedbackClearTimer != null) clearTimeout(copyFeedbackClearTimer)
+  copyFeedbackTaskId.value = taskId
+  copyFeedbackKind.value = 'taskKey'
+  copyFeedbackClearTimer = setTimeout(() => {
+    copyFeedbackTaskId.value = null
+    copyFeedbackKind.value = null
     copyFeedbackClearTimer = null
   }, COPY_FEEDBACK_MS)
 }
@@ -836,7 +864,20 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
                 />
               </div>
             </div>
-            <span class="task-row-key">{{ row.task.id }}</span>
+            <span class="task-row-key-wrap">
+              <span class="task-row-key">{{ row.task.id }}</span>
+              <button
+                type="button"
+                class="task-row-copy-key"
+                :class="{ visible: rowHoveredId === row.task.id || (copyFeedbackTaskId === row.task.id && copyFeedbackKind === 'taskKey'), success: copyFeedbackTaskId === row.task.id && copyFeedbackKind === 'taskKey' }"
+                :aria-label="copyFeedbackTaskId === row.task.id && copyFeedbackKind === 'taskKey' ? t('taskList.taskKeyCopied') : t('taskList.copyTaskKey')"
+                :title="copyFeedbackTaskId === row.task.id && copyFeedbackKind === 'taskKey' ? t('taskList.taskKeyCopied') : t('taskList.copyTaskKey')"
+                @click.stop="copyTaskKey($event, row.task.id)"
+              >
+                <Check v-if="copyFeedbackTaskId === row.task.id && copyFeedbackKind === 'taskKey'" class="task-row-copy-key-icon" stroke-width="2.5" aria-hidden="true" />
+                <Copy v-else class="task-row-copy-key-icon" stroke-width="2" aria-hidden="true" />
+              </button>
+            </span>
             <TaskRowStatusPicker
               :task-id="row.task.id"
               :status="row.task.status"
@@ -1295,6 +1336,35 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.task-row-key-wrap {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 3px;
+  min-width: 74px;
+}
+.task-row-copy-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
+}
+.task-row-copy-key.visible,
+.task-row-key-wrap:hover .task-row-copy-key,
+.task-row-copy-key:focus-visible { opacity: 1; }
+.task-row-copy-key:hover,
+.task-row-copy-key:focus-visible { color: var(--color-text-primary); background: var(--color-bg-hover); }
+.task-row-copy-key.success { color: var(--color-success, #16a34a); }
+.task-row-copy-key-icon { width: 13px; height: 13px; }
 
 .task-row-content {
   flex: 1 1 auto;

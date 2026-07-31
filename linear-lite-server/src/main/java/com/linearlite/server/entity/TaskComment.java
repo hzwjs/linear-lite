@@ -17,6 +17,10 @@ public class TaskComment {
     private Long parentId;
     private Long rootId;
     private int depth;
+    /** 外部评论来源；人工评论为 null。 */
+    private String sourceType;
+    /** 外部来源内唯一标识；GitLab 提交使用 repositoryId:commitSha。 */
+    private String externalRef;
     private LocalDateTime createdAt;
 
     public Long getId() {
@@ -73,6 +77,22 @@ public class TaskComment {
 
     public void setDepth(int depth) {
         this.depth = depth;
+    }
+
+    public String getSourceType() {
+        return sourceType;
+    }
+
+    public void setSourceType(String sourceType) {
+        this.sourceType = sourceType;
+    }
+
+    public String getExternalRef() {
+        return externalRef;
+    }
+
+    public void setExternalRef(String externalRef) {
+        this.externalRef = externalRef;
     }
 
 

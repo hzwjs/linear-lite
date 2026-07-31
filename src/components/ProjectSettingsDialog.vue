@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import { githubWebhookUrl, gitlabWebhookUrl, type GitHubRepository, type GitLabRepository } from '../services/api/project'
 
 const props = defineProps<{
   open: boolean
@@ -13,6 +14,14 @@ const props = defineProps<{
   canDelete: boolean
   dailySummaryEnabled: boolean
   isEmailSaving: boolean
+  gitlabRepositories: GitLabRepository[]
+  gitlabRepositoryUrl: string
+  gitlabWebhookToken: string
+  isGitLabLoading: boolean
+  githubRepositories: GitHubRepository[]
+  githubRepositoryUrl: string
+  githubWebhookSecret: string
+  isGitHubLoading: boolean
 }>()
 
 const emit = defineEmits<{
@@ -25,6 +34,14 @@ const emit = defineEmits<{
   'update:identifier': [value: string]
   'update:inviteEmail': [value: string]
   toggleDailySummary: [value: boolean]
+  'update:gitlabRepositoryUrl': [value: string]
+  addGitLabRepository: []
+  resetGitLabWebhookToken: [repositoryId: number]
+  deleteGitLabRepository: [repositoryId: number]
+  'update:githubRepositoryUrl': [value: string]
+  addGitHubRepository: []
+  resetGitHubWebhookSecret: [repositoryId: number]
+  deleteGitHubRepository: [repositoryId: number]
 }>()
 
 const { t } = useI18n()
@@ -39,6 +56,22 @@ function onIdentifierInput(event: Event) {
 
 function onInviteEmailInput(event: Event) {
   emit('update:inviteEmail', (event.target as HTMLInputElement).value)
+}
+
+function onGitLabRepositoryUrlInput(event: Event) {
+  emit('update:gitlabRepositoryUrl', (event.target as HTMLInputElement).value)
+}
+
+function onGitHubRepositoryUrlInput(event: Event) {
+  emit('update:githubRepositoryUrl', (event.target as HTMLInputElement).value)
+}
+
+async function copyToClipboard(value: string) {
+  try {
+    await navigator.clipboard.writeText(value)
+  } catch {
+    // 浏览器剪贴板不可用时不影响仓库配置本身。
+  }
 }
 
 function onSubmit() {
@@ -148,6 +181,74 @@ function onClose() {
             {{ t('projectSettingsModal.importButton') }}
           </button>
         </div>
+        <div v-if="canDelete" class="settings-section gitlab-zone">
+          <div class="section-header">
+            <p class="section-title">{{ t('projectSettingsModal.gitlabTitle') }}</p>
+            <p class="section-text">{{ t('projectSettingsModal.gitlabDescription') }}</p>
+          </div>
+          <div class="gitlab-controls">
+            <input
+              :value="gitlabRepositoryUrl"
+              type="url"
+              class="input"
+              data-testid="project-settings-gitlab-repository-url"
+              :placeholder="t('projectSettingsModal.gitlabPlaceholder')"
+              :disabled="isGitLabLoading || isSubmitting"
+              @input="onGitLabRepositoryUrlInput"
+            />
+            <button
+              type="button"
+              class="btn-primary"
+              data-testid="project-settings-gitlab-add"
+              :disabled="isGitLabLoading || isSubmitting || !gitlabRepositoryUrl.trim()"
+              @click="emit('addGitLabRepository')"
+            >
+              {{ isGitLabLoading ? t('projectSettingsModal.gitlabAdding') : t('projectSettingsModal.gitlabAdd') }}
+            </button>
+          </div>
+          <div v-if="gitlabRepositories.length" class="gitlab-repository-list">
+            <div v-for="repository in gitlabRepositories" :key="repository.id" class="gitlab-repository-row">
+              <div class="gitlab-repository-identity">
+                <code>{{ repository.repositoryUrl }}</code>
+                <span>{{ repository.repositoryPath }}</span>
+              </div>
+              <div class="gitlab-repository-actions">
+                <button type="button" class="btn-secondary" :disabled="isGitLabLoading" @click="emit('resetGitLabWebhookToken', repository.id)">
+                  {{ t('projectSettingsModal.gitlabResetToken') }}
+                </button>
+                <button type="button" class="btn-danger gitlab-delete" :disabled="isGitLabLoading" @click="emit('deleteGitLabRepository', repository.id)">
+                  {{ t('projectSettingsModal.gitlabDelete') }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <p v-else class="section-text gitlab-empty">{{ t('projectSettingsModal.gitlabEmpty') }}</p>
+          <div v-if="gitlabWebhookToken" class="gitlab-secret">
+            <p>{{ t('projectSettingsModal.gitlabTokenOnce') }}</p>
+            <div class="gitlab-secret-row">
+              <code data-testid="project-settings-gitlab-token">{{ gitlabWebhookToken }}</code>
+              <button type="button" class="btn-secondary" @click="copyToClipboard(gitlabWebhookToken)">
+                {{ t('projectSettingsModal.gitlabCopy') }}
+              </button>
+            </div>
+          </div>
+          <div class="gitlab-webhook-url">
+            <span>{{ t('projectSettingsModal.gitlabWebhookUrl') }}</span>
+            <div class="gitlab-secret-row">
+              <code>{{ gitlabWebhookUrl() }}</code>
+              <button type="button" class="btn-secondary" @click="copyToClipboard(gitlabWebhookUrl())">
+                {{ t('projectSettingsModal.gitlabCopy') }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-if="canDelete" class="settings-section gitlab-zone">
+          <div class="section-header"><p class="section-title">GitHub 提交联动</p><p class="section-text">Push 提交消息包含任务编号时，同步为对应任务评论。</p></div>
+          <div class="gitlab-controls"><input :value="githubRepositoryUrl" type="url" class="input" data-testid="project-settings-github-repository-url" placeholder="https://github.com/organization/repository" :disabled="isGitHubLoading || isSubmitting" @input="onGitHubRepositoryUrlInput" /><button type="button" class="btn-primary" data-testid="project-settings-github-add" :disabled="isGitHubLoading || isSubmitting || !githubRepositoryUrl.trim()" @click="emit('addGitHubRepository')">{{ isGitHubLoading ? '添加中…' : '添加仓库' }}</button></div>
+          <div v-if="githubRepositories.length" class="gitlab-repository-list"><div v-for="repository in githubRepositories" :key="repository.id" class="gitlab-repository-row"><div class="gitlab-repository-identity"><code>{{ repository.repositoryUrl }}</code><span>{{ repository.repositoryPath }}</span></div><div class="gitlab-repository-actions"><button type="button" class="btn-secondary" :disabled="isGitHubLoading" @click="emit('resetGitHubWebhookSecret', repository.id)">重置 Secret</button><button type="button" class="btn-danger" :disabled="isGitHubLoading" @click="emit('deleteGitHubRepository', repository.id)">移除</button></div></div></div><p v-else class="section-text gitlab-empty">尚未配置 GitHub 仓库。</p>
+          <div v-if="githubWebhookSecret" class="gitlab-secret"><p>Secret 仅显示一次，请粘贴到 GitHub Webhook。</p><div class="gitlab-secret-row"><code>{{ githubWebhookSecret }}</code><button type="button" class="btn-secondary" @click="copyToClipboard(githubWebhookSecret)">复制</button></div></div>
+          <div class="gitlab-webhook-url"><span>Webhook URL</span><div class="gitlab-secret-row"><code>{{ githubWebhookUrl() }}</code><button type="button" class="btn-secondary" @click="copyToClipboard(githubWebhookUrl())">复制</button></div></div>
+        </div>
         <div v-if="canDelete" class="settings-section email-zone">
           <div class="section-header">
             <p class="section-title">{{ t('projectSettingsModal.emailTitle') }}</p>
@@ -212,8 +313,20 @@ function onClose() {
 .form-group { display: flex; flex-direction: column; gap: 5px; }
 .form-group label { font-size: 12px; }
 .input { min-height: 34px; padding: 7px 9px; border: 1px solid var(--color-border, #d1d5db); border-radius: 7px; background: #fff; }
-.invite-controls, .email-toggle { display: flex; align-items: center; gap: 8px; }
-.invite-controls .input { flex: 1; min-width: 0; }
+.invite-controls, .gitlab-controls, .email-toggle { display: flex; align-items: center; gap: 8px; }
+.invite-controls .input, .gitlab-controls .input { flex: 1; min-width: 0; }
+.gitlab-repository-list { display: grid; gap: 8px; margin-top: 12px; }
+.gitlab-repository-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border: 1px solid var(--color-border-subtle, #e5e7eb); border-radius: 7px; }
+.gitlab-repository-identity { min-width: 0; display: grid; gap: 3px; }
+.gitlab-repository-identity code, .gitlab-secret code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-primary, #0f172a); font-size: 12px; }
+.gitlab-repository-identity span, .gitlab-webhook-url > span { color: var(--color-text-secondary, #64748b); font-size: 11px; }
+.gitlab-repository-actions, .gitlab-secret-row { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.gitlab-delete { min-height: 30px; padding: 5px 9px; }
+.gitlab-empty { margin: 10px 0 0; }
+.gitlab-secret, .gitlab-webhook-url { display: grid; gap: 6px; margin-top: 12px; }
+.gitlab-secret { padding: 10px; border-radius: 7px; background: #f4f6fa; }
+.gitlab-secret p { margin: 0; color: var(--color-text-secondary, #64748b); font-size: 12px; }
+.gitlab-secret-row code { flex: 1; min-width: 0; padding: 7px 9px; border: 1px solid var(--color-border-subtle, #e5e7eb); border-radius: 6px; background: #fff; }
 .email-zone { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .danger-zone { background: #fff8f7; }
 .danger-zone-title, .danger-zone-text { margin: 0; }
@@ -224,5 +337,5 @@ function onClose() {
 .btn-primary { border: 1px solid #4f46e5; color: #fff; background: #4f46e5; }
 .btn-secondary, .btn-cancel { border: 1px solid #d1d5db; background: #fff; }
 .btn-danger { border: 1px solid #dc2626; color: #fff; background: #dc2626; }
-@media (max-width: 520px) { .basic-fields, .invite-controls, .email-zone { grid-template-columns: 1fr; flex-direction: column; align-items: stretch; } .invite-controls { display: grid; } .modal-overlay { padding: 8px; } }
+@media (max-width: 520px) { .basic-fields, .invite-controls, .gitlab-controls, .email-zone, .gitlab-repository-row { grid-template-columns: 1fr; flex-direction: column; align-items: stretch; } .invite-controls, .gitlab-controls { display: grid; } .gitlab-repository-actions { justify-content: flex-end; } .modal-overlay { padding: 8px; } }
 </style>

@@ -330,6 +330,21 @@ const isFavorited = computed(() => {
 const descriptionFullscreenAriaLabel = computed(() =>
   isDescriptionFullscreen.value ? t('taskEditor.exitFullscreen') : t('taskEditor.enterFullscreen')
 )
+const taskKeyCopied = ref(false)
+let taskKeyCopiedTimer: ReturnType<typeof setTimeout> | null = null
+
+async function copyTaskKey() {
+  const taskKey = props.task?.id
+  if (!taskKey) return
+  try {
+    await navigator.clipboard.writeText(taskKey)
+    taskKeyCopied.value = true
+    if (taskKeyCopiedTimer) clearTimeout(taskKeyCopiedTimer)
+    taskKeyCopiedTimer = setTimeout(() => { taskKeyCopied.value = false }, 1600)
+  } catch {
+    taskKeyCopied.value = false
+  }
+}
 
 const creatorName = computed(() => {
   if (props.mode !== 'edit' || !props.task?.creatorId) return null
@@ -1344,6 +1359,7 @@ function notifySaveState(message: string) {
 
 onBeforeUnmount(() => {
   if (progressStatusHintTimer) clearTimeout(progressStatusHintTimer)
+  if (taskKeyCopiedTimer) clearTimeout(taskKeyCopiedTimer)
   document.removeEventListener('fullscreenchange', syncDescriptionFullscreenState)
   if (props.mode !== 'edit' || !props.task) return
   void flushEditorDraft().catch((e) => {
@@ -1478,6 +1494,18 @@ async function toggleDescriptionFullscreen() {
           </template>
           <span class="editor-breadcrumb-separator">/</span>
           <span class="editor-breadcrumb-current">{{ task?.id }}</span>
+          <button
+            v-if="task?.id"
+            type="button"
+            class="task-key-copy-btn"
+            data-testid="task-key-copy"
+            :aria-label="taskKeyCopied ? t('taskEditor.taskKeyCopied') : t('taskEditor.copyTaskKey')"
+            :title="taskKeyCopied ? t('taskEditor.taskKeyCopied') : t('taskEditor.copyTaskKey')"
+            @click="copyTaskKey"
+          >
+            <Copy v-if="!taskKeyCopied" class="icon-14" />
+            <span v-else class="task-key-copy-feedback">✓</span>
+          </button>
         </nav>
         <template v-else>
           <span v-if="task?.id" class="issue-id">{{ task.id }}</span>
@@ -2268,6 +2296,30 @@ async function toggleDescriptionFullscreen() {
   color: var(--color-text-primary);
   font-weight: var(--font-weight-medium);
   flex-shrink: 0;
+}
+.task-key-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.task-key-copy-btn:hover,
+.task-key-copy-btn:focus-visible {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.task-key-copy-feedback {
+  color: var(--color-success, #16a34a);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
 }
 .header-icon-btn {
   display: flex;

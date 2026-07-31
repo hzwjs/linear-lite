@@ -9,6 +9,7 @@ import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
 import com.linearlite.server.mapper.ProjectEmailPreferenceMapper;
+import com.linearlite.server.mapper.ProjectGitLabRepositoryMapper;
 import com.linearlite.server.mapper.ProjectInvitationMapper;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.ProjectMemberMapper;
@@ -53,6 +54,7 @@ class ProjectLifecycleServiceTest {
     @Mock private ProjectInvitationMapper invitationMapper;
     @Mock private ProjectMemberMapper memberMapper;
     @Mock private ProjectEmailPreferenceMapper emailPreferenceMapper;
+    @Mock private ProjectGitLabRepositoryMapper gitLabRepositoryMapper;
     @Mock private ProjectTaskSeqMapper taskSeqMapper;
     @Mock private ApplicationEventPublisher eventPublisher;
 
@@ -65,6 +67,7 @@ class ProjectLifecycleServiceTest {
                 taskMapper, taskCommentMapper,
                 mentionMapper, notificationMapper, activityMapper, favoriteMapper, attachmentMapper,
                 labelService, labelMapper, invitationMapper, memberMapper, emailPreferenceMapper,
+                gitLabRepositoryMapper,
                 taskSeqMapper, eventPublisher);
     }
 
@@ -82,6 +85,7 @@ class ProjectLifecycleServiceTest {
         InOrder deletionOrder = inOrder(revisionMapper, documentMapper, projectMapper);
         deletionOrder.verify(revisionMapper).delete(any(LambdaQueryWrapper.class));
         deletionOrder.verify(documentMapper).deleteBatchIds(List.of(21L));
+        verify(gitLabRepositoryMapper).delete(any(LambdaQueryWrapper.class));
         deletionOrder.verify(projectMapper).deleteById(3L);
         verify(eventPublisher).publishEvent(new ProjectContentSemanticDeleteRequestedEvent(
                 ProjectContentType.DOCUMENT, List.of(21L)));

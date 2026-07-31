@@ -43,6 +43,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (!path.startsWith("/api/")) {
             return true;
         }
+        if ("/api/webhooks/gitlab".equals(path) || "/api/webhooks/github".equals(path)) {
+            return true;
+        }
         if (AUTH_LOGIN_PATH.equals(path)
                 || AUTH_REGISTER_PATH.equals(path)
                 || AUTH_REGISTER_SEND_CODE_PATH.equals(path)) {

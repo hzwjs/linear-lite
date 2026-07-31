@@ -2,6 +2,34 @@ import { api, unwrap } from './index'
 import type { ApiResponse } from './types'
 import type { Project, User } from '../../types/domain'
 
+export interface GitLabRepository {
+  id: number
+  repositoryUrl: string
+  repositoryPath: string
+  /** 仅创建或重置 Secret 后返回一次。 */
+  webhookToken?: string | null
+  createdAt: string
+}
+
+export interface GitHubRepository {
+  id: number
+  repositoryUrl: string
+  repositoryPath: string
+  webhookSecret?: string | null
+  createdAt: string
+}
+
+/** 供 GitLab Webhook 配置使用，随前端 API 部署前缀变化。 */
+export function gitlabWebhookUrl(): string {
+  const base = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '')
+  return new URL(`${base}/webhooks/gitlab`, window.location.origin).href
+}
+
+export function githubWebhookUrl(): string {
+  const base = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '')
+  return new URL(`${base}/webhooks/github`, window.location.origin).href
+}
+
 interface ApiProject {
   id: number
   name: string
@@ -99,6 +127,50 @@ export const projectApi = {
       .then((res) => {
         unwrap(res)
       })
+  },
+
+  listGitLabRepositories(projectId: number): Promise<GitLabRepository[]> {
+    return api
+      .get<ApiResponse<GitLabRepository[]>>(`/projects/${projectId}/gitlab-repositories`)
+      .then((res) => asArray(unwrap(res)))
+  },
+
+  createGitLabRepository(projectId: number, repositoryUrl: string): Promise<GitLabRepository> {
+    return api
+      .post<ApiResponse<GitLabRepository>>(`/projects/${projectId}/gitlab-repositories`, { repositoryUrl })
+      .then(unwrap)
+  },
+
+  resetGitLabWebhookToken(projectId: number, repositoryId: number): Promise<GitLabRepository> {
+    return api
+      .post<ApiResponse<GitLabRepository>>(
+        `/projects/${projectId}/gitlab-repositories/${repositoryId}/webhook-token/reset`
+      )
+      .then(unwrap)
+  },
+
+  deleteGitLabRepository(projectId: number, repositoryId: number): Promise<void> {
+    return api
+      .delete<ApiResponse<null>>(`/projects/${projectId}/gitlab-repositories/${repositoryId}`)
+      .then((res) => {
+        unwrap(res)
+      })
+  },
+
+  listGitHubRepositories(projectId: number): Promise<GitHubRepository[]> {
+    return api.get<ApiResponse<GitHubRepository[]>>(`/projects/${projectId}/github-repositories`).then((res) => asArray(unwrap(res)))
+  },
+
+  createGitHubRepository(projectId: number, repositoryUrl: string): Promise<GitHubRepository> {
+    return api.post<ApiResponse<GitHubRepository>>(`/projects/${projectId}/github-repositories`, { repositoryUrl }).then(unwrap)
+  },
+
+  resetGitHubWebhookSecret(projectId: number, repositoryId: number): Promise<GitHubRepository> {
+    return api.post<ApiResponse<GitHubRepository>>(`/projects/${projectId}/github-repositories/${repositoryId}/webhook-secret/reset`).then(unwrap)
+  },
+
+  deleteGitHubRepository(projectId: number, repositoryId: number): Promise<void> {
+    return api.delete<ApiResponse<null>>(`/projects/${projectId}/github-repositories/${repositoryId}`).then((res) => { unwrap(res) })
   },
 
   /** 获取项目成员列表（负责人选择用） */

@@ -6,7 +6,7 @@ import { useAuthStore } from '../store/authStore'
 import { useTaskStore } from '../store/taskStore'
 import { useOverlayStore } from '../store/overlayStore'
 import { useI18n } from 'vue-i18n'
-import { projectApi } from '../services/api/project'
+import { projectApi, type GitHubRepository, type GitLabRepository } from '../services/api/project'
 import { shouldIgnoreProjectResponse } from '../utils/projectRequestGuard'
 import ProjectSettingsDialog from './ProjectSettingsDialog.vue'
 // Excel 导入只在项目设置中打开导入弹窗时需要，不能进入首屏入口包。
@@ -42,7 +42,16 @@ const canDelete = computed(
 )
 const dailySummaryEnabled = ref(false)
 const isEmailSaving = ref(false)
+const gitlabRepositories = ref<GitLabRepository[]>([])
+const gitlabRepositoryUrl = ref('')
+const gitlabWebhookToken = ref('')
+const isGitLabLoading = ref(false)
+const githubRepositories = ref<GitHubRepository[]>([])
+const githubRepositoryUrl = ref('')
+const githubWebhookSecret = ref('')
+const isGitHubLoading = ref(false)
 let emailSettingsRequestSeq = 0
+let gitlabRepositoriesRequestSeq = 0
 
 watch(
   () => [props.open, props.project] as const,
@@ -56,13 +65,26 @@ watch(
       inviteMessage.value = ''
       dailySummaryEnabled.value = false
       isEmailSaving.value = false
+      gitlabRepositories.value = []
+      gitlabRepositoryUrl.value = ''
+      gitlabWebhookToken.value = ''
+      isGitLabLoading.value = false
+      githubRepositories.value = []
+      githubRepositoryUrl.value = ''
+      githubWebhookSecret.value = ''
+      isGitHubLoading.value = false
       void loadEmailSettings(project)
+      void loadGitLabRepositories(project)
+      void loadGitHubRepositories(project)
     }
     if (!open) {
       importOpen.value = false
       importUsers.value = []
       emailSettingsRequestSeq += 1
+      gitlabRepositoriesRequestSeq += 1
       isEmailSaving.value = false
+      isGitLabLoading.value = false
+      isGitHubLoading.value = false
     }
   }
 )
@@ -80,6 +102,123 @@ async function loadEmailSettings(project: Project) {
     if (shouldIgnoreProjectResponse(requestSeq, emailSettingsRequestSeq, props.project?.id, projectId)) return
     error.value = e instanceof Error ? e.message : '无法读取邮件设置'
   }
+}
+
+async function loadGitLabRepositories(project: Project) {
+  if (!canDelete.value) return
+  const requestSeq = ++gitlabRepositoriesRequestSeq
+  const projectId = project.id
+  isGitLabLoading.value = true
+  try {
+    const repositories = await projectApi.listGitLabRepositories(projectId)
+    if (shouldIgnoreProjectResponse(requestSeq, gitlabRepositoriesRequestSeq, props.project?.id, projectId)) return
+    gitlabRepositories.value = repositories
+  } catch (e) {
+    if (shouldIgnoreProjectResponse(requestSeq, gitlabRepositoriesRequestSeq, props.project?.id, projectId)) return
+    error.value = e instanceof Error ? e.message : '无法读取 GitLab 仓库配置'
+  } finally {
+    if (!shouldIgnoreProjectResponse(requestSeq, gitlabRepositoriesRequestSeq, props.project?.id, projectId)) {
+      isGitLabLoading.value = false
+    }
+  }
+}
+
+async function addGitLabRepository() {
+  if (!props.project || !gitlabRepositoryUrl.value.trim() || isGitLabLoading.value) return
+  const projectId = props.project.id
+  isGitLabLoading.value = true
+  error.value = ''
+  try {
+    const repository = await projectApi.createGitLabRepository(projectId, gitlabRepositoryUrl.value.trim())
+    if (props.project?.id !== projectId) return
+    gitlabRepositories.value = [...gitlabRepositories.value, repository]
+    gitlabRepositoryUrl.value = ''
+    gitlabWebhookToken.value = repository.webhookToken ?? ''
+  } catch (e) {
+    if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : '无法添加 GitLab 仓库'
+  } finally {
+    if (props.project?.id === projectId) isGitLabLoading.value = false
+  }
+}
+
+async function resetGitLabWebhookToken(repositoryId: number) {
+  if (!props.project || isGitLabLoading.value) return
+  const projectId = props.project.id
+  isGitLabLoading.value = true
+  error.value = ''
+  try {
+    const repository = await projectApi.resetGitLabWebhookToken(projectId, repositoryId)
+    if (props.project?.id !== projectId) return
+    gitlabRepositories.value = gitlabRepositories.value.map((item) => item.id === repository.id ? repository : item)
+    gitlabWebhookToken.value = repository.webhookToken ?? ''
+  } catch (e) {
+    if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : '无法重置 GitLab Secret token'
+  } finally {
+    if (props.project?.id === projectId) isGitLabLoading.value = false
+  }
+}
+
+async function deleteGitLabRepository(repositoryId: number) {
+  if (!props.project || isGitLabLoading.value) return
+  const repository = gitlabRepositories.value.find((item) => item.id === repositoryId)
+  if (!repository || !window.confirm(`移除 GitLab 仓库“${repository.repositoryPath}”？该仓库后续推送将不再同步评论。`)) return
+  const projectId = props.project.id
+  isGitLabLoading.value = true
+  error.value = ''
+  try {
+    await projectApi.deleteGitLabRepository(projectId, repositoryId)
+    if (props.project?.id !== projectId) return
+    gitlabRepositories.value = gitlabRepositories.value.filter((item) => item.id !== repositoryId)
+    gitlabWebhookToken.value = ''
+  } catch (e) {
+    if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : '无法移除 GitLab 仓库'
+  } finally {
+    if (props.project?.id === projectId) isGitLabLoading.value = false
+  }
+}
+
+async function loadGitHubRepositories(project: Project) {
+  if (!canDelete.value) return
+  try { githubRepositories.value = await projectApi.listGitHubRepositories(project.id) }
+  catch (e) { error.value = e instanceof Error ? e.message : '无法读取 GitHub 仓库配置' }
+}
+
+async function addGitHubRepository() {
+  if (!props.project || !githubRepositoryUrl.value.trim() || isGitHubLoading.value) return
+  const projectId = props.project.id
+  isGitHubLoading.value = true; error.value = ''
+  try {
+    const repository = await projectApi.createGitHubRepository(projectId, githubRepositoryUrl.value.trim())
+    if (props.project?.id !== projectId) return
+    githubRepositories.value = [...githubRepositories.value, repository]
+    githubRepositoryUrl.value = ''; githubWebhookSecret.value = repository.webhookSecret ?? ''
+  } catch (e) { if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : '无法添加 GitHub 仓库' }
+  finally { if (props.project?.id === projectId) isGitHubLoading.value = false }
+}
+
+async function resetGitHubWebhookSecret(repositoryId: number) {
+  if (!props.project || isGitHubLoading.value) return
+  const projectId = props.project.id; isGitHubLoading.value = true; error.value = ''
+  try {
+    const repository = await projectApi.resetGitHubWebhookSecret(projectId, repositoryId)
+    if (props.project?.id !== projectId) return
+    githubRepositories.value = githubRepositories.value.map((item) => item.id === repository.id ? repository : item)
+    githubWebhookSecret.value = repository.webhookSecret ?? ''
+  } catch (e) { if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : '无法重置 GitHub Secret' }
+  finally { if (props.project?.id === projectId) isGitHubLoading.value = false }
+}
+
+async function deleteGitHubRepository(repositoryId: number) {
+  if (!props.project || isGitHubLoading.value) return
+  const repository = githubRepositories.value.find((item) => item.id === repositoryId)
+  if (!repository || !window.confirm(`移除 GitHub 仓库“${repository.repositoryPath}”？`)) return
+  const projectId = props.project.id; isGitHubLoading.value = true; error.value = ''
+  try {
+    await projectApi.deleteGitHubRepository(projectId, repositoryId)
+    if (props.project?.id !== projectId) return
+    githubRepositories.value = githubRepositories.value.filter((item) => item.id !== repositoryId); githubWebhookSecret.value = ''
+  } catch (e) { if (props.project?.id === projectId) error.value = e instanceof Error ? e.message : '无法移除 GitHub 仓库' }
+  finally { if (props.project?.id === projectId) isGitHubLoading.value = false }
 }
 
 async function onToggleDailySummary(enabled: boolean) {
@@ -221,10 +360,26 @@ onUnmounted(() => {
     :can-delete="canDelete"
     :daily-summary-enabled="dailySummaryEnabled"
     :is-email-saving="isEmailSaving"
+    :gitlab-repositories="gitlabRepositories"
+    :gitlab-repository-url="gitlabRepositoryUrl"
+    :gitlab-webhook-token="gitlabWebhookToken"
+    :is-git-lab-loading="isGitLabLoading"
+    :github-repositories="githubRepositories"
+    :github-repository-url="githubRepositoryUrl"
+    :github-webhook-secret="githubWebhookSecret"
+    :is-git-hub-loading="isGitHubLoading"
     @update:name="name = $event"
     @update:identifier="identifier = $event"
     @update:invite-email="inviteEmail = $event"
     @toggle-daily-summary="onToggleDailySummary"
+    @update:gitlab-repository-url="gitlabRepositoryUrl = $event"
+    @add-git-lab-repository="addGitLabRepository"
+    @reset-git-lab-webhook-token="resetGitLabWebhookToken"
+    @delete-git-lab-repository="deleteGitLabRepository"
+    @update:github-repository-url="githubRepositoryUrl = $event"
+    @add-git-hub-repository="addGitHubRepository"
+    @reset-git-hub-webhook-secret="resetGitHubWebhookSecret"
+    @delete-git-hub-repository="deleteGitHubRepository"
     @submit="submit"
     @invite="inviteMember"
     @import="openTaskImport"

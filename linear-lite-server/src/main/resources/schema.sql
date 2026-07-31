@@ -37,6 +37,35 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE INDEX idx_projects_creator_id ON projects (creator_id);
 
+-- 项目可配置多个 GitLab 仓库；每个仓库 URL 与 Webhook Token 仅绑定一个 Linear Lite 项目。
+CREATE TABLE IF NOT EXISTS project_gitlab_repositories (
+    id                 BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    project_id         BIGINT       NOT NULL COMMENT '逻辑关联 projects.id',
+    repository_url     VARCHAR(512) NOT NULL COMMENT 'GitLab 项目 Web URL，作为固定仓库身份',
+    repository_path    VARCHAR(512) NOT NULL COMMENT 'GitLab path_with_namespace',
+    webhook_token_hash VARCHAR(128) NOT NULL COMMENT 'X-Gitlab-Token 的 SHA-256 哈希',
+    created_by         BIGINT       NOT NULL COMMENT '配置仓库的项目创建者，作为同步评论作者',
+    created_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_project_gitlab_repositories_url (repository_url),
+    UNIQUE KEY uk_project_gitlab_repositories_token (webhook_token_hash),
+    KEY idx_project_gitlab_repositories_project (project_id, created_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 项目可配置多个 GitHub 仓库；webhook_secret 仅服务端使用，创建/重置时返回一次。
+CREATE TABLE IF NOT EXISTS project_github_repositories (
+    id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    project_id      BIGINT       NOT NULL,
+    repository_url  VARCHAR(512) NOT NULL,
+    repository_path VARCHAR(512) NOT NULL,
+    webhook_secret  VARCHAR(128) NOT NULL COMMENT 'AES-GCM 密文，密钥由 JWT_SECRET 派生',
+    created_by      BIGINT       NOT NULL,
+    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_project_github_repositories_url (repository_url),
+    KEY idx_project_github_repositories_project (project_id, created_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS project_members (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     project_id  BIGINT       NOT NULL,
@@ -241,12 +270,15 @@ CREATE TABLE IF NOT EXISTS task_comments (
     parent_id   BIGINT       DEFAULT NULL COMMENT '父评论 ID，NULL 表示顶层评论',
     root_id     BIGINT       DEFAULT NULL COMMENT '根评论 ID，顶层评论可为 NULL',
     depth       INT          NOT NULL DEFAULT 0 COMMENT '评论层级深度，顶层为 0',
+    source_type VARCHAR(32)  DEFAULT NULL COMMENT '外部来源类型，如 gitlab_commit；人工评论为 NULL',
+    external_ref VARCHAR(128) DEFAULT NULL COMMENT '外部来源唯一标识，如 repositoryId:commitSha',
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE INDEX idx_task_comments_task_id ON task_comments (task_id, created_at, id);
 CREATE INDEX idx_task_comments_parent_id ON task_comments (parent_id);
 CREATE INDEX idx_task_comments_root_id ON task_comments (root_id);
+CREATE UNIQUE INDEX uk_task_comments_source_ref ON task_comments (source_type, external_ref, task_id);
 
 -- 评论中的 @ 提及（逻辑关联 task_comments.id / users.id）
 CREATE TABLE IF NOT EXISTS comment_mentions (
@@ -360,3 +392,44 @@ DEALLOCATE PREPARE dispatch_user_scope_stmt;
 
 CREATE INDEX idx_project_email_dispatches_user_date
 ON project_email_dispatches (recipient_user_id, scenario_key, business_date);
+
+-- ========== 归档：GitLab 多仓库任务评论联动（幂等增量）==========
+-- 已有库增量 1：评论来源字段支持按“仓库 + commit SHA”去重；人工评论仍保持 NULL。
+SET @task_comments_source_type_exists = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'task_comments' AND COLUMN_NAME = 'source_type'
+);
+SET @task_comments_source_type_ddl = IF(
+    @task_comments_source_type_exists = 0,
+    'ALTER TABLE task_comments ADD COLUMN source_type VARCHAR(32) DEFAULT NULL COMMENT ''外部来源类型，如 gitlab_commit；人工评论为 NULL'' AFTER depth, ADD COLUMN external_ref VARCHAR(128) DEFAULT NULL COMMENT ''外部来源唯一标识，如 repositoryId:commitSha'' AFTER source_type',
+    'SELECT 1'
+);
+PREPARE task_comments_source_type_stmt FROM @task_comments_source_type_ddl;
+EXECUTE task_comments_source_type_stmt;
+DEALLOCATE PREPARE task_comments_source_type_stmt;
+
+SET @task_comments_external_ref_length = (
+    SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'task_comments' AND COLUMN_NAME = 'external_ref'
+);
+SET @task_comments_external_ref_ddl = IF(
+    @task_comments_external_ref_length < 128,
+    'ALTER TABLE task_comments MODIFY COLUMN external_ref VARCHAR(128) DEFAULT NULL COMMENT ''外部来源唯一标识，如 repositoryId:commitSha''',
+    'SELECT 1'
+);
+PREPARE task_comments_external_ref_stmt FROM @task_comments_external_ref_ddl;
+EXECUTE task_comments_external_ref_stmt;
+DEALLOCATE PREPARE task_comments_external_ref_stmt;
+
+SET @task_comments_source_ref_index_exists = (
+    SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'task_comments' AND INDEX_NAME = 'uk_task_comments_source_ref'
+);
+SET @task_comments_source_ref_index_ddl = IF(
+    @task_comments_source_ref_index_exists = 0,
+    'ALTER TABLE task_comments ADD UNIQUE KEY uk_task_comments_source_ref (source_type, external_ref, task_id)',
+    'SELECT 1'
+);
+PREPARE task_comments_source_ref_index_stmt FROM @task_comments_source_ref_index_ddl;
+EXECUTE task_comments_source_ref_index_stmt;
+DEALLOCATE PREPARE task_comments_source_ref_index_stmt;

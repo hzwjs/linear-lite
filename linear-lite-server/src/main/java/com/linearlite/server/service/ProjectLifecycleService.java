@@ -8,6 +8,8 @@ import com.linearlite.server.entity.ProjectDocument;
 import com.linearlite.server.entity.ProjectDocumentFavorite;
 import com.linearlite.server.entity.ProjectDocumentRevision;
 import com.linearlite.server.entity.ProjectEmailPreference;
+import com.linearlite.server.entity.ProjectGitLabRepository;
+import com.linearlite.server.entity.ProjectGitHubRepository;
 import com.linearlite.server.entity.ProjectInvitation;
 import com.linearlite.server.entity.ProjectMember;
 import com.linearlite.server.entity.Task;
@@ -23,6 +25,8 @@ import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
 import com.linearlite.server.mapper.ProjectEmailPreferenceMapper;
 import com.linearlite.server.mapper.ProjectInvitationMapper;
+import com.linearlite.server.mapper.ProjectGitLabRepositoryMapper;
+import com.linearlite.server.mapper.ProjectGitHubRepositoryMapper;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.ProjectTaskSeqMapper;
@@ -32,6 +36,7 @@ import com.linearlite.server.mapper.TaskCommentMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,9 +62,12 @@ public class ProjectLifecycleService {
     private final ProjectInvitationMapper invitationMapper;
     private final ProjectMemberMapper memberMapper;
     private final ProjectEmailPreferenceMapper emailPreferenceMapper;
+    private final ProjectGitLabRepositoryMapper gitLabRepositoryMapper;
+    private final ProjectGitHubRepositoryMapper gitHubRepositoryMapper;
     private final ProjectTaskSeqMapper taskSeqMapper;
     private final ApplicationEventPublisher eventPublisher;
 
+    @Autowired
     public ProjectLifecycleService(
             ProjectAccessGuard accessGuard, ProjectMapper projectMapper,
             ProjectDocumentMapper documentMapper, ProjectDocumentRevisionMapper revisionMapper,
@@ -70,7 +78,9 @@ public class ProjectLifecycleService {
             TaskFavoriteMapper favoriteMapper, TaskAttachmentMapper attachmentMapper,
             LabelService labelService, LabelMapper labelMapper,
             ProjectInvitationMapper invitationMapper, ProjectMemberMapper memberMapper,
-            ProjectEmailPreferenceMapper emailPreferenceMapper, ProjectTaskSeqMapper taskSeqMapper,
+            ProjectEmailPreferenceMapper emailPreferenceMapper, ProjectGitLabRepositoryMapper gitLabRepositoryMapper,
+            ProjectGitHubRepositoryMapper gitHubRepositoryMapper,
+            ProjectTaskSeqMapper taskSeqMapper,
             ApplicationEventPublisher eventPublisher) {
         this.accessGuard = accessGuard;
         this.projectMapper = projectMapper;
@@ -90,8 +100,29 @@ public class ProjectLifecycleService {
         this.invitationMapper = invitationMapper;
         this.memberMapper = memberMapper;
         this.emailPreferenceMapper = emailPreferenceMapper;
+        this.gitLabRepositoryMapper = gitLabRepositoryMapper;
+        this.gitHubRepositoryMapper = gitHubRepositoryMapper;
         this.taskSeqMapper = taskSeqMapper;
         this.eventPublisher = eventPublisher;
+    }
+
+    /** 保留现有单元测试及扩展调用方的构造签名；生产 Bean 使用包含 GitHub mapper 的构造器。 */
+    public ProjectLifecycleService(
+            ProjectAccessGuard accessGuard, ProjectMapper projectMapper,
+            ProjectDocumentMapper documentMapper, ProjectDocumentRevisionMapper revisionMapper,
+            ProjectDocumentFavoriteMapper documentFavoriteMapper,
+            ProjectDocumentAttachmentService documentAttachmentService,
+            TaskMapper taskMapper, TaskCommentMapper taskCommentMapper, CommentMentionMapper mentionMapper,
+            InAppNotificationMapper notificationMapper, TaskActivityMapper activityMapper,
+            TaskFavoriteMapper favoriteMapper, TaskAttachmentMapper attachmentMapper,
+            LabelService labelService, LabelMapper labelMapper,
+            ProjectInvitationMapper invitationMapper, ProjectMemberMapper memberMapper,
+            ProjectEmailPreferenceMapper emailPreferenceMapper, ProjectGitLabRepositoryMapper gitLabRepositoryMapper,
+            ProjectTaskSeqMapper taskSeqMapper, ApplicationEventPublisher eventPublisher) {
+        this(accessGuard, projectMapper, documentMapper, revisionMapper, documentFavoriteMapper,
+                documentAttachmentService, taskMapper, taskCommentMapper, mentionMapper, notificationMapper,
+                activityMapper, favoriteMapper, attachmentMapper, labelService, labelMapper, invitationMapper,
+                memberMapper, emailPreferenceMapper, gitLabRepositoryMapper, null, taskSeqMapper, eventPublisher);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -135,6 +166,12 @@ public class ProjectLifecycleService {
         invitationMapper.delete(new LambdaQueryWrapper<ProjectInvitation>().eq(ProjectInvitation::getProjectId, projectId));
         emailPreferenceMapper.delete(new LambdaQueryWrapper<ProjectEmailPreference>()
                 .eq(ProjectEmailPreference::getProjectId, projectId));
+        gitLabRepositoryMapper.delete(new LambdaQueryWrapper<ProjectGitLabRepository>()
+                .eq(ProjectGitLabRepository::getProjectId, projectId));
+        if (gitHubRepositoryMapper != null) {
+            gitHubRepositoryMapper.delete(new LambdaQueryWrapper<ProjectGitHubRepository>()
+                    .eq(ProjectGitHubRepository::getProjectId, projectId));
+        }
         taskSeqMapper.deleteByProjectId(projectId);
         memberMapper.delete(new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getProjectId, projectId));
         projectMapper.deleteById(projectId);
