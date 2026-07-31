@@ -6,14 +6,12 @@ interface ApiUser {
   id: number
   username: string
   avatar_url?: string
-  userType: 'human' | 'codex'
 }
 
 function toUser(u: ApiUser): User {
   return {
     id: u.id,
     username: u.username,
-    userType: u.userType,
     ...(u.avatar_url != null && { avatar_url: u.avatar_url })
   }
 }

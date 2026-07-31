@@ -10,23 +10,8 @@ CREATE TABLE IF NOT EXISTS users (
     email       VARCHAR(255) NOT NULL UNIQUE,
     password    VARCHAR(255) NOT NULL,
     avatar_url  VARCHAR(512) DEFAULT NULL,
-    user_type   VARCHAR(16)  NOT NULL DEFAULT 'human' COMMENT '用户领域类型：human/codex',
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- 已有库增量：user_type 是 Codex 系统负责人的唯一领域识别字段。
-SET @users_user_type_exists = (
-    SELECT COUNT(*) FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'user_type'
-);
-SET @users_user_type_ddl = IF(
-    @users_user_type_exists = 0,
-    'ALTER TABLE users ADD COLUMN user_type VARCHAR(16) NOT NULL DEFAULT ''human'' COMMENT ''用户领域类型：human/codex'' AFTER avatar_url',
-    'SELECT 1'
-);
-PREPARE users_user_type_stmt FROM @users_user_type_ddl;
-EXECUTE users_user_type_stmt;
-DEALLOCATE PREPARE users_user_type_stmt;
 
 CREATE TABLE IF NOT EXISTS email_verification_codes (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -256,10 +241,7 @@ CREATE TABLE IF NOT EXISTS task_comments (
     parent_id   BIGINT       DEFAULT NULL COMMENT '父评论 ID，NULL 表示顶层评论',
     root_id     BIGINT       DEFAULT NULL COMMENT '根评论 ID，顶层评论可为 NULL',
     depth       INT          NOT NULL DEFAULT 0 COMMENT '评论层级深度，顶层为 0',
-    source_type VARCHAR(32)  DEFAULT NULL COMMENT '外部来源类型，如 gitlab_commit；人工评论为 NULL',
-    external_ref VARCHAR(64) DEFAULT NULL COMMENT '外部来源唯一标识，如 commit sha；与 source_type 组合幂等去重',
-    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_task_comments_source_ref (source_type, external_ref, task_id)
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE INDEX idx_task_comments_task_id ON task_comments (task_id, created_at, id);
@@ -291,135 +273,17 @@ CREATE TABLE IF NOT EXISTS in_app_notifications (
 CREATE INDEX idx_in_app_notifications_user_created ON in_app_notifications (user_id, created_at DESC);
 CREATE INDEX idx_in_app_notifications_user_unread ON in_app_notifications (user_id, read_at);
 
--- Codex 派发：服务端仅保存 Runner/仓库身份，不保存本地路径或 Codex 凭据。
-CREATE TABLE IF NOT EXISTS codex_runners (
-    id           BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    user_id      BIGINT       NOT NULL,
-    name         VARCHAR(128) NOT NULL,
-    token_hash   VARCHAR(128) NOT NULL UNIQUE,
-    status       VARCHAR(16)  NOT NULL DEFAULT 'active',
-    last_seen_at DATETIME     DEFAULT NULL,
-    created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    revoked_at   DATETIME     DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-CREATE INDEX idx_codex_runners_user_status ON codex_runners (user_id, status);
-
-CREATE TABLE IF NOT EXISTS codex_runner_enrollment_codes (
-    id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    user_id     BIGINT       NOT NULL,
-    code_hash   VARCHAR(128) NOT NULL UNIQUE,
-    expires_at  DATETIME     NOT NULL,
-    consumed_at DATETIME     DEFAULT NULL,
-    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS codex_repositories (
-    id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    runner_id       BIGINT       NOT NULL,
-    repository_key  VARCHAR(128) NOT NULL,
-    display_name    VARCHAR(256) NOT NULL,
-    remote_identity VARCHAR(512) NOT NULL,
-    default_branch  VARCHAR(128) NOT NULL,
-    last_seen_at    DATETIME     NOT NULL,
-    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_codex_repositories_runner_key (runner_id, repository_key)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS project_codex_bindings (
-    id                  BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    project_id          BIGINT       NOT NULL,
-    runner_id           BIGINT       NOT NULL,
-    repository_id       BIGINT       NOT NULL,
-    base_branch         VARCHAR(128) NOT NULL,
-    webhook_token_hash  VARCHAR(128) DEFAULT NULL COMMENT 'GitLab Webhook 校验 token 的 SHA-256 哈希',
-    webhook_path        VARCHAR(512) DEFAULT NULL COMMENT 'GitLab 项目 path_with_namespace，如 group/repo',
-    webhook_base_url    VARCHAR(512) DEFAULT NULL COMMENT 'GitLab 项目 web_url，用于生成提交链接',
-    created_by          BIGINT       NOT NULL,
-    created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_project_codex_bindings_project (project_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS codex_runs (
-    id                  VARCHAR(36)  NOT NULL PRIMARY KEY,
-    client_request_id   VARCHAR(64)  NOT NULL,
-    task_id             BIGINT       NOT NULL,
-    task_key            VARCHAR(32)  NOT NULL,
-    task_updated_at     DATETIME     NOT NULL,
-    task_snapshot       JSON         NOT NULL,
-    dispatch_instruction TEXT        NOT NULL,
-    created_by          BIGINT       NOT NULL,
-    runner_id           BIGINT       NOT NULL,
-    repository_id       BIGINT       NOT NULL,
-    base_branch         VARCHAR(128) NOT NULL,
-    branch_name         VARCHAR(160) NOT NULL,
-    codex_thread_id     VARCHAR(128) DEFAULT NULL,
-    status              VARCHAR(16)  NOT NULL,
-    lease_expires_at    DATETIME     DEFAULT NULL,
-    cancel_requested_at DATETIME     DEFAULT NULL,
-    result_summary      TEXT         DEFAULT NULL,
-    result_payload      JSON         DEFAULT NULL,
-    error_code          VARCHAR(64)  DEFAULT NULL,
-    error_message       TEXT         DEFAULT NULL,
-    created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    claimed_at          DATETIME     DEFAULT NULL,
-    started_at          DATETIME     DEFAULT NULL,
-    finished_at         DATETIME     DEFAULT NULL,
-    UNIQUE KEY uk_codex_runs_creator_request (created_by, client_request_id),
-    UNIQUE KEY uk_codex_runs_thread (codex_thread_id),
-    KEY idx_codex_runs_task_status (task_id, status),
-    KEY idx_codex_runs_runner_status_created (runner_id, status, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS codex_run_events (
-    id            BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    run_id        VARCHAR(36) NOT NULL,
-    sequence_no   BIGINT      NOT NULL,
-    event_type    VARCHAR(32) NOT NULL,
-    event_payload JSON        NOT NULL,
-    created_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_codex_run_events_sequence (run_id, sequence_no)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS codex_run_messages (
-    id             BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    run_id         VARCHAR(36) NOT NULL,
-    sender_user_id BIGINT      NOT NULL,
-    content        TEXT        NOT NULL,
-    status         VARCHAR(16) NOT NULL DEFAULT 'pending',
-    claimed_at     DATETIME    DEFAULT NULL,
-    created_at     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    consumed_at    DATETIME    DEFAULT NULL,
-    KEY idx_codex_run_messages_run_status_created (run_id, status, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
 -- ========== 种子数据（可选；密码字段为 BCrypt 哈希）==========
 
-INSERT INTO users (username, email, password, avatar_url, user_type) VALUES
-    ('admin',  'admin@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',  NULL, 'human'),
-    ('user1',  'user1@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',   NULL, 'human'),
-    ('user2',  'user2@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',   NULL, 'human'),
-    ('alice',  'alice@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',  NULL, 'human'),
-    ('bob',    'bob@example.com',    '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',    NULL, 'human'),
-    ('Codex',  'codex-system@linear-lite.invalid', 'LOGIN_DISABLED', NULL, 'codex')
+INSERT INTO users (username, email, password, avatar_url) VALUES
+    ('admin',  'admin@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',  NULL),
+    ('user1',  'user1@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',   NULL),
+    ('user2',  'user2@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',   NULL),
+    ('alice',  'alice@example.com',  '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',  NULL),
+    ('bob',    'bob@example.com',    '$2y$10$bMfmFFEWAOwDerIh/eQMruD0GYHrFkSieDd7cHDV07RnB8dtR545u',    NULL)
 ON DUPLICATE KEY UPDATE
     username = VALUES(username),
-    email = VALUES(email),
-    user_type = VALUES(user_type);
-
--- 已有 binding 回填：只有系统中恰好一个 Codex 身份时才建立真实项目成员关系。
-INSERT INTO project_members (project_id, user_id, role, sort_order)
-SELECT binding.project_id, codex.id, 'member', 0
-FROM project_codex_bindings binding
-CROSS JOIN (
-    SELECT MAX(id) AS id
-    FROM users
-    WHERE user_type = 'codex'
-    HAVING COUNT(*) = 1
-) codex
-WHERE 1 = 1
-ON DUPLICATE KEY UPDATE role = VALUES(role);
+    email = VALUES(email);
 
 INSERT INTO projects (name, identifier, creator_id)
 SELECT 'Engineering', 'ENG', id FROM users WHERE username = 'admin'
@@ -496,32 +360,3 @@ DEALLOCATE PREPARE dispatch_user_scope_stmt;
 
 CREATE INDEX idx_project_email_dispatches_user_date
 ON project_email_dispatches (recipient_user_id, scenario_key, business_date);
-
--- ========== 归档：GitLab 提交评论联动（幂等增量）==========
--- 已有库增量 1：task_comments 增加外部来源列，用于 GitLab 提交评论的幂等去重。
-SET @comments_source_ref_exists = (
-    SELECT COUNT(*) FROM information_schema.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'task_comments' AND INDEX_NAME = 'uk_task_comments_source_ref'
-);
-SET @comments_source_ref_ddl = IF(
-    @comments_source_ref_exists = 0,
-    'ALTER TABLE task_comments ADD COLUMN source_type VARCHAR(32) DEFAULT NULL COMMENT ''外部来源类型，如 gitlab_commit；人工评论为 NULL'' AFTER depth, ADD COLUMN external_ref VARCHAR(64) DEFAULT NULL COMMENT ''外部来源唯一标识，如 commit sha；与 source_type 组合幂等去重'' AFTER source_type, ADD UNIQUE KEY uk_task_comments_source_ref (source_type, external_ref, task_id)',
-    'SELECT 1'
-);
-PREPARE comments_source_ref_stmt FROM @comments_source_ref_ddl;
-EXECUTE comments_source_ref_stmt;
-DEALLOCATE PREPARE comments_source_ref_stmt;
-
--- 已有库增量 2：project_codex_bindings 增加 GitLab Webhook 校验与仓库身份字段。
-SET @binding_webhook_token_exists = (
-    SELECT COUNT(*) FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'project_codex_bindings' AND COLUMN_NAME = 'webhook_token_hash'
-);
-SET @binding_webhook_token_ddl = IF(
-    @binding_webhook_token_exists = 0,
-    'ALTER TABLE project_codex_bindings ADD COLUMN webhook_token_hash VARCHAR(128) DEFAULT NULL COMMENT ''GitLab Webhook 校验 token 的 SHA-256 哈希'' AFTER base_branch, ADD COLUMN webhook_path VARCHAR(512) DEFAULT NULL COMMENT ''GitLab 项目 path_with_namespace，如 group/repo'' AFTER webhook_token_hash, ADD COLUMN webhook_base_url VARCHAR(512) DEFAULT NULL COMMENT ''GitLab 项目 web_url，用于生成提交链接'' AFTER webhook_path',
-    'SELECT 1'
-);
-PREPARE binding_webhook_token_stmt FROM @binding_webhook_token_ddl;
-EXECUTE binding_webhook_token_stmt;
-DEALLOCATE PREPARE binding_webhook_token_stmt;

@@ -77,7 +77,7 @@ public class AuthService {
 
         User user = findUserByIdentity(normalizedIdentity);
 
-        if (user == null || User.TYPE_CODEX.equals(user.getUserType()) || !matchesPassword(normalizedPassword, user)) {
+        if (user == null || !matchesPassword(normalizedPassword, user)) {
             throw new UnauthorizedException("Incorrect email/username or password.");
         }
         acceptPendingInvitations(user);
@@ -146,7 +146,6 @@ public class AuthService {
         user.setUsername(username);
         user.setEmail(email);
         user.setPassword(passwordEncoder.encode(password));
-        user.setUserType(User.TYPE_HUMAN);
         userMapper.insert(user);
 
         verificationCode.setUsedAt(LocalDateTime.now());

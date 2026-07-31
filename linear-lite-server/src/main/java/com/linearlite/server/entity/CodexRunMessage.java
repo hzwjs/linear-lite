@@ -1,6 +1,0 @@
-package com.linearlite.server.entity;
-import com.baomidou.mybatisplus.annotation.IdType; import com.baomidou.mybatisplus.annotation.TableId; import com.baomidou.mybatisplus.annotation.TableName; import java.time.LocalDateTime;
-@TableName("codex_run_messages") public class CodexRunMessage {
- @TableId(type=IdType.AUTO) private Long id; private String runId; private Long senderUserId; private String content; private String status; private LocalDateTime claimedAt; private LocalDateTime createdAt; private LocalDateTime consumedAt;
- public Long getId(){return id;} public void setId(Long v){id=v;} public String getRunId(){return runId;} public void setRunId(String v){runId=v;} public Long getSenderUserId(){return senderUserId;} public void setSenderUserId(Long v){senderUserId=v;} public String getContent(){return content;} public void setContent(String v){content=v;} public String getStatus(){return status;} public void setStatus(String v){status=v;} public LocalDateTime getClaimedAt(){return claimedAt;} public void setClaimedAt(LocalDateTime v){claimedAt=v;} public LocalDateTime getCreatedAt(){return createdAt;} public void setCreatedAt(LocalDateTime v){createdAt=v;} public LocalDateTime getConsumedAt(){return consumedAt;} public void setConsumedAt(LocalDateTime v){consumedAt=v;}
-}

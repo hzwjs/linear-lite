@@ -156,7 +156,6 @@ const userList = ref<User[]>([])
 const saveStatus = ref<'idle' | 'saving' | 'saved' | 'failed'>('idle')
 const progressStatusHint = ref('')
 let progressStatusHintTimer: ReturnType<typeof setTimeout> | null = null
-let codexTaskRefreshTimer: ReturnType<typeof setInterval> | null = null
 const activities = ref<TaskActivity[]>([])
 const activitiesLoading = ref(false)
 const activityDisplayItems = computed(() =>
@@ -885,30 +884,6 @@ async function loadProjectMentionDocuments(projectId: number | null) {
   }
 }
 
-function syncCodexTaskRefresh() {
-  if (codexTaskRefreshTimer != null) {
-    clearInterval(codexTaskRefreshTimer)
-    codexTaskRefreshTimer = null
-  }
-  if (props.mode !== 'edit' || !props.task) return
-  const assignee = userList.value.find((user) => user.id === props.task?.assigneeId)
-  if (
-    assignee?.userType !== 'codex'
-    || props.task.status === 'done'
-    || props.task.status === 'canceled'
-    || props.task.status === 'duplicate'
-  ) return
-  codexTaskRefreshTimer = setInterval(() => {
-    if (!props.task || saveStatus.value === 'saving' || autoSaveTimer != null || isDescriptionEditing.value) return
-    const previousProgress = props.task.progressPercent ?? 0
-    void store.fetchTaskByKey(props.task.id).then((task) => {
-      if ((task.progressPercent ?? 0) === previousProgress) return
-      void loadActivities({ silent: true })
-      if (task.status === 'done') void loadComments({ silent: true })
-    }).catch(() => undefined)
-  }, 2_000)
-}
-
 onMounted(async () => {
   await Promise.all([
     loadProjectMembers(effectiveProjectId.value),
@@ -928,18 +903,8 @@ watch(effectiveProjectId, (id) => {
   loadProjectMentionDocuments(id)
 })
 
-watch(
-  [() => props.task?.id, () => props.task?.assigneeId, () => props.task?.status, () => props.task?.progressPercent, userList],
-  syncCodexTaskRefresh,
-  { immediate: true }
-)
-
 onBeforeUnmount(() => {
   mentionDocumentsLoadSequence += 1
-  if (codexTaskRefreshTimer != null) {
-    clearInterval(codexTaskRefreshTimer)
-    codexTaskRefreshTimer = null
-  }
   if (dueStateNowTimer != null) {
     clearInterval(dueStateNowTimer)
     dueStateNowTimer = null

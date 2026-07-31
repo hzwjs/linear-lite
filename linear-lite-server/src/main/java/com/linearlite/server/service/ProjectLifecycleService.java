@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.linearlite.server.entity.CommentMention;
 import com.linearlite.server.entity.InAppNotification;
 import com.linearlite.server.entity.Label;
-import com.linearlite.server.entity.ProjectCodexBinding;
 import com.linearlite.server.entity.ProjectDocument;
 import com.linearlite.server.entity.ProjectDocumentFavorite;
 import com.linearlite.server.entity.ProjectDocumentRevision;
@@ -19,7 +18,6 @@ import com.linearlite.server.entity.TaskFavorite;
 import com.linearlite.server.mapper.CommentMentionMapper;
 import com.linearlite.server.mapper.InAppNotificationMapper;
 import com.linearlite.server.mapper.LabelMapper;
-import com.linearlite.server.mapper.ProjectCodexBindingMapper;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
@@ -60,7 +58,6 @@ public class ProjectLifecycleService {
     private final ProjectMemberMapper memberMapper;
     private final ProjectEmailPreferenceMapper emailPreferenceMapper;
     private final ProjectTaskSeqMapper taskSeqMapper;
-    private final ProjectCodexBindingMapper codexBindingMapper;
     private final ApplicationEventPublisher eventPublisher;
 
     public ProjectLifecycleService(
@@ -74,7 +71,7 @@ public class ProjectLifecycleService {
             LabelService labelService, LabelMapper labelMapper,
             ProjectInvitationMapper invitationMapper, ProjectMemberMapper memberMapper,
             ProjectEmailPreferenceMapper emailPreferenceMapper, ProjectTaskSeqMapper taskSeqMapper,
-            ProjectCodexBindingMapper codexBindingMapper, ApplicationEventPublisher eventPublisher) {
+            ApplicationEventPublisher eventPublisher) {
         this.accessGuard = accessGuard;
         this.projectMapper = projectMapper;
         this.documentMapper = documentMapper;
@@ -94,7 +91,6 @@ public class ProjectLifecycleService {
         this.memberMapper = memberMapper;
         this.emailPreferenceMapper = emailPreferenceMapper;
         this.taskSeqMapper = taskSeqMapper;
-        this.codexBindingMapper = codexBindingMapper;
         this.eventPublisher = eventPublisher;
     }
 
@@ -140,8 +136,6 @@ public class ProjectLifecycleService {
         emailPreferenceMapper.delete(new LambdaQueryWrapper<ProjectEmailPreference>()
                 .eq(ProjectEmailPreference::getProjectId, projectId));
         taskSeqMapper.deleteByProjectId(projectId);
-        codexBindingMapper.delete(new LambdaQueryWrapper<ProjectCodexBinding>()
-                .eq(ProjectCodexBinding::getProjectId, projectId));
         memberMapper.delete(new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getProjectId, projectId));
         projectMapper.deleteById(projectId);
 

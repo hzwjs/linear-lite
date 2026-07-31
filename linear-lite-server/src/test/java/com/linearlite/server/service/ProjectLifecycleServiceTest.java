@@ -5,7 +5,6 @@ import com.linearlite.server.entity.ProjectDocument;
 import com.linearlite.server.mapper.CommentMentionMapper;
 import com.linearlite.server.mapper.InAppNotificationMapper;
 import com.linearlite.server.mapper.LabelMapper;
-import com.linearlite.server.mapper.ProjectCodexBindingMapper;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
@@ -55,7 +54,6 @@ class ProjectLifecycleServiceTest {
     @Mock private ProjectMemberMapper memberMapper;
     @Mock private ProjectEmailPreferenceMapper emailPreferenceMapper;
     @Mock private ProjectTaskSeqMapper taskSeqMapper;
-    @Mock private ProjectCodexBindingMapper codexBindingMapper;
     @Mock private ApplicationEventPublisher eventPublisher;
 
     private ProjectLifecycleService service;
@@ -67,7 +65,7 @@ class ProjectLifecycleServiceTest {
                 taskMapper, taskCommentMapper,
                 mentionMapper, notificationMapper, activityMapper, favoriteMapper, attachmentMapper,
                 labelService, labelMapper, invitationMapper, memberMapper, emailPreferenceMapper,
-                taskSeqMapper, codexBindingMapper, eventPublisher);
+                taskSeqMapper, eventPublisher);
     }
 
     @Test

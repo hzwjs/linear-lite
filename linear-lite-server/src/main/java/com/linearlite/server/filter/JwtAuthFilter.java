@@ -43,12 +43,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (!path.startsWith("/api/")) {
             return true;
         }
-        if (path.startsWith("/api/codex-runner/")) {
-            return true;
-        }
-        if (path.startsWith("/api/webhooks/")) {
-            return true;
-        }
         if (AUTH_LOGIN_PATH.equals(path)
                 || AUTH_REGISTER_PATH.equals(path)
                 || AUTH_REGISTER_SEND_CODE_PATH.equals(path)) {

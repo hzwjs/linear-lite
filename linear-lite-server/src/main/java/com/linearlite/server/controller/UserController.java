@@ -33,7 +33,7 @@ public class UserController {
     public ResponseEntity<ApiResponse<List<UserSummaryDto>>> list() {
         List<User> users = userMapper.selectList(null);
         List<UserSummaryDto> list = users.stream()
-                .map(u -> new UserSummaryDto(u.getId(), u.getUsername(), u.getAvatarUrl(), u.getUserType()))
+                .map(u -> new UserSummaryDto(u.getId(), u.getUsername(), u.getAvatarUrl()))
                 .collect(Collectors.toList());
         return ResponseEntity.ok(ApiResponse.success(list));
     }

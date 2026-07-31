@@ -5,8 +5,8 @@ import type { User } from '../../types/domain'
 import AssigneeSelect from './AssigneeSelect.vue'
 
 const users: User[] = [
-  { id: 1, username: 'Codex', userType: 'codex' },
-  { id: 2, username: '黄志文', userType: 'human' }
+  { id: 1, username: '李明' },
+  { id: 2, username: '黄志文' }
 ]
 
 async function mountSelect(modelValue: string | number = '') {

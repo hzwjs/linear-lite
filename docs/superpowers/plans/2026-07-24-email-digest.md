@@ -2031,7 +2031,6 @@ Expected: FAIL，`project-settings-daily-summary` 元素不存在。
 在 `ProjectSettingsDialog.vue`：
 - props 新增 `dailySummaryEnabled: boolean`、`isEmailSaving: boolean`
 - emit 新增 `toggleDailySummary: [value: boolean]`
-- 在 `import-zone` 与 `codex-zone` 之间插入：
 
 ```html
         <div v-if="canDelete" class="section-panel email-zone">

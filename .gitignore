@@ -34,7 +34,6 @@ test-results/
 *.sln
 *.sw?
 .worktrees/
-.codex-artifacts/
 .vscode
 linear-lite-server/.env.properties
 linear-lite-server/.env

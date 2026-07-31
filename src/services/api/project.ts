@@ -104,14 +104,13 @@ export const projectApi = {
   /** 获取项目成员列表（负责人选择用） */
   listMembers(projectId: number): Promise<User[]> {
     return api
-      .get<ApiResponse<{ id: number; username: string; avatar_url?: string; userType: 'human' | 'codex' }[]>>(
+      .get<ApiResponse<{ id: number; username: string; avatar_url?: string }[]>>(
         `/projects/${projectId}/members`
       )
       .then((res) =>
         asArray(unwrap(res)).map((u) => ({
           id: u.id,
           username: u.username,
-          userType: u.userType,
           ...(u.avatar_url != null && { avatar_url: u.avatar_url })
         }))
       )

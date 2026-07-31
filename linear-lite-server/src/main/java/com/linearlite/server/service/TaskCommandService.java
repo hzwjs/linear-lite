@@ -9,12 +9,10 @@ import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskFavorite;
-import com.linearlite.server.entity.User;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
-import com.linearlite.server.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Isolation;
@@ -43,8 +41,6 @@ public class TaskCommandService {
     private final TaskSequenceService taskSequenceService;
     private final LabelService labelService;
     private final TaskQueryService taskQueryService;
-    private final UserMapper userMapper;
-    private final CodexDispatchService codexDispatchService;
     private final TaskStatusService taskStatusService;
     private final TaskHierarchyCompletionService taskHierarchyCompletionService;
     private ApplicationEventPublisher eventPublisher;
@@ -58,8 +54,6 @@ public class TaskCommandService {
             TaskSequenceService taskSequenceService,
             LabelService labelService,
             TaskQueryService taskQueryService,
-            UserMapper userMapper,
-            CodexDispatchService codexDispatchService,
             TaskStatusService taskStatusService,
             TaskHierarchyCompletionService taskHierarchyCompletionService) {
         this.taskMapper = taskMapper;
@@ -70,8 +64,6 @@ public class TaskCommandService {
         this.taskSequenceService = taskSequenceService;
         this.labelService = labelService;
         this.taskQueryService = taskQueryService;
-        this.userMapper = userMapper;
-        this.codexDispatchService = codexDispatchService;
         this.taskStatusService = taskStatusService;
         this.taskHierarchyCompletionService = taskHierarchyCompletionService;
     }
@@ -139,9 +131,6 @@ public class TaskCommandService {
         if (labels != null) {
             labelService.replaceTaskLabels(inserted.getId(), projectId, labels);
             recordLabelsChange(inserted.getId(), creatorId, "", labelService.sortedNamesJoined(inserted.getId()));
-        }
-        if (isCodexAssignee(assigneeId)) {
-            codexDispatchService.dispatchAssignedTask(inserted, creatorId);
         }
         taskQueryService.enrichForUser(Collections.singletonList(inserted), creatorId);
         publishSemanticIndexRequest(inserted.getId());
@@ -289,10 +278,6 @@ public class TaskCommandService {
             labelService.replaceTaskLabels(existing.getId(), existing.getProjectId(), request.getLabels());
         }
         Task updated = taskMapper.selectById(existing.getId());
-        if (!Objects.equals(existing.getAssigneeId(), updated.getAssigneeId())
-                && isCodexAssignee(updated.getAssigneeId())) {
-            codexDispatchService.dispatchAssignedTask(updated, userId);
-        }
         recordActivityForTaskChanges(existing, updated, userId);
         if (request.getLabels() != null) {
             recordLabelsChange(
@@ -377,17 +362,6 @@ public class TaskCommandService {
 
     private static boolean isTerminalStatus(String status) {
         return status != null && TERMINAL_STATUSES.contains(status.toLowerCase());
-    }
-
-    private boolean isCodexAssignee(Long assigneeId) {
-        if (assigneeId == null) {
-            return false;
-        }
-        User assignee = userMapper.selectById(assigneeId);
-        if (assignee == null) {
-            throw new ResourceNotFoundException("负责人不存在: " + assigneeId);
-        }
-        return User.TYPE_CODEX.equals(assignee.getUserType());
     }
 
     private static boolean isOpenForProgressLinkage(String status) {

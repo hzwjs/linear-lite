@@ -12,7 +12,6 @@
 4. 仅 `backlog`、`todo`、`in_progress`、`in_review` 状态的父任务可被自动更新；已为 `done` 时幂等跳过，`canceled`、`duplicate` 不被覆盖。
 5. 自动完成统一写入 `status = done`、`progress_percent = 100`、`completed_at = 当前时间`。
 6. 本能力只自动完成，不自动重开。之后新增、重开或迁入未完成子任务时，父任务保持当前状态，避免系统猜测用户期望恢复到哪个工作状态。
-7. 会改变子任务集合或终态状态的操作都触发判定：任务状态/进度更新、Codex 执行成功、终态子任务创建、父子关系调整、批量导入完成。
 
 ## 服务端设计
 
@@ -40,7 +39,6 @@ List<TaskStateChange> completeEligibleAncestors(
 - `selectByIdForUpdate(id)`：锁定待判断的父任务。
 - `selectDirectChildCompletion(id)`：返回 `totalCount` 与按三种终态统计的 `terminalCount`。
 
-现有 `TaskCommandService.update`、`CodexDispatchService.complete` 不再各自直接维护完成状态。抽取统一的任务状态写入口，负责 `status`、`progress_percent`、`completed_at` 三个字段及活动记录；人工更新、Codex 完成和父任务级联均调用它，保证只有一条状态数据路径。
 
 批量导入先完成全部任务插入与父子关系写入，再从叶子到根按深度倒序调用自动完成入口。每个父任务在同一批处理中只判定一次。
 
@@ -48,7 +46,6 @@ List<TaskStateChange> completeEligibleAncestors(
 
 ```mermaid
 sequenceDiagram
-    participant Entry as "任务更新 / Codex 完成 / 导入"
     participant Status as "统一任务状态写入口"
     participant Hierarchy as "TaskHierarchyCompletionService"
     participant DB as "tasks"
@@ -99,7 +96,6 @@ sequenceDiagram
 
 `autoCompletedAncestors` 按从近到远的父链顺序返回。前端 `taskStore` 在确认当前任务响应后，按 `taskKey` 合并这些服务端状态变更，并按 `done`、`canceled`、`duplicate` 三种终态重新计算受影响父任务的已完成子任务数。前端不自行判定或写入父任务完成状态，后端是唯一业务事实来源。
 
-Codex 完成和批量导入属于服务端异步/批量入口：处理结束后由现有任务刷新流程重新拉取项目任务，禁止增加前端推测式完成逻辑。
 
 ## 活动记录
 
@@ -108,7 +104,6 @@ Codex 完成和批量导入属于服务端异步/批量入口：处理结束后�
 - `status`: 原状态 → `done`
 - `progressPercent`: 原进度 → `100`（值实际变化时记录）
 
-`user_id` 使用触发本次级联的行为人；Codex 执行成功使用唯一的 Codex 系统用户。所有级联层级共用同一个 `occurredAt`，便于在活动流中识别同一次完成链。
 
 ## 代码落点
 
@@ -116,7 +111,6 @@ Codex 完成和批量导入属于服务端异步/批量入口：处理结束后�
 - `linear-lite-server/.../service/TaskStatusService.java`：任务状态、进度、完成时间的唯一写入口。
 - `linear-lite-server/.../mapper/TaskMapper.java`：父任务行锁与直接子任务聚合查询。
 - `linear-lite-server/.../service/TaskCommandService.java`：人工更新、创建及父子关系变化后触发级联。
-- `linear-lite-server/.../service/CodexDispatchService.java`：Codex 成功后通过统一状态入口完成任务。
 - `linear-lite-server/.../service/TaskImportService.java`：导入建树后按深度触发级联。
 - `linear-lite-server/.../dto/TaskMutationResponse.java`、`TaskStateChange.java`：返回当前任务及自动完成的祖先变更。
 - `src/services/api/task.ts`、`src/store/taskStore.ts`：消费唯一响应结构并合并祖先状态。
