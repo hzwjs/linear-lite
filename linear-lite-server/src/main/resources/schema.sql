@@ -256,7 +256,10 @@ CREATE TABLE IF NOT EXISTS task_comments (
     parent_id   BIGINT       DEFAULT NULL COMMENT '父评论 ID，NULL 表示顶层评论',
     root_id     BIGINT       DEFAULT NULL COMMENT '根评论 ID，顶层评论可为 NULL',
     depth       INT          NOT NULL DEFAULT 0 COMMENT '评论层级深度，顶层为 0',
-    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+    source_type VARCHAR(32)  DEFAULT NULL COMMENT '外部来源类型，如 gitlab_commit；人工评论为 NULL',
+    external_ref VARCHAR(64) DEFAULT NULL COMMENT '外部来源唯一标识，如 commit sha；与 source_type 组合幂等去重',
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_task_comments_source_ref (source_type, external_ref, task_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE INDEX idx_task_comments_task_id ON task_comments (task_id, created_at, id);
@@ -324,14 +327,17 @@ CREATE TABLE IF NOT EXISTS codex_repositories (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS project_codex_bindings (
-    id            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    project_id    BIGINT       NOT NULL,
-    runner_id     BIGINT       NOT NULL,
-    repository_id BIGINT       NOT NULL,
-    base_branch   VARCHAR(128) NOT NULL,
-    created_by    BIGINT       NOT NULL,
-    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    id                  BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    project_id          BIGINT       NOT NULL,
+    runner_id           BIGINT       NOT NULL,
+    repository_id       BIGINT       NOT NULL,
+    base_branch         VARCHAR(128) NOT NULL,
+    webhook_token_hash  VARCHAR(128) DEFAULT NULL COMMENT 'GitLab Webhook 校验 token 的 SHA-256 哈希',
+    webhook_path        VARCHAR(512) DEFAULT NULL COMMENT 'GitLab 项目 path_with_namespace，如 group/repo',
+    webhook_base_url    VARCHAR(512) DEFAULT NULL COMMENT 'GitLab 项目 web_url，用于生成提交链接',
+    created_by          BIGINT       NOT NULL,
+    created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_project_codex_bindings_project (project_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -490,3 +496,32 @@ DEALLOCATE PREPARE dispatch_user_scope_stmt;
 
 CREATE INDEX idx_project_email_dispatches_user_date
 ON project_email_dispatches (recipient_user_id, scenario_key, business_date);
+
+-- ========== 归档：GitLab 提交评论联动（幂等增量）==========
+-- 已有库增量 1：task_comments 增加外部来源列，用于 GitLab 提交评论的幂等去重。
+SET @comments_source_ref_exists = (
+    SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'task_comments' AND INDEX_NAME = 'uk_task_comments_source_ref'
+);
+SET @comments_source_ref_ddl = IF(
+    @comments_source_ref_exists = 0,
+    'ALTER TABLE task_comments ADD COLUMN source_type VARCHAR(32) DEFAULT NULL COMMENT ''外部来源类型，如 gitlab_commit；人工评论为 NULL'' AFTER depth, ADD COLUMN external_ref VARCHAR(64) DEFAULT NULL COMMENT ''外部来源唯一标识，如 commit sha；与 source_type 组合幂等去重'' AFTER source_type, ADD UNIQUE KEY uk_task_comments_source_ref (source_type, external_ref, task_id)',
+    'SELECT 1'
+);
+PREPARE comments_source_ref_stmt FROM @comments_source_ref_ddl;
+EXECUTE comments_source_ref_stmt;
+DEALLOCATE PREPARE comments_source_ref_stmt;
+
+-- 已有库增量 2：project_codex_bindings 增加 GitLab Webhook 校验与仓库身份字段。
+SET @binding_webhook_token_exists = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'project_codex_bindings' AND COLUMN_NAME = 'webhook_token_hash'
+);
+SET @binding_webhook_token_ddl = IF(
+    @binding_webhook_token_exists = 0,
+    'ALTER TABLE project_codex_bindings ADD COLUMN webhook_token_hash VARCHAR(128) DEFAULT NULL COMMENT ''GitLab Webhook 校验 token 的 SHA-256 哈希'' AFTER base_branch, ADD COLUMN webhook_path VARCHAR(512) DEFAULT NULL COMMENT ''GitLab 项目 path_with_namespace，如 group/repo'' AFTER webhook_token_hash, ADD COLUMN webhook_base_url VARCHAR(512) DEFAULT NULL COMMENT ''GitLab 项目 web_url，用于生成提交链接'' AFTER webhook_path',
+    'SELECT 1'
+);
+PREPARE binding_webhook_token_stmt FROM @binding_webhook_token_ddl;
+EXECUTE binding_webhook_token_stmt;
+DEALLOCATE PREPARE binding_webhook_token_stmt;

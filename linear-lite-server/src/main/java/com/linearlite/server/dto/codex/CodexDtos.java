@@ -12,6 +12,7 @@ public final class CodexDtos {
     public record RepositoryInput(String repositoryKey, String displayName, String remoteIdentity, String defaultBranch) {}
     public record HeartbeatRequest(String version, List<RepositoryInput> repositories) {}
     public record BindingRequest(Long runnerId, Long repositoryId, String baseBranch) {}
+    public record BindingResponse(Long runnerId, Long repositoryId, String baseBranch, String webhookPath, String webhookToken) {}
     public record DispatchRequest(String clientRequestId, String instruction) {}
     public record MessageRequest(String content) {}
     public record EventRequest(Long sequenceNo, String eventType, String eventPayload) {}

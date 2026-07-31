@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import { gitlabWebhookUrl } from '../services/api/codex'
 
 const props = defineProps<{
   open: boolean
@@ -17,6 +18,8 @@ const props = defineProps<{
   codexRunnerId: number | null
   codexRepositoryId: number | null
   codexBaseBranch: string
+  codexWebhookPath: string
+  codexWebhookToken: string
   enrollmentCode: string
   isCodexLoading: boolean
   dailySummaryEnabled: boolean
@@ -38,6 +41,7 @@ const emit = defineEmits<{
   createEnrollmentCode: []
   revokeRunner: [runnerId: number]
   saveCodexBinding: []
+  resetWebhookToken: []
   toggleDailySummary: [value: boolean]
 }>()
 
@@ -76,6 +80,9 @@ function onClose() {
 }
 function onRunnerChange(event: Event) { const value = (event.target as HTMLSelectElement).value; emit('update:codexRunnerId', value ? Number(value) : null) }
 function onRepositoryChange(event: Event) { const value = (event.target as HTMLSelectElement).value; emit('update:codexRepositoryId', value ? Number(value) : null) }
+async function copyToClipboard(text: string) {
+  try { await navigator.clipboard.writeText(text) } catch { /* 剪贴板不可用时静默失败 */ }
+}
 </script>
 
 <template>
@@ -212,6 +219,31 @@ function onRepositoryChange(event: Event) { const value = (event.target as HTMLS
           <div class="codex-save-row">
             <span class="codex-save-hint">绑定后，任务会默认派发到此 Runner。</span>
             <button type="button" class="btn-primary" data-testid="codex-save-binding" :disabled="isCodexLoading || !codexRunnerId || !codexRepositoryId || !codexBaseBranch.trim()" @click="emit('saveCodexBinding')">保存 Codex 绑定</button>
+          </div>
+          <div v-if="codexRunnerId && codexRepositoryId" class="webhook-zone">
+            <div class="section-header">
+              <p class="section-title">GitLab 提交联动</p>
+              <p class="section-text">在 GitLab 项目 Settings → Webhooks 新建 Webhook，勾选 Push events，粘贴以下 URL 与 Secret token。推送提交消息中引用任务编号（如 ENG-1）时，提交会自动作为评论同步到对应任务。</p>
+            </div>
+            <div class="webhook-field">
+              <label>URL</label>
+              <div class="webhook-value-row">
+                <code class="webhook-value">{{ gitlabWebhookUrl() }}</code>
+                <button type="button" class="btn-secondary webhook-copy" :disabled="isCodexLoading" @click="copyToClipboard(gitlabWebhookUrl())">复制</button>
+              </div>
+            </div>
+            <div v-if="codexWebhookToken" class="webhook-field">
+              <label>Secret token（仅显示一次）</label>
+              <div class="webhook-value-row">
+                <code class="webhook-value" data-testid="codex-webhook-token">{{ codexWebhookToken }}</code>
+                <button type="button" class="btn-secondary webhook-copy" :disabled="isCodexLoading" @click="copyToClipboard(codexWebhookToken)">复制</button>
+              </div>
+            </div>
+            <div class="webhook-meta-row">
+              <span v-if="codexWebhookPath" class="codex-save-hint">已接收来自 GitLab 项目 {{ codexWebhookPath }} 的推送。</span>
+              <span v-else class="codex-save-hint">保存绑定后，首次 GitLab 推送会回填项目身份。</span>
+              <button type="button" class="btn-secondary" data-testid="codex-reset-webhook-token" :disabled="isCodexLoading" @click="emit('resetWebhookToken')">重置 Secret token</button>
+            </div>
           </div>
         </div>
         <div v-if="canDelete" class="settings-section danger-zone">
@@ -485,6 +517,60 @@ function onRepositoryChange(event: Event) { const value = (event.target as HTMLS
   color: #8a94a5;
   font-size: 11px;
   line-height: 16px;
+}
+.webhook-zone {
+  margin-top: 14px;
+  padding-top: 16px;
+  border-top: 1px solid #e6eaf1;
+}
+.webhook-zone .section-header {
+  margin-bottom: 14px;
+}
+.webhook-field {
+  margin-bottom: 12px;
+}
+.webhook-field label {
+  display: block;
+  margin-bottom: 6px;
+  color: #5f6b7d;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+.webhook-value-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.webhook-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  padding: 8px 10px;
+  border: 1px solid #e2e7ef;
+  border-radius: 8px;
+  background: #f4f6fa;
+  color: #334155;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.webhook-copy {
+  flex-shrink: 0;
+  min-height: 34px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.webhook-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
 }
 .codex-zone .btn-secondary,
 .codex-zone .btn-primary {

@@ -17,6 +17,8 @@ public class TaskComment {
     private Long parentId;
     private Long rootId;
     private int depth;
+    private String sourceType;
+    private String externalRef;
     private LocalDateTime createdAt;
 
     public Long getId() {
@@ -73,6 +75,22 @@ public class TaskComment {
 
     public void setDepth(int depth) {
         this.depth = depth;
+    }
+
+    public String getSourceType() {
+        return sourceType;
+    }
+
+    public void setSourceType(String sourceType) {
+        this.sourceType = sourceType;
+    }
+
+    public String getExternalRef() {
+        return externalRef;
+    }
+
+    public void setExternalRef(String externalRef) {
+        this.externalRef = externalRef;
     }
 
     public LocalDateTime getCreatedAt() {

@@ -46,6 +46,8 @@ const codexRepositories = ref<CodexRepository[]>([])
 const codexRunnerId = ref<number | null>(null)
 const codexRepositoryId = ref<number | null>(null)
 const codexBaseBranch = ref('')
+const codexWebhookPath = ref('')
+const codexWebhookToken = ref('')
 const enrollmentCode = ref('')
 const isCodexLoading = ref(false)
 const dailySummaryEnabled = ref(false)
@@ -85,6 +87,8 @@ async function loadCodexConfiguration(project: Project) {
     codexRunnerId.value = binding?.runnerId ?? null
     codexRepositoryId.value = binding?.repositoryId ?? null
     codexBaseBranch.value = binding?.baseBranch ?? ''
+    codexWebhookPath.value = binding?.webhookPath ?? ''
+    codexWebhookToken.value = ''
     if (binding?.runnerId) await loadCodexRepositories(binding.runnerId)
   } catch (e) {
     error.value = e instanceof Error ? e.message : '无法读取 Codex 配置'
@@ -125,7 +129,20 @@ async function revokeCodexRunner(runnerId: number) {
 async function saveCodexBinding() {
   if (!props.project || codexRunnerId.value == null || codexRepositoryId.value == null || !codexBaseBranch.value.trim()) return
   isCodexLoading.value = true
-  try { await codexApi.saveBinding(props.project.id, { runnerId: codexRunnerId.value, repositoryId: codexRepositoryId.value, baseBranch: codexBaseBranch.value.trim() }) } catch (e) { error.value = e instanceof Error ? e.message : '无法保存 Codex 绑定' } finally { isCodexLoading.value = false }
+  try {
+    const saved = await codexApi.saveBinding(props.project.id, { runnerId: codexRunnerId.value, repositoryId: codexRepositoryId.value, baseBranch: codexBaseBranch.value.trim() })
+    codexWebhookToken.value = saved.webhookToken ?? ''
+    codexWebhookPath.value = saved.webhookPath ?? ''
+  } catch (e) { error.value = e instanceof Error ? e.message : '无法保存 Codex 绑定' } finally { isCodexLoading.value = false }
+}
+async function resetCodexWebhookToken() {
+  if (!props.project) return
+  isCodexLoading.value = true
+  try {
+    const reset = await codexApi.resetWebhookToken(props.project.id)
+    codexWebhookToken.value = reset.webhookToken ?? ''
+    codexWebhookPath.value = reset.webhookPath ?? ''
+  } catch (e) { error.value = e instanceof Error ? e.message : '无法重置 Webhook Token' } finally { isCodexLoading.value = false }
 }
 
 async function loadEmailSettings(project: Project) {
@@ -286,6 +303,8 @@ onUnmounted(() => {
     :codex-runner-id="codexRunnerId"
     :codex-repository-id="codexRepositoryId"
     :codex-base-branch="codexBaseBranch"
+    :codex-webhook-path="codexWebhookPath"
+    :codex-webhook-token="codexWebhookToken"
     :enrollment-code="enrollmentCode"
     :is-codex-loading="isCodexLoading"
     :daily-summary-enabled="dailySummaryEnabled"
@@ -299,6 +318,7 @@ onUnmounted(() => {
     @create-enrollment-code="createEnrollmentCode"
     @revoke-runner="revokeCodexRunner"
     @save-codex-binding="saveCodexBinding"
+    @reset-webhook-token="resetCodexWebhookToken"
     @toggle-daily-summary="onToggleDailySummary"
     @submit="submit"
     @invite="inviteMember"
