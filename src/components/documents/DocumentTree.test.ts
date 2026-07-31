@@ -29,7 +29,7 @@ describe('DocumentTree keyboard interaction', () => {
   it('exposes treeitem semantics and expands with ArrowRight', async () => {
     const host = document.createElement('div')
     document.body.appendChild(host)
-    const app = createApp(DocumentTree, { projectId: 7, nodes, activeId: 1, query: '', moving: false })
+    const app = createApp(DocumentTree, { projectId: 7, nodes, activeId: 1, moving: false })
     app.use(i18n)
     app.mount(host)
     await nextTick()
@@ -53,7 +53,7 @@ describe('DocumentTree keyboard interaction', () => {
     const onMove = vi.fn()
     const host = document.createElement('div')
     document.body.appendChild(host)
-    const app = createApp(DocumentTree, { projectId: 7, nodes, activeId: 2, query: '', moving: false, onMove })
+    const app = createApp(DocumentTree, { projectId: 7, nodes, activeId: 2, moving: false, onMove })
     app.use(i18n)
     app.mount(host)
     await nextTick()
@@ -71,7 +71,7 @@ describe('DocumentTree keyboard interaction', () => {
   it('keeps structural movement out of the document actions menu', async () => {
     const host = document.createElement('div')
     document.body.appendChild(host)
-    const app = createApp(DocumentTree, { projectId: 7, nodes, activeId: 1, query: '', moving: false })
+    const app = createApp(DocumentTree, { projectId: 7, nodes, activeId: 1, moving: false })
     app.use(i18n)
     app.mount(host)
     await nextTick()
@@ -91,7 +91,7 @@ describe('DocumentTree keyboard interaction', () => {
     ]
     const host = document.createElement('div')
     document.body.appendChild(host)
-    const app = createApp(DocumentTree, { projectId: 7, nodes: draggableNodes, activeId: 2, query: '', moving: false, onMove })
+    const app = createApp(DocumentTree, { projectId: 7, nodes: draggableNodes, activeId: 2, moving: false, onMove })
     app.use(i18n)
     app.mount(host)
     await nextTick()

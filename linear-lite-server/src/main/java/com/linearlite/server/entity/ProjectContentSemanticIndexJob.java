@@ -7,10 +7,10 @@ public class ProjectContentSemanticIndexJob {
     private String contentType;
     private Long resourceId;
     private String operation;
-    private String contentHash;
     private LocalDateTime runAfter;
-    private Long version;
+    private Long generation;
     private Integer attempts;
+    private LocalDateTime leaseUntil;
 
     public String getContentType() { return contentType; }
     public void setContentType(String contentType) { this.contentType = contentType; }
@@ -18,12 +18,12 @@ public class ProjectContentSemanticIndexJob {
     public void setResourceId(Long resourceId) { this.resourceId = resourceId; }
     public String getOperation() { return operation; }
     public void setOperation(String operation) { this.operation = operation; }
-    public String getContentHash() { return contentHash; }
-    public void setContentHash(String contentHash) { this.contentHash = contentHash; }
     public LocalDateTime getRunAfter() { return runAfter; }
     public void setRunAfter(LocalDateTime runAfter) { this.runAfter = runAfter; }
-    public Long getVersion() { return version; }
-    public void setVersion(Long version) { this.version = version; }
+    public Long getGeneration() { return generation; }
+    public void setGeneration(Long generation) { this.generation = generation; }
     public Integer getAttempts() { return attempts; }
     public void setAttempts(Integer attempts) { this.attempts = attempts; }
+    public LocalDateTime getLeaseUntil() { return leaseUntil; }
+    public void setLeaseUntil(LocalDateTime leaseUntil) { this.leaseUntil = leaseUntil; }
 }

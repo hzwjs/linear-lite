@@ -1,13 +1,14 @@
 package com.linearlite.server.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.linearlite.server.dto.ProjectContentSearchResponse;
-import com.linearlite.server.entity.ProjectMember;
-import com.linearlite.server.entity.SearchableProjectContent;
-import com.linearlite.server.mapper.ProjectContentSearchMapper;
+import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.mapper.ProjectMemberMapper;
+import com.linearlite.server.mapper.ProjectMemberMapper.ProjectPermissionScope;
+import com.linearlite.server.service.ProjectContentSearchIndex.SearchScope;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -17,69 +18,128 @@ import java.util.Map;
 @Service
 public class ProjectContentSearchService {
     private static final int MAX_QUERY_LENGTH = 200;
-    private static final int EXCERPT_LENGTH = 180;
+    private static final int MAX_RESULTS = 50;
+    private static final List<SearchChannel> GLOBAL_CHANNELS =
+            List.of(SearchChannel.TITLE, SearchChannel.BODY, SearchChannel.SEMANTIC);
 
     private final ProjectMemberMapper projectMemberMapper;
-    private final ProjectContentSearchMapper contentMapper;
-    private final ProjectContentSemanticSearchService semanticSearchService;
+    private final ProjectContentSearchIndex searchIndex;
 
     public ProjectContentSearchService(ProjectMemberMapper projectMemberMapper,
-                                       ProjectContentSearchMapper contentMapper,
-                                       ProjectContentSemanticSearchService semanticSearchService) {
+                                       ProjectContentSearchIndex searchIndex) {
         this.projectMemberMapper = projectMemberMapper;
-        this.contentMapper = contentMapper;
-        this.semanticSearchService = semanticSearchService;
+        this.searchIndex = searchIndex;
     }
 
     public List<ProjectContentSearchResponse> search(String query, Long userId) {
-        if (userId == null) throw new IllegalArgumentException("当前用户未登录");
-        String normalized = query == null ? "" : query.strip();
+        requireUser(userId);
+        String normalized = normalizeQuery(query);
         if (normalized.isEmpty()) return List.of();
+        Map<Long, ProjectPermissionScope> scopeByProjectId = permissionScopes(userId);
+        if (scopeByProjectId.isEmpty()) return List.of();
+        SearchScope searchScope = new SearchScope(List.copyOf(scopeByProjectId.keySet()),
+                List.of(ProjectContentType.TASK, ProjectContentType.DOCUMENT));
+        return search(normalized, scopeByProjectId, searchScope, GLOBAL_CHANNELS);
+    }
+
+    public List<ProjectContentSearchResponse> searchDocuments(Long projectId, String query, Long userId) {
+        if (projectId == null) throw new IllegalArgumentException("项目不能为空");
+        requireUser(userId);
+        Map<Long, ProjectPermissionScope> scopeByProjectId = permissionScopes(userId);
+        // 项目文档搜索沿用文档模块的权限语义，越权请求在访问索引前直接拒绝。
+        if (!scopeByProjectId.containsKey(projectId)) {
+            throw new ForbiddenOperationException("你不是该项目成员");
+        }
+        String normalized = normalizeQuery(query);
+        if (normalized.isEmpty()) return List.of();
+        SearchScope searchScope = new SearchScope(List.of(projectId), List.of(ProjectContentType.DOCUMENT));
+        return search(normalized, scopeByProjectId, searchScope, GLOBAL_CHANNELS);
+    }
+
+    private String normalizeQuery(String query) {
+        String normalized = query == null ? "" : query.strip();
+        if (normalized.isEmpty()) return normalized;
         if (normalized.length() > MAX_QUERY_LENGTH) {
             throw new IllegalArgumentException("搜索内容不能超过 " + MAX_QUERY_LENGTH + " 个字符");
         }
-
-        List<Long> projectIds = projectMemberMapper.selectList(
-                        new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getUserId, userId))
-                .stream().map(ProjectMember::getProjectId).distinct().toList();
-        if (projectIds.isEmpty()) return List.of();
-
-        List<SearchableProjectContent> accessible = contentMapper.selectAccessibleContents(projectIds);
-        Map<ContentIdentity, SearchableProjectContent> accessibleByIdentity = new LinkedHashMap<>();
-        accessible.forEach(content -> accessibleByIdentity.put(identity(content), content));
-
-        String literalQuery = normalized.toLowerCase(Locale.ROOT);
-        Map<ContentIdentity, SearchableProjectContent> ordered = new LinkedHashMap<>();
-        // 标题、正文和向量命中采用固定排序，避免不同资源类型形成两套结果路径。
-        accessible.stream().filter(content -> contains(content.getTitle(), literalQuery))
-                .forEach(content -> ordered.put(identity(content), content));
-        accessible.stream().filter(content -> contains(semanticSearchService.visibleText(content), literalQuery))
-                .forEach(content -> ordered.putIfAbsent(identity(content), content));
-        semanticSearchService.search(projectIds, normalized).stream()
-                .map(hit -> accessibleByIdentity.get(new ContentIdentity(hit.contentType(), hit.resourceId())))
-                .filter(content -> content != null)
-                .forEach(content -> ordered.putIfAbsent(identity(content), content));
-
-        return ordered.values().stream().map(this::toResponse).toList();
+        return normalized;
     }
 
-    private ProjectContentSearchResponse toResponse(SearchableProjectContent content) {
-        String visible = semanticSearchService.visibleText(content);
-        String excerpt = visible.length() <= EXCERPT_LENGTH ? visible : visible.substring(0, EXCERPT_LENGTH);
-        return new ProjectContentSearchResponse(
-                content.getContentType().toLowerCase(Locale.ROOT), content.getResourceId(), content.getProjectId(),
-                content.getProjectIdentifier(), content.getProjectName(),
-                content.getTitle(), excerpt);
+    private Map<Long, ProjectPermissionScope> permissionScopes(Long userId) {
+        List<ProjectPermissionScope> scopes = projectMemberMapper.selectSearchPermissionScopes(userId);
+        Map<Long, ProjectPermissionScope> scopeByProjectId = new LinkedHashMap<>();
+        scopes.forEach(scope -> scopeByProjectId.put(scope.projectId(), scope));
+        return scopeByProjectId;
     }
 
-    private static ContentIdentity identity(SearchableProjectContent content) {
-        return new ContentIdentity(content.getContentType(), content.getResourceId());
+    private void requireUser(Long userId) {
+        if (userId == null) throw new IllegalArgumentException("当前用户未登录");
     }
 
-    private static boolean contains(String text, String lowercaseQuery) {
-        return text != null && text.toLowerCase(Locale.ROOT).contains(lowercaseQuery);
+    private List<ProjectContentSearchResponse> search(String normalized,
+                                                      Map<Long, ProjectPermissionScope> scopeByProjectId,
+                                                      SearchScope searchScope,
+                                                      List<SearchChannel> channels) {
+        // 搜索入口只声明不可变通道集合，候选合并、排序与权限复核始终走同一条路径。
+        List<RankedHit> ranked = new ArrayList<>(ProjectContentSearchIndex.CHANNEL_LIMIT * channels.size());
+        for (SearchChannel channel : channels) {
+            addRanked(ranked, searchChannel(channel, searchScope, normalized), channel);
+        }
+        ranked.sort(RANKING);
+
+        Map<ContentIdentity, RankedHit> unique = new LinkedHashMap<>();
+        for (RankedHit hit : ranked) {
+            if (scopeByProjectId.containsKey(hit.hit().projectId())) {
+                unique.putIfAbsent(identity(hit.hit()), hit);
+            }
+        }
+        return unique.values().stream().limit(MAX_RESULTS)
+                .map(hit -> toResponse(hit.hit(), scopeByProjectId.get(hit.hit().projectId())))
+                .toList();
     }
 
-    private record ContentIdentity(String contentType, String resourceId) {
+    private List<ProjectContentSearchIndex.SearchHit> searchChannel(SearchChannel channel,
+                                                                     SearchScope scope,
+                                                                     String query) {
+        return switch (channel) {
+            case TITLE -> searchIndex.searchTitle(scope, query);
+            case BODY -> searchIndex.searchBody(scope, query);
+            case SEMANTIC -> searchIndex.searchSemantic(scope, query);
+        };
+    }
+
+    private static final Comparator<RankedHit> RANKING = Comparator
+            .comparingInt((RankedHit item) -> item.channel().priority)
+            .thenComparing((left, right) -> left.channel() == SearchChannel.SEMANTIC
+                    ? Double.compare(right.hit().score(), left.hit().score()) : 0)
+            .thenComparing((RankedHit item) -> item.hit().sourceUpdatedAtEpoch(), Comparator.reverseOrder())
+            .thenComparing(item -> item.hit().numericId());
+
+    private static void addRanked(List<RankedHit> target, List<ProjectContentSearchIndex.SearchHit> hits,
+                                  SearchChannel channel) {
+        hits.stream().limit(ProjectContentSearchIndex.CHANNEL_LIMIT)
+                .map(hit -> new RankedHit(channel, hit)).forEach(target::add);
+    }
+
+    private static ProjectContentSearchResponse toResponse(ProjectContentSearchIndex.SearchHit hit,
+                                                            ProjectPermissionScope scope) {
+        return new ProjectContentSearchResponse(hit.contentType().toLowerCase(Locale.ROOT), hit.resourceId(),
+                hit.projectId(), scope.projectIdentifier(), scope.projectName(), hit.title(), hit.excerpt());
+    }
+
+    private static ContentIdentity identity(ProjectContentSearchIndex.SearchHit hit) {
+        return new ContentIdentity(hit.contentType(), hit.numericId());
+    }
+
+    private enum SearchChannel {
+        TITLE(0), BODY(1), SEMANTIC(2);
+        private final int priority;
+        SearchChannel(int priority) { this.priority = priority; }
+    }
+
+    private record RankedHit(SearchChannel channel, ProjectContentSearchIndex.SearchHit hit) {
+    }
+
+    private record ContentIdentity(String contentType, Long numericId) {
     }
 }

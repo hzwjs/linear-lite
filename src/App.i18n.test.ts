@@ -29,4 +29,26 @@ describe('shell translations', () => {
 
     expect(i18n.global.t('sidebar.favorites')).toBe('收藏')
   })
+
+  it('opens global search idempotently with Cmd/Ctrl+K', () => {
+    const shortcutBranch = appSource.match(
+      /if \(e\.key === 'k'[\s\S]*?\{([\s\S]*?)\n\s*return\n\s*\}/
+    )?.[1]
+    const searchTrigger = appSource.match(
+      /function triggerFocusSearch\(\) \{([\s\S]*?)\n\}/
+    )?.[1]
+
+    expect(shortcutBranch).toContain('e.preventDefault()')
+    expect(shortcutBranch).toContain('triggerFocusSearch()')
+    expect(shortcutBranch).not.toContain('commandPaletteOpen.value = !commandPaletteOpen.value')
+    expect(searchTrigger).toContain('commandPaletteOpen.value = false')
+    expect(searchTrigger).toContain('globalSearchOpen.value = true')
+  })
+
+  it('keeps one search surface in the app shell and opens document results by document route', () => {
+    expect(appSource.match(/<GlobalSearchModal/g)).toHaveLength(1)
+    expect(appSource.indexOf('<GlobalSearchModal')).toBeLessThan(appSource.indexOf('<main class="main"'))
+    expect(appSource).toContain("result.contentType === 'document'")
+    expect(appSource).toContain('`/projects/${result.projectId}/documents/${result.resourceId}`')
+  })
 })

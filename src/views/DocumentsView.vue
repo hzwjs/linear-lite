@@ -5,10 +5,13 @@ import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import DocumentEditor from '../components/documents/DocumentEditor.vue'
 import DocumentHistoryPanel from '../components/documents/DocumentHistoryPanel.vue'
+import DocumentSearchResults from '../components/documents/DocumentSearchResults.vue'
 import DocumentTree from '../components/documents/DocumentTree.vue'
+import { documentApi } from '../services/api/documents'
 import { projectApi } from '../services/api/project'
 import { useDocumentStore } from '../store/documentStore'
 import { useProjectStore } from '../store/projectStore'
+import type { ProjectContentSearchResult } from '../types/search'
 
 const route = useRoute()
 const router = useRouter()
@@ -16,13 +19,19 @@ const { t } = useI18n()
 const store = useDocumentStore()
 const projectStore = useProjectStore()
 
-const filterQuery = ref('')
+const documentSearchQuery = ref('')
+const documentSearchResults = ref<ProjectContentSearchResult[]>([])
+const documentSearchLoading = ref(false)
+const documentSearchError = ref(false)
 const historyOpen = ref(false)
 const archiveOpen = ref(false)
 const creating = ref(false)
 const moving = ref(false)
 const members = ref<Array<{ id: number; label: string }>>([])
 let workspaceLoadSequence = 0
+let documentSearchSequence = 0
+let documentSearchTimer: ReturnType<typeof setTimeout> | null = null
+const DOCUMENT_SEARCH_DEBOUNCE_MS = 250
 
 const projectId = computed(() => Number(route.params.projectId))
 const documentId = computed(() => {
@@ -33,6 +42,54 @@ const documentId = computed(() => {
 })
 const activeProject = computed(() => projectStore.projects.find((project) => project.id === projectId.value) ?? null)
 const favoriteDocuments = computed(() => store.treeNodes.filter((node) => node.favorited))
+const hasDocumentSearch = computed(() => documentSearchQuery.value.trim().length > 0)
+
+function cancelDocumentSearch() {
+  documentSearchSequence += 1
+  if (documentSearchTimer) clearTimeout(documentSearchTimer)
+  documentSearchTimer = null
+  documentSearchLoading.value = false
+}
+
+function clearDocumentSearch() {
+  cancelDocumentSearch()
+  documentSearchQuery.value = ''
+  documentSearchResults.value = []
+  documentSearchError.value = false
+}
+
+async function runDocumentSearch(query: string) {
+  const sequence = ++documentSearchSequence
+  const requestedProjectId = projectId.value
+  documentSearchLoading.value = true
+  documentSearchError.value = false
+  try {
+    const results = await documentApi.search(requestedProjectId, query)
+    // 只允许当前项目、当前关键词的最后一次请求提交结果，避免慢请求覆盖新输入。
+    if (sequence === documentSearchSequence && requestedProjectId === projectId.value) {
+      documentSearchResults.value = results
+    }
+  } catch {
+    if (sequence === documentSearchSequence) documentSearchError.value = true
+  } finally {
+    if (sequence === documentSearchSequence) documentSearchLoading.value = false
+  }
+}
+
+function scheduleDocumentSearch(value: string) {
+  cancelDocumentSearch()
+  documentSearchResults.value = []
+  documentSearchError.value = false
+  const query = value.trim()
+  if (!query) return
+  documentSearchLoading.value = true
+  documentSearchTimer = setTimeout(() => {
+    documentSearchTimer = null
+    void runDocumentSearch(query)
+  }, DOCUMENT_SEARCH_DEBOUNCE_MS)
+}
+
+watch(documentSearchQuery, scheduleDocumentSearch)
 
 function documentRoute(id: number) {
   return `/projects/${projectId.value}/documents/${id}`
@@ -110,10 +167,19 @@ watch(
   { immediate: true }
 )
 
+watch(projectId, () => clearDocumentSearch())
+
 async function openDocument(id: number) {
   if (id === documentId.value) return
   await store.flushSaves()
   await router.push(documentRoute(id))
+}
+
+async function openDocumentSearchResult(result: ProjectContentSearchResult) {
+  const id = Number(result.resourceId)
+  if (!Number.isInteger(id)) return
+  clearDocumentSearch()
+  await openDocument(id)
 }
 
 async function createDocument(parentDocumentId: number | null) {
@@ -166,6 +232,7 @@ onBeforeRouteLeave(async () => {
 
 onBeforeUnmount(() => {
   workspaceLoadSequence += 1
+  cancelDocumentSearch()
   historyOpen.value = false
 })
 </script>
@@ -193,16 +260,32 @@ onBeforeUnmount(() => {
         </header>
 
         <label class="documents-sidebar__search">
-          <span class="sr-only">{{ t('documents.filterLabel') }}</span>
+          <span class="sr-only">{{ t('documents.searchLabel') }}</span>
           <Search aria-hidden="true" />
-          <input v-model="filterQuery" type="search" :placeholder="t('documents.filterPlaceholder')" />
-          <button v-if="filterQuery" type="button" :aria-label="t('documents.clearFilter')" @click="filterQuery = ''">
+          <input
+            v-model="documentSearchQuery"
+            type="search"
+            autocomplete="off"
+            :placeholder="t('documents.searchPlaceholder')"
+            :aria-label="t('documents.searchLabel')"
+          />
+          <button v-if="documentSearchQuery" type="button" :aria-label="t('documents.clearSearch')" @click="clearDocumentSearch">
             <X aria-hidden="true" />
           </button>
         </label>
 
         <div class="documents-sidebar__tree-scroll">
-          <section v-if="favoriteDocuments.length > 0" class="documents-sidebar__favorites" :aria-label="t('documents.favorites')">
+          <DocumentSearchResults
+            v-if="hasDocumentSearch"
+            :query="documentSearchQuery"
+            :results="documentSearchResults"
+            :tree-nodes="store.treeNodes"
+            :loading="documentSearchLoading"
+            :error="documentSearchError"
+            @select="openDocumentSearchResult"
+            @retry="runDocumentSearch(documentSearchQuery.trim())"
+          />
+          <section v-else-if="favoriteDocuments.length > 0" class="documents-sidebar__favorites" :aria-label="t('documents.favorites')">
             <h2><Star aria-hidden="true" />{{ t('documents.favorites') }}</h2>
             <button
               v-for="document in favoriteDocuments"
@@ -215,25 +298,24 @@ onBeforeUnmount(() => {
               <Star aria-hidden="true" /><span>{{ document.title }}</span>
             </button>
           </section>
-          <div v-if="store.loadingTree" class="documents-sidebar__state">
+          <div v-if="!hasDocumentSearch && store.loadingTree" class="documents-sidebar__state">
             <Loader2 class="spin" aria-hidden="true" />{{ t('documents.loadingTree') }}
           </div>
-          <div v-else-if="store.error" class="documents-sidebar__state" role="alert">
+          <div v-else-if="!hasDocumentSearch && store.error" class="documents-sidebar__state" role="alert">
             <span>{{ t('documents.loadFailed') }}</span>
             <button type="button" @click="retryWorkspace">{{ t('common.retry') }}</button>
           </div>
-          <div v-else-if="store.treeNodes.length === 0" class="documents-sidebar__empty">
+          <div v-else-if="!hasDocumentSearch && store.treeNodes.length === 0" class="documents-sidebar__empty">
             <FilePlus2 aria-hidden="true" />
             <p>{{ t('documents.emptyTree') }}</p>
             <button type="button" :disabled="creating" @click="createDocument(null)">{{ t('documents.createFirst') }}</button>
           </div>
           <DocumentTree
-            v-else
+            v-else-if="!hasDocumentSearch"
             :key="store.treeSnapshotVersion"
             :project-id="projectId"
             :nodes="store.treeNodes"
             :active-id="documentId"
-            :query="filterQuery"
             :moving="moving"
             @select="openDocument"
             @create-child="createDocument"

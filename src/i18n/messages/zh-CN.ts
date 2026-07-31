@@ -85,7 +85,8 @@ const zhCN = {
     signOut: '登出',
     hideSidebar: '隐藏侧边栏',
     showSidebar: '显示侧边栏',
-    search: '搜索'
+    globalSearch: '全局搜索',
+    globalSearchTitle: '全局搜索（⌘K）'
   },
   projectModal: {
     title: '新建项目',
@@ -143,10 +144,11 @@ const zhCN = {
   documents: {
     title: '文档', issues: '任务', workspaceNavigation: '项目工作区',
     newRoot: '新建文档', newChild: '新建子文档', untitled: '无标题',
-    filterLabel: '按标题筛选文档', filterPlaceholder: '筛选文档…', clearFilter: '清除文档筛选',
+    searchLabel: '搜索当前项目文档', searchPlaceholder: '搜索当前项目文档…', clearSearch: '清除文档搜索',
+    searchLoading: '正在搜索当前项目文档…', searchFailed: '文档搜索暂时不可用。', searchResultsLabel: '当前项目文档搜索结果',
     loadingTree: '正在加载文档…', loadingDocument: '正在加载文档正文…', loadFailed: '文档加载失败。',
     emptyTree: '把项目知识和执行工作放在一起。', createFirst: '创建第一篇文档',
-    selectDocument: '选择一篇文档或创建新文档。', noSearchResults: '没有标题匹配的文档。', treeLabel: '项目文档树',
+    selectDocument: '选择一篇文档或创建新文档。', noSearchResults: '当前项目中没有匹配的文档。', treeLabel: '项目文档树',
     expand: '展开文档', collapse: '折叠文档', actionsFor: '{title} 的操作',
     dragHint: '拖动文档行到目标文档的上方、中间或下方。键盘使用 Alt 加方向键调整位置。',
     dropBefore: '放到“{title}”上方', dropInside: '移入“{title}”', dropAfter: '放到“{title}”下方',

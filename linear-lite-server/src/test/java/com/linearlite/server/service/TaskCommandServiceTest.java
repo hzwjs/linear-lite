@@ -18,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.Collections;
 import java.util.List;
@@ -59,6 +60,8 @@ class TaskCommandServiceTest {
     private TaskStatusService taskStatusService;
     @Mock
     private TaskHierarchyCompletionService taskHierarchyCompletionService;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     private TaskCommandService taskCommandService;
 
@@ -78,6 +81,7 @@ class TaskCommandServiceTest {
                 taskStatusService,
                 taskHierarchyCompletionService
         );
+        taskCommandService.setEventPublisher(eventPublisher);
         org.mockito.Mockito.lenient().when(taskHierarchyCompletionService.completeEligibleAncestors(
                 anyLong(), anyLong(), any())).thenReturn(List.of());
         org.mockito.Mockito.lenient().when(taskHierarchyCompletionService.completeEligibleParentChain(
@@ -111,6 +115,8 @@ class TaskCommandServiceTest {
         verify(taskPermissionGuard).requireProjectMember(1L, 7L);
         verify(taskActivityService).recordAction(99L, 7L, "created");
         verify(taskQueryService).enrichForUser(Collections.singletonList(inserted), 7L);
+        verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
+                ProjectContentType.TASK, 99L));
     }
 
     @Test
@@ -218,6 +224,8 @@ class TaskCommandServiceTest {
                 org.mockito.ArgumentMatchers.eq(0), org.mockito.ArgumentMatchers.eq(7L), any());
         verify(taskActivityService).recordFieldChange(21L, 7L, "priority", "medium", "high");
         verify(taskActivityService).recordAssigneeChange(21L, 7L, 1L, 2L);
+        verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
+                ProjectContentType.TASK, 21L));
     }
 
     @Test

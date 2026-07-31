@@ -176,6 +176,7 @@ public class ProjectDocumentCommandService {
         documentMapper.update(null, new UpdateWrapper<ProjectDocument>()
                 .in("id", subtreeIds)
                 .set("archived_at", LocalDateTime.now()));
+        // 同步监听器与归档事务共同提交，确保子树索引删除任务不会丢失。
         eventPublisher.publishEvent(new ProjectContentSemanticDeleteRequestedEvent(
                 ProjectContentType.DOCUMENT, subtreeIds));
         persistOrder(loadSiblings(document.getProjectId(), document.getParentDocumentId(), false));
@@ -394,6 +395,7 @@ public class ProjectDocumentCommandService {
     }
 
     private void publishUpsert(Long documentId) {
+        // 同步监听器会在当前文档事务内持久化索引任务。
         eventPublisher.publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.DOCUMENT, documentId));
     }

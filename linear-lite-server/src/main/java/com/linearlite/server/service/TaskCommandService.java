@@ -320,6 +320,7 @@ public class TaskCommandService {
 
     private void publishSemanticIndexRequest(Long taskId) {
         if (eventPublisher != null) {
+            // 同步监听器会在当前任务事务内持久化索引任务。
             eventPublisher.publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                     ProjectContentType.TASK, taskId));
         }

@@ -85,7 +85,8 @@ const en = {
     signOut: 'Sign out',
     hideSidebar: 'Hide sidebar',
     showSidebar: 'Show sidebar',
-    search: 'Search'
+    globalSearch: 'Global search',
+    globalSearchTitle: 'Global search (⌘K)'
   },
   projectModal: {
     title: 'New project',
@@ -143,10 +144,11 @@ const en = {
   documents: {
     title: 'Documents', issues: 'Issues', workspaceNavigation: 'Project workspace',
     newRoot: 'New document', newChild: 'New child document', untitled: 'Untitled',
-    filterLabel: 'Filter documents by title', filterPlaceholder: 'Filter documents…', clearFilter: 'Clear document filter',
+    searchLabel: 'Search documents in the current project', searchPlaceholder: 'Search current project documents…', clearSearch: 'Clear document search',
+    searchLoading: 'Searching current project documents…', searchFailed: 'Document search is temporarily unavailable.', searchResultsLabel: 'Current project document search results',
     loadingTree: 'Loading documents…', loadingDocument: 'Loading document…', loadFailed: 'Documents could not be loaded.',
     emptyTree: 'Keep project knowledge alongside the work.', createFirst: 'Create the first document',
-    selectDocument: 'Select a document or create a new one.', noSearchResults: 'No documents match this title.', treeLabel: 'Project document tree',
+    selectDocument: 'Select a document or create a new one.', noSearchResults: 'No matching documents in this project.', treeLabel: 'Project document tree',
     expand: 'Expand document', collapse: 'Collapse document', actionsFor: 'Actions for {title}',
     dragHint: 'Drag the document row above, inside, or below another document. Use Alt plus the arrow keys to move with the keyboard.',
     dropBefore: 'Place above “{title}”', dropInside: 'Move inside “{title}”', dropAfter: 'Place below “{title}”',

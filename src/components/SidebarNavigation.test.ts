@@ -68,6 +68,51 @@ describe('SidebarNavigation', () => {
     host.remove()
   })
 
+  it('renders a full-width global search row and preserves the focus-search event', async () => {
+    const onFocusSearch = vi.fn()
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+
+    const app = createApp(SidebarNavigation, {
+      hidden: false,
+      userName: 'Alice',
+      userInitial: 'A',
+      locale: 'en',
+      favoritesCollapsed: false,
+      projectsCollapsed: false,
+      favorites: [],
+      projects: [],
+      routePath: '/',
+      routeTaskId: null,
+      activeProjectId: null,
+      onFocusSearch
+    })
+    app.use(i18n)
+    app.mount(host)
+    await nextTick()
+
+    const search = host.querySelector('[data-testid="sidebar-global-search"]') as HTMLButtonElement
+    expect(search).toBeTruthy()
+    expect(search.classList.contains('sidebar-nav__item')).toBe(true)
+    expect(search.textContent).toContain('Global search')
+    expect(search.querySelector('.sidebar-nav__shortcut')?.textContent).toBe('⌘K')
+    expect(search.getAttribute('aria-label')).toBe('Global search (⌘K)')
+    expect(search.getAttribute('title')).toBe('Global search (⌘K)')
+    expect(host.querySelector('.sidebar-nav__header [data-testid="sidebar-global-search"]')).toBeNull()
+
+    search.click()
+    expect(onFocusSearch).toHaveBeenCalledOnce()
+
+    i18n.global.locale.value = 'zh-CN'
+    await nextTick()
+    expect(search.textContent).toContain('全局搜索')
+    expect(search.getAttribute('aria-label')).toBe('全局搜索（⌘K）')
+    expect(search.getAttribute('title')).toBe('全局搜索（⌘K）')
+
+    app.unmount()
+    host.remove()
+  })
+
   it('emits the new navigation contract without cross-triggering project selection', async () => {
     const onToggleFavoritesCollapsed = vi.fn()
     const onOpenFavoriteTask = vi.fn()

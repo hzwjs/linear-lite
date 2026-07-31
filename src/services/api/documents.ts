@@ -7,6 +7,7 @@ import type {
   ProjectDocumentRevisionSummary,
   ProjectDocumentTreeNode
 } from '../../types/document'
+import type { ProjectContentSearchResult } from '../../types/search'
 
 const UTF8_FILENAME_PATTERN = /(?:^|;)\s*filename\*=UTF-8''([^;]+)(?:;|$)/i
 
@@ -51,6 +52,15 @@ export function getDocumentConflict(error: unknown): DocumentConflict | null {
 }
 
 export const documentApi = {
+  search(projectId: number, query: string): Promise<ProjectContentSearchResult[]> {
+    return api
+      .get<ApiResponse<ProjectContentSearchResult[]>>(`/projects/${projectId}/documents/search`, {
+        params: { query },
+        timeout: 10000
+      })
+      .then(unwrap)
+  },
+
   listTree(projectId: number): Promise<ProjectDocumentTreeNode[]> {
     return api
       .get<ApiResponse<ProjectDocumentTreeNode[]>>(`/projects/${projectId}/documents/tree`)

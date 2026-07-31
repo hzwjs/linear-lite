@@ -331,7 +331,7 @@ watch(
   }
 )
 
-// P4-7.1 / P4-7.3 / P4-7.4: 全局快捷键 ⌘K、C、Esc
+// P4-7.1 / P4-7.3 / P4-7.4: 全局快捷键 ⌘/Ctrl+K、C、Esc
 function isInputElement(el: EventTarget | null): boolean {
   if (!el || !(el instanceof HTMLElement)) return false
   const tag = el.tagName.toLowerCase()
@@ -346,7 +346,8 @@ function onGlobalKeydown(e: KeyboardEvent) {
   }
   if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
     e.preventDefault()
-    commandPaletteOpen.value = !commandPaletteOpen.value
+    // 搜索属于 App 壳层能力；快捷键始终执行“打开”，连续触发不能反向关闭搜索。
+    triggerFocusSearch()
     return
   }
   if (e.key === 'c' && !e.metaKey && !e.ctrlKey && !e.altKey && !isInputElement(e.target)) {

@@ -229,15 +229,6 @@ onUnmounted(() => {
         <button
           type="button"
           class="sidebar-nav__icon-button"
-          :title="t('sidebar.search')"
-          :aria-label="t('sidebar.search')"
-          @click="emit('focus-search')"
-        >
-          <Search class="sidebar-nav__icon sidebar-nav__icon--sm" />
-        </button>
-        <button
-          type="button"
-          class="sidebar-nav__icon-button"
           :title="t('sidebar.hideSidebar')"
           :aria-label="t('sidebar.hideSidebar')"
           @click="emit('hide-sidebar')"
@@ -281,6 +272,24 @@ onUnmounted(() => {
     </div>
 
     <div class="sidebar-nav__content">
+      <!-- 全局能力固定在侧栏首位，避免被误解为某个项目或文档模块的局部搜索。 -->
+      <section class="sidebar-nav__section sidebar-nav__section--search">
+        <nav class="sidebar-nav__list" :aria-label="t('sidebar.globalSearch')">
+          <button
+            type="button"
+            class="sidebar-nav__item sidebar-nav__search-entry"
+            :title="t('sidebar.globalSearchTitle')"
+            :aria-label="t('sidebar.globalSearchTitle')"
+            data-testid="sidebar-global-search"
+            @click="emit('focus-search')"
+          >
+            <Search class="sidebar-nav__icon sidebar-nav__item-icon" aria-hidden="true" />
+            <span class="sidebar-nav__item-label">{{ t('sidebar.globalSearch') }}</span>
+            <kbd class="sidebar-nav__shortcut" aria-hidden="true">⌘K</kbd>
+          </button>
+        </nav>
+      </section>
+
       <section v-if="hasFavorites" class="sidebar-nav__section">
         <div class="sidebar-nav__section-header">
           <button
@@ -721,6 +730,10 @@ onUnmounted(() => {
   gap: 3px;
 }
 
+.sidebar-nav__section--search {
+  flex: none;
+}
+
 .sidebar-nav__section--fill {
   flex: 1;
   min-height: 0;
@@ -791,6 +804,29 @@ onUnmounted(() => {
   color: var(--sidebar-text);
   background: var(--sidebar-item-active-bg);
   font-weight: 500;
+}
+
+.sidebar-nav__search-entry {
+  min-height: 34px;
+  text-align: left;
+}
+
+.sidebar-nav__shortcut {
+  min-width: 30px;
+  height: 20px;
+  margin-left: auto;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--sidebar-muted);
+  background: var(--sidebar-item-hover);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1;
 }
 .sidebar-nav__item--opening {
   background: var(--sidebar-item-hover-strong);

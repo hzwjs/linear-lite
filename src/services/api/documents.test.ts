@@ -75,4 +75,15 @@ describe('document attachment download', () => {
     expect(api.post).toHaveBeenCalledWith('/project-documents/12/favorite')
     expect(api.delete).toHaveBeenCalledWith('/project-documents/12/favorite')
   })
+
+  it('searches documents through the current project endpoint', async () => {
+    const results = [{ contentType: 'document', resourceId: '12', projectId: 7, title: 'Guide', excerpt: 'Matched text' }]
+    vi.mocked(api.get).mockResolvedValue({ data: { data: results } } as any)
+
+    await expect(documentApi.search(7, 'matched')).resolves.toEqual(results)
+    expect(api.get).toHaveBeenCalledWith('/projects/7/documents/search', {
+      params: { query: 'matched' },
+      timeout: 10000
+    })
+  })
 })

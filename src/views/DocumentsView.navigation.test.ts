@@ -1,7 +1,7 @@
 import { createPinia } from 'pinia'
 import { createApp, nextTick } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { i18n } from '../i18n'
 import { documentApi } from '../services/api/documents'
 import { projectApi } from '../services/api/project'
@@ -20,7 +20,8 @@ vi.mock('../services/api/documents', async () => {
       ...actual.documentApi,
       listTree: vi.fn(),
       get: vi.fn(),
-      move: vi.fn()
+      move: vi.fn(),
+      search: vi.fn()
     }
   }
 })
@@ -65,7 +66,12 @@ describe('DocumentsView navigation', () => {
     vi.mocked(documentApi.listTree).mockReset().mockResolvedValue(treeNodes)
     vi.mocked(documentApi.get).mockReset().mockImplementation(async (id) => projectDocument(id))
     vi.mocked(documentApi.move).mockReset().mockResolvedValue(undefined)
+    vi.mocked(documentApi.search).mockReset().mockResolvedValue([])
     vi.mocked(projectApi.listMembers).mockReset().mockResolvedValue([])
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('navigates between documents without reloading the document tree', async () => {
@@ -179,5 +185,100 @@ describe('DocumentsView navigation', () => {
     expect(documentApi.listTree).toHaveBeenCalledTimes(2)
     expect(host.querySelector('.document-tree')).not.toBe(firstTreeInstance)
     app.unmount()
+  })
+
+  it('debounces server search, replaces the tree with flat results, and clears search after navigation', async () => {
+    vi.useFakeTimers()
+    vi.mocked(documentApi.search).mockResolvedValue([{
+      contentType: 'document', resourceId: '2', projectId: 7, projectIdentifier: 'JLNX', projectName: 'JLNX',
+      title: 'Security guide', excerpt: 'Review the security checklist'
+    }])
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/projects/:projectId/documents/:documentId', component: DocumentsView }]
+    })
+    await router.push('/projects/7/documents/1')
+    await router.isReady()
+
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const app = createApp({ template: '<RouterView />' })
+    app.use(createPinia())
+    app.use(router)
+    app.use(i18n)
+    app.mount(host)
+    await flushNavigation()
+
+    const input = host.querySelector('[aria-label="搜索当前项目文档"]') as HTMLInputElement
+    input.value = 'security'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    expect(host.querySelector('.document-tree')).toBeNull()
+    expect(documentApi.search).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(249)
+    expect(documentApi.search).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    await flushNavigation()
+
+    expect(documentApi.search).toHaveBeenCalledWith(7, 'security')
+    expect(host.querySelector('.document-search-results__path')?.textContent).toBe('文档')
+    expect(host.textContent).toContain('Review the security checklist')
+    ;(host.querySelector('.document-search-results li button') as HTMLButtonElement).click()
+    await vi.waitFor(() => expect(router.currentRoute.value.params.documentId).toBe('2'))
+    await flushNavigation()
+
+    expect(input.value).toBe('')
+    expect(host.querySelector('.document-tree')).not.toBeNull()
+    app.unmount()
+  })
+
+  it('ignores stale responses and cancels a pending search when unmounted', async () => {
+    vi.useFakeTimers()
+    let resolveFirst!: (value: Awaited<ReturnType<typeof documentApi.search>>) => void
+    vi.mocked(documentApi.search)
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve }))
+      .mockResolvedValueOnce([{
+        contentType: 'document', resourceId: '2', projectId: 7, projectIdentifier: 'JLNX', projectName: 'JLNX',
+        title: 'Newest result', excerpt: 'second query'
+      }])
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/projects/:projectId/documents/:documentId', component: DocumentsView }]
+    })
+    await router.push('/projects/7/documents/1')
+    await router.isReady()
+
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const app = createApp({ template: '<RouterView />' })
+    app.use(createPinia())
+    app.use(router)
+    app.use(i18n)
+    app.mount(host)
+    await flushNavigation()
+
+    const input = host.querySelector('[aria-label="搜索当前项目文档"]') as HTMLInputElement
+    input.value = 'first'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await vi.advanceTimersByTimeAsync(250)
+    input.value = 'second'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await vi.advanceTimersByTimeAsync(250)
+    await flushNavigation()
+    expect(host.textContent).toContain('Newest result')
+
+    resolveFirst([{
+      contentType: 'document', resourceId: '1', projectId: 7, projectIdentifier: 'JLNX', projectName: 'JLNX',
+      title: 'Stale result', excerpt: 'first query'
+    }])
+    await flushNavigation()
+    expect(host.textContent).not.toContain('Stale result')
+
+    input.value = 'pending'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    app.unmount()
+    await vi.advanceTimersByTimeAsync(250)
+    expect(documentApi.search).toHaveBeenCalledTimes(2)
   })
 })

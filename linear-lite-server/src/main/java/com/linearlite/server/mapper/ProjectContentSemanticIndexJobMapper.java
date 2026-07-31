@@ -15,27 +15,37 @@ import java.util.List;
 public interface ProjectContentSemanticIndexJobMapper {
     @Insert("""
             INSERT INTO project_content_semantic_index_jobs
-              (content_type, resource_id, operation, content_hash, run_after, version, attempts)
-            VALUES (#{contentType}, #{resourceId}, #{operation}, #{contentHash}, #{runAfter}, 1, 0)
-            ON DUPLICATE KEY UPDATE operation = VALUES(operation), content_hash = VALUES(content_hash),
-              run_after = VALUES(run_after), version = version + 1, attempts = 0
+              (content_type, resource_id, operation, generation, run_after, attempts, lease_until)
+            VALUES (#{contentType}, #{resourceId}, #{operation}, 1, #{runAfter}, 0, NULL)
+            ON DUPLICATE KEY UPDATE operation = VALUES(operation), generation = generation + 1,
+              run_after = VALUES(run_after), attempts = 0
             """)
     int upsert(@Param("contentType") String contentType, @Param("resourceId") Long resourceId,
-               @Param("operation") String operation, @Param("contentHash") String contentHash,
-               @Param("runAfter") LocalDateTime runAfter);
+               @Param("operation") String operation, @Param("runAfter") LocalDateTime runAfter);
 
-    @Select("SELECT content_type, resource_id, operation, content_hash, run_after, version, attempts "
+    @Select("SELECT content_type, resource_id, operation, generation, run_after, attempts, lease_until "
             + "FROM project_content_semantic_index_jobs WHERE run_after <= #{now} "
+            + "AND (lease_until IS NULL OR lease_until <= #{now}) "
             + "ORDER BY run_after ASC LIMIT #{limit}")
     List<ProjectContentSemanticIndexJob> selectDue(@Param("now") LocalDateTime now, @Param("limit") int limit);
 
-    @Delete("DELETE FROM project_content_semantic_index_jobs WHERE content_type = #{contentType} "
-            + "AND resource_id = #{resourceId} AND version = #{version}")
-    int deleteIfVersion(@Param("contentType") String contentType, @Param("resourceId") Long resourceId,
-                        @Param("version") Long version);
+    @Update("UPDATE project_content_semantic_index_jobs SET lease_until = #{leaseUntil} "
+            + "WHERE content_type = #{contentType} AND resource_id = #{resourceId} "
+            + "AND generation = #{generation} AND run_after <= #{now} "
+            + "AND (lease_until IS NULL OR lease_until <= #{now})")
+    int claimLease(@Param("contentType") String contentType, @Param("resourceId") Long resourceId,
+                   @Param("generation") Long generation, @Param("now") LocalDateTime now,
+                   @Param("leaseUntil") LocalDateTime leaseUntil);
 
-    @Update("UPDATE project_content_semantic_index_jobs SET attempts = attempts + 1, run_after = #{runAfter} "
-            + "WHERE content_type = #{contentType} AND resource_id = #{resourceId} AND version = #{version}")
-    int rescheduleIfVersion(@Param("contentType") String contentType, @Param("resourceId") Long resourceId,
-                            @Param("version") Long version, @Param("runAfter") LocalDateTime runAfter);
+    @Delete("DELETE FROM project_content_semantic_index_jobs WHERE content_type = #{contentType} "
+            + "AND resource_id = #{resourceId} AND generation = #{generation}")
+    int deleteIfGeneration(@Param("contentType") String contentType, @Param("resourceId") Long resourceId,
+                           @Param("generation") Long generation);
+
+    @Update("UPDATE project_content_semantic_index_jobs SET attempts = attempts + 1, "
+            + "run_after = #{runAfter}, lease_until = NULL "
+            + "WHERE content_type = #{contentType} AND resource_id = #{resourceId} "
+            + "AND generation = #{generation}")
+    int rescheduleIfGeneration(@Param("contentType") String contentType, @Param("resourceId") Long resourceId,
+                               @Param("generation") Long generation, @Param("runAfter") LocalDateTime runAfter);
 }

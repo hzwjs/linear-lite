@@ -4,6 +4,7 @@ import com.linearlite.server.common.ApiResponse;
 import com.linearlite.server.dto.CreateProjectDocumentRequest;
 import com.linearlite.server.dto.MoveProjectDocumentRequest;
 import com.linearlite.server.dto.ProjectDocumentResponse;
+import com.linearlite.server.dto.ProjectContentSearchResponse;
 import com.linearlite.server.dto.ProjectDocumentRevisionResponse;
 import com.linearlite.server.dto.ProjectDocumentRevisionSummary;
 import com.linearlite.server.dto.ProjectDocumentTreeNode;
@@ -12,6 +13,7 @@ import com.linearlite.server.dto.UpdateProjectDocumentRequest;
 import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.service.ProjectDocumentCommandService;
 import com.linearlite.server.service.ProjectDocumentQueryService;
+import com.linearlite.server.service.ProjectContentSearchService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -30,12 +33,15 @@ import java.util.List;
 public class ProjectDocumentController {
     private final ProjectDocumentQueryService queryService;
     private final ProjectDocumentCommandService commandService;
+    private final ProjectContentSearchService searchService;
 
     public ProjectDocumentController(
             ProjectDocumentQueryService queryService,
-            ProjectDocumentCommandService commandService) {
+            ProjectDocumentCommandService commandService,
+            ProjectContentSearchService searchService) {
         this.queryService = queryService;
         this.commandService = commandService;
+        this.searchService = searchService;
     }
 
     @GetMapping("/projects/{projectId}/documents/tree")
@@ -48,6 +54,13 @@ public class ProjectDocumentController {
     public ResponseEntity<ApiResponse<List<ProjectDocumentTreeNode>>> archiveTree(
             HttpServletRequest request, @PathVariable Long projectId) {
         return ResponseEntity.ok(ApiResponse.success(queryService.listTree(projectId, userId(request), true)));
+    }
+
+    @GetMapping("/projects/{projectId}/documents/search")
+    public ResponseEntity<ApiResponse<List<ProjectContentSearchResponse>>> search(
+            HttpServletRequest request, @PathVariable Long projectId, @RequestParam String query) {
+        return ResponseEntity.ok(ApiResponse.success(
+                searchService.searchDocuments(projectId, query, userId(request))));
     }
 
     @PostMapping("/projects/{projectId}/documents")

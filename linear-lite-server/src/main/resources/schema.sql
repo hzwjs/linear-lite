@@ -176,17 +176,17 @@ CREATE INDEX idx_tasks_project_status ON tasks (project_id, status);
 CREATE INDEX idx_tasks_project_assignee ON tasks (project_id, assignee_id);
 CREATE INDEX idx_tasks_project_priority ON tasks (project_id, priority);
 
--- 项目内容统一语义索引队列：任务与文档只通过 content_type + resource_id 标识。
+-- 项目内容统一语义索引队列：代次防止旧 Worker 覆盖新变更，租约防止多实例重复领取。
 CREATE TABLE IF NOT EXISTS project_content_semantic_index_jobs (
     content_type VARCHAR(16) NOT NULL,
     resource_id  BIGINT      NOT NULL,
     operation    VARCHAR(16) NOT NULL,
-    content_hash CHAR(64)    DEFAULT NULL,
+    generation   BIGINT      NOT NULL DEFAULT 1,
     run_after    DATETIME    NOT NULL,
-    version      BIGINT      NOT NULL DEFAULT 1,
     attempts     INT         NOT NULL DEFAULT 0,
+    lease_until  DATETIME    DEFAULT NULL,
     PRIMARY KEY (content_type, resource_id),
-    INDEX idx_project_content_semantic_jobs_due (run_after)
+    INDEX idx_project_content_semantic_jobs_due (run_after, lease_until)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS task_favorites (

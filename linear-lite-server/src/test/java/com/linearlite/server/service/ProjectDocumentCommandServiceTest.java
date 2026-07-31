@@ -214,6 +214,22 @@ class ProjectDocumentCommandServiceTest {
     }
 
     @Test
+    void restorePublishesUpsertForEntireSubtree() {
+        ProjectDocument root = document(11L, 3L, null, 2L, 0);
+        root.setArchivedAt(java.time.LocalDateTime.now());
+        when(documentMapper.selectById(11L)).thenReturn(root, root);
+        when(documentMapper.selectSubtreeIds(3L, 11L)).thenReturn(List.of(11L, 12L));
+        when(documentMapper.selectList(any())).thenReturn(List.of(root));
+
+        service.restore(11L, 7L);
+
+        verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
+                ProjectContentType.DOCUMENT, 11L));
+        verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
+                ProjectContentType.DOCUMENT, 12L));
+    }
+
+    @Test
     void addFavoritePersistsTheCurrentUserDocumentRelation() {
         ProjectDocument document = document(11L, 3L, null, 2L, 0);
         when(documentMapper.selectById(11L)).thenReturn(document);
