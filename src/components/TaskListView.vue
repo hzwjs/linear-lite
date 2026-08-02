@@ -44,6 +44,7 @@ import { filterVisibleTaskRows, type TaskGroup, type TaskRow } from '../utils/ta
 import type { VisibleProperty } from '../utils/viewPreference'
 import { getSubtaskProgressDisplay } from '../utils/subtaskProgress'
 import { assigneeDisplayLabel } from '../utils/taskAssigneeDisplay'
+import { copyTextToClipboard } from '../utils/clipboard'
 import TaskRowStatusPicker from './TaskRowStatusPicker.vue'
 import TaskRowAssigneePicker from './TaskRowAssigneePicker.vue'
 import TaskRowInlineDateCell from './TaskRowInlineDateCell.vue'
@@ -689,22 +690,8 @@ function onAddSubIssue(e: MouseEvent, task: Task) {
 
 async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
   e.stopPropagation()
-  try {
-    await navigator.clipboard.writeText(title)
-  } catch {
-    const ta = document.createElement('textarea')
-    ta.value = title
-    ta.setAttribute('readonly', '')
-    ta.style.position = 'fixed'
-    ta.style.left = '-9999px'
-    document.body.appendChild(ta)
-    ta.select()
-    try {
-      document.execCommand('copy')
-    } finally {
-      document.body.removeChild(ta)
-    }
-  }
+  // 非安全上下文（http 非 localhost）下 Clipboard API 不可用，copyTextToClipboard 内部降级为 execCommand
+  await copyTextToClipboard(title)
   if (copyFeedbackClearTimer != null) {
     clearTimeout(copyFeedbackClearTimer)
   }
@@ -719,18 +706,8 @@ async function copyTaskTitle(e: MouseEvent, taskId: string, title: string) {
 
 async function copyTaskKey(e: MouseEvent, taskId: string) {
   e.stopPropagation()
-  try {
-    await navigator.clipboard.writeText(taskId)
-  } catch {
-    const ta = document.createElement('textarea')
-    ta.value = taskId
-    ta.setAttribute('readonly', '')
-    ta.style.position = 'fixed'
-    ta.style.left = '-9999px'
-    document.body.appendChild(ta)
-    ta.select()
-    try { document.execCommand('copy') } finally { document.body.removeChild(ta) }
-  }
+  // 非安全上下文（http 非 localhost）下 Clipboard API 不可用，copyTextToClipboard 内部降级为 execCommand
+  await copyTextToClipboard(taskId)
   if (copyFeedbackClearTimer != null) clearTimeout(copyFeedbackClearTimer)
   copyFeedbackTaskId.value = taskId
   copyFeedbackKind.value = 'taskKey'

@@ -40,6 +40,7 @@ import { renderBody } from '../utils/blockNoteHtml'
 import { runMermaidIn } from '../utils/mermaidHydrate'
 import { buildCommentThreads } from '../utils/commentThread'
 import { randomClientId } from '../utils/clientId'
+import { copyTextToClipboard } from '../utils/clipboard'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
 import { blockNoteDocHasPersistableContent, parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
@@ -336,13 +337,12 @@ let taskKeyCopiedTimer: ReturnType<typeof setTimeout> | null = null
 async function copyTaskKey() {
   const taskKey = props.task?.id
   if (!taskKey) return
-  try {
-    await navigator.clipboard.writeText(taskKey)
-    taskKeyCopied.value = true
+  // 非安全上下文（http 非 localhost）下 Clipboard API 不可用，copyTextToClipboard 内部降级为 execCommand
+  const ok = await copyTextToClipboard(taskKey)
+  taskKeyCopied.value = ok
+  if (ok) {
     if (taskKeyCopiedTimer) clearTimeout(taskKeyCopiedTimer)
     taskKeyCopiedTimer = setTimeout(() => { taskKeyCopied.value = false }, 1600)
-  } catch {
-    taskKeyCopied.value = false
   }
 }
 
