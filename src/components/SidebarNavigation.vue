@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Project, Task } from '../types/domain'
+import type { ProjectDocumentTreeNode } from '../types/document'
 import {
   BarChart3,
   CheckCircle,
@@ -32,6 +33,7 @@ const props = defineProps<{
   favoritesCollapsed: boolean
   projectsCollapsed: boolean
   favorites: Task[]
+  favoriteDocuments: ProjectDocumentTreeNode[]
   projects: Project[]
   routePath: string
   routeTaskId: string | null
@@ -46,6 +48,7 @@ const emit = defineEmits<{
   logout: []
   'toggle-favorites-collapsed': []
   'open-favorite-task': [taskId: string, projectId?: number]
+  'open-favorite-document': [documentId: number, projectId: number]
   'open-analytics': []
   'toggle-projects-collapsed': []
   'reorder-projects': [projectIds: number[]]
@@ -60,7 +63,7 @@ const userMenuOpen = ref(false)
 const userMenuRef = ref<HTMLElement | null>(null)
 const openingFavoriteId = ref<string | null>(null)
 
-const hasFavorites = computed(() => props.favorites.length > 0)
+const hasFavorites = computed(() => props.favorites.length > 0 || props.favoriteDocuments.length > 0)
 const draggedProjectId = ref<number | null>(null)
 const dragOverProjectId = ref<number | null>(null)
 const dragOverPlacement = ref<'before' | 'after'>('before')
@@ -95,6 +98,10 @@ function openFavoriteTask(task: Task) {
     return
   }
   requestAnimationFrame(() => requestAnimationFrame(dispatch))
+}
+
+function isFavoriteDocumentActive(document: ProjectDocumentTreeNode): boolean {
+  return props.routePath === `/projects/${document.projectId}/documents/${document.id}`
 }
 
 watch(
@@ -342,6 +349,20 @@ onUnmounted(() => {
               aria-hidden="true"
             />
             <span class="sidebar-nav__item-label">{{ task.title }}</span>
+          </button>
+          <button
+            v-for="document in favoriteDocuments"
+            :key="`document-${document.id}`"
+            type="button"
+            class="sidebar-nav__item"
+            :class="{ 'sidebar-nav__item--active': isFavoriteDocumentActive(document) }"
+            :title="document.title"
+            data-item-kind="favorite-document"
+            :data-testid="`sidebar-favorite-document-${document.id}`"
+            @click="emit('open-favorite-document', document.id, document.projectId)"
+          >
+            <FileText class="sidebar-nav__icon sidebar-nav__item-icon sidebar-nav__item-icon--favorite-document" aria-hidden="true" />
+            <span class="sidebar-nav__item-label">{{ document.title }}</span>
           </button>
         </nav>
       </section>

@@ -15,6 +15,36 @@ import java.util.List;
 @Mapper
 public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
 
+    /** 全局收藏栏只返回当前用户可访问的未归档文档结构字段，避免加载正文。 */
+    @Select("""
+            SELECT d.id,
+                   d.project_id AS projectId,
+                   d.parent_document_id AS parentDocumentId,
+                   d.title,
+                   d.sort_order AS sortOrder,
+                   d.version,
+                   TRUE AS favorited,
+                   d.updated_at AS updatedAt
+            FROM project_document_favorites favorite
+            INNER JOIN project_documents d ON d.id = favorite.document_id
+            INNER JOIN project_members member
+              ON member.project_id = d.project_id AND member.user_id = favorite.user_id
+            WHERE favorite.user_id = #{userId}
+              AND d.archived_at IS NULL
+            ORDER BY favorite.created_at DESC, d.id DESC
+            """)
+    @ConstructorArgs({
+            @Arg(column = "id", javaType = Long.class),
+            @Arg(column = "projectId", javaType = Long.class),
+            @Arg(column = "parentDocumentId", javaType = Long.class),
+            @Arg(column = "title", javaType = String.class),
+            @Arg(column = "sortOrder", javaType = Integer.class),
+            @Arg(column = "version", javaType = Long.class),
+            @Arg(column = "favorited", javaType = boolean.class),
+            @Arg(column = "updatedAt", javaType = java.time.LocalDateTime.class)
+    })
+    List<ProjectDocumentTreeNode> selectFavoriteTreeNodes(@Param("userId") Long userId);
+
     /** 文档树只读取结构字段，禁止通用实体查询把所有 LONGTEXT 正文加载到服务端。 */
     @Select("""
             <script>

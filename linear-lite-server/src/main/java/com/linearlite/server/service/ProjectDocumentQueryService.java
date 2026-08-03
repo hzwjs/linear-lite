@@ -39,6 +39,10 @@ public class ProjectDocumentQueryService {
         return documentMapper.selectTreeNodes(projectId, userId, archived);
     }
 
+    public List<ProjectDocumentTreeNode> listFavorites(Long userId) {
+        return documentMapper.selectFavoriteTreeNodes(userId);
+    }
+
     public ProjectDocumentResponse getDocument(Long documentId, Long userId) {
         return toResponse(requireDocument(documentId, userId), isFavorite(documentId, userId));
     }

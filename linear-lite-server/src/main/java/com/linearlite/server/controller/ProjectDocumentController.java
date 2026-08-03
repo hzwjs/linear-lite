@@ -50,6 +50,11 @@ public class ProjectDocumentController {
         return ResponseEntity.ok(ApiResponse.success(queryService.listTree(projectId, userId(request), false)));
     }
 
+    @GetMapping("/project-documents/favorites")
+    public ResponseEntity<ApiResponse<List<ProjectDocumentTreeNode>>> favorites(HttpServletRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(queryService.listFavorites(userId(request))));
+    }
+
     @GetMapping("/projects/{projectId}/documents/archive")
     public ResponseEntity<ApiResponse<List<ProjectDocumentTreeNode>>> archiveTree(
             HttpServletRequest request, @PathVariable Long projectId) {

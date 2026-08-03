@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { documentApi, getDocumentConflict } from '../services/api/documents'
+import { useDocumentFavoriteStore } from './documentFavoriteStore'
 import type {
   DocumentSaveState,
   ProjectDocument,
@@ -135,6 +136,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
       activeDocument.value = document
       resetEditorState()
       syncTreeNode(document)
+      useDocumentFavoriteStore().syncDocument(document)
       return document
     } catch (cause) {
       if (sequence === documentLoadSequence) {
@@ -193,6 +195,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
         ? { ...saved, title: current.title, content: current.content }
         : saved
       syncTreeNode(activeDocument.value)
+      useDocumentFavoriteStore().syncDocument(activeDocument.value)
       saveState.value = changedDuringRequest ? 'dirty' : 'saved'
       if (changedDuringRequest) scheduleSave(0)
     } catch (cause) {
@@ -274,6 +277,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
       activeDocument.value = null
       resetEditorState()
     }
+    archivedIds.forEach((id) => useDocumentFavoriteStore().removeDocument(id))
   }
 
   async function restoreDocument(documentId: number, projectId: number) {
@@ -291,6 +295,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
         : await documentApi.addFavorite(documentId)
       syncTreeNode(updated)
       if (activeDocument.value?.id === documentId) activeDocument.value = updated
+      useDocumentFavoriteStore().syncDocument(updated)
       return updated
     } finally {
       const next = new Set(favoritePendingIds.value)
@@ -312,6 +317,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
     conflictVersion.value = null
     saveState.value = 'saved'
     syncTreeNode(restored)
+    useDocumentFavoriteStore().syncDocument(restored)
   }
 
   function clear() {

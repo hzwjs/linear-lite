@@ -5,6 +5,7 @@ import { useAuthStore } from './store/authStore'
 import { useProjectStore } from './store/projectStore'
 import { useTaskStore } from './store/taskStore'
 import { useFavoriteStore } from './store/favoriteStore'
+import { useDocumentFavoriteStore } from './store/documentFavoriteStore'
 import { useOverlayStore } from './store/overlayStore'
 import { useViewModeStore } from './store/viewModeStore'
 import NotificationCenter from './components/NotificationCenter.vue'
@@ -72,6 +73,7 @@ const authStore = useAuthStore()
 const projectStore = useProjectStore()
 const taskStore = useTaskStore()
 const favoriteStore = useFavoriteStore()
+const documentFavoriteStore = useDocumentFavoriteStore()
 const overlayStore = useOverlayStore()
 const viewModeStore = useViewModeStore()
 const localeStore = useLocaleStore()
@@ -201,6 +203,7 @@ function ensureProjects() {
   if (authStore.isLoggedIn && !isLoginRoute.value) {
     projectStore.fetchProjects()
     favoriteStore.fetchFavorites()
+    documentFavoriteStore.fetchFavorites()
   }
 }
 
@@ -258,6 +261,11 @@ async function openFavoriteTask(taskId: string, projectId?: number) {
   if (targetProjectId != null && projectStore.activeProjectId !== targetProjectId) {
     projectStore.setActiveProject(targetProjectId)
   }
+}
+
+async function openFavoriteDocument(documentId: number, projectId: number) {
+  projectStore.setActiveProject(projectId)
+  await router.push(`/projects/${projectId}/documents/${documentId}`)
 }
 
 const showEmptyProjects = computed(
@@ -360,6 +368,7 @@ onUnmounted(() => {
       :favorites-collapsed="sidebarCollapsed.favorites"
       :projects-collapsed="sidebarCollapsed.projects"
       :favorites="favoriteStore.favorites"
+      :favorite-documents="documentFavoriteStore.favorites"
       :projects="projectStore.projects"
       :route-path="route.path"
       :route-task-id="routeTaskId"
@@ -371,6 +380,7 @@ onUnmounted(() => {
       @logout="onLogout"
       @toggle-favorites-collapsed="toggleFavoritesCollapsed"
       @open-favorite-task="openFavoriteTask"
+      @open-favorite-document="openFavoriteDocument"
       @open-analytics="router.push('/analytics')"
       @toggle-projects-collapsed="toggleProjectsCollapsed"
       @reorder-projects="reorderProjects"

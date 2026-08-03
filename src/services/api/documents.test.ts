@@ -86,4 +86,12 @@ describe('document attachment download', () => {
       timeout: 10000
     })
   })
+
+  it('loads global document favorites through the fixed favorites endpoint', async () => {
+    const favorites = [{ id: 12, projectId: 7, title: 'Guide', favorited: true }]
+    vi.mocked(api.get).mockResolvedValue({ data: { data: favorites } } as any)
+
+    await expect(documentApi.listFavorites()).resolves.toEqual(favorites)
+    expect(api.get).toHaveBeenCalledWith('/project-documents/favorites')
+  })
 })

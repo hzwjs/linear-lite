@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { i18n } from '../i18n'
 import SidebarNavigation from './SidebarNavigation.vue'
 import type { Project, Task } from '../types/domain'
+import type { ProjectDocumentTreeNode } from '../types/document'
 
 function buildFavorite(overrides: Partial<Task> = {}): Task {
   return {
@@ -28,6 +29,20 @@ function buildProject(overrides: Partial<Project> = {}): Project {
   }
 }
 
+function buildFavoriteDocument(overrides: Partial<ProjectDocumentTreeNode> = {}): ProjectDocumentTreeNode {
+  return {
+    id: 42,
+    projectId: 1,
+    parentDocumentId: null,
+    title: 'Document favorite',
+    sortOrder: 0,
+    version: 1,
+    favorited: true,
+    updatedAt: '2026-07-29T08:00:00',
+    ...overrides
+  }
+}
+
 describe('SidebarNavigation', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
@@ -48,6 +63,7 @@ describe('SidebarNavigation', () => {
       favoritesCollapsed: false,
       projectsCollapsed: false,
       favorites: [],
+      favoriteDocuments: [],
       projects: [],
       routePath: '/',
       routeTaskId: null,
@@ -81,6 +97,7 @@ describe('SidebarNavigation', () => {
       favoritesCollapsed: false,
       projectsCollapsed: false,
       favorites: [],
+      favoriteDocuments: [],
       projects: [],
       routePath: '/',
       routeTaskId: null,
@@ -116,6 +133,7 @@ describe('SidebarNavigation', () => {
   it('emits the new navigation contract without cross-triggering project selection', async () => {
     const onToggleFavoritesCollapsed = vi.fn()
     const onOpenFavoriteTask = vi.fn()
+    const onOpenFavoriteDocument = vi.fn()
     const onOpenAnalytics = vi.fn()
     const onToggleProjectsCollapsed = vi.fn()
     const onReorderProjects = vi.fn()
@@ -135,12 +153,14 @@ describe('SidebarNavigation', () => {
       favoritesCollapsed: false,
       projectsCollapsed: false,
       favorites: [buildFavorite()],
+      favoriteDocuments: [buildFavoriteDocument()],
       projects: [buildProject(), buildProject({ id: 2, name: 'Design', identifier: 'DES' })],
       routePath: '/analytics',
       routeTaskId: 'ENG-1',
       activeProjectId: 1,
       onToggleFavoritesCollapsed,
       onOpenFavoriteTask,
+      onOpenFavoriteDocument,
       onOpenAnalytics,
       onToggleProjectsCollapsed,
       onReorderProjects,
@@ -190,6 +210,7 @@ describe('SidebarNavigation', () => {
 
     ;(host.querySelector('[data-testid="sidebar-favorites-toggle"]') as HTMLButtonElement).click()
     ;(host.querySelector('[data-testid="sidebar-favorite-ENG-1"]') as HTMLButtonElement).click()
+    ;(host.querySelector('[data-testid="sidebar-favorite-document-42"]') as HTMLButtonElement).click()
     await new Promise((resolve) => setTimeout(resolve, 40))
     ;(host.querySelector('[data-testid="sidebar-analytics"]') as HTMLButtonElement).click()
     ;(host.querySelector('[data-testid="sidebar-projects-toggle"]') as HTMLButtonElement).click()
@@ -199,6 +220,7 @@ describe('SidebarNavigation', () => {
 
     expect(onToggleFavoritesCollapsed).toHaveBeenCalledTimes(1)
     expect(onOpenFavoriteTask).toHaveBeenCalledWith('ENG-1', 1)
+    expect(onOpenFavoriteDocument).toHaveBeenCalledWith(42, 1)
     expect(onOpenAnalytics).toHaveBeenCalledTimes(1)
     expect(onToggleProjectsCollapsed).toHaveBeenCalledTimes(1)
     expect(onReorderProjects).toHaveBeenCalledWith([2, 1])
@@ -225,6 +247,7 @@ describe('SidebarNavigation', () => {
       favoritesCollapsed: false,
       projectsCollapsed: false,
       favorites: [],
+      favoriteDocuments: [],
       projects: [buildProject(), buildProject({ id: 2, name: 'Design', identifier: 'DES' })],
       routePath: '/projects/1/documents/42',
       routeTaskId: null,
@@ -269,6 +292,7 @@ describe('SidebarNavigation', () => {
       favoritesCollapsed: false,
       projectsCollapsed: false,
       favorites: [],
+      favoriteDocuments: [],
       projects: [],
       routePath: '/',
       routeTaskId: null,

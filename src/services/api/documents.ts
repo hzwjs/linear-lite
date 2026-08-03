@@ -67,6 +67,12 @@ export const documentApi = {
       .then(unwrap)
   },
 
+  listFavorites(): Promise<ProjectDocumentTreeNode[]> {
+    return api
+      .get<ApiResponse<ProjectDocumentTreeNode[]>>('/project-documents/favorites')
+      .then(unwrap)
+  },
+
   listArchive(projectId: number): Promise<ProjectDocumentTreeNode[]> {
     return api
       .get<ApiResponse<ProjectDocumentTreeNode[]>>(`/projects/${projectId}/documents/archive`)
