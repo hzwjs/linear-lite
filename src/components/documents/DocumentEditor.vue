@@ -319,7 +319,7 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 
 <style scoped>
 .document-editor {
-  --document-page-max-width: 860px;
+  --document-page-horizontal-inset: clamp(40px, 6vw, 96px);
   container: document-editor / inline-size;
   position: relative;
   display: flex;
@@ -408,11 +408,12 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 .document-editor__conflict button svg { width: 14px; height: 14px; }
 
 .document-editor__page {
-  width: min(100%, var(--document-page-max-width));
+  /* 宽屏使用可用空间，阅读边距通过响应式内缩控制，避免滚动条后形成孤立空白区。 */
+  width: 100%;
   min-height: 0;
   flex: 1;
-  margin: 0 auto;
-  padding: 56px 56px 120px;
+  margin: 0;
+  padding: 56px var(--document-page-horizontal-inset) 120px;
   overflow-y: auto;
 }
 

@@ -3,11 +3,13 @@ import source from './DocumentEditor.vue?raw'
 import minimapSource from './DocumentMinimap.vue?raw'
 
 describe('DocumentEditor long-form layout', () => {
-  it('keeps the document page as the bounded flex scroll owner', () => {
-    expect(source).toMatch(/\.document-editor__page\s*\{[^}]*width: min\(100%, var\(--document-page-max-width\)\)/s)
+  it('lets the document page use the available width as the flex scroll owner', () => {
+    expect(source).toMatch(/\.document-editor__page\s*\{[^}]*width: 100%/s)
     expect(source).toMatch(/\.document-editor__page\s*\{[^}]*min-height: 0/s)
     expect(source).toMatch(/\.document-editor__page\s*\{[^}]*flex: 1/s)
     expect(source).toMatch(/\.document-editor__page\s*\{[^}]*overflow-y: auto/s)
+    expect(source).toContain('--document-page-horizontal-inset: clamp(40px, 6vw, 96px)')
+    expect(source).toContain('padding: 56px var(--document-page-horizontal-inset) 120px')
   })
 
   it('forwards project document mentions into the structured editor', () => {
@@ -27,12 +29,12 @@ describe('DocumentEditor long-form layout', () => {
     expect(source).toMatch(/\.document-editor\s*\{[^}]*container: document-editor \/ inline-size/s)
   })
 
-  it('keeps the compact minimap inside the existing document gutter', () => {
-    expect(source).toContain('--document-page-max-width: 860px')
-    expect(source).toMatch(/\.document-editor__page\s*\{[^}]*margin: 0 auto/s)
+  it('keeps the compact minimap inside the responsive document gutter', () => {
+    expect(source).not.toContain('--document-page-max-width')
+    expect(source).toMatch(/\.document-editor__page\s*\{[^}]*margin: 0/s)
     expect(minimapSource).toContain('--document-minimap-width: 24px')
     expect(minimapSource).toContain('--document-minimap-height: 140px')
-    expect(minimapSource).toContain('left: calc((100% - var(--document-page-max-width)) / 4 - var(--document-minimap-width) / 2);')
+    expect(minimapSource).toContain('left: calc(var(--document-page-horizontal-inset) / 2 - var(--document-minimap-width) / 2);')
     expect(minimapSource).toContain('@container document-editor (min-width: 920px)')
     expect(minimapSource).toContain('highlighted ? palette.active : palette.inactive')
     expect(minimapSource).toContain('documentMinimapTickWidth(Math.abs(y - hoverPointerY), 8, width)')

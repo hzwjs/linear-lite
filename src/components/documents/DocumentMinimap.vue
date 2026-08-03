@@ -355,7 +355,7 @@ onBeforeUnmount(teardown)
   position: absolute;
   z-index: 4;
   top: calc(50% + 24px);
-  left: calc((100% - var(--document-page-max-width)) / 4 - var(--document-minimap-width) / 2);
+  left: calc(var(--document-page-horizontal-inset) / 2 - var(--document-minimap-width) / 2);
   display: none;
   width: var(--document-minimap-width);
   height: var(--document-minimap-height);
