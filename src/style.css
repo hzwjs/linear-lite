@@ -30,6 +30,7 @@
   --color-status-in-progress: #c9a227;
   --color-status-warning: #c94a4a;
   --color-danger: var(--color-status-warning);
+  --color-success: #166534;
 
   /* 标签色板：只用于标签语义点，避免把强调色扩散到普通控件 */
   --label-color-red: #dc5a5f;

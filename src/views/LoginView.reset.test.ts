@@ -74,4 +74,34 @@ describe('LoginView password reset', () => {
 
     app.unmount()
   })
+
+  it('replaces a raw HTTP error with an actionable reset message', async () => {
+    i18n.global.locale.value = 'zh-CN'
+    authMocks.store.resetPassword.mockRejectedValueOnce(new Error('Request failed with status code 401'))
+
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const app = createApp(LoginView)
+    app.use(i18n)
+    app.mount(host)
+    await nextTick()
+
+    ;(host.querySelector('.login-link') as HTMLButtonElement).click()
+    await nextTick()
+    setInput(host, 'input[placeholder="邮箱"]', 'alice@example.com')
+    setInput(host, 'input[placeholder="验证码"]', '654321')
+    setInput(host, 'input[placeholder="新密码"]', 'new-secret')
+    setInput(host, 'input[placeholder="确认新密码"]', 'new-secret')
+    await nextTick()
+
+    ;(host.querySelector('.login-submit') as HTMLButtonElement).click()
+    await nextTick()
+    await nextTick()
+    await nextTick()
+
+    expect(host.textContent).toContain('密码重置失败，请检查验证码和新密码后重试。')
+    expect(host.textContent).not.toContain('Request failed with status code 401')
+
+    app.unmount()
+  })
 })

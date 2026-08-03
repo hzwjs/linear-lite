@@ -41,13 +41,26 @@ const en = {
       passwordReset: 'Password reset. You can now log in.'
     },
     error: {
-      enterEmail: 'Please enter email',
-      sendCodeFailed: 'Failed to send code',
+      enterEmail: 'Please enter an email address',
+      sendCodeFailed: 'We couldn’t send the verification code. Check the email address and try again.',
       enterCredentials: 'Please enter email or username and password',
       completeRegistration: 'Please complete all registration fields',
       completeReset: 'Please complete all password reset fields',
       passwordMismatch: 'Passwords do not match',
-      authFailed: 'Authentication failed'
+      loginFailed: 'We couldn’t sign you in. Check your email/username and password and try again.',
+      registerFailed: 'We couldn’t create your account. Check the verification code and form details and try again.',
+      resetFailed: 'We couldn’t reset your password. Check the verification code and new password and try again.',
+      emailAlreadyRegistered: 'This email is already registered. Try signing in instead.',
+      emailNotRegistered: 'This email is not registered. Check the email address and try again.',
+      invalidEmail: 'This email address is not valid. Check it and try again.',
+      invalidCredentials: 'The email/username or password is incorrect. Check it and try again.',
+      invalidVerificationCode: 'The verification code is incorrect. Check it and try again.',
+      verificationCodeExpired: 'The verification code has expired. Request a new one and try again.',
+      enterVerificationCode: 'Please enter the verification code',
+      enterPassword: 'Please enter a password',
+      passwordTooShort: 'Password must be at least 6 characters',
+      enterUsername: 'Please enter a username',
+      usernameAlreadyExists: 'This username is already in use. Try another one.'
     }
   },
   common: {

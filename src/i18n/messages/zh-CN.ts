@@ -41,13 +41,26 @@ const zhCN = {
       passwordReset: '密码已重置，现在可以登录了。'
     },
     error: {
-      enterEmail: '请输入邮箱',
-      sendCodeFailed: '发送验证码失败',
+      enterEmail: '请输入邮箱地址',
+      sendCodeFailed: '验证码发送失败，请检查邮箱地址后重试。',
       enterCredentials: '请输入邮箱/用户名和密码',
       completeRegistration: '请完成所有注册字段',
       completeReset: '请完成所有重置密码字段',
       passwordMismatch: '两次输入的密码不一致',
-      authFailed: '认证失败'
+      loginFailed: '登录失败，请检查邮箱/用户名和密码后重试。',
+      registerFailed: '注册失败，请检查验证码和填写内容后重试。',
+      resetFailed: '密码重置失败，请检查验证码和新密码后重试。',
+      emailAlreadyRegistered: '该邮箱已注册，请直接登录。',
+      emailNotRegistered: '该邮箱尚未注册，请检查邮箱地址。',
+      invalidEmail: '邮箱地址格式不正确，请检查后重试。',
+      invalidCredentials: '邮箱/用户名或密码不正确，请检查后重试。',
+      invalidVerificationCode: '验证码不正确，请检查后重试。',
+      verificationCodeExpired: '验证码已过期，请重新获取后再试。',
+      enterVerificationCode: '请输入验证码',
+      enterPassword: '请输入密码',
+      passwordTooShort: '密码至少需要 6 个字符',
+      enterUsername: '请输入用户名',
+      usernameAlreadyExists: '该用户名已存在，请换一个用户名。'
     }
   },
   common: {

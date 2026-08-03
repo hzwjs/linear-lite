@@ -15,7 +15,8 @@ describe('LoginView i18n', () => {
     expect(loginViewSource).toContain("auth.action.resetPassword")
     expect(loginViewSource).toContain("auth.error.passwordMismatch")
     expect(loginViewSource).toContain("error.value = t('auth.error.enterCredentials')")
-    expect(loginViewSource).toContain("error.value = e instanceof Error ? e.message : t('auth.error.authFailed')")
+    expect(loginViewSource).toContain("error.value = getAuthErrorMessage(e, 'auth.error.sendCodeFailed')")
+    expect(loginViewSource).toContain("auth.error.resetFailed")
   })
 
   it('provides both tab labels and placeholders', () => {
@@ -34,11 +35,11 @@ describe('LoginView i18n', () => {
   })
 
   it('exposes validation and flow errors per locale', () => {
-    expect(i18n.global.t('auth.error.enterEmail')).toBe('Please enter email')
+    expect(i18n.global.t('auth.error.enterEmail')).toBe('Please enter an email address')
     expect(i18n.global.t('auth.error.completeRegistration')).toBe('Please complete all registration fields')
     i18n.global.locale.value = 'zh-CN'
     expect(i18n.global.t('auth.error.enterCredentials')).toBe('请输入邮箱/用户名和密码')
-    expect(i18n.global.t('auth.error.authFailed')).toBe('认证失败')
+    expect(i18n.global.t('auth.error.loginFailed')).toBe('登录失败，请检查邮箱/用户名和密码后重试。')
     expect(i18n.global.t('auth.error.passwordMismatch')).toBe('两次输入的密码不一致')
   })
 })

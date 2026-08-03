@@ -3,6 +3,7 @@ import { computed, ref, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../store/authStore'
+import { toApiError } from '../services/api'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -29,6 +30,30 @@ const isResetMode = computed(() => mode.value === 'reset')
 function resetError() {
   error.value = null
   notice.value = null
+}
+
+function getAuthErrorMessage(errorValue: unknown, fallbackKey: string) {
+  const message = toApiError(errorValue).message
+  const localizedMessage = {
+    'Email is already registered.': t('auth.error.emailAlreadyRegistered'),
+    'Email is not registered.': t('auth.error.emailNotRegistered'),
+    'Email format is invalid.': t('auth.error.invalidEmail'),
+    'Email is required.': t('auth.error.enterEmail'),
+    'Incorrect email/username or password.': t('auth.error.invalidCredentials'),
+    'Incorrect verification code.': t('auth.error.invalidVerificationCode'),
+    'Verification code has expired.': t('auth.error.verificationCodeExpired'),
+    'Verification code is required.': t('auth.error.enterVerificationCode'),
+    'Password is required.': t('auth.error.enterPassword'),
+    'Password must be at least 6 characters.': t('auth.error.passwordTooShort'),
+    'Username is required.': t('auth.error.enterUsername'),
+    'Username already exists.': t('auth.error.usernameAlreadyExists')
+  }[message]
+
+  // 网络异常和 HTTP 状态文本无法指导用户操作，改用当前操作的明确提示。
+  if (message === 'Network Error' || message.startsWith('Request failed')) {
+    return t(fallbackKey)
+  }
+  return localizedMessage ?? message
 }
 
 function switchMode(nextMode: 'login' | 'register' | 'reset') {
@@ -77,7 +102,7 @@ async function onSendCode() {
     }
     startResendCountdown()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : t('auth.error.sendCodeFailed')
+    error.value = getAuthErrorMessage(e, 'auth.error.sendCodeFailed')
   } finally {
     sendingCode.value = false
   }
@@ -131,7 +156,12 @@ async function onSubmit() {
       router.push('/')
     }
   } catch (e) {
-    error.value = e instanceof Error ? e.message : t('auth.error.authFailed')
+    const fallbackKey = wasResetMode
+      ? 'auth.error.resetFailed'
+      : isRegisterMode.value
+        ? 'auth.error.registerFailed'
+        : 'auth.error.loginFailed'
+    error.value = getAuthErrorMessage(e, fallbackKey)
   } finally {
     loading.value = false
   }
@@ -339,7 +369,7 @@ async function onSubmit() {
 .login-notice {
   margin: 0;
   font-size: 13px;
-  color: var(--color-success, #16a34a);
+  color: var(--color-success);
 }
 .login-link {
   align-self: flex-start;
