@@ -53,7 +53,7 @@ describe('DocumentTree keyboard interaction', () => {
     const onMove = vi.fn()
     const host = document.createElement('div')
     document.body.appendChild(host)
-    const app = createApp(DocumentTree, { projectId: 7, nodes, activeId: 2, moving: false, onMove })
+    const app = createApp(DocumentTree, { projectId: 7, nodes, activeId: 1, moving: false, onMove })
     app.use(i18n)
     app.mount(host)
     await nextTick()
@@ -66,6 +66,30 @@ describe('DocumentTree keyboard interaction', () => {
 
     expect(onMove).toHaveBeenCalledWith({ documentId: 2, parentDocumentId: null, previousSiblingId: 1 })
     app.unmount()
+  })
+
+  it('expands ancestors and scrolls the active document into view', async () => {
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const app = createApp(DocumentTree, { projectId: 7, nodes, activeId: 2, moving: false })
+    try {
+      app.use(i18n)
+      app.mount(host)
+      await nextTick()
+      await nextTick()
+
+      expect(host.querySelector('[data-document-tree-id="2"]')).not.toBeNull()
+      expect(host.querySelector('[aria-label="Collapse document"]')).not.toBeNull()
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    } finally {
+      app.unmount()
+      if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: originalScrollIntoView })
+      else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView
+    }
   })
 
   it('keeps structural movement out of the document actions menu', async () => {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, useId, watch } from 'vue'
+import { computed, nextTick, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ProjectDocumentTreeNode } from '../../types/document'
 import DocumentTreeNode from './DocumentTreeNode.vue'
@@ -54,6 +54,42 @@ function toggle(documentId: number) {
   expandedIds.value = next
   persistExpanded()
 }
+
+function expandActiveAncestors(documentId: number) {
+  const nodesById = new Map(props.nodes.map((node) => [node.id, node]))
+  const nextExpandedIds = new Set(expandedIds.value)
+  let currentId = documentId
+
+  while (true) {
+    const currentNode = nodesById.get(currentId)
+    if (!currentNode || currentNode.parentDocumentId == null) break
+    nextExpandedIds.add(currentNode.parentDocumentId)
+    currentId = currentNode.parentDocumentId
+  }
+
+  if (nextExpandedIds.size === expandedIds.value.size) return
+  expandedIds.value = nextExpandedIds
+  persistExpanded()
+}
+
+async function locateActiveDocument() {
+  const activeId = props.activeId
+  if (activeId == null) return
+  // 先展开当前文档的祖先，再滚动当前行，确保从搜索或深链接进入时树中可见。
+  expandActiveAncestors(activeId)
+  await nextTick()
+  if (activeId !== props.activeId) return
+  const activeRow = treeRef.value?.querySelector<HTMLElement>(`[data-document-tree-id="${activeId}"]`)
+  if (activeRow && typeof activeRow.scrollIntoView === 'function') {
+    activeRow.scrollIntoView({ block: 'nearest' })
+  }
+}
+
+watch(
+  [() => props.activeId, () => props.nodes],
+  () => { void locateActiveDocument() },
+  { immediate: true }
+)
 
 const orderedNodes = computed(() => [...props.nodes].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id))
 
