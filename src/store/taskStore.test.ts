@@ -5,6 +5,7 @@ import { useTaskStore } from './taskStore'
 import { taskApi } from '../services/api/task'
 import type { TaskMutationResult } from '../services/api/task'
 import type { Task } from '../types/domain'
+import { invalidateTaskDetailSnapshot } from '../utils/taskDetailPreload'
 
 const mutation = (task: Task): TaskMutationResult => ({
   task,
@@ -20,6 +21,10 @@ vi.mock('../services/api/task', () => ({
   }
 }))
 
+vi.mock('../utils/taskDetailPreload', () => ({
+  invalidateTaskDetailSnapshot: vi.fn()
+}))
+
 describe('taskStore', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -28,6 +33,7 @@ describe('taskStore', () => {
     vi.mocked(taskApi.get).mockReset()
     vi.mocked(taskApi.create).mockReset()
     vi.mocked(taskApi.update).mockReset()
+    vi.mocked(invalidateTaskDetailSnapshot).mockReset()
   })
 
   it('updates parent sub-issue progress immediately after a child transitions to done', async () => {
@@ -71,6 +77,38 @@ describe('taskStore', () => {
       subIssueCount: 1,
       completedSubIssueCount: 1
     })
+  })
+
+  it('invalidates the parent detail snapshot after a child status transition', async () => {
+    const projectStore = useProjectStore()
+    projectStore.setActiveProject(1)
+
+    const store = useTaskStore()
+    const parent: Task = {
+      id: 'ENG-PARENT',
+      numericId: 101,
+      title: 'Parent',
+      status: 'todo',
+      priority: 'medium',
+      createdAt: 1,
+      updatedAt: 1
+    }
+    const child: Task = {
+      id: 'ENG-CHILD',
+      numericId: 102,
+      title: 'Child',
+      status: 'todo',
+      priority: 'medium',
+      parentId: '101',
+      createdAt: 1,
+      updatedAt: 1
+    }
+    store.tasks = [parent, child]
+    vi.mocked(taskApi.update).mockResolvedValueOnce(mutation({ ...child, status: 'done', updatedAt: 2 }))
+
+    await store.transitionTask(child.id, 'done')
+
+    expect(invalidateTaskDetailSnapshot).toHaveBeenCalledWith(parent.id)
   })
 
   it('merges server-confirmed ancestor completion and counts all terminal child statuses', async () => {

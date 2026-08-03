@@ -11,6 +11,7 @@ import { useProjectStore } from './projectStore'
 import { useFavoriteStore } from './favoriteStore'
 import { toApiDateTime } from '../utils/taskDate'
 import { translate } from '../utils/i18n'
+import { invalidateTaskDetailSnapshot } from '../utils/taskDetailPreload'
 
 const TASK_SNAPSHOT_PREFIX = 'linear-lite:tasks:v1:'
 
@@ -354,6 +355,27 @@ export const useTaskStore = defineStore('taskStore', () => {
     () => tasks.value.length > 0 && filteredTasks.value.length === 0
   )
 
+  /**
+   * 子任务变更后，父级详情预加载快照已经不能代表当前子任务状态。
+   * 同时失效所有祖先快照，确保从任意层级面包屑返回时重新读取子任务列表。
+   */
+  function invalidateAncestorDetailSnapshots(parentNumericId: string | number | null | undefined) {
+    let currentParentId = parentNumericId
+    const visitedParentIds = new Set<string>()
+    while (currentParentId != null) {
+      const parentId = String(currentParentId)
+      if (visitedParentIds.has(parentId)) return
+      visitedParentIds.add(parentId)
+
+      const parent = tasks.value.find(
+        (task) => task.numericId != null && String(task.numericId) === parentId
+      )
+      if (parent == null) return
+      invalidateTaskDetailSnapshot(parent.id)
+      currentParentId = parent.parentId
+    }
+  }
+
   function recomputeParentSubIssueProgress(parentNumericId: string | number | null | undefined) {
     if (parentNumericId == null) return
     const parentIdStr = String(parentNumericId)
@@ -371,6 +393,7 @@ export const useTaskStore = defineStore('taskStore', () => {
       subIssueCount: children.length,
       completedSubIssueCount: completedChildren
     }
+    invalidateAncestorDetailSnapshots(parentNumericId)
   }
 
   function mergeAutoCompletedAncestors(changes: TaskAncestorStateChange[]) {
