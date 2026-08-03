@@ -166,12 +166,15 @@ async function openEditEditor(task: { id: string }, sourceLabel?: string | null)
   try {
     const detailTask = store.tasks.find((candidate) => candidate.id === task.id)
       ?? await store.fetchTaskByKey(task.id)
-    await preloadTaskDetail(detailTask, store.fetchSubIssues)
-  } catch (error) {
-    console.error(`Failed to preload task detail ${task.id}:`, error)
-  } finally {
     store.currentTaskId = task.id
     router.push(buildTaskRoute(task.id, projectStore.activeProjectId))
+    // 先挂载任务主体，详情附属数据在后台预取；编辑器自身也会按任务上下文加载它们。
+    void preloadTaskDetail(detailTask, store.fetchSubIssues).catch((error) => {
+      console.error(`Failed to preload task detail ${task.id}:`, error)
+    })
+  } catch (error) {
+    console.error(`Failed to open task detail ${task.id}:`, error)
+  } finally {
     openingTaskId.value = null
   }
 }

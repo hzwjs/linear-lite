@@ -327,14 +327,14 @@ watch(
       }
       const task = await ensureTaskProjectResolved(taskId, projectId)
       if (task == null || routeTaskId.value !== taskId) return
-      try {
-        await preloadTaskDetail(task, store.fetchSubIssues)
-      } catch (e) {
-        console.error(`Failed to preload task detail ${taskId}:`, e)
-      }
-      if (routeTaskId.value !== taskId) return
+
+      // 任务主体只依赖单任务接口；评论、附件、活动和子任务属于详情附属数据，
+      // 不能让其中任一请求阻塞编辑器挂载，否则深链页面会长期停留在空白加载态。
       store.currentTaskId = taskId
       issuePanelStore.openWorkspace(taskId)
+      void preloadTaskDetail(task, store.fetchSubIssues).catch((e) => {
+        console.error(`Failed to preload task detail ${taskId}:`, e)
+      })
     } else {
       deepLinkResolveSeq.value += 1
       store.currentTaskId = null

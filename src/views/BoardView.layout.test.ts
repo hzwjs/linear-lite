@@ -31,4 +31,16 @@ describe('BoardView toolbar layout', () => {
       /\.toolbar-options \.command-btn-filter\.has-active-filters\s*\{[\s\S]*?width:\s*auto;[\s\S]*?padding-inline:\s*8px;/
     )
   })
+
+  it('opens the task workspace before detail-only preloading can block it', () => {
+    const resolvedTask = boardViewSource.indexOf('const task = await ensureTaskProjectResolved(taskId, projectId)')
+    const taskWorkspaceOpen = boardViewSource.indexOf('store.currentTaskId = taskId', resolvedTask)
+    const detailPreload = boardViewSource.indexOf('void preloadTaskDetail(task, store.fetchSubIssues)', resolvedTask)
+
+    expect(resolvedTask).toBeGreaterThan(-1)
+    expect(taskWorkspaceOpen).toBeGreaterThan(-1)
+    expect(detailPreload).toBeGreaterThan(-1)
+    expect(taskWorkspaceOpen).toBeLessThan(detailPreload)
+    expect(boardViewSource).not.toContain('await preloadTaskDetail(')
+  })
 })
