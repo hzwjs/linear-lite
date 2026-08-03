@@ -150,7 +150,8 @@ public interface TaskMapper extends BaseMapper<Task> {
               AND (
                 (t.due_date IS NOT NULL
                  AND t.due_date &lt; #{endOfToday}
-                 AND LOWER(t.status) NOT IN ('done', 'canceled', 'duplicate'))
+                 -- 待规划任务不属于今日汇总，即使已设置截止日期也不纳入。
+                 AND LOWER(t.status) NOT IN ('backlog', 'done', 'canceled', 'duplicate'))
                 OR (LOWER(t.status) = 'done'
                     AND t.completed_at &gt;= #{startOfToday}
                     AND t.completed_at &lt; #{endOfToday})
