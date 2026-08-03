@@ -1,6 +1,7 @@
 spring:
   config:
-    import: optional:file:.env.properties[.properties]
+    # IDEA 默认以 linear-lite-server 为工作目录，命令行从仓库根目录启动；两条路径都指向同一个根目录 .env。
+    import: optional:file:.env,optional:file:../.env
   application:
     name: linear-lite-server
   # 与 SseEmitter 寿命一致；过小会导致 AsyncRequestTimeoutException，且易触发 SSE + JSON 全局异常处理的协商失败

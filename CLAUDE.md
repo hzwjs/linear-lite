@@ -10,12 +10,12 @@ Linear Lite is a lightweight task/kanban application.
 ## Development Commands
 
 ### Backend (linear-lite-server)
-- **Run backend**: `cd linear-lite-server && mvn spring-boot:run`
+- **Run backend**: `mvn -f linear-lite-server/pom.xml spring-boot:run` (from repository root)
 - **Build backend**: `cd linear-lite-server && mvn clean package`
 - **Database Initialization**:
   1. Create database: `mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS linear_lite DEFAULT CHARACTER SET utf8mb4;"`
   2. Initialize schema and seeds: `mysql -u root -p linear_lite < linear-lite-server/src/main/resources/schema.sql`
-- **Environment Configuration**: Copy `.env.properties.example` to `.env.properties` in `linear-lite-server/` and configure database/R2 credentials.
+- **Environment Configuration**: Copy `.env.example` to `.env` in the repository root and configure database/R2 credentials.
 
 ### Frontend
 - **Install dependencies**: `npm install`

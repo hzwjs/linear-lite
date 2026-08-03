@@ -27,13 +27,12 @@ mysql -u root -p linear_lite < linear-lite-server/src/main/resources/schema.sql
 
 ### 2. 启动后端
 
-在 `linear-lite-server` 目录下：
+在仓库根目录下：
 
 ```bash
-cd linear-lite-server
-cp .env.properties.example .env.properties
-# 按本机实际情况修改 .env.properties（至少检查 MYSQL_PASSWORD）
-mvn spring-boot:run
+cp .env.example .env
+# 按本机实际情况修改 .env（至少检查 MYSQL_PASSWORD）
+mvn -f linear-lite-server/pom.xml spring-boot:run
 ```
 
 默认端口 **9080**。常用环境变量（不设则用默认值）：
@@ -65,11 +64,10 @@ export SERVER_PORT=9080
 mvn spring-boot:run
 ```
 
-如果要启用任务描述中的图片上传，在 `linear-lite-server/.env.properties` 中补充本地 R2 配置后直接启动后端即可。Spring Boot 会自动加载这个文件：
+如果要启用任务描述中的图片上传，在 `.env` 中补充本地 R2 配置后直接启动后端即可。Spring Boot 会自动加载这个文件：
 
 ```bash
-cd linear-lite-server
-mvn spring-boot:run
+mvn -f linear-lite-server/pom.xml spring-boot:run
 ```
 
 ### 3. 启动前端

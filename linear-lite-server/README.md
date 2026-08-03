@@ -35,16 +35,16 @@ linear-lite-server/
 **环境要求**：JDK 17+、Maven、MySQL 8.x。
 
 1. 在 MySQL 中执行 `schema.sql`（见下方，含种子数据）。
-2. 复制本地配置模板并按需修改：
+2. 在仓库根目录复制本地配置模板并按需修改：
 
 ```bash
-cp .env.properties.example .env.properties
+cp .env.example .env
 ```
 
-3. 在项目根目录 `linear-lite-server/` 下执行：
+3. 在仓库根目录执行：
 
 ```bash
-mvn spring-boot:run
+mvn -f linear-lite-server/pom.xml spring-boot:run
 ```
 
 `application.yml` 已去除敏感默认凭据。数据库、邮件与对象存储配置建议全部通过环境变量注入。
@@ -75,19 +75,18 @@ mvn spring-boot:run
 示例（推荐）：使用本地配置文件启动（无需每次 export）
 
 ```bash
-cp .env.properties.example .env.properties
-# 按本机实际情况修改 .env.properties（例如 MYSQL_PASSWORD）
-mvn spring-boot:run
+cp .env.example .env
+# 按本机实际情况修改 .env（例如 MYSQL_PASSWORD）
+mvn -f linear-lite-server/pom.xml spring-boot:run
 ```
 
-如需启用任务描述图片上传，可在 `.env.properties` 中填写 R2 配置，Spring Boot 会在启动时自动加载：
+如需启用任务描述图片上传，可在 `.env` 中填写 R2 配置，Spring Boot 会在启动时自动加载：
 
 ```bash
-cd linear-lite-server
-mvn spring-boot:run
+mvn -f linear-lite-server/pom.xml spring-boot:run
 ```
 
-当前项目已使用环境变量方式读取 R2 配置；`.env.properties` 只是本机开发时的自动加载入口，不应提交到仓库。
+当前项目已使用环境变量方式读取 R2 配置；`.env` 只是本机开发时的自动加载入口，不应提交到仓库。
 
 ## schema.sql 的用法
 

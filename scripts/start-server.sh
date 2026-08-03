@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Linear Lite 服务端启动脚本（单 JAR 部署）
-# 约定：linear-lite-server-*.jar、本脚本、环境文件（.env 和/或 .env.properties）放在同一目录。
+# 约定：linear-lite-server-*.jar、本脚本、环境文件 .env 放在同一目录。
 # 用法: ./start-server.sh {start|stop|status|restart}
 # 覆盖目录或 JAR：APP_HOME、APP_JAR；仅开发机可从仓库内 scripts/ 启动（自动找上级 linear-lite-server/target/*.jar）。
 
@@ -60,7 +60,6 @@ load_env() {
     return 0
   fi
   load_env_file "${APP_HOME}/.env"
-  load_env_file "${APP_HOME}/.env.properties"
 }
 
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true

@@ -32,6 +32,16 @@ Unix 哲学：做一件事，做完，然后闭嘴。过程中的汇报不是礼
 # 数据脚本
 增量脚本最终都要归档到 scheam.sql 文件中。
 
+# 提交pm
+非特殊说明本地 application* 配置文件都不提交
+commit msg 固定使用 Conventional Commit 风格：`<type>: <中文变更描述>` 或 `<type>(<scope>): <中文变更描述>`。
+常用 type：`feat` 新功能，`fix` 缺陷修复，`chore` 工程/日志/配置等非业务行为调整。
+scope 可选，必须是简短英文模块名；例如 `feat(task): 统一任务管理实时派单操作`。
+中文变更描述必须说明具体业务对象和最终落地行为/解决了什么问题，例如 `fix: 离岗后刷新派单候选池`、`feat: 支持派单交易机构树形多选`。
+禁止只写“修复/优化/调整/提交变更/BUG修复/影像”等泛化描述，也禁止省略 `type:` 前缀。
+若用户明确提供需求号或问题号，将其放在中文描述中，不改变 `type(scope): description` 结构。
+提交前以最终暂存 diff 为准重新确认 commit msg，确保描述的是已暂存内容，而不是过程中的临时实现细节。
+
 # UI/UX
 新页面用 OpenAI frontend-skill，产品界面叠加 ui-ux-pro-max，完成后用 impeccable 审查；已有设计系统则优先 frontend-ui-standards。
 

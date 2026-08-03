@@ -35,6 +35,4 @@ test-results/
 *.sw?
 .worktrees/
 .vscode
-linear-lite-server/.env.properties
-linear-lite-server/.env
-linear-lite-server/.env.r2.local
+/.env
