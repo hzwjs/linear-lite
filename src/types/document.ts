@@ -39,4 +39,5 @@ export type DocumentSaveState =
   | 'saving'
   | 'saved'
   | 'conflict'
+  | 'invalid'
   | 'failed'

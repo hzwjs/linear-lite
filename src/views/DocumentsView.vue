@@ -160,7 +160,7 @@ watch(
       if (!previous || next[0] !== previous[0]) await loadWorkspace()
       else if (next[1] !== previous[1]) await loadDocumentRoute()
     } catch {
-      // 页面保留 store.error 的明确错误态，用户可原地重试。
+      // 页面保留各请求自己的明确错误态，用户可原地重试。
     }
   },
   { immediate: true }
@@ -287,7 +287,7 @@ onBeforeUnmount(() => {
           <div v-if="!hasDocumentSearch && store.loadingTree" class="documents-sidebar__state">
             <Loader2 class="spin" aria-hidden="true" />{{ t('documents.loadingTree') }}
           </div>
-          <div v-else-if="!hasDocumentSearch && store.error" class="documents-sidebar__state" role="alert">
+          <div v-else-if="!hasDocumentSearch && store.treeError" class="documents-sidebar__state" role="alert">
             <span>{{ t('documents.loadFailed') }}</span>
             <button type="button" @click="retryWorkspace">{{ t('common.retry') }}</button>
           </div>

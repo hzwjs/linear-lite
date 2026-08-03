@@ -244,7 +244,7 @@ async function handleDocumentBodyClick(event: MouseEvent) {
       <div class="document-editor__actions">
         <span class="document-editor__save-state" role="status" aria-live="polite">
           <Loader2 v-if="saveState === 'saving'" class="spin" aria-hidden="true" />
-          <TriangleAlert v-else-if="saveState === 'conflict' || saveState === 'failed'" aria-hidden="true" />
+          <TriangleAlert v-else-if="saveState === 'conflict' || saveState === 'invalid' || saveState === 'failed'" aria-hidden="true" />
           <Check v-else-if="saveState === 'saved'" aria-hidden="true" />
           {{ saveLabel }}
         </span>
@@ -276,6 +276,11 @@ async function handleDocumentBodyClick(event: MouseEvent) {
       <span />
       <button type="button" @click="emit('retry')"><RefreshCw aria-hidden="true" />{{ t('common.retry') }}</button>
     </div>
+    <div v-else-if="saveState === 'invalid'" class="document-editor__conflict" role="alert">
+      <TriangleAlert aria-hidden="true" />
+      <div><strong>{{ t('documents.titleRequired') }}</strong><p>{{ t('documents.titleRequiredDescription') }}</p></div>
+      <span />
+    </div>
 
     <DocumentMinimap :scroll-element="documentPageRef" :controls="`document-scroll-${document.id}`" />
     <div :id="`document-scroll-${document.id}`" ref="documentPageRef" class="document-editor__page">
@@ -286,6 +291,8 @@ async function handleDocumentBodyClick(event: MouseEvent) {
           class="document-editor__title"
           type="text"
           maxlength="256"
+          required
+          :aria-invalid="saveState === 'invalid'"
           :value="document.title"
           :readonly="saveState === 'conflict'"
           @input="emit('updateTitle', ($event.target as HTMLInputElement).value)"

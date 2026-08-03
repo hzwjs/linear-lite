@@ -235,10 +235,11 @@ const en = {
     conflictDescription: 'Your draft is preserved. The server is now at version {version}. Copy the draft or reload before continuing.',
     copyDraft: 'Copy draft', copied: 'Copied', reloadServerVersion: 'Reload server version',
     saveFailedTitle: 'Changes could not be saved', saveFailedDescription: 'Your draft remains open. Retry when the connection is available.',
+    titleRequired: 'Document title is required', titleRequiredDescription: 'Enter a document title before saving again.',
     mentionMembersGroup: 'Members', mentionDocumentsGroup: 'Documents', mentionNoMatches: 'No members or documents match.',
     attachmentDocumentMismatch: 'This attachment does not belong to the current document. The download was blocked.',
     mobile: { title: 'Project document', readonly: 'Read only', back: 'Back', loading: 'Loading document…', loadFailed: 'Document could not be loaded', projectMismatch: 'This document does not belong to the current project.', bodyLabel: 'Document content' },
-    saveState: { idle: 'Not edited', dirty: 'Unsaved changes', saving: 'Saving…', saved: 'Saved', conflict: 'Save conflict', failed: 'Save failed' }
+    saveState: { idle: 'Not edited', dirty: 'Unsaved changes', saving: 'Saving…', saved: 'Saved', conflict: 'Save conflict', invalid: 'Title required', failed: 'Save failed' }
   },
   globalSearch: {
     title: 'Search project content', placeholder: 'Search tasks and documents across projects…', searchAria: 'Search tasks and documents across projects', close: 'Close search',

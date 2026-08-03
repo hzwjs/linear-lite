@@ -80,6 +80,32 @@ describe('documentStore autosave', () => {
     expect(documentApi.update).toHaveBeenCalledTimes(1)
   })
 
+  it('does not autosave a draft with an empty title', async () => {
+    vi.mocked(documentApi.update).mockResolvedValue(document({ title: '   ', version: 2 }))
+    const store = useDocumentStore()
+    store.activeDocument = document()
+
+    store.updateDraft({ title: '   ' })
+    await vi.advanceTimersByTimeAsync(800)
+
+    expect(documentApi.update).not.toHaveBeenCalled()
+    expect(store.saveState).toBe('invalid')
+    expect(store.error).toBeNull()
+  })
+
+  it('keeps save failures out of the document tree error state', async () => {
+    vi.mocked(documentApi.update).mockRejectedValue(new Error('Network unavailable'))
+    const store = useDocumentStore()
+    store.activeDocument = document()
+
+    store.updateDraft({ title: 'Draft' })
+    await vi.advanceTimersByTimeAsync(800)
+
+    expect(store.saveState).toBe('failed')
+    expect(store.error).toBe('Network unavailable')
+    expect(store.treeError).toBeNull()
+  })
+
   it('removes stale content while a replacement document fails to load', async () => {
     vi.mocked(documentApi.get).mockRejectedValue(new Error('Not found'))
     const store = useDocumentStore()

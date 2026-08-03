@@ -19,6 +19,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
   const saveState = ref<DocumentSaveState>('idle')
   const loadingTree = ref(false)
   const treeSnapshotVersion = ref(0)
+  const treeError = ref<string | null>(null)
   const loadingDocument = ref(false)
   const error = ref<string | null>(null)
   const conflictVersion = ref<number | null>(null)
@@ -107,11 +108,11 @@ export const useDocumentStore = defineStore('documentStore', () => {
   async function loadTree(projectId: number) {
     const visibleSequence = ++visibleTreeLoadSequence
     loadingTree.value = true
-    error.value = null
+    treeError.value = null
     try {
       await refreshTreeSnapshot(projectId)
     } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : String(cause)
+      treeError.value = cause instanceof Error ? cause.message : String(cause)
       throw cause
     } finally {
       if (visibleSequence === visibleTreeLoadSequence) loadingTree.value = false
@@ -168,15 +169,23 @@ export const useDocumentStore = defineStore('documentStore', () => {
     const titleChanged = patch.title !== undefined && patch.title !== document.title
     const contentChanged = patch.content !== undefined && patch.content !== document.content
     if (!titleChanged && !contentChanged) return
-    activeDocument.value = { ...document, ...patch }
+    const nextDocument = { ...document, ...patch }
+    activeDocument.value = nextDocument
     editSequence += 1
+    if (nextDocument.title.trim().length === 0) {
+      // 空标题由前端拦截，避免自动保存把必填校验错误反复提交到服务端。
+      cancelScheduledSave()
+      saveState.value = 'invalid'
+      error.value = null
+      return
+    }
     saveState.value = 'dirty'
     scheduleSave()
   }
 
   async function performSave(): Promise<void> {
     const document = activeDocument.value
-    if (!document || saveState.value === 'conflict' || saveState.value === 'idle') return
+    if (!document || saveState.value === 'conflict' || saveState.value === 'invalid' || saveState.value === 'idle') return
     cancelScheduledSave()
     const submittedId = document.id
     const submittedSequence = editSequence
@@ -196,8 +205,12 @@ export const useDocumentStore = defineStore('documentStore', () => {
         : saved
       syncTreeNode(activeDocument.value)
       useDocumentFavoriteStore().syncDocument(activeDocument.value)
-      saveState.value = changedDuringRequest ? 'dirty' : 'saved'
-      if (changedDuringRequest) scheduleSave(0)
+      if (changedDuringRequest && activeDocument.value.title.trim().length === 0) {
+        saveState.value = 'invalid'
+      } else {
+        saveState.value = changedDuringRequest ? 'dirty' : 'saved'
+        if (changedDuringRequest) scheduleSave(0)
+      }
     } catch (cause) {
       const conflict = getDocumentConflict(cause)
       if (activeDocument.value?.id !== submittedId) return
@@ -326,6 +339,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
     resetEditorState()
     treeNodes.value = []
     archivedTreeNodes.value = []
+    treeError.value = null
     activeDocument.value = null
     error.value = null
   }
@@ -338,6 +352,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
     saveState,
     loadingTree,
     treeSnapshotVersion,
+    treeError,
     loadingDocument,
     error,
     conflictVersion,

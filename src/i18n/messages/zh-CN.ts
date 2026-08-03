@@ -235,10 +235,11 @@ const zhCN = {
     conflictDescription: '本地草稿已保留，服务端当前为版本 {version}。复制草稿或重新加载后再继续。',
     copyDraft: '复制草稿', copied: '已复制', reloadServerVersion: '加载服务端版本',
     saveFailedTitle: '修改保存失败', saveFailedDescription: '草稿仍保留在当前页面，请在连接恢复后重试。',
+    titleRequired: '文档标题不能为空', titleRequiredDescription: '请输入文档标题后再继续保存。',
     mentionMembersGroup: '成员', mentionDocumentsGroup: '文档', mentionNoMatches: '没有匹配的成员或文档。',
     attachmentDocumentMismatch: '该附件不属于当前文档，已阻止下载。',
     mobile: { title: '项目文档', readonly: '只读', back: '返回', loading: '加载文档…', loadFailed: '文档加载失败', projectMismatch: '该文档不属于当前项目。', bodyLabel: '文档正文' },
-    saveState: { idle: '尚未编辑', dirty: '有未保存修改', saving: '正在保存…', saved: '已保存', conflict: '保存冲突', failed: '保存失败' }
+    saveState: { idle: '尚未编辑', dirty: '有未保存修改', saving: '正在保存…', saved: '已保存', conflict: '保存冲突', invalid: '需要补充标题', failed: '保存失败' }
   },
   globalSearch: {
     title: '搜索项目内容', placeholder: '搜索所有项目的任务和文档…', searchAria: '搜索所有项目的任务和文档', close: '关闭搜索',
