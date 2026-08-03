@@ -15,9 +15,7 @@ import {
   CircleDashed,
   CircleX,
   Eye,
-  FoldVertical,
   Loader2,
-  UnfoldVertical,
   User as UserIcon,
   UserPlus,
   UserCheck,
@@ -625,23 +623,6 @@ function hasExpandableSubtasksInGroup(task: Task, group: TaskGroup): boolean {
 }
 
 /** 与 filterVisibleTaskRows 一致：凡出现在子行 path 中的父 id 都需展开，避免仅靠 subIssueCount/邻行判断漏掉多级祖先 */
-function expandableParentTaskIdsInGroup(group: TaskGroup): string[] {
-  const rows = groupListRows(group)
-  const idSet = new Set<string>()
-  for (const row of rows) {
-    const path = row.subtaskExpandPath
-    if (!path?.length) continue
-    for (const id of path) {
-      idSet.add(id)
-    }
-  }
-  return [...idSet]
-}
-
-function groupHasExpandableSubtasks(group: TaskGroup): boolean {
-  return expandableParentTaskIdsInGroup(group).length > 0
-}
-
 /**
  * 任意分组存在可展开父任务时，全表统一留展开列，避免分组间、行与行之间列错位。
  * 仅看 subtaskExpandPath 不够：筛选后子行可能不在当前 group.rows 里，但父任务仍可能因
@@ -649,41 +630,9 @@ function groupHasExpandableSubtasks(group: TaskGroup): boolean {
  */
 const listHasExpandableSubtasks = computed(() =>
   props.groups.some((g) => {
-    if (groupHasExpandableSubtasks(g)) return true
     return groupListRows(g).some((row) => hasExpandableSubtasksInGroup(row.task, g))
   })
 )
-
-function groupAllExpandableExpanded(group: TaskGroup): boolean {
-  const ids = expandableParentTaskIdsInGroup(group)
-  return ids.length > 0 && ids.every((id) => subtaskExpanded.value[id] === true)
-}
-
-function toggleExpandAllSubtasksInGroup(group: TaskGroup, e: MouseEvent) {
-  if (groupAllExpandableExpanded(group)) {
-    collapseAllSubtasksInGroup(group, e)
-  } else {
-    expandAllSubtasksInGroup(group, e)
-  }
-}
-
-function expandAllSubtasksInGroup(group: TaskGroup, e: MouseEvent) {
-  e.stopPropagation()
-  const next = { ...subtaskExpanded.value }
-  for (const id of expandableParentTaskIdsInGroup(group)) {
-    next[id] = true
-  }
-  subtaskExpanded.value = next
-}
-
-function collapseAllSubtasksInGroup(group: TaskGroup, e: MouseEvent) {
-  e.stopPropagation()
-  const next = { ...subtaskExpanded.value }
-  for (const id of expandableParentTaskIdsInGroup(group)) {
-    next[id] = false
-  }
-  subtaskExpanded.value = next
-}
 
 function isSubtasksExpanded(taskId: string): boolean {
   return subtaskExpanded.value[taskId] === true
@@ -771,41 +720,6 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
               +
             </button>
           </button>
-          <div
-            v-if="groupHasExpandableSubtasks(group)"
-            class="group-subtask-bulk"
-            @click.stop
-          >
-            <button
-              type="button"
-              class="group-subtask-bulk-btn"
-              :aria-expanded="groupAllExpandableExpanded(group)"
-              :aria-label="
-                groupAllExpandableExpanded(group)
-                  ? t('taskList.collapseAllSubtasks')
-                  : t('taskList.expandAllSubtasks')
-              "
-              :title="
-                groupAllExpandableExpanded(group)
-                  ? t('taskList.collapseAllSubtasks')
-                  : t('taskList.expandAllSubtasks')
-              "
-              @click="toggleExpandAllSubtasksInGroup(group, $event)"
-            >
-              <UnfoldVertical
-                v-if="!groupAllExpandableExpanded(group)"
-                class="group-subtask-bulk-icon"
-                stroke-width="2"
-                aria-hidden="true"
-              />
-              <FoldVertical
-                v-else
-                class="group-subtask-bulk-icon"
-                stroke-width="2"
-                aria-hidden="true"
-              />
-            </button>
-          </div>
         </div>
         <div v-show="isGroupExpanded(group.key)" class="group-rows">
           <div
@@ -1150,34 +1064,6 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   margin-left: 4px;
-}
-.group-subtask-bulk {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-.group-subtask-bulk-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-  background: transparent;
-  cursor: pointer;
-}
-.group-subtask-bulk-btn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-secondary);
-}
-.group-subtask-bulk-icon {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
 }
 .group-create {
   display: inline-flex;

@@ -610,8 +610,6 @@ const en = {
     addSubIssue: 'Add sub-issue',
     expandSubtasks: 'Expand subtasks',
     collapseSubtasks: 'Collapse subtasks',
-    expandAllSubtasks: 'Expand all',
-    collapseAllSubtasks: 'Collapse all',
     columnPlannedStart: 'Planned start',
     columnDueDate: 'Due date',
     columnProgress: 'Progress',

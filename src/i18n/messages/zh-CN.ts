@@ -610,8 +610,6 @@ const zhCN = {
     addSubIssue: '添加子任务',
     expandSubtasks: '展开子任务',
     collapseSubtasks: '折叠子任务',
-    expandAllSubtasks: '全部展开',
-    collapseAllSubtasks: '全部折叠',
     columnPlannedStart: '计划开始',
     columnDueDate: '截止日期',
     columnProgress: '进度',
