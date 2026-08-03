@@ -52,6 +52,7 @@ import TaskRowProgressCell from './TaskRowProgressCell.vue'
 
 const props = defineProps<{
   groups: TaskGroup[]
+  projectId?: number | null
   users?: User[]
   visibleProperties?: VisibleProperty[]
   selectedTaskId?: string | null
@@ -70,7 +71,7 @@ const store = useTaskStore()
 const projectStore = useProjectStore()
 const authStore = useAuthStore()
 const { t } = useI18n()
-const collapsed = ref<Record<string, boolean>>({})
+const expandedGroupKey = ref<string | null>(null)
 const rowHoveredId = ref<string | null>(null)
 /** 复制成功后的短暂反馈（图标与提示文案） */
 const copyFeedbackTaskId = ref<string | null>(null)
@@ -487,9 +488,35 @@ const priorityIcons: Record<Priority, typeof PriorityUrgentIcon> = {
   low: PriorityLowIcon
 }
 
-function toggle(groupKey: string) {
-  collapsed.value[groupKey] = !collapsed.value[groupKey]
+function resetExpandedGroup() {
+  // 项目进入后只展开排序后的首个分组，避免首屏同时铺开所有分组。
+  expandedGroupKey.value = props.groups[0]?.key ?? null
 }
+
+function isGroupExpanded(groupKey: string): boolean {
+  return expandedGroupKey.value === groupKey
+}
+
+function toggle(groupKey: string) {
+  expandedGroupKey.value = isGroupExpanded(groupKey) ? null : groupKey
+}
+
+watch(
+  () => props.projectId,
+  () => resetExpandedGroup(),
+  { immediate: true }
+)
+
+watch(
+  () => props.groups.map((group) => group.key),
+  (groupKeys) => {
+    // 首次任务加载通常发生在 projectId 之后；此时补上默认展开分组。
+    if (expandedGroupKey.value == null || !groupKeys.includes(expandedGroupKey.value)) {
+      expandedGroupKey.value = groupKeys[0] ?? null
+    }
+  },
+  { immediate: true }
+)
 
 function assigneeName(task: Task): string {
   return assigneeDisplayLabel(task, props.users, t('common.unassigned'))
@@ -727,11 +754,11 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
           <button
             type="button"
             class="group-toggle"
-            :aria-expanded="!collapsed[group.key]"
+            :aria-expanded="isGroupExpanded(group.key)"
             @click="toggle(group.key)"
           >
             <span class="group-toggle-chevron tree-chevron-glyph" aria-hidden="true">{{
-              collapsed[group.key] ? '▸' : '▾'
+              isGroupExpanded(group.key) ? '▾' : '▸'
             }}</span>
             <span class="group-title">{{ group.label }}</span>
             <span class="group-count">{{ visibleGroupRows(group).length }}</span>
@@ -780,7 +807,7 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
             </button>
           </div>
         </div>
-        <div v-show="!collapsed[group.key]" class="group-rows">
+        <div v-show="isGroupExpanded(group.key)" class="group-rows">
           <div
             v-for="row in visibleGroupRows(group)"
             :key="row.task.id"

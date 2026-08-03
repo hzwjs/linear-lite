@@ -351,6 +351,7 @@ onUnmounted(() => {
         <div v-else-if="viewType === 'list'" class="list-wrap">
           <TaskListView
             v-model:subtask-expanded="listSubtaskExpanded"
+            :project-id="projectStore.activeProjectId"
             :groups="localizedTaskGroups"
             :users="users"
             :visible-properties="viewModeStore.visibleProperties"
