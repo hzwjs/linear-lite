@@ -7,13 +7,15 @@ import { useAuthStore } from '../store/authStore'
 const router = useRouter()
 const authStore = useAuthStore()
 
-const mode = ref<'login' | 'register'>('login')
+const mode = ref<'login' | 'register' | 'reset'>('login')
 const identity = ref('')
 const email = ref('')
 const verificationCode = ref('')
 const username = ref('')
 const password = ref('')
+const confirmPassword = ref('')
 const error = ref<string | null>(null)
+const notice = ref<string | null>(null)
 const loading = ref(false)
 const sendingCode = ref(false)
 const resendCountdown = ref(0)
@@ -21,12 +23,15 @@ let resendTimer: number | null = null
 
 const { t } = useI18n()
 const isLoginMode = computed(() => mode.value === 'login')
+const isRegisterMode = computed(() => mode.value === 'register')
+const isResetMode = computed(() => mode.value === 'reset')
 
 function resetError() {
   error.value = null
+  notice.value = null
 }
 
-function switchMode(nextMode: 'login' | 'register') {
+function switchMode(nextMode: 'login' | 'register' | 'reset') {
   mode.value = nextMode
   resetError()
 }
@@ -65,7 +70,11 @@ async function onSendCode() {
 
   sendingCode.value = true
   try {
-    await authStore.sendRegisterCode(email.value.trim())
+    if (isRegisterMode.value) {
+      await authStore.sendRegisterCode(email.value.trim())
+    } else {
+      await authStore.sendPasswordResetCode(email.value.trim())
+    }
     startResendCountdown()
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('auth.error.sendCodeFailed')
@@ -76,6 +85,7 @@ async function onSendCode() {
 
 async function onSubmit() {
   resetError()
+  const wasResetMode = isResetMode.value
   loading.value = true
   try {
     if (isLoginMode.value) {
@@ -84,7 +94,7 @@ async function onSubmit() {
         return
       }
       await authStore.login({ identity: identity.value.trim(), password: password.value })
-    } else {
+    } else if (isRegisterMode.value) {
       if (!email.value.trim() || !verificationCode.value.trim() || !username.value.trim() || !password.value) {
         error.value = t('auth.error.completeRegistration')
         return
@@ -95,8 +105,31 @@ async function onSubmit() {
         username: username.value.trim(),
         password: password.value
       })
+    } else {
+      if (!email.value.trim() || !verificationCode.value.trim() || !password.value || !confirmPassword.value) {
+        error.value = t('auth.error.completeReset')
+        return
+      }
+      if (password.value !== confirmPassword.value) {
+        error.value = t('auth.error.passwordMismatch')
+        return
+      }
+      await authStore.resetPassword({
+        email: email.value.trim(),
+        code: verificationCode.value.trim(),
+        password: password.value
+      })
+      identity.value = email.value.trim()
+      password.value = ''
+      confirmPassword.value = ''
+      verificationCode.value = ''
+      // 重置密码不建立会话，回到登录模式让用户使用新密码登录。
+      mode.value = 'login'
+      notice.value = t('auth.success.passwordReset')
     }
-    router.push('/')
+    if (!wasResetMode) {
+      router.push('/')
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('auth.error.authFailed')
   } finally {
@@ -110,9 +143,9 @@ async function onSubmit() {
     <div class="login-card">
       <h1 class="login-title">{{ t('app.name') }}</h1>
       <p class="login-subtitle">
-        {{ isLoginMode ? t('auth.subtitle.login') : t('auth.subtitle.register') }}
+        {{ isLoginMode ? t('auth.subtitle.login') : isRegisterMode ? t('auth.subtitle.register') : t('auth.subtitle.reset') }}
       </p>
-      <div class="login-tabs">
+      <div v-if="!isResetMode" class="login-tabs">
         <button
           type="button"
           class="login-tab"
@@ -133,15 +166,16 @@ async function onSubmit() {
         </button>
       </div>
       <form class="login-form" @submit.prevent="onSubmit">
-        <input
-          v-if="isLoginMode"
-          v-model="identity"
-          type="text"
-          :placeholder="t('auth.placeholder.identity')"
-          class="login-input"
-          autocomplete="username"
-          :disabled="loading"
-        />
+        <template v-if="isLoginMode">
+          <input
+            v-model="identity"
+            type="text"
+            :placeholder="t('auth.placeholder.identity')"
+            class="login-input"
+            autocomplete="username"
+            :disabled="loading"
+          />
+        </template>
         <template v-else>
           <input
             v-model="email"
@@ -174,29 +208,57 @@ async function onSubmit() {
               }}
             </button>
           </div>
-          <input
-            v-model="username"
-            type="text"
-            :placeholder="t('auth.placeholder.username')"
-            class="login-input"
-            autocomplete="username"
-            :disabled="loading"
-          />
+          <template v-if="isRegisterMode">
+            <input
+              v-model="username"
+              type="text"
+              :placeholder="t('auth.placeholder.username')"
+              class="login-input"
+              autocomplete="username"
+              :disabled="loading"
+            />
+          </template>
         </template>
         <input
+          v-if="isLoginMode || isRegisterMode"
           v-model="password"
           type="password"
           :placeholder="t('auth.placeholder.password')"
           class="login-input"
-          autocomplete="current-password"
+          :autocomplete="isLoginMode ? 'current-password' : 'new-password'"
           :disabled="loading"
         />
+        <template v-if="isResetMode">
+          <input
+            v-model="password"
+            type="password"
+            :placeholder="t('auth.placeholder.newPassword')"
+            class="login-input"
+            autocomplete="new-password"
+            :disabled="loading"
+          />
+          <input
+            v-model="confirmPassword"
+            type="password"
+            :placeholder="t('auth.placeholder.confirmPassword')"
+            class="login-input"
+            autocomplete="new-password"
+            :disabled="loading"
+          />
+        </template>
+        <button v-if="isLoginMode" type="button" class="login-link" :disabled="loading" @click="switchMode('reset')">
+          {{ t('auth.action.forgotPassword') }}
+        </button>
+        <button v-if="isResetMode" type="button" class="login-link" :disabled="loading || sendingCode" @click="switchMode('login')">
+          {{ t('auth.action.backToLogin') }}
+        </button>
+        <p v-if="notice" class="login-notice">{{ notice }}</p>
         <p v-if="error" class="login-error">{{ error }}</p>
         <button type="submit" class="login-submit" :disabled="loading">
           {{
             loading
-              ? isLoginMode ? t('auth.loading.login') : t('auth.loading.register')
-              : isLoginMode ? t('auth.action.signIn') : t('auth.action.signUp')
+              ? isLoginMode ? t('auth.loading.login') : isRegisterMode ? t('auth.loading.register') : t('auth.loading.reset')
+              : isLoginMode ? t('auth.action.signIn') : isRegisterMode ? t('auth.action.signUp') : t('auth.action.resetPassword')
           }}
         </button>
       </form>
@@ -273,6 +335,23 @@ async function onSubmit() {
   margin: 0;
   font-size: 13px;
   color: var(--color-danger);
+}
+.login-notice {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-success, #16a34a);
+}
+.login-link {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 8px 0;
+  color: var(--color-accent);
+  font-size: 13px;
+  text-align: left;
+}
+.login-link:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 .verification-row {
   display: flex;

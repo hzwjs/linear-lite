@@ -79,6 +79,16 @@ export interface RegisterRequest {
   password: string
 }
 
+export interface SendPasswordResetCodeRequest {
+  email: string
+}
+
+export interface ResetPasswordRequest {
+  email: string
+  code: string
+  password: string
+}
+
 export interface CreateTaskRequest {
   projectId: number
   title: string

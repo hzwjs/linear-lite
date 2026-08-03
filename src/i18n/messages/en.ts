@@ -7,7 +7,8 @@ const en = {
     signUp: 'Sign up',
     subtitle: {
       login: 'Sign in to continue',
-      register: 'Create your account with email verification'
+      register: 'Create your account with email verification',
+      reset: 'Set a new password with email verification'
     },
     tabs: {
       login: 'Log in',
@@ -18,23 +19,34 @@ const en = {
       email: 'Email',
       verificationCode: 'Verification code',
       username: 'Username',
-      password: 'Password'
+      password: 'Password',
+      newPassword: 'New password',
+      confirmPassword: 'Confirm new password'
     },
     sending: 'Sending...',
     sendCode: 'Send code',
     loading: {
       login: 'Signing in...',
-      register: 'Creating account...'
+      register: 'Creating account...',
+      reset: 'Resetting password...'
     },
     action: {
       signIn: 'Sign in',
-      signUp: 'Create account'
+      signUp: 'Create account',
+      forgotPassword: 'Forgot password?',
+      backToLogin: 'Back to log in',
+      resetPassword: 'Reset password'
+    },
+    success: {
+      passwordReset: 'Password reset. You can now log in.'
     },
     error: {
       enterEmail: 'Please enter email',
       sendCodeFailed: 'Failed to send code',
       enterCredentials: 'Please enter email or username and password',
       completeRegistration: 'Please complete all registration fields',
+      completeReset: 'Please complete all password reset fields',
+      passwordMismatch: 'Passwords do not match',
       authFailed: 'Authentication failed'
     }
   },

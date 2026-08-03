@@ -8,7 +8,9 @@ vi.mock('../services/api/auth', () => ({
   authApi: {
     login: vi.fn(),
     register: vi.fn(),
-    sendRegisterCode: vi.fn()
+    sendRegisterCode: vi.fn(),
+    sendPasswordResetCode: vi.fn(),
+    resetPassword: vi.fn()
   }
 }))
 
@@ -19,6 +21,8 @@ describe('authStore', () => {
     vi.mocked(authApi.login).mockReset()
     vi.mocked(authApi.register).mockReset()
     vi.mocked(authApi.sendRegisterCode).mockReset()
+    vi.mocked(authApi.sendPasswordResetCode).mockReset()
+    vi.mocked(authApi.resetPassword).mockReset()
   })
 
   it('stores session after email login', async () => {
@@ -53,5 +57,24 @@ describe('authStore', () => {
 
     expect(store.isLoggedIn).toBe(true)
     expect(store.currentUser).toEqual({ id: 8, username: 'new-user' })
+  })
+
+  it('sends password reset code and resets password without creating a session', async () => {
+    const store = useAuthStore()
+
+    await store.sendPasswordResetCode('alice@example.com')
+    await store.resetPassword({
+      email: 'alice@example.com',
+      code: '654321',
+      password: 'new-secret'
+    })
+
+    expect(authApi.sendPasswordResetCode).toHaveBeenCalledWith({ email: 'alice@example.com' })
+    expect(authApi.resetPassword).toHaveBeenCalledWith({
+      email: 'alice@example.com',
+      code: '654321',
+      password: 'new-secret'
+    })
+    expect(store.isLoggedIn).toBe(false)
   })
 })

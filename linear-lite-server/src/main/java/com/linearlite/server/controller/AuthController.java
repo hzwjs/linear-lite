@@ -4,6 +4,8 @@ import com.linearlite.server.common.ApiResponse;
 import com.linearlite.server.dto.LoginRequest;
 import com.linearlite.server.dto.LoginResponse;
 import com.linearlite.server.dto.RegisterRequest;
+import com.linearlite.server.dto.ResetPasswordRequest;
+import com.linearlite.server.dto.SendPasswordResetCodeRequest;
 import com.linearlite.server.dto.SendRegisterCodeRequest;
 import com.linearlite.server.service.AuthService;
 import org.springframework.http.ResponseEntity;
@@ -44,5 +46,17 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<LoginResponse>> register(@RequestBody RegisterRequest request) {
         return ResponseEntity.ok(ApiResponse.success(authService.register(request)));
+    }
+
+    @PostMapping("/password-reset/send-code")
+    public ResponseEntity<ApiResponse<Void>> sendPasswordResetCode(@RequestBody SendPasswordResetCodeRequest request) {
+        authService.sendPasswordResetCode(request.getEmail());
+        return ResponseEntity.ok(ApiResponse.success());
+    }
+
+    @PostMapping("/password-reset")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(@RequestBody ResetPasswordRequest request) {
+        authService.resetPassword(request);
+        return ResponseEntity.ok(ApiResponse.success());
     }
 }

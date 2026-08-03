@@ -11,6 +11,9 @@ describe('LoginView i18n', () => {
     expect(loginViewSource).toContain("const { t } = useI18n()")
     expect(loginViewSource).toContain("{{ t('auth.tabs.login') }}")
     expect(loginViewSource).toContain(":placeholder=\"t('auth.placeholder.identity')\"")
+    expect(loginViewSource).toContain("auth.action.forgotPassword")
+    expect(loginViewSource).toContain("auth.action.resetPassword")
+    expect(loginViewSource).toContain("auth.error.passwordMismatch")
     expect(loginViewSource).toContain("error.value = t('auth.error.enterCredentials')")
     expect(loginViewSource).toContain("error.value = e instanceof Error ? e.message : t('auth.error.authFailed')")
   })
@@ -20,6 +23,8 @@ describe('LoginView i18n', () => {
     expect(i18n.global.t('auth.tabs.register')).toBe('Sign up')
     expect(i18n.global.t('auth.placeholder.identity')).toBe('Email or username')
     expect(i18n.global.t('auth.placeholder.password')).toBe('Password')
+    expect(i18n.global.t('auth.action.forgotPassword')).toBe('Forgot password?')
+    expect(i18n.global.t('auth.placeholder.confirmPassword')).toBe('Confirm new password')
   })
 
   it('switches preset strings when locale changes', () => {
@@ -34,5 +39,6 @@ describe('LoginView i18n', () => {
     i18n.global.locale.value = 'zh-CN'
     expect(i18n.global.t('auth.error.enterCredentials')).toBe('请输入邮箱/用户名和密码')
     expect(i18n.global.t('auth.error.authFailed')).toBe('认证失败')
+    expect(i18n.global.t('auth.error.passwordMismatch')).toBe('两次输入的密码不一致')
   })
 })

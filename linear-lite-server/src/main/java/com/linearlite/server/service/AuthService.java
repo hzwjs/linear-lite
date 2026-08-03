@@ -3,6 +3,7 @@ package com.linearlite.server.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.linearlite.server.dto.LoginResponse;
 import com.linearlite.server.dto.RegisterRequest;
+import com.linearlite.server.dto.ResetPasswordRequest;
 import com.linearlite.server.entity.EmailVerificationCode;
 import com.linearlite.server.entity.ProjectInvitation;
 import com.linearlite.server.entity.ProjectMember;
@@ -26,6 +27,7 @@ import java.util.function.Supplier;
 public class AuthService {
 
     private static final String REGISTER_PURPOSE = "register";
+    private static final String RESET_PASSWORD_PURPOSE = "reset-password";
 
     private final UserMapper userMapper;
     private final EmailVerificationCodeMapper emailVerificationCodeMapper;
@@ -114,6 +116,24 @@ public class AuthService {
         emailService.sendVerificationCode(normalizedEmail, code);
     }
 
+    public void sendPasswordResetCode(String email) {
+        String normalizedEmail = normalizeEmail(email);
+        ensureEmailRegistered(normalizedEmail);
+        // 每次发送都作废同邮箱之前未使用的重置码，保证只有最新验证码可用。
+        invalidateActiveCodes(normalizedEmail, RESET_PASSWORD_PURPOSE);
+
+        String code = verificationCodeGenerator.get();
+        EmailVerificationCode record = new EmailVerificationCode();
+        record.setEmail(normalizedEmail);
+        record.setCode(code);
+        record.setPurpose(RESET_PASSWORD_PURPOSE);
+        record.setExpiresAt(LocalDateTime.now().plusMinutes(10));
+        record.setCreatedAt(LocalDateTime.now());
+        emailVerificationCodeMapper.insert(record);
+
+        emailService.sendVerificationCode(normalizedEmail, code);
+    }
+
     public LoginResponse register(RegisterRequest request) {
         String email = normalizeEmail(request.getEmail());
         String code = requireText(request.getCode(), "Verification code is required.");
@@ -159,11 +179,65 @@ public class AuthService {
         );
     }
 
+    public void resetPassword(ResetPasswordRequest request) {
+        String email = normalizeEmail(request.getEmail());
+        String code = requireText(request.getCode(), "Verification code is required.");
+        String password = requireText(request.getPassword(), "Password is required.");
+        if (password.length() < 6) {
+            throw new IllegalArgumentException("Password must be at least 6 characters.");
+        }
+
+        User user = findUserByEmail(email);
+        if (user == null) {
+            throw new IllegalArgumentException("Email is not registered.");
+        }
+
+        EmailVerificationCode verificationCode = emailVerificationCodeMapper.selectOne(
+                new LambdaQueryWrapper<EmailVerificationCode>()
+                        .eq(EmailVerificationCode::getEmail, email)
+                        .eq(EmailVerificationCode::getPurpose, RESET_PASSWORD_PURPOSE)
+                        .isNull(EmailVerificationCode::getUsedAt)
+                        .orderByDesc(EmailVerificationCode::getCreatedAt)
+                        .last("LIMIT 1")
+        );
+
+        if (verificationCode == null || !code.equals(verificationCode.getCode())) {
+            throw new IllegalArgumentException("Incorrect verification code.");
+        }
+        if (verificationCode.getExpiresAt() == null || verificationCode.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new IllegalArgumentException("Verification code has expired.");
+        }
+
+        // 仅在验证码校验通过后写入 BCrypt 密码，并立即消费验证码。
+        user.setPassword(passwordEncoder.encode(password));
+        userMapper.updateById(user);
+        verificationCode.setUsedAt(LocalDateTime.now());
+        emailVerificationCodeMapper.updateById(verificationCode);
+    }
+
     private void ensureEmailNotRegistered(String email) {
         Long count = userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getEmail, email));
         if (count != null && count > 0) {
             throw new IllegalArgumentException("Email is already registered.");
         }
+    }
+
+    private void ensureEmailRegistered(String email) {
+        if (findUserByEmail(email) == null) {
+            throw new IllegalArgumentException("Email is not registered.");
+        }
+    }
+
+    private void invalidateActiveCodes(String email, String purpose) {
+        EmailVerificationCode invalidated = new EmailVerificationCode();
+        invalidated.setUsedAt(LocalDateTime.now());
+        emailVerificationCodeMapper.update(
+                invalidated,
+                new LambdaQueryWrapper<EmailVerificationCode>()
+                        .eq(EmailVerificationCode::getEmail, email)
+                        .eq(EmailVerificationCode::getPurpose, purpose)
+                        .isNull(EmailVerificationCode::getUsedAt)
+        );
     }
 
     private void ensureUsernameNotRegistered(String username) {
@@ -182,15 +256,19 @@ public class AuthService {
 
     private User findUserByIdentity(String identity) {
         if (identity.contains("@")) {
-            User emailMatch = userMapper.selectOne(
-                    new LambdaQueryWrapper<User>().eq(User::getEmail, identity).last("LIMIT 1")
-            );
+            User emailMatch = findUserByEmail(identity);
             if (emailMatch != null) {
                 return emailMatch;
             }
         }
         return userMapper.selectOne(
                 new LambdaQueryWrapper<User>().eq(User::getUsername, identity).last("LIMIT 1")
+        );
+    }
+
+    private User findUserByEmail(String email) {
+        return userMapper.selectOne(
+                new LambdaQueryWrapper<User>().eq(User::getEmail, email).last("LIMIT 1")
         );
     }
 

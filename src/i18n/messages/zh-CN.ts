@@ -7,7 +7,8 @@ const zhCN = {
     signUp: '注册',
     subtitle: {
       login: '登录以继续',
-      register: '通过邮箱验证码创建账号'
+      register: '通过邮箱验证码创建账号',
+      reset: '通过邮箱验证码设置新密码'
     },
     tabs: {
       login: '登录',
@@ -18,23 +19,34 @@ const zhCN = {
       email: '邮箱',
       verificationCode: '验证码',
       username: '用户名',
-      password: '密码'
+      password: '密码',
+      newPassword: '新密码',
+      confirmPassword: '确认新密码'
     },
     sending: '发送中…',
     sendCode: '发送验证码',
     loading: {
       login: '登录中…',
-      register: '创建中…'
+      register: '创建中…',
+      reset: '重置密码中…'
     },
     action: {
       signIn: '登录',
-      signUp: '创建账号'
+      signUp: '创建账号',
+      forgotPassword: '忘记密码？',
+      backToLogin: '返回登录',
+      resetPassword: '重置密码'
+    },
+    success: {
+      passwordReset: '密码已重置，现在可以登录了。'
     },
     error: {
       enterEmail: '请输入邮箱',
       sendCodeFailed: '发送验证码失败',
       enterCredentials: '请输入邮箱/用户名和密码',
       completeRegistration: '请完成所有注册字段',
+      completeReset: '请完成所有重置密码字段',
+      passwordMismatch: '两次输入的密码不一致',
       authFailed: '认证失败'
     }
   },

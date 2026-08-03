@@ -3,6 +3,7 @@ package com.linearlite.server.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.linearlite.server.dto.LoginResponse;
 import com.linearlite.server.dto.RegisterRequest;
+import com.linearlite.server.dto.ResetPasswordRequest;
 import com.linearlite.server.entity.EmailVerificationCode;
 import com.linearlite.server.entity.ProjectInvitation;
 import com.linearlite.server.entity.User;
@@ -148,6 +149,58 @@ class AuthServiceTest {
         assertEquals("new@example.com", saved.getEmail());
         assertEquals("123456", saved.getCode());
         assertEquals("register", saved.getPurpose());
+    }
+
+    @Test
+    void sendPasswordResetCodeStoresCodeAndSendsEmail() {
+        User user = new User();
+        user.setId(9L);
+        user.setEmail("alice@example.com");
+        when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
+        when(verificationCodeGenerator.get()).thenReturn("654321");
+
+        authService.sendPasswordResetCode("alice@example.com");
+
+        ArgumentCaptor<EmailVerificationCode> codeCaptor = ArgumentCaptor.forClass(EmailVerificationCode.class);
+        verify(emailVerificationCodeMapper).insert(codeCaptor.capture());
+        verify(emailVerificationCodeMapper).update(any(), any(LambdaQueryWrapper.class));
+        verify(emailService).sendVerificationCode("alice@example.com", "654321");
+
+        EmailVerificationCode saved = codeCaptor.getValue();
+        assertEquals("alice@example.com", saved.getEmail());
+        assertEquals("654321", saved.getCode());
+        assertEquals("reset-password", saved.getPurpose());
+    }
+
+    @Test
+    void resetPasswordUpdatesPasswordAndConsumesCode() {
+        ResetPasswordRequest request = new ResetPasswordRequest();
+        request.setEmail("alice@example.com");
+        request.setCode("654321");
+        request.setPassword("new-secret");
+
+        User user = new User();
+        user.setId(9L);
+        user.setEmail("alice@example.com");
+        user.setPassword("old-secret");
+        EmailVerificationCode code = new EmailVerificationCode();
+        code.setId(7L);
+        code.setEmail("alice@example.com");
+        code.setCode("654321");
+        code.setPurpose("reset-password");
+        code.setExpiresAt(LocalDateTime.now().plusMinutes(10));
+
+        when(userMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(user);
+        when(emailVerificationCodeMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(code);
+        when(passwordEncoder.encode("new-secret")).thenReturn("encoded-new-secret");
+
+        authService.resetPassword(request);
+
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userMapper).updateById(userCaptor.capture());
+        verify(emailVerificationCodeMapper).updateById(code);
+        assertEquals("encoded-new-secret", userCaptor.getValue().getPassword());
+        org.junit.jupiter.api.Assertions.assertNotNull(code.getUsedAt());
     }
 
     @Test

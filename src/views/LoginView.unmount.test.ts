@@ -11,7 +11,9 @@ vi.mock('../store/authStore', () => ({
   useAuthStore: () => ({
     sendRegisterCode: vi.fn().mockResolvedValue(undefined),
     login: vi.fn().mockResolvedValue(undefined),
-    register: vi.fn().mockResolvedValue(undefined)
+    register: vi.fn().mockResolvedValue(undefined),
+    sendPasswordResetCode: vi.fn().mockResolvedValue(undefined),
+    resetPassword: vi.fn().mockResolvedValue(undefined)
   })
 }))
 

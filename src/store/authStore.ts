@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { authApi } from '../services/api/auth'
 import { JWT_STORAGE_KEY, USER_STORAGE_KEY } from '../services/api/constants'
 import type { User } from '../types/domain'
-import type { RegisterRequest } from '../services/api/types'
+import type { RegisterRequest, ResetPasswordRequest } from '../services/api/types'
 
 function getStoredUser(): Pick<User, 'id' | 'username'> | null {
   try {
@@ -52,6 +52,14 @@ export const useAuthStore = defineStore('authStore', () => {
     return authApi.sendRegisterCode({ email })
   }
 
+  async function sendPasswordResetCode(email: string) {
+    return authApi.sendPasswordResetCode({ email })
+  }
+
+  async function resetPassword(payload: ResetPasswordRequest) {
+    return authApi.resetPassword(payload)
+  }
+
   function logout() {
     clearSession()
   }
@@ -63,6 +71,8 @@ export const useAuthStore = defineStore('authStore', () => {
     login,
     register,
     sendRegisterCode,
+    sendPasswordResetCode,
+    resetPassword,
     logout,
     setSession,
     clearSession
