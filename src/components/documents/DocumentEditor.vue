@@ -220,19 +220,14 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 <template>
   <article class="document-editor" :aria-label="document.title">
     <header class="document-editor__toolbar">
-      <nav class="document-editor__breadcrumbs" :aria-label="t('documents.breadcrumbLabel')">
-        <span v-for="(item, index) in breadcrumbs" :key="item.id">
-          <span v-if="index > 0" aria-hidden="true">/</span>
-          <span :title="item.title">{{ item.title }}</span>
-        </span>
-      </nav>
-      <div class="document-editor__actions">
-        <span class="document-editor__save-state" role="status" aria-live="polite">
-          <Loader2 v-if="saveState === 'saving'" class="spin" aria-hidden="true" />
-          <TriangleAlert v-else-if="saveState === 'conflict' || saveState === 'failed'" aria-hidden="true" />
-          <Check v-else-if="saveState === 'saved'" aria-hidden="true" />
-          {{ saveLabel }}
-        </span>
+      <div class="document-editor__toolbar-meta">
+        <nav class="document-editor__breadcrumbs" :aria-label="t('documents.breadcrumbLabel')">
+          <span v-for="(item, index) in breadcrumbs" :key="item.id">
+            <span v-if="index > 0" aria-hidden="true">/</span>
+            <span :title="item.title">{{ item.title }}</span>
+          </span>
+        </nav>
+        <!-- 与任务详情页保持同级结构：收藏按钮紧跟文档名称并由父容器统一垂直居中。 -->
         <button
           type="button"
           class="document-editor__favorite"
@@ -245,6 +240,14 @@ async function handleDocumentBodyClick(event: MouseEvent) {
           <Loader2 v-if="favoritePending" class="spin" aria-hidden="true" />
           <Star v-else aria-hidden="true" />
         </button>
+      </div>
+      <div class="document-editor__actions">
+        <span class="document-editor__save-state" role="status" aria-live="polite">
+          <Loader2 v-if="saveState === 'saving'" class="spin" aria-hidden="true" />
+          <TriangleAlert v-else-if="saveState === 'conflict' || saveState === 'failed'" aria-hidden="true" />
+          <Check v-else-if="saveState === 'saved'" aria-hidden="true" />
+          {{ saveLabel }}
+        </span>
         <button type="button" :title="t('documents.history')" @click="emit('history')">
           <Clock3 aria-hidden="true" /><span>{{ t('documents.history') }}</span>
         </button>
@@ -338,9 +341,17 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
+.document-editor__toolbar-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
 .document-editor__breadcrumbs {
   display: flex;
   min-width: 0;
+  align-items: center;
   gap: 7px;
   color: var(--color-text-muted);
   font-size: var(--font-size-caption);
@@ -368,11 +379,16 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 .document-editor__actions { flex: none; gap: 6px; }
 .document-editor__actions button { gap: 6px; border-radius: var(--radius-sm); color: var(--color-text-secondary); }
 .document-editor__actions button:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
-.document-editor__actions .document-editor__favorite--active { color: var(--color-status-warning); }
+.document-editor__favorite { display: inline-flex; flex: 0 0 24px; align-items: center; justify-content: center; width: 24px; height: 24px; min-width: 24px; min-height: 24px; padding: 4px; border-radius: var(--radius-sm); color: var(--color-text-muted); transition: color var(--transition-fast), background var(--transition-fast); }
+.document-editor__favorite:hover { background: var(--color-bg-hover); color: var(--color-text-secondary); }
+.document-editor__favorite--active { color: #d4a106; }
+.document-editor__favorite--active:hover { color: #b58900; }
 .document-editor__favorite--active svg { fill: currentColor; }
-.document-editor__actions button:focus-visible { outline: 2px solid var(--color-border-strong); outline-offset: 1px; }
+.document-editor__actions button:focus-visible,
+.document-editor__favorite:focus-visible { outline: 2px solid var(--color-border-strong); outline-offset: 1px; }
 .document-editor__actions svg,
 .document-editor__save-state svg { width: 14px; height: 14px; }
+.document-editor__favorite svg { width: 16px; height: 16px; }
 .document-editor__save-state { gap: 5px; padding: 0 6px; color: var(--color-text-muted); font-size: var(--font-size-caption); }
 
 .document-editor__conflict {

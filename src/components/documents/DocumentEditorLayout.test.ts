@@ -15,6 +15,12 @@ describe('DocumentEditor long-form layout', () => {
     expect(source).toContain(':mention-documents="mentionDocuments"')
   })
 
+  it('keeps the favorite action immediately after the toolbar document name', () => {
+    expect(source).toMatch(/class="document-editor__toolbar-meta"[\s\S]*<nav class="document-editor__breadcrumbs"[\s\S]*<\/nav>[\s\S]*class="document-editor__favorite"/)
+    expect(source).not.toMatch(/<nav class="document-editor__breadcrumbs"[\s\S]*class="document-editor__favorite"[\s\S]*<\/nav>/)
+    expect(source).not.toContain('document-editor__actions .document-editor__favorite')
+  })
+
   it('mounts the minimap against the single document scroll owner', () => {
     expect(source).toContain('ref="documentPageRef" class="document-editor__page"')
     expect(source).toContain('<DocumentMinimap :scroll-element="documentPageRef" :controls="`document-scroll-${document.id}`" />')
