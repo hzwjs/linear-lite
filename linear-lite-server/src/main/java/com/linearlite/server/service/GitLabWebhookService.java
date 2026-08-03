@@ -28,7 +28,8 @@ import java.util.regex.Pattern;
 public class GitLabWebhookService {
 
     private static final Logger log = LoggerFactory.getLogger(GitLabWebhookService.class);
-    private static final Pattern TASK_KEY_PATTERN = Pattern.compile("\\b[A-Z][A-Z0-9]{0,15}-\\d{1,9}\\b");
+    // Linear Lite 任务编号允许多段大写项目标识，例如 LINEAR-LITE-57。
+    private static final Pattern TASK_KEY_PATTERN = Pattern.compile("\\b[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\\d{1,9}\\b");
     private static final String SOURCE_GITLAB_COMMIT = "gitlab_commit";
 
     private final GitLabProjectRepositoryService repositoryService;
@@ -64,11 +65,12 @@ public class GitLabWebhookService {
         // URL 和 path 均为预先配置的固定仓库身份，Webhook 不能借首条请求回填或覆盖身份。
         if (!repository.getRepositoryUrl().equals(eventIdentity.url())
                 || !repository.getRepositoryPath().equals(event.project().pathWithNamespace())) {
-            log.warn("[GITLAB-DIAG] 仓库身份不匹配，已忽略：repositoryId={} configuredUrl={} eventUrl={} configuredPath={} eventPath={}",
+            log.warn("GitLab 仓库身份不匹配，已忽略：repositoryId={} configuredUrl={} eventUrl={} configuredPath={} eventPath={}",
                     repository.getId(), repository.getRepositoryUrl(), eventIdentity.url(),
                     repository.getRepositoryPath(), event.project().pathWithNamespace());
             return;
         }
+        log.info("GitLab Push 已通过认证：仓库={}, 提交数={}", eventIdentity.path(), event.commits() == null ? 0 : event.commits().size());
         if (event.commits() == null || event.commits().isEmpty()) {
             return;
         }
@@ -77,6 +79,7 @@ public class GitLabWebhookService {
                 continue;
             }
             Set<String> taskKeys = extractTaskKeys(commit.title(), commit.message());
+            log.info("GitLab 提交任务编号解析：commit={}, keys={}", commit.id(), taskKeys);
             for (String taskKey : taskKeys) {
                 createComment(repository, taskKey, commit, shortBranch(event.ref()));
             }
@@ -87,6 +90,7 @@ public class GitLabWebhookService {
         Task task = taskMapper.selectOne(new LambdaQueryWrapper<Task>().eq(Task::getTaskKey, taskKey));
         // 任务编号和仓库都必须属于同一项目，避免一个项目的仓库影响另一个项目的任务。
         if (task == null || !repository.getProjectId().equals(task.getProjectId())) {
+            log.warn("GitLab 提交未匹配项目任务：taskKey={}, projectId={}", taskKey, repository.getProjectId());
             return;
         }
         String externalRef = repository.getId() + ":" + commit.id();
@@ -108,6 +112,7 @@ public class GitLabWebhookService {
         comment.setCreatedAt(LocalDateTime.now());
         try {
             taskCommentMapper.insert(comment);
+            log.info("GitLab 提交已写入任务评论：taskKey={}, externalRef={}", taskKey, externalRef);
         } catch (DuplicateKeyException ignored) {
             log.debug("GitLab 提交评论已存在，跳过：task={} ref={}", taskKey, externalRef);
         }
