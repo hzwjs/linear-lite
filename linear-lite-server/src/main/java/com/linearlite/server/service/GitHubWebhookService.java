@@ -31,7 +31,8 @@ import java.util.regex.Pattern;
 @Service
 public class GitHubWebhookService {
     private static final Logger log = LoggerFactory.getLogger(GitHubWebhookService.class);
-    private static final Pattern TASK_KEY_PATTERN = Pattern.compile("\\b[A-Z][A-Z0-9]{0,15}-\\d{1,9}\\b");
+    // Linear Lite 任务编号允许多段大写项目标识，例如 LINEAR-LITE-57；必须从完整前缀开始匹配。
+    private static final Pattern TASK_KEY_PATTERN = Pattern.compile("\\b[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\\d{1,9}\\b");
     private static final String SOURCE_GITHUB_COMMIT = "github_commit";
     private final GitHubProjectRepositoryService repositoryService;
     private final TaskMapper taskMapper;
@@ -48,7 +49,10 @@ public class GitHubWebhookService {
     public void handlePush(String eventName, String signature, String rawBody) {
         if (!"push".equals(eventName)) return;
         GitHubPushEvent event = parse(rawBody);
-        if (event == null || event.repository() == null || event.repository().htmlUrl() == null) return;
+        if (event == null || event.repository() == null || event.repository().htmlUrl() == null) {
+            log.warn("GitHub Push 缺少可识别的仓库身份，已忽略");
+            return;
+        }
         GitHubProjectRepositoryService.RepositoryIdentity identity;
         try { identity = GitHubProjectRepositoryService.normalizeRepositoryUrl(event.repository().htmlUrl()); }
         catch (IllegalArgumentException ignored) { return; }
@@ -58,16 +62,22 @@ public class GitHubWebhookService {
         if (repository == null || !validSignature(signature, rawBody, secretCipher.decrypt(repository.getWebhookSecret()))) {
             throw new UnauthorizedException("GitHub Webhook 签名无效");
         }
+        log.info("GitHub Push 已通过认证：仓库={}, 提交数={}", identity.path(), event.commits() == null ? 0 : event.commits().size());
         if (event.commits() == null) return;
         for (GitHubCommit commit : event.commits()) {
             if (commit == null || blank(commit.id()) || commit.id().length() > 64) continue;
-            for (String taskKey : extractTaskKeys(commit.message())) createComment(repository, taskKey, commit, shortBranch(event.ref()));
+            Set<String> taskKeys = extractTaskKeys(commit.message());
+            log.info("GitHub 提交任务编号解析：commit={}, keys={}", commit.id(), taskKeys);
+            for (String taskKey : taskKeys) createComment(repository, taskKey, commit, shortBranch(event.ref()));
         }
     }
 
     private void createComment(ProjectGitHubRepository repository, String taskKey, GitHubCommit commit, String branch) {
         Task task = taskMapper.selectOne(new LambdaQueryWrapper<Task>().eq(Task::getTaskKey, taskKey));
-        if (task == null || !repository.getProjectId().equals(task.getProjectId())) return;
+        if (task == null || !repository.getProjectId().equals(task.getProjectId())) {
+            log.warn("GitHub 提交未匹配项目任务：taskKey={}, projectId={}", taskKey, repository.getProjectId());
+            return;
+        }
         String externalRef = repository.getId() + ":" + commit.id();
         Long existing = taskCommentMapper.selectCount(new LambdaQueryWrapper<TaskComment>().eq(TaskComment::getSourceType, SOURCE_GITHUB_COMMIT).eq(TaskComment::getExternalRef, externalRef).eq(TaskComment::getTaskId, task.getId()));
         if (existing != null && existing > 0) return;
@@ -76,6 +86,7 @@ public class GitHubWebhookService {
         String commitLine = blank(commit.url()) ? shortSha + " " + summary : "[" + shortSha + "](" + commit.url() + ") " + summary;
         comment.setBody("**GitHub 提交**\n\n" + commitLine + (branch.isBlank() ? "" : "\n\n分支：" + branch));
         comment.setDepth(0); comment.setSourceType(SOURCE_GITHUB_COMMIT); comment.setExternalRef(externalRef); comment.setCreatedAt(LocalDateTime.now()); taskCommentMapper.insert(comment);
+        log.info("GitHub 提交已写入任务评论：taskKey={}, externalRef={}", taskKey, externalRef);
     }
 
     private GitHubPushEvent parse(String body) { if (blank(body)) return null; try { return objectMapper.readValue(body, GitHubPushEvent.class); } catch (JsonProcessingException e) { log.warn("GitHub Webhook 请求体无法解析，已忽略"); return null; } }
@@ -87,7 +98,7 @@ public class GitHubWebhookService {
         } catch (Exception e) { return false; }
     }
     private static String hex(byte[] bytes) { StringBuilder b = new StringBuilder(bytes.length * 2); for (byte v : bytes) b.append(String.format("%02x", v)); return b.toString(); }
-    private static Set<String> extractTaskKeys(String... texts) { Set<String> keys = new LinkedHashSet<>(); for (String text : texts) { if (!blank(text)) { Matcher m = TASK_KEY_PATTERN.matcher(text); while (m.find()) keys.add(m.group()); } } return keys; }
+    static Set<String> extractTaskKeys(String... texts) { Set<String> keys = new LinkedHashSet<>(); for (String text : texts) { if (!blank(text)) { Matcher m = TASK_KEY_PATTERN.matcher(text); while (m.find()) keys.add(m.group()); } } return keys; }
     private static String shortBranch(String ref) { return ref != null && ref.startsWith("refs/heads/") ? ref.substring("refs/heads/".length()) : ""; }
     private static String firstLine(String v) { int n = v.indexOf('\n'); return (n < 0 ? v : v.substring(0, n)).trim(); }
     private static boolean blank(String v) { return v == null || v.isBlank(); }
