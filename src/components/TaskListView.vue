@@ -841,7 +841,7 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
                 />
               </div>
             </div>
-            <span class="task-row-key-wrap">
+            <span class="task-row-key-wrap" :title="row.task.id">
               <span class="task-row-key">{{ row.task.id }}</span>
               <button
                 type="button"
@@ -1046,6 +1046,8 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
   --task-row-pad-left: 6px;
   /** 展开钮 / 复选框 / 优先级 三者之间的间距（行内其余列仍用 .task-row 的 gap） */
   --task-row-meta-leading-gap: 3px;
+  /** 任务编号列固定宽度，确保后续状态列在纵向列表中对齐 */
+  --task-row-key-column-width: 112px;
 }
 
 .list-view-scroll {
@@ -1302,8 +1304,8 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
   color: var(--color-text-muted);
 }
 .task-row-key {
-  flex: 0 0 auto;
-  min-width: 56px;
+  flex: 1 1 auto;
+  min-width: 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-medium);
@@ -1316,9 +1318,11 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
 .task-row-key-wrap {
   display: inline-flex;
   align-items: center;
-  flex: 0 0 auto;
+  flex: 0 0 var(--task-row-key-column-width);
+  width: var(--task-row-key-column-width);
+  min-width: var(--task-row-key-column-width);
   gap: 3px;
-  min-width: 74px;
+  overflow: hidden;
 }
 .task-row-copy-key {
   display: inline-flex;
