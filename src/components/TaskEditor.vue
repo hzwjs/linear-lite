@@ -2468,6 +2468,8 @@ async function toggleDescriptionFullscreen() {
   overflow: visible;
   /* 描述区 BlockNote（chrome）继承，用于标题覆写：calc(var(--task-editor-issue-title-size) * 比例) */
   --task-editor-issue-title-size: 2rem;
+  /* 标题与描述共用内容起始线；描述区已隐藏 BlockNote 侧栏，不再需要旧的 36px 预留。 */
+  --task-editor-content-inset: 12px;
 }
 .editor-content-scroll {
   flex: 1;
@@ -2499,7 +2501,7 @@ async function toggleDescriptionFullscreen() {
 .content-section--title {
   margin-bottom: 0;
   padding-bottom: 2px;
-  padding-inline-start: 36px;
+  padding-inline: var(--task-editor-content-inset);
   flex-shrink: 0;
 }
 
@@ -2532,7 +2534,7 @@ async function toggleDescriptionFullscreen() {
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: transparent;
-  padding: 10px 12px;
+  padding: 10px var(--task-editor-content-inset);
   transition:
     border-color var(--transition-fast),
     background-color var(--transition-fast),

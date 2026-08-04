@@ -6,6 +6,10 @@ import issueComposerSource from './IssueComposer.vue?raw'
 describe('task typography hierarchy', () => {
   it('keeps the task title visually above editor h1 headings', () => {
     expect(taskEditorSource).toContain('.content-section--title .title-input')
+    expect(taskEditorSource).toContain('--task-editor-content-inset: 12px;')
+    expect(taskEditorSource).toContain('padding-inline: var(--task-editor-content-inset);')
+    expect(taskEditorSource).toContain('padding: 10px var(--task-editor-content-inset);')
+    expect(taskEditorSource).not.toContain('padding-inline-start: 36px;')
     expect(taskEditorSource).toContain('font-size: 2rem;')
     expect(taskEditorSource).toContain('font-weight: 700;')
     expect(taskEditorSource).toContain('line-height: 1.18;')
