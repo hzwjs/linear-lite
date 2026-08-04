@@ -787,10 +787,11 @@ onUnmounted(() => {
 }
 
 .sidebar-nav__section-label {
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
+  /* 分组标题与导航项保持同一字号，仅用字重拉开层级，避免侧栏出现生硬的大标题。 */
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.25;
+  letter-spacing: 0;
 }
 
 .sidebar-nav__list {
