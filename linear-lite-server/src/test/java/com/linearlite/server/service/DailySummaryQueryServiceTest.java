@@ -35,6 +35,8 @@ class DailySummaryQueryServiceTest {
     void findDueTasksPreservesProgressPercentAndClassifiesTodayAndOverdue() {
         LocalDateTime startOfToday = LocalDate.of(2026, 7, 24).atStartOfDay();
         LocalDateTime endOfToday = LocalDate.of(2026, 7, 25).atStartOfDay();
+        LocalDateTime completedWindowStart = LocalDateTime.of(2026, 7, 23, 16, 30);
+        LocalDateTime completedWindowEnd = LocalDateTime.of(2026, 7, 24, 16, 30);
 
         DailySummaryTaskDto today = new DailySummaryTaskDto();
         today.setTaskId(1L);
@@ -65,10 +67,12 @@ class DailySummaryQueryServiceTest {
         completed.setStatus("done");
         completed.setCompletedAt(LocalDateTime.of(2026, 7, 24, 16, 0));
 
-        when(taskMapper.selectDueForDigest(anyList(), any(LocalDateTime.class), any(LocalDateTime.class)))
+        when(taskMapper.selectDueForDigest(anyList(), any(LocalDateTime.class), any(LocalDateTime.class),
+                any(LocalDateTime.class), any(LocalDateTime.class)))
                 .thenReturn(List.of(today, overdue, completed));
 
-        List<DailySummaryTaskDto> result = service.findDueTasks(List.of(10L), startOfToday, endOfToday);
+        List<DailySummaryTaskDto> result = service.findDueTasks(
+                List.of(10L), startOfToday, endOfToday, completedWindowStart, completedWindowEnd);
 
         assertEquals(3, result.size());
         assertEquals(65, result.stream().filter(t -> t.getTaskId().equals(1L)).findFirst().orElseThrow().getProgressPercent());
@@ -76,5 +80,27 @@ class DailySummaryQueryServiceTest {
         assertTrue(result.stream().anyMatch(t -> t.getTaskId().equals(1L) && !t.getOverdue()));
         assertTrue(result.stream().anyMatch(t -> t.getTaskId().equals(2L) && t.getOverdue()));
         assertTrue(result.stream().anyMatch(t -> t.getTaskId().equals(3L) && !t.getOverdue()));
+    }
+
+    @Test
+    void includesCompletionAfterCalendarMidnightWhenItFallsBeforeNextDigest() {
+        LocalDateTime startOfToday = LocalDate.of(2026, 7, 25).atStartOfDay();
+        LocalDateTime endOfToday = LocalDate.of(2026, 7, 26).atStartOfDay();
+        LocalDateTime completedWindowStart = LocalDateTime.of(2026, 7, 24, 16, 30);
+        LocalDateTime completedWindowEnd = LocalDateTime.of(2026, 7, 25, 16, 30);
+        DailySummaryTaskDto completedAfterCalendarMidnight = new DailySummaryTaskDto();
+        completedAfterCalendarMidnight.setTaskId(4L);
+        completedAfterCalendarMidnight.setStatus("done");
+        completedAfterCalendarMidnight.setCompletedAt(LocalDateTime.of(2026, 7, 24, 23, 45));
+
+        when(taskMapper.selectDueForDigest(anyList(), any(LocalDateTime.class), any(LocalDateTime.class),
+                any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(List.of(completedAfterCalendarMidnight));
+
+        List<DailySummaryTaskDto> result = service.findDueTasks(
+                List.of(10L), startOfToday, endOfToday, completedWindowStart, completedWindowEnd);
+
+        assertEquals(1, result.size());
+        assertTrue(!result.get(0).getOverdue());
     }
 }

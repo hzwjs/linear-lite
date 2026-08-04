@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -21,6 +22,7 @@ import java.util.stream.Collectors;
 public class DailySummaryDispatchService {
 
     private static final Logger log = LoggerFactory.getLogger(DailySummaryDispatchService.class);
+    private static final LocalTime DAILY_SUMMARY_TIME = LocalTime.of(16, 30);
 
     private final ProjectEmailPreferenceService preferenceService;
     private final DailySummaryQueryService queryService;
@@ -48,7 +50,11 @@ public class DailySummaryDispatchService {
 
         LocalDateTime startOfToday = businessDate.atStartOfDay();
         LocalDateTime endOfToday = businessDate.plusDays(1).atStartOfDay();
-        List<DailySummaryTaskDto> tasks = queryService.findDueTasks(projectIds, startOfToday, endOfToday);
+        // 每日汇总的完成窗口必须首尾相接：本次 16:30 统计上次 16:30 之后的完成任务。
+        LocalDateTime completedWindowStart = businessDate.minusDays(1).atTime(DAILY_SUMMARY_TIME);
+        LocalDateTime completedWindowEnd = businessDate.atTime(DAILY_SUMMARY_TIME);
+        List<DailySummaryTaskDto> tasks = queryService.findDueTasks(
+                projectIds, startOfToday, endOfToday, completedWindowStart, completedWindowEnd);
         if (tasks.isEmpty()) return;
 
         // 汇总到用户后发送，确保同一用户当天只收到一封跨项目邮件。
@@ -62,12 +68,14 @@ public class DailySummaryDispatchService {
             String username = first.getAssigneeUsername();
             if (email == null || email.isBlank()) continue;
 
-            dispatchOne(entry.getKey(), username, email, entry.getValue(), businessDate);
+            dispatchOne(entry.getKey(), username, email, entry.getValue(), businessDate,
+                    completedWindowStart, completedWindowEnd);
         }
     }
 
     private void dispatchOne(Long recipientUserId, String recipientName,
-                             String recipientEmail, List<DailySummaryTaskDto> tasks, LocalDate businessDate) {
+                             String recipientEmail, List<DailySummaryTaskDto> tasks, LocalDate businessDate,
+                             LocalDateTime completedWindowStart, LocalDateTime completedWindowEnd) {
         ProjectEmailDispatch record = dispatchMapper.selectOne(
                 new LambdaQueryWrapper<ProjectEmailDispatch>()
                         .eq(ProjectEmailDispatch::getScenarioKey,
@@ -78,7 +86,7 @@ public class DailySummaryDispatchService {
 
         DigestMailContent content;
         try {
-            content = composer.compose(recipientName, businessDate, tasks);
+            content = composer.compose(recipientName, businessDate, completedWindowStart, completedWindowEnd, tasks);
         } catch (RuntimeException e) {
             log.warn("今日汇总邮件编排失败 userId={}", recipientUserId, e);
             return;

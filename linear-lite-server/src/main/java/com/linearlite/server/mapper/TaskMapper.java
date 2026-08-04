@@ -153,8 +153,8 @@ public interface TaskMapper extends BaseMapper<Task> {
                  -- 待规划任务不属于今日汇总，即使已设置截止日期也不纳入。
                  AND LOWER(t.status) NOT IN ('backlog', 'done', 'canceled', 'duplicate'))
                 OR (LOWER(t.status) = 'done'
-                    AND t.completed_at &gt;= #{startOfToday}
-                    AND t.completed_at &lt; #{endOfToday})
+                    AND t.completed_at &gt;= #{completedWindowStart}
+                    AND t.completed_at &lt; #{completedWindowEnd})
               )
             ORDER BY t.completed_at DESC, t.due_date ASC, t.id ASC
             </script>
@@ -162,5 +162,7 @@ public interface TaskMapper extends BaseMapper<Task> {
     List<com.linearlite.server.dto.DailySummaryTaskDto> selectDueForDigest(
             @Param("projectIds") List<Long> projectIds,
             @Param("startOfToday") java.time.LocalDateTime startOfToday,
-            @Param("endOfToday") java.time.LocalDateTime endOfToday);
+            @Param("endOfToday") java.time.LocalDateTime endOfToday,
+            @Param("completedWindowStart") java.time.LocalDateTime completedWindowStart,
+            @Param("completedWindowEnd") java.time.LocalDateTime completedWindowEnd);
 }

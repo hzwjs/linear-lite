@@ -35,7 +35,8 @@ class DigestMailComposerTest {
         task.setDueDate(LocalDateTime.of(2026, 7, 24, 18, 0));
         task.setOverdue(false);
 
-        DigestMailContent content = composer.compose("alice", LocalDate.of(2026, 7, 24), List.of(task));
+        DigestMailContent content = composer.compose("alice", LocalDate.of(2026, 7, 24),
+                LocalDateTime.of(2026, 7, 23, 16, 30), LocalDateTime.of(2026, 7, 24, 16, 30), List.of(task));
 
         assertTrue(content.getSubject().contains("2026-07-24"));
         assertTrue(content.getHtmlBody().contains("修复登录"));
@@ -68,7 +69,8 @@ class DigestMailComposerTest {
         task.setDueDate(LocalDateTime.of(2026, 7, 24, 18, 0));
         task.setOverdue(false);
 
-        DigestMailContent content = blankBaseUrlComposer.compose("alice", LocalDate.of(2026, 7, 24), List.of(task));
+        DigestMailContent content = blankBaseUrlComposer.compose("alice", LocalDate.of(2026, 7, 24),
+                LocalDateTime.of(2026, 7, 23, 16, 30), LocalDateTime.of(2026, 7, 24, 16, 30), List.of(task));
 
         assertTrue(content.getHtmlBody().contains("状态 未设置"));
         assertTrue(content.getHtmlBody().contains("进度 --"));
@@ -89,7 +91,8 @@ class DigestMailComposerTest {
         task.setDueDate(LocalDateTime.of(2026, 7, 24, 18, 0));
         task.setOverdue(false);
 
-        DigestMailContent content = composer.compose("alice", LocalDate.of(2026, 7, 24), List.of(task));
+        DigestMailContent content = composer.compose("alice", LocalDate.of(2026, 7, 24),
+                LocalDateTime.of(2026, 7, 23, 16, 30), LocalDateTime.of(2026, 7, 24, 16, 30), List.of(task));
 
         assertTrue(content.getHtmlBody().contains("&lt;script&gt;"));
         assertTrue(!content.getHtmlBody().contains("<script>alert"));
@@ -106,12 +109,29 @@ class DigestMailComposerTest {
         task.setCompletedAt(LocalDateTime.of(2026, 7, 24, 15, 30));
         task.setProgressPercent(100);
 
-        DigestMailContent content = composer.compose("alice", LocalDate.of(2026, 7, 24), List.of(task));
+        DigestMailContent content = composer.compose("alice", LocalDate.of(2026, 7, 24),
+                LocalDateTime.of(2026, 7, 23, 16, 30), LocalDateTime.of(2026, 7, 24, 16, 30), List.of(task));
+
 
         assertTrue(content.getHtmlBody().contains("今日完成 · 1"));
         assertTrue(content.getHtmlBody().contains("当天完成的任务"));
         assertTrue(content.getTextBody().contains("今日完成 1"));
         assertTrue(content.getTextBody().contains("今日完成 · 1"));
         assertEquals(1, content.getTaskCount());
+    }
+
+    @Test
+    void includesLatePreviousDayCompletionInTheNextDigestWindow() {
+        DailySummaryTaskDto task = new DailySummaryTaskDto();
+        task.setTaskKey("ENG-3");
+        task.setTitle("昨日晚间完成的任务");
+        task.setStatus("done");
+        task.setCompletedAt(LocalDateTime.of(2026, 7, 24, 23, 45));
+
+        DigestMailContent content = composer.compose("alice", LocalDate.of(2026, 7, 25),
+                LocalDateTime.of(2026, 7, 24, 16, 30), LocalDateTime.of(2026, 7, 25, 16, 30), List.of(task));
+
+        assertTrue(content.getHtmlBody().contains("今日完成 · 1"));
+        assertTrue(content.getHtmlBody().contains("昨日晚间完成的任务"));
     }
 }

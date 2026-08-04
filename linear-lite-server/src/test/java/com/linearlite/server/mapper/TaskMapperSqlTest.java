@@ -11,11 +11,14 @@ class TaskMapperSqlTest {
     void dailySummaryExcludesBacklogTasks() throws NoSuchMethodException {
         Select select = TaskMapper.class
                 .getMethod("selectDueForDigest", java.util.List.class,
+                        java.time.LocalDateTime.class, java.time.LocalDateTime.class,
                         java.time.LocalDateTime.class, java.time.LocalDateTime.class)
                 .getAnnotation(Select.class);
 
         String sql = String.join(" ", select.value());
 
         assertTrue(sql.contains("LOWER(t.status) NOT IN ('backlog', 'done', 'canceled', 'duplicate')"));
+        assertTrue(sql.contains("#{completedWindowStart}"));
+        assertTrue(sql.contains("#{completedWindowEnd}"));
     }
 }

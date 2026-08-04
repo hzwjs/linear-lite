@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -47,7 +48,7 @@ class DailySummaryDispatchServiceTest {
     void skipsProjectWithoutDueTasks() {
         LocalDate date = LocalDate.of(2026, 7, 24);
         when(preferenceService.listEnabledProjectIds("daily_summary")).thenReturn(List.of(10L));
-        when(queryService.findDueTasks(eq(List.of(10L)), any(), any())).thenReturn(List.of());
+        when(queryService.findDueTasks(eq(List.of(10L)), any(), any(), any(), any())).thenReturn(List.of());
 
         service.dispatchForDate(date);
 
@@ -63,16 +64,20 @@ class DailySummaryDispatchServiceTest {
         DailySummaryTaskDto productTask = assignedTask(2L, "PROD-1", 20L);
 
         when(preferenceService.listEnabledProjectIds("daily_summary")).thenReturn(List.of(10L, 20L));
-        when(queryService.findDueTasks(eq(List.of(10L, 20L)), any(), any())).thenReturn(List.of(engineeringTask, productTask));
+        when(queryService.findDueTasks(eq(List.of(10L, 20L)), any(), any(), any(), any()))
+                .thenReturn(List.of(engineeringTask, productTask));
         when(dispatchMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
         when(dispatchMapper.update(any(), any())).thenReturn(1);
-        when(composer.compose(eq("alice"), eq(date), any())).thenReturn(
+        when(composer.compose(eq("alice"), eq(date), any(LocalDateTime.class), any(LocalDateTime.class), any())).thenReturn(
                 new DigestMailContent("主题", "<html/>", "text", 2));
 
         service.dispatchForDate(date);
 
         InOrder inOrder = org.mockito.Mockito.inOrder(composer, dispatchMapper, sender);
-        inOrder.verify(composer).compose(eq("alice"), eq(date), org.mockito.ArgumentMatchers.argThat(tasks -> tasks.size() == 2));
+        inOrder.verify(composer).compose(eq("alice"), eq(date),
+                eq(LocalDateTime.of(2026, 7, 23, 16, 30)),
+                eq(LocalDateTime.of(2026, 7, 24, 16, 30)),
+                org.mockito.ArgumentMatchers.argThat(tasks -> tasks.size() == 2));
         inOrder.verify(dispatchMapper).insert(any(ProjectEmailDispatch.class));
         inOrder.verify(sender).send(eq("a@example.com"), any(DigestMailContent.class));
         ArgumentCaptor<ProjectEmailDispatch> captor = ArgumentCaptor.forClass(ProjectEmailDispatch.class);
@@ -99,13 +104,13 @@ class DailySummaryDispatchServiceTest {
         DailySummaryTaskDto task = assignedTask(1L, "ENG-1", 10L);
 
         when(preferenceService.listEnabledProjectIds("daily_summary")).thenReturn(List.of(10L));
-        when(queryService.findDueTasks(eq(List.of(10L)), any(), any())).thenReturn(List.of(task));
+        when(queryService.findDueTasks(eq(List.of(10L)), any(), any(), any(), any())).thenReturn(List.of(task));
         when(dispatchMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
         when(dispatchMapper.update(any(), any())).thenReturn(0);
 
         service.dispatchForDate(date);
 
-        verify(composer).compose(eq("alice"), eq(date), any());
+        verify(composer).compose(eq("alice"), eq(date), any(LocalDateTime.class), any(LocalDateTime.class), any());
         verify(sender, never()).send(anyString(), any());
         verify(dispatchMapper, never()).updateById(any());
         verify(dispatchMapper, never()).insert(any());
@@ -124,7 +129,7 @@ class DailySummaryDispatchServiceTest {
         task.setAssigneeEmail(null);
 
         when(preferenceService.listEnabledProjectIds("daily_summary")).thenReturn(List.of(10L));
-        when(queryService.findDueTasks(eq(List.of(10L)), any(), any())).thenReturn(List.of(task));
+        when(queryService.findDueTasks(eq(List.of(10L)), any(), any(), any(), any())).thenReturn(List.of(task));
 
         service.dispatchForDate(date);
 

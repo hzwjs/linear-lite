@@ -31,7 +31,12 @@ public class DigestMailComposer {
         this.publicBaseUrl = publicBaseUrl == null || publicBaseUrl.isBlank() ? "" : publicBaseUrl.replaceAll("/+$", "");
     }
 
-    public DigestMailContent compose(String recipientName, LocalDate businessDate, List<DailySummaryTaskDto> tasks) {
+    public DigestMailContent compose(
+            String recipientName,
+            LocalDate businessDate,
+            LocalDateTime completedWindowStart,
+            LocalDateTime completedWindowEnd,
+            List<DailySummaryTaskDto> tasks) {
         String businessDay = businessDate.format(DATE_FMT);
         String subject = "【今日汇总】" + businessDay;
 
@@ -39,7 +44,8 @@ public class DigestMailComposer {
         List<DailySummaryTaskDto> completedToday = tasks.stream()
                 .filter(t -> "done".equalsIgnoreCase(t.getStatus())
                         && t.getCompletedAt() != null
-                        && businessDate.equals(t.getCompletedAt().toLocalDate()))
+                        && !t.getCompletedAt().isBefore(completedWindowStart)
+                        && t.getCompletedAt().isBefore(completedWindowEnd))
                 .toList();
         List<DailySummaryTaskDto> dueToday = tasks.stream()
                 .filter(t -> !Boolean.TRUE.equals(t.getOverdue()) && !completedToday.contains(t))
