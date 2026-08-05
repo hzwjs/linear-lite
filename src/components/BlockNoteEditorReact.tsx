@@ -20,6 +20,7 @@ import {
 import { createCodeBlockSpec } from '@blocknote/core/blocks'
 import type { HighlighterGeneric, LanguageInput } from '@shikijs/types'
 import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
+import { shouldPasteClipboardAsMarkdown } from '../utils/markdownClipboard'
 import { normalizeMermaidRenderError, renderMermaidSvg } from '../utils/mermaidRenderer'
 import { MentionMemberSuggestionMenu } from './MentionMemberSuggestionMenu'
 import {
@@ -751,6 +752,26 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     {
       schema,
       uploadFile: blockNoteUploadFile,
+      pasteHandler: ({ event, editor, defaultPasteHandler }) => {
+        const clipboardData = event.clipboardData
+        const clipboardTypes = clipboardData ? Array.from(clipboardData.types) : []
+        const plainText = clipboardData
+          ? clipboardTypes.includes('text/markdown')
+            ? clipboardData.getData('text/markdown')
+            : clipboardData.getData('text/plain')
+          : ''
+        const isInCodeBlock = editor.transact(
+          (tr) => tr.selection.$from.parent.type.spec.code && tr.selection.$to.parent.type.spec.code,
+        )
+
+        // Raw Markdown copied from a file/editor usually has no HTML MIME entry,
+        // so bypass BlockNote's narrow Markdown detector and parse it explicitly.
+        if (!isInCodeBlock && shouldPasteClipboardAsMarkdown(clipboardTypes, plainText)) {
+          editor.pasteMarkdown(plainText)
+          return true
+        }
+        return defaultPasteHandler()
+      },
       initialContent: parsedJsonInitial as PartialBlock<any, any, any>[] | undefined,
       // Use deprecated placeholders until dictionary approach is confirmed stable
       placeholders: placeholder ? { default: placeholder } : undefined,
