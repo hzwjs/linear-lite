@@ -122,12 +122,14 @@
   height: 38px;
   flex: 0 0 auto;
   border: 1px solid rgba(15, 23, 42, 0.06);
+  box-sizing: border-box;
+  padding: 1px;
   border-radius: 50%;
   font-size: 13px;
   font-weight: 650;
+  line-height: 1;
   letter-spacing: 0;
 }
-
 .mobile-avatar--small {
   width: 28px;
   height: 28px;

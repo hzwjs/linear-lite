@@ -2773,9 +2773,12 @@ async function toggleDescriptionFullscreen() {
   height: 22px;
   flex: 0 0 22px;
   margin-left: auto;
+  box-sizing: border-box;
+  padding: 1px;
   border-radius: var(--radius-full);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
+  line-height: 1;
 }
 .linear-sub-link {
   display: inline-flex;
@@ -3116,6 +3119,8 @@ async function toggleDescriptionFullscreen() {
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-full);
+  box-sizing: border-box;
+  padding: 1px;
   font-size: 8px;
   font-weight: var(--font-weight-semibold);
   line-height: 1;
@@ -3243,6 +3248,8 @@ async function toggleDescriptionFullscreen() {
   width: 18px;
   height: 18px;
   margin-top: 1px;
+  box-sizing: border-box;
+  padding: 1px;
   border-radius: var(--radius-full);
   font-size: 8px;
   font-weight: var(--font-weight-semibold);

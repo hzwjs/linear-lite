@@ -422,12 +422,14 @@ onBeforeUnmount(() => {
   width: 20px;
   height: 20px;
   flex: 0 0 20px;
-  overflow: hidden;
+  box-sizing: border-box;
+  padding: 1px;
   border-radius: var(--radius-full);
   background: var(--color-accent-muted);
   color: var(--color-accent);
   font-size: 9px;
   font-weight: var(--font-weight-semibold);
+  line-height: 1;
   letter-spacing: 0;
 }
 .assignee-avatar > svg {
