@@ -425,6 +425,11 @@ function subIssueAssigneeInitial(task: Task): string {
   return subIssueAssigneeLabel(task).slice(0, 1).toUpperCase()
 }
 
+// 与任务列表头像一致：按负责人用户名生成稳定的彩色背景
+function subIssueAssigneeColor(task: Task): { background: string; color: string } {
+  return getAvatarColorByUsername(subIssueAssigneeLabel(task))
+}
+
 async function loadSubIssues(options?: { preferSnapshot?: boolean }) {
   if (props.mode !== 'edit' || !props.task?.id || props.task.numericId == null) {
     subIssueRows.value = []
@@ -1745,6 +1750,7 @@ async function toggleDescriptionFullscreen() {
                     <span
                       v-if="subIssueAssigneeInitial(row.task)"
                       class="sub-issue-assignee"
+                      :style="subIssueAssigneeColor(row.task)"
                       :title="subIssueAssigneeLabel(row.task)"
                     >
                       {{ subIssueAssigneeInitial(row.task) }}
@@ -2764,8 +2770,6 @@ async function toggleDescriptionFullscreen() {
   flex: 0 0 22px;
   margin-left: auto;
   border-radius: var(--radius-full);
-  background: var(--color-accent-muted);
-  color: var(--color-accent);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
 }
