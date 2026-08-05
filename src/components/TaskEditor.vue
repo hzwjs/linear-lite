@@ -33,7 +33,10 @@ import {
   getTaskActivityLabelChange,
   isTaskActivityTimelineEvent
 } from '../utils/taskActivity'
-import { getAvatarColorByUsername } from '../utils/avatar'
+import {
+  getAvatarColorByUsername,
+  getInitials
+} from '../utils/avatar'
 import { getTaskLabelTone } from '../utils/taskLabelTone'
 import { renderMarkdown } from '../utils/markdown'
 import { renderBody } from '../utils/blockNoteHtml'
@@ -422,7 +425,8 @@ function subIssueAssigneeLabel(task: Task): string {
 }
 
 function subIssueAssigneeInitial(task: Task): string {
-  return subIssueAssigneeLabel(task).slice(0, 1).toUpperCase()
+  const label = subIssueAssigneeLabel(task)
+  return label ? getInitials(label) : ''
 }
 
 // 与任务列表头像一致：按负责人用户名生成稳定的彩色背景

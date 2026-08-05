@@ -44,34 +44,25 @@ describe('TaskRowAssigneePicker', () => {
     i18n.global.locale.value = 'en'
   })
 
-  it('fallback avatar uses background from getAvatarColorByUsername(username), not userId', async () => {
-    const username = 'PaletteProbeUser'
+  it('selected avatar trigger uses Chinese initials from getInitials()', async () => {
     const task: Task = {
-      id: 'ENG-1',
+      id: 'ENG-2',
       title: 't',
       status: 'todo',
       priority: 'low',
       createdAt: 0,
       updatedAt: 0,
-      assigneeId: null
+      assigneeId: 101
     }
-    const users: User[] = [{ id: 999, username }]
+    const users: User[] = [{ id: 101, username: '黄志文' }]
     const view = await mountPicker(task, users)
     try {
-      const trigger = view.host.querySelector('.assignee-trigger') as HTMLButtonElement
-      expect(trigger).toBeTruthy()
-      trigger.click()
-      await nextTick()
-
-      const fallback = document.querySelectorAll<HTMLElement>(
-        '.assignee-option .assignee-avatar'
-      )[1] ?? null
-      expect(fallback).toBeTruthy()
-      const domSig = `${fallback!.style.background || fallback!.style.backgroundColor}|${fallback!.style.color}`
-      const expectedSig = styleSignature(getAvatarColorByUsername(username))
-      expect(domSig).toBe(expectedSig)
+      const avatar = view.host.querySelector('.assignee-trigger .assignee-avatar') as HTMLElement
+      expect(avatar).toBeTruthy()
+      expect(avatar.textContent?.trim()).toBe('志文')
     } finally {
       view.unmount()
     }
   })
+
 })

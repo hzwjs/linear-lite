@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } fro
 import { Check, Search, UserRound } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import type { User } from '../../types/domain'
-import { getAvatarColorByUsername } from '../../utils/avatar'
+import { getAvatarColorByUsername, getInitials } from '../../utils/avatar'
 
 type AssigneeValue = string | number | null
 type AssigneeOption = {
@@ -102,7 +102,7 @@ function optionIsSelected(option: AssigneeOption): boolean {
 }
 
 function avatarInitial(label: string): string {
-  return label.trim().slice(0, 1).toLocaleUpperCase()
+  return getInitials(label)
 }
 
 function avatarStyle(user?: User): { background: string; color: string } | undefined {
