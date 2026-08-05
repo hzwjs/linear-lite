@@ -134,4 +134,24 @@ class DigestMailComposerTest {
         assertTrue(content.getHtmlBody().contains("今日完成 · 1"));
         assertTrue(content.getHtmlBody().contains("昨日晚间完成的任务"));
     }
+
+    @Test
+    void keepsSummaryColumnsWideEnoughForSingleLineStats() {
+        DigestMailContent content = composer.compose("alice", LocalDate.of(2026, 7, 24),
+                LocalDateTime.of(2026, 7, 23, 16, 30), LocalDateTime.of(2026, 7, 24, 16, 30), List.of());
+
+        assertTrue(content.getHtmlBody().contains("width=\"720\""));
+        assertTrue(content.getHtmlBody().contains("width:720px;max-width:100%"));
+        assertEquals(5, countOccurrences(content.getHtmlBody(), "width:20%;white-space:nowrap;"));
+    }
+
+    private int countOccurrences(String text, String fragment) {
+        int count = 0;
+        int offset = 0;
+        while ((offset = text.indexOf(fragment, offset)) >= 0) {
+            count++;
+            offset += fragment.length();
+        }
+        return count;
+    }
 }

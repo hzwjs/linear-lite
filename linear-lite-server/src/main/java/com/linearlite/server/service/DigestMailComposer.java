@@ -66,7 +66,7 @@ public class DigestMailComposer {
         sb.append("<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>");
         sb.append("<body style=\"margin:0;padding:0;background:#f4f7fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;\">");
         sb.append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f4f7fb;padding:24px 0;\">");
-        sb.append("<tr><td align=\"center\"><table role=\"presentation\" width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,0.06);\">");
+        sb.append("<tr><td align=\"center\"><table role=\"presentation\" width=\"720\" cellpadding=\"0\" cellspacing=\"0\" style=\"width:720px;max-width:100%;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,0.06);\">");
         sb.append("<tr><td style=\"padding:18px 32px;background:linear-gradient(135deg,#eff6ff 0%,#ecfeff 100%);border-bottom:1px solid #dbeafe;\"><span style=\"font-size:18px;font-weight:700;color:#0369a1;\">Linear Lite</span></td></tr>");
         sb.append("<tr><td style=\"padding:28px 32px 8px 32px;\">");
         sb.append("<p style=\"margin:0 0 6px 0;font-size:15px;color:#64748b;\">Hi ").append(escape(nullSafe(recipientName))).append("</p>");
@@ -113,9 +113,10 @@ public class DigestMailComposer {
     }
 
     private String summaryCell(String label, String value, String valueColor) {
-        return "<td style=\"padding:14px 12px;text-align:left;width:25%;\">"
-                + "<span style=\"display:block;font-size:11px;color:#64748b;\">" + escape(label) + "</span>"
-                + "<span style=\"display:block;margin-top:4px;font-size:17px;font-weight:700;color:" + valueColor + ";\">" + escape(value) + "</span>"
+        // 五列统计栏按等宽分配并禁止换行，避免邮件客户端挤压最后一列。
+        return "<td style=\"padding:14px 12px;text-align:left;width:20%;white-space:nowrap;\">"
+                + "<span style=\"display:block;font-size:11px;color:#64748b;white-space:nowrap;\">" + escape(label) + "</span>"
+                + "<span style=\"display:block;margin-top:4px;font-size:17px;font-weight:700;color:" + valueColor + ";white-space:nowrap;\">" + escape(value) + "</span>"
                 + "</td>";
     }
 
