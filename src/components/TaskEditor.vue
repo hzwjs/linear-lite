@@ -2776,9 +2776,11 @@ async function toggleDescriptionFullscreen() {
   box-sizing: border-box;
   padding: 1px;
   border-radius: var(--radius-full);
-  font-size: var(--font-size-xs);
+  /* 两字头像必须保持单行；10px 在 22px 圆内留出内边距后仍能完整容纳中文。 */
+  font-size: 10px;
   font-weight: var(--font-weight-medium);
   line-height: 1;
+  white-space: nowrap;
 }
 .linear-sub-link {
   display: inline-flex;
@@ -3121,9 +3123,11 @@ async function toggleDescriptionFullscreen() {
   border-radius: var(--radius-full);
   box-sizing: border-box;
   padding: 1px;
-  font-size: 8px;
+  /* 16px 时间线标记的内容区只有 14px，使用 7px 才能稳定容纳两个中文字符。 */
+  font-size: 7px;
   font-weight: var(--font-weight-semibold);
   line-height: 1;
+  white-space: nowrap;
 }
 .activity-text {
   font-size: var(--font-size-caption);
@@ -3254,6 +3258,7 @@ async function toggleDescriptionFullscreen() {
   font-size: 8px;
   font-weight: var(--font-weight-semibold);
   line-height: 1;
+  white-space: nowrap;
 }
 .task-comment-content {
   flex: 1;
