@@ -2,12 +2,13 @@ import type { Task, TaskActivity } from '../types/domain'
 import { activityApi } from '../services/api/activity'
 import { attachmentsApi } from '../services/api/attachments'
 import type { TaskAttachment } from '../services/api/types'
-import { taskCommentsApi, type TaskCommentDto } from '../services/api/taskComments'
+import { taskCommentsApi } from '../services/api/taskComments'
+import type { CommentDto } from '../types/comment'
 
 export interface TaskDetailSnapshot {
   subIssueRows: Array<{ task: Task; depth: number }>
   activities: TaskActivity[]
-  comments: TaskCommentDto[]
+  comments: CommentDto[]
   attachments: TaskAttachment[]
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import taskEditorSource from './TaskEditor.vue?raw'
 import blockNoteEditorSource from './BlockNoteEditorWrapper.vue?raw'
 import issueComposerSource from './IssueComposer.vue?raw'
+import commentThreadListSource from './comments/CommentThreadList.vue?raw'
 
 describe('task typography hierarchy', () => {
   it('keeps the task title visually above editor h1 headings', () => {
@@ -32,5 +33,13 @@ describe('task typography hierarchy', () => {
     expect(issueComposerSource).not.toContain('TiptapEditor')
     expect(blockNoteEditorSource).toContain('.bn-block-outer')
     expect(blockNoteEditorSource).toContain('padding-block: 2px;')
+  })
+
+  it('keeps submitted comment images inside the content column', () => {
+    expect(commentThreadListSource).toContain('.task-comment-body :deep(img)')
+    expect(commentThreadListSource).toContain('max-width: 100%;')
+    expect(commentThreadListSource).toContain('height: auto;')
+    expect(commentThreadListSource).toContain('.task-comment-reply-content')
+    expect(commentThreadListSource).toContain('min-width: 0;')
   })
 })

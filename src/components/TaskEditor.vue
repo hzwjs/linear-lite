@@ -13,12 +13,11 @@ import { useFavoriteStore } from '../store/favoriteStore'
 import { useProjectStore } from '../store/projectStore'
 import { useIssuePanelStore } from '../store/issuePanelStore'
 import { useRouter } from 'vue-router'
-import { toApiError } from '../services/api/index'
 import { projectApi } from '../services/api/project'
 import { documentApi } from '../services/api/documents'
 import type { ProjectDocumentTreeNode } from '../types/document'
 import { activityApi } from '../services/api/activity'
-import { taskCommentsApi, type TaskCommentDto } from '../services/api/taskComments'
+import { taskCommentsApi } from '../services/api/taskComments'
 import { attachmentsApi } from '../services/api/attachments'
 import { toLabelWriteItems } from '../utils/taskLabelWrite'
 import type { TaskAttachment } from '../services/api/types'
@@ -38,10 +37,7 @@ import {
   getInitials
 } from '../utils/avatar'
 import { getTaskLabelTone } from '../utils/taskLabelTone'
-import { renderMarkdown } from '../utils/markdown'
-import { renderBody } from '../utils/blockNoteHtml'
-import { runMermaidIn } from '../utils/mermaidHydrate'
-import { buildCommentThreads } from '../utils/commentThread'
+import type { CommentDto, CommentSubmitPayload } from '../types/comment'
 import { randomClientId } from '../utils/clientId'
 import { copyTextToClipboard } from '../utils/clipboard'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
@@ -52,6 +48,7 @@ import { getTaskDueState } from '../utils/taskDueState'
 import { captureTaskLoadContext, isTaskLoadStale } from '../utils/taskLoadContext'
 import { readTaskDetailSnapshot } from '../utils/taskDetailPreload'
 import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
+import CommentThreadList from './comments/CommentThreadList.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
 import AssigneeSelect from './ui/AssigneeSelect.vue'
@@ -77,12 +74,9 @@ import {
   Paperclip,
   Folder,
   Tag,
-  Reply,
-  Trash2,
   CalendarDays,
   UserRound,
   UsersRound,
-  ArrowUp,
   BarChart3,
   Pencil,
   ChevronDown,
@@ -214,20 +208,8 @@ function activityDisplayLabels(item: TaskActivityDisplayItem): string[] {
   return added.length ? added : removed
 }
 
-const comments = ref<TaskCommentDto[]>([])
+const comments = ref<CommentDto[]>([])
 const commentsLoading = ref(false)
-const commentsMermaidHostRef = ref<HTMLElement | null>(null)
-
-async function hydrateCommentsMermaid() {
-  await nextTick()
-  await runMermaidIn(commentsMermaidHostRef.value)
-}
-const commentBody = ref('')
-const commentSubmitting = ref(false)
-const inlineReplyRootId = ref<number | null>(null)
-const inlineReplyParentId = ref<number | null>(null)
-const replyBodyByRootId = ref<Record<number, string>>({})
-const replySubmittingRootIds = ref<Set<number>>(new Set())
 const attachmentInputRef = ref<HTMLInputElement | null>(null)
 const attachments = ref<TaskAttachment[]>([])
 const attachmentsLoading = ref(false)
@@ -286,10 +268,6 @@ let mentionDocumentsLoadSequence = 0
 const mentionMembersForDescription = computed(() =>
   mentionCandidates.value.map((user) => ({ id: user.id, label: user.username.trim() }))
 )
-
-const commentEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
-const inlineReplyEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
-const commentThreads = computed(() => buildCommentThreads(comments.value, Number.MAX_SAFE_INTEGER))
 
 const breadcrumbScopeName = computed(() => {
   if (props.mode !== 'edit' || !props.task?.projectId) {
@@ -546,127 +524,17 @@ async function loadComments(options?: { silent?: boolean; preferSnapshot?: boole
   }
 }
 
-function commentTimeFromIso(iso: string) {
-  const ms = Date.parse(iso)
-  if (Number.isNaN(ms)) return ''
-  return relativeTimeFromNow(ms)
-}
-
-function onCommentEditorKeydown(e: KeyboardEvent) {
-  if (e.isComposing) return
-  if (!(e.metaKey || e.ctrlKey) || e.key !== 'Enter') return
-  e.preventDefault()
-  void submitComment()
-}
-
-function openInlineReply(rootId: number, parentId = rootId) {
-  inlineReplyRootId.value = rootId
-  inlineReplyParentId.value = parentId
-  if (replyBodyByRootId.value[rootId] != null) return
-  replyBodyByRootId.value = { ...replyBodyByRootId.value, [rootId]: '' }
-}
-
-function closeInlineReply(rootId: number) {
-  if (inlineReplyRootId.value !== rootId) return
-  inlineReplyRootId.value = null
-  inlineReplyParentId.value = null
-}
-
-function updateInlineReplyBody(rootId: number, value: string) {
-  replyBodyByRootId.value = { ...replyBodyByRootId.value, [rootId]: value }
-}
-
-function visibleRepliesForThread(thread: ReturnType<typeof buildCommentThreads>[number]) {
-  return thread.replies
-}
-
-function replyParentFor(comment: TaskCommentDto): TaskCommentDto | null {
-  if (comment.parentId == null) return null
-  return comments.value.find((item) => item.id === comment.parentId) ?? null
-}
-
-function replyContextAuthorName(reply: TaskCommentDto, root: TaskCommentDto): string | null {
-  const parent = replyParentFor(reply)
-  return parent != null && parent.id !== root.id ? parent.authorName : null
-}
-
-function inlineReplyParentAuthorId(rootId: number): number | null {
-  const parentId = inlineReplyParentId.value ?? rootId
-  return comments.value.find((item) => item.id === parentId)?.authorId ?? null
-}
-
-function onInlineReplyEditorKeydown(event: KeyboardEvent, rootId: number) {
-  if (event.isComposing) return
-  if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return
-  event.preventDefault()
-  void submitReply(rootId)
-}
-
-async function submitComment() {
-  if (props.mode !== 'edit' || !props.task?.id || commentSubmitting.value) return
-  const body = commentBody.value.trim()
-  if (!body) return
-  commentSubmitting.value = true
-  try {
-    const fromDoc = commentEditorRef.value?.getMentionedUserIdsFromDoc?.() ?? []
-    await taskCommentsApi.create(props.task.id, {
-      body,
-      mentionedUserIds: fromDoc,
-      parentId: null
-    })
-    commentBody.value = ''
-    await loadComments({ silent: true })
-    void notificationStore.refreshUnread()
-  } catch (e) {
-    console.error(e)
-    alert(toApiError(e).message || t('taskEditor.commentSendFailed'))
-  } finally {
-    commentSubmitting.value = false
-  }
-}
-
-async function submitReply(rootId: number) {
+async function submitComment(payload: CommentSubmitPayload) {
   if (props.mode !== 'edit' || !props.task?.id) return
-  if (replySubmittingRootIds.value.has(rootId)) return
-  const body = (replyBodyByRootId.value[rootId] ?? '').trim()
-  if (!body) return
-  const nextSubmitting = new Set(replySubmittingRootIds.value)
-  nextSubmitting.add(rootId)
-  replySubmittingRootIds.value = nextSubmitting
-  try {
-    const fromDoc = inlineReplyEditorRef.value?.getMentionedUserIdsFromDoc?.() ?? []
-    const targetAuthorId = inlineReplyParentAuthorId(rootId)
-    const ids = [...new Set(targetAuthorId == null ? fromDoc : [...fromDoc, targetAuthorId])]
-    await taskCommentsApi.create(props.task.id, {
-      body,
-      mentionedUserIds: ids,
-      parentId: inlineReplyParentId.value ?? rootId
-    })
-    replyBodyByRootId.value = { ...replyBodyByRootId.value, [rootId]: '' }
-    inlineReplyRootId.value = null
-    inlineReplyParentId.value = null
-    await loadComments({ silent: true })
-    void notificationStore.refreshUnread()
-  } catch (e) {
-    console.error(e)
-    alert(toApiError(e).message || t('taskEditor.commentSendFailed'))
-  } finally {
-    const next = new Set(replySubmittingRootIds.value)
-    next.delete(rootId)
-    replySubmittingRootIds.value = next
-  }
+  await taskCommentsApi.create(props.task.id, payload)
+  await loadComments({ silent: true })
+  void notificationStore.refreshUnread()
 }
 
-async function deleteCommentRow(c: TaskCommentDto) {
-  if (!props.task?.id || !c.deletable) return
-  if (!window.confirm(t('taskEditor.deleteCommentConfirm'))) return
-  try {
-    await taskCommentsApi.delete(props.task.id, c.id)
-    await loadComments({ silent: true })
-  } catch (e) {
-    console.error(e)
-    alert(toApiError(e).message || t('taskEditor.commentSendFailed'))
-  }
+async function deleteCommentRow(comment: CommentDto) {
+  if (!props.task?.id || !comment.deletable) return
+  await taskCommentsApi.delete(props.task.id, comment.id)
+  await loadComments({ silent: true })
 }
 
 function openSubIssueForm() {
@@ -870,15 +738,6 @@ watch(
   },
   { immediate: true }
 )
-watch(
-  [comments, commentsLoading],
-  () => {
-    if (commentsLoading.value) return
-    void hydrateCommentsMermaid()
-  },
-  { deep: true }
-)
-
 async function loadProjectMembers(projectId: number | null) {
   if (projectId == null) {
     userList.value = []
@@ -919,7 +778,6 @@ onMounted(() => {
   dueStateNowTimer = setInterval(() => {
     dueStateNow.value = Date.now()
   }, 60_000)
-  void hydrateCommentsMermaid()
 })
 
 watch(effectiveProjectId, (id) => {
@@ -1851,158 +1709,14 @@ async function toggleDescriptionFullscreen() {
             <span class="linear-section-title">{{ t('taskEditor.comments') }}</span>
           </div>
           <div class="linear-section-body">
-            <div v-if="commentsLoading" class="activity-empty">{{ t('taskEditor.commentsLoading') }}</div>
-            <div
-              v-else-if="commentThreads.length"
-              ref="commentsMermaidHostRef"
-              class="task-comments-list"
-            >
-              <div v-for="thread in commentThreads" :key="thread.root.id" class="task-comment-thread">
-                <div class="task-comment-row task-comment-row--root">
-                  <span
-                    class="task-comment-avatar"
-                    :style="getAvatarColorByUsername(thread.root.authorName)"
-                    aria-hidden="true"
-                  >
-                    {{ getActivityAvatarLabel(thread.root.authorName) }}
-                  </span>
-                  <div class="task-comment-content">
-                    <div class="task-comment-head">
-                      <div class="task-comment-meta">
-                        <div class="task-comment-meta-line">
-                          <strong>{{ thread.root.authorName }}</strong>
-                          <span>· {{ commentTimeFromIso(thread.root.createdAt) }}</span>
-                          <button
-                            type="button"
-                            class="task-comment-reply-btn"
-                            :aria-label="t('taskEditor.reply')"
-                            :title="t('taskEditor.reply')"
-                            @click="openInlineReply(thread.root.id, thread.root.id)"
-                          >
-                            <Reply :size="14" aria-hidden="true" />
-                          </button>
-                          <button
-                            v-if="thread.root.deletable"
-                            type="button"
-                            class="task-comment-delete"
-                            :aria-label="t('taskEditor.deleteCommentAria')"
-                            :title="t('taskEditor.deleteComment')"
-                            @click="deleteCommentRow(thread.root)"
-                          >
-                            <Trash2 :size="14" aria-hidden="true" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="task-comment-body markdown-body" v-html="renderBody(thread.root.body, renderMarkdown)" />
-                  </div>
-                </div>
-                <div v-if="thread.replies.length" class="task-comment-replies">
-                  <div v-for="reply in visibleRepliesForThread(thread)" :key="reply.id" class="task-comment-row task-comment-row--reply">
-                    <span
-                      class="task-comment-avatar"
-                      :style="getAvatarColorByUsername(reply.authorName)"
-                      aria-hidden="true"
-                    >
-                      {{ getActivityAvatarLabel(reply.authorName) }}
-                    </span>
-                    <div class="task-comment-content">
-                      <div class="task-comment-head">
-                        <div class="task-comment-meta">
-                          <div class="task-comment-meta-line">
-                            <strong>{{ reply.authorName }}</strong>
-                            <span>· {{ commentTimeFromIso(reply.createdAt) }}</span>
-                            <button
-                              type="button"
-                              class="task-comment-reply-btn"
-                              :aria-label="t('taskEditor.reply')"
-                              :title="t('taskEditor.reply')"
-                              @click="openInlineReply(thread.root.id, reply.id)"
-                            >
-                              <Reply :size="14" aria-hidden="true" />
-                            </button>
-                            <button
-                              v-if="reply.deletable"
-                              type="button"
-                              class="task-comment-delete"
-                              :aria-label="t('taskEditor.deleteCommentAria')"
-                              :title="t('taskEditor.deleteComment')"
-                              @click="deleteCommentRow(reply)"
-                            >
-                              <Trash2 :size="14" aria-hidden="true" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="task-comment-body task-comment-body--reply markdown-body">
-                        <span v-if="replyContextAuthorName(reply, thread.root)" class="task-comment-reply-context">
-                          {{ t('taskEditor.reply') }} {{ replyContextAuthorName(reply, thread.root) }}
-                        </span>
-                        <span class="task-comment-reply-content" v-html="renderBody(reply.body, renderMarkdown)" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div v-if="inlineReplyRootId === thread.root.id" class="task-comment-reply-compose" @keydown.capture="(e) => onInlineReplyEditorKeydown(e, thread.root.id)">
-                  <span
-                    class="comment-compose-avatar"
-                    :style="getAvatarColorByUsername(authStore.currentUser?.username ?? '')"
-                    aria-hidden="true"
-                  >
-                    {{ getActivityAvatarLabel(authStore.currentUser?.username ?? '') }}
-                  </span>
-                  <div class="comment-compose-input comment-compose-input--with-send">
-                    <BlockNoteEditorWrapper
-                      ref="inlineReplyEditorRef"
-                      :model-value="replyBodyByRootId[thread.root.id] ?? ''"
-                      :mention-members="mentionMembersForCommentEditor"
-                      :mention-menu-search-placeholder="t('taskList.assigneeSearchPlaceholder')"
-                      :mention-menu-no-matches-text="t('taskEditor.mentionNoMatches')"
-                      :mention-menu-loading-text="t('common.loading')"
-                      :placeholder="t('taskEditor.replyPlaceholder')"
-                      :min-height="44"
-                      @update:model-value="(value) => updateInlineReplyBody(thread.root.id, value)"
-                    />
-                    <button
-                      type="button"
-                      class="comment-send-btn comment-send-btn--corner"
-                      :disabled="replySubmittingRootIds.has(thread.root.id) || !(replyBodyByRootId[thread.root.id] ?? '').trim()"
-                    :aria-label="t('taskEditor.sendAria')"
-                    @click="submitReply(thread.root.id)"
-                  >
-                    <ArrowUp :size="14" aria-hidden="true" />
-                  </button>
-                  </div>
-                  <button type="button" class="task-comment-reply-cancel" @click="closeInlineReply(thread.root.id)">
-                    {{ t('common.cancel') }}
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div v-else class="activity-empty">{{ t('taskEditor.noComments') }}</div>
-            <div class="comment-compose" @keydown.capture="onCommentEditorKeydown">
-              <div class="comment-compose-input comment-compose-input--with-send">
-                <BlockNoteEditorWrapper
-                  ref="commentEditorRef"
-                  v-model="commentBody"
-                  :mention-members="mentionMembersForCommentEditor"
-                  :mention-menu-search-placeholder="t('taskList.assigneeSearchPlaceholder')"
-                  :mention-menu-no-matches-text="t('taskEditor.mentionNoMatches')"
-                  :mention-menu-loading-text="t('common.loading')"
-                  :placeholder="t('taskEditor.leaveComment')"
-                  :min-height="44"
-                />
-                <button
-                  type="button"
-                  class="comment-send-btn comment-send-btn--corner"
-                  :disabled="commentSubmitting || !commentBody.trim()"
-                  :aria-label="t('taskEditor.sendAria')"
-                  @click="submitComment"
-                >
-                  <ArrowUp :size="14" aria-hidden="true" />
-                </button>
-              </div>
-            </div>
+            <CommentThreadList
+              :comments="comments"
+              :loading="commentsLoading"
+              :current-user-name="authStore.currentUser?.username ?? ''"
+              :mention-members="mentionMembersForCommentEditor"
+              :submit-comment="submitComment"
+              :delete-comment="deleteCommentRow"
+            />
           </div>
         </section>
 
@@ -3208,285 +2922,7 @@ async function toggleDescriptionFullscreen() {
 .linear-unsubscribe:hover {
   color: var(--color-text-secondary);
 }
-.task-comments-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.task-comments-list :deep(.mermaid) {
-  margin: 8px 0;
-  max-width: 100%;
-  overflow-x: auto;
-}
-.task-comment-thread {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 8px;
-  background: var(--color-bg-base);
-}
-.task-comment-row {
-  display: flex;
-  gap: 8px;
-  padding: 12px 14px;
-}
-.task-comment-row--root {
-  border-bottom: 0;
-}
-.task-comment-row--reply {
-  border-top: 1px solid var(--color-border-subtle);
-}
-.task-comment-row--reply + .task-comment-row--reply {
-  margin-top: 0;
-  padding-top: 12px;
-}
-.task-comment-avatar,
-.comment-compose-avatar {
-  display: inline-flex;
-  flex: 0 0 18px;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  margin-top: 1px;
-  box-sizing: border-box;
-  padding: 1px;
-  border-radius: var(--radius-full);
-  font-size: 8px;
-  font-weight: var(--font-weight-semibold);
-  line-height: 1;
-  white-space: nowrap;
-}
-.task-comment-content {
-  flex: 1;
-  min-width: 0;
-}
-.task-comment-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.task-comment-meta-line {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--color-text-muted);
-  line-height: 18px;
-}
-.task-comment-meta-line strong {
-  color: var(--color-text-primary);
-  font-size: 13px;
-  font-weight: var(--font-weight-semibold);
-  line-height: 18px;
-}
-.task-comment-reply-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 28px;
-  width: 28px;
-  height: 28px;
-  margin-left: 2px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-full);
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
-}
-.task-comment-reply-btn:hover,
-.task-comment-reply-btn:focus-visible {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-  opacity: 1;
-}
-.task-comment-delete {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 28px;
-  width: 28px;
-  height: 28px;
-  margin-left: -4px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-full);
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
-}
-.task-comment-row:hover .task-comment-reply-btn,
-.task-comment-row:hover .task-comment-delete,
-.task-comment-reply-btn:focus-visible,
-.task-comment-delete:focus-visible {
-  opacity: 1;
-}
-.task-comment-delete:hover,
-.task-comment-delete:focus-visible {
-  background: var(--color-bg-hover);
-  color: var(--color-danger, #e5484d);
-}
-.task-comment-body {
-  margin-top: 3px;
-  font-size: 13px;
-  color: var(--color-text-primary);
-  line-height: 1.5;
-  min-height: 18px;
-}
-
-.task-comment-body--reply {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-}
-.task-comment-body :deep(p) {
-  margin: 0;
-}
-.task-comment-body :deep(p:last-child) {
-  margin-bottom: 0;
-}
-.task-comment-reply-context {
-  display: inline-flex;
-  align-items: center;
-  margin-right: 5px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: var(--font-weight-medium);
-  line-height: 18px;
-}
-.task-comment-reply-content :deep(p) {
-  display: inline;
-  margin: 0;
-}
-.task-comment-replies {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  margin-top: 0;
-  margin-left: 0;
-  padding: 0;
-  border-top: 0;
-  background: transparent;
-}
-.task-comment-toggle-replies {
-  border: none;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  padding: 2px 0;
-  text-align: left;
-}
-.task-comment-toggle-replies:hover {
-  color: var(--color-text-primary);
-}
-.comment-compose {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 8px;
-  background: var(--color-bg-base);
-}
-.comment-compose-input {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-.comment-compose-input :deep(.blocknote-editor-wrap) {
-  min-width: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-.comment-compose-input--with-send {
-  position: relative;
-}
-.comment-compose-input--with-send :deep(.blocknote-editor-wrap .bn-editor) {
-  min-height: 44px;
-  padding: 9px 38px 9px 0;
-  font-family: var(--font-family) !important;
-  font-size: var(--font-size-body) !important;
-  line-height: 1.5 !important;
-}
-.comment-compose-input--with-send :deep(.blocknote-editor-wrap .bn-inline-content) {
-  font-family: var(--font-family) !important;
-  font-size: var(--font-size-body) !important;
-  line-height: 1.5 !important;
-}
-.task-comment-reply-compose {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 14px;
-  border-top: 1px solid var(--color-border-subtle);
-  border-radius: 0;
-  background: var(--color-bg-base);
-}
-.task-comment-reply-cancel {
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted);
-  font-size: 12px;
-  cursor: pointer;
-  height: 32px;
-  align-self: end;
-}
-.task-comment-reply-cancel:hover {
-  color: var(--color-text-primary);
-}
-.comment-compose-hint {
-  margin-top: 8px;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-}
-.comment-send-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-full);
-  background: color-mix(in srgb, var(--color-bg-subtle) 62%, #9aa3ad 38%);
-  color: color-mix(in srgb, var(--color-text-secondary) 72%, #fff 28%);
-  font-size: 12px;
-  line-height: 1;
-  font-weight: 500;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.comment-send-btn--corner {
-  position: absolute;
-  right: 0;
-  bottom: 8px;
-}
-.comment-send-btn:disabled {
-  opacity: 0.9;
-  cursor: not-allowed;
-}
-.comment-send-btn:not(:disabled) {
-  background: var(--color-accent, #5e6ad2);
-  color: #fff;
-}
-@media (hover: none) {
-  .task-comment-reply-btn,
-  .task-comment-delete {
-    opacity: 1;
-  }
-}
+/* 评论展示与编辑样式归 CommentThreadList 组件所有。 */
 .section-kicker {
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);

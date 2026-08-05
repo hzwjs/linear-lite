@@ -1,5 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { mermaidPreviewHtmlFromDescriptionBody } from './blockNoteHtml'
+import { mermaidPreviewHtmlFromDescriptionBody, renderBody } from './blockNoteHtml'
+import { renderMarkdown } from './markdown'
+
+function imageCommentBody(url = 'https://cdn.example.test/reply.png'): string {
+  return JSON.stringify([
+    {
+      id: 'image-1',
+      type: 'image',
+      props: { url, caption: 'Pasted image', previewWidth: 320 },
+      content: [],
+      children: [],
+    },
+  ])
+}
+
+describe('renderBody', () => {
+  it('renders images stored in BlockNote comment bodies after submission', () => {
+    const html = renderBody(imageCommentBody(), renderMarkdown)
+
+    expect(html).toContain('<img')
+    expect(html).toContain('src="https://cdn.example.test/reply.png"')
+    expect(html).toContain('alt="Pasted image"')
+  })
+
+  it('does not render unsafe image URLs from comment bodies', () => {
+    const html = renderBody(imageCommentBody('javascript:alert(1)'), renderMarkdown)
+
+    expect(html).not.toContain('src=')
+  })
+})
 
 describe('mermaidPreviewHtmlFromDescriptionBody', () => {
   it('从 BlockNote JSON 的 mermaid 代码块生成占位 div', () => {

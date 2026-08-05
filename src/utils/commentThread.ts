@@ -1,9 +1,9 @@
-import type { TaskCommentDto } from '../services/api/taskComments'
+import type { CommentDto } from '../types/comment'
 
 export interface CommentThread {
-  root: TaskCommentDto
-  replies: TaskCommentDto[]
-  visibleReplies: TaskCommentDto[]
+  root: CommentDto
+  replies: CommentDto[]
+  visibleReplies: CommentDto[]
   hiddenReplyCount: number
 }
 
@@ -14,20 +14,20 @@ function toTime(value: string): number {
   return Number.isFinite(t) ? t : 0
 }
 
-function byCreatedAtThenId(a: TaskCommentDto, b: TaskCommentDto): number {
+function byCreatedAtThenId(a: CommentDto, b: CommentDto): number {
   const timeDiff = toTime(a.createdAt) - toTime(b.createdAt)
   if (timeDiff !== 0) return timeDiff
   return a.id - b.id
 }
 
-function isRootComment(comment: TaskCommentDto): boolean {
+function isRootComment(comment: CommentDto): boolean {
   return comment.depth === 0
 }
 
 function resolveThreadRootId(
-  comment: TaskCommentDto,
-  rootById: Map<number, TaskCommentDto>,
-  commentById: Map<number, TaskCommentDto>
+  comment: CommentDto,
+  rootById: Map<number, CommentDto>,
+  commentById: Map<number, CommentDto>
 ): number | null {
   if (comment.rootId != null && rootById.has(comment.rootId)) return comment.rootId
 
@@ -48,16 +48,16 @@ function resolveThreadRootId(
 }
 
 export function buildCommentThreads(
-  comments: TaskCommentDto[],
+  comments: CommentDto[],
   visibleReplyLimit = DEFAULT_VISIBLE_REPLY_LIMIT
 ): CommentThread[] {
   if (comments.length === 0) return []
 
   const sorted = [...comments].sort(byCreatedAtThenId)
-  const commentById = new Map<number, TaskCommentDto>(sorted.map((c) => [c.id, c]))
+  const commentById = new Map<number, CommentDto>(sorted.map((c) => [c.id, c]))
   const roots = sorted.filter(isRootComment)
-  const rootById = new Map<number, TaskCommentDto>(roots.map((c) => [c.id, c]))
-  const repliesByRootId = new Map<number, TaskCommentDto[]>()
+  const rootById = new Map<number, CommentDto>(roots.map((c) => [c.id, c]))
+  const repliesByRootId = new Map<number, CommentDto[]>()
 
   for (const comment of sorted) {
     if (isRootComment(comment)) continue

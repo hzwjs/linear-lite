@@ -1,19 +1,8 @@
 import { api, unwrap } from './index'
 import type { ApiResponse } from './types'
+import type { CommentDto } from '../../types/comment'
 
-export interface TaskCommentDto {
-  id: number
-  authorId: number
-  authorName: string
-  body: string
-  parentId: number | null
-  rootId: number | null
-  depth: number
-  createdAt: string
-  deletable: boolean
-}
-
-function toComment(raw: TaskCommentDto): TaskCommentDto {
+function toComment(raw: CommentDto): CommentDto {
   const parentId = typeof raw.parentId === 'number' && Number.isFinite(raw.parentId) ? raw.parentId : null
   const rootId = typeof raw.rootId === 'number' && Number.isFinite(raw.rootId) ? raw.rootId : null
   const depth = typeof raw.depth === 'number' && Number.isFinite(raw.depth) ? raw.depth : 0
@@ -31,17 +20,17 @@ function toComment(raw: TaskCommentDto): TaskCommentDto {
 }
 
 function extractComments(
-  payload: TaskCommentDto[] | { taskComments?: TaskCommentDto[] } | null | undefined
-): TaskCommentDto[] {
+  payload: CommentDto[] | { taskComments?: CommentDto[] } | null | undefined
+): CommentDto[] {
   if (Array.isArray(payload)) return payload
   if (payload && Array.isArray(payload.taskComments)) return payload.taskComments
   return []
 }
 
 export const taskCommentsApi = {
-  list(taskKey: string): Promise<TaskCommentDto[]> {
+  list(taskKey: string): Promise<CommentDto[]> {
     return api
-      .get<ApiResponse<TaskCommentDto[] | { taskComments?: TaskCommentDto[] }>>(
+      .get<ApiResponse<CommentDto[] | { taskComments?: CommentDto[] }>>(
         `/tasks/${encodeURIComponent(taskKey)}/comments`
       )
       .then((res) => extractComments(unwrap(res)).map(toComment))
@@ -50,9 +39,9 @@ export const taskCommentsApi = {
   create(
     taskKey: string,
     payload: { body: string; mentionedUserIds: number[]; parentId: number | null }
-  ): Promise<TaskCommentDto> {
+  ): Promise<CommentDto> {
     return api
-      .post<ApiResponse<TaskCommentDto>>(`/tasks/${encodeURIComponent(taskKey)}/comments`, payload)
+      .post<ApiResponse<CommentDto>>(`/tasks/${encodeURIComponent(taskKey)}/comments`, payload)
       .then((res) => toComment(unwrap(res)))
   },
 

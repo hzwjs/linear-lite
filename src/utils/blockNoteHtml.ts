@@ -141,6 +141,15 @@ function blocksToHtml(blocks: Block[]): string {
       case 'quote':
         html += `<blockquote>${content}${nestedHtml}</blockquote>`
         break
+      case 'image': {
+        const imageUrl = block.props.url
+        if (typeof imageUrl === 'string' && imageUrl.trim()) {
+          const caption = typeof block.props.caption === 'string' ? block.props.caption : ''
+          // 评论正文持久化为 BlockNote JSON；图片块必须在回显转换中保留，提交后才能继续显示。
+          html += `<img src="${esc(imageUrl)}" alt="${esc(caption)}">`
+        }
+        break
+      }
       default:
         if (content) html += `<p>${content}</p>`
         if (nestedHtml) html += nestedHtml
@@ -157,9 +166,10 @@ function blocksToHtml(blocks: Block[]): string {
 const ALLOWED_TAGS = [
   'p', 'br', 'strong', 'em', 'u', 's', 'a', 'code', 'pre',
   'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'blockquote', 'input', 'span', 'div',
+  'img',
 ]
 
-const ALLOWED_ATTR = ['href', 'target', 'rel', 'class', 'type', 'disabled', 'checked']
+const ALLOWED_ATTR = ['href', 'target', 'rel', 'class', 'type', 'disabled', 'checked', 'src', 'alt']
 
 /**
  * Extracts plain text from a body string that may be BlockNote JSON or legacy Markdown.

@@ -10,11 +10,12 @@ import {
 import { attachmentsApi } from '../../services/api/attachments'
 import type { TaskAttachment } from '../../services/api/types'
 import { projectApi } from '../../services/api/project'
-import { taskCommentsApi, type TaskCommentDto } from '../../services/api/taskComments'
+import { taskCommentsApi } from '../../services/api/taskComments'
 import { useFavoriteStore } from '../../store/favoriteStore'
 import { useProjectStore } from '../../store/projectStore'
 import { useTaskStore } from '../../store/taskStore'
 import type { Priority, Status, Task, User } from '../../types/domain'
+import type { CommentDto } from '../../types/comment'
 import { getInitials, getAvatarColorByUsername } from '../../utils/avatar'
 import { renderBody } from '../../utils/blockNoteHtml'
 import { renderMarkdown } from '../../utils/markdown'
@@ -32,7 +33,7 @@ const loading = ref(true)
 const loadError = ref('')
 const users = ref<User[]>([])
 const subtasks = ref<Task[]>([])
-const comments = ref<TaskCommentDto[]>([])
+const comments = ref<CommentDto[]>([])
 const attachments = ref<TaskAttachment[]>([])
 const title = ref('')
 const description = ref('')

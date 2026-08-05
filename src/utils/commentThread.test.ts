@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { TaskCommentDto } from '../services/api/taskComments'
+import type { CommentDto } from '../types/comment'
 import { buildCommentThreads } from './commentThread'
 
-function comment(partial: Partial<TaskCommentDto> & Pick<TaskCommentDto, 'id'>): TaskCommentDto {
+function comment(partial: Partial<CommentDto> & Pick<CommentDto, 'id'>): CommentDto {
   return {
     id: partial.id,
     authorId: partial.authorId ?? 1,
@@ -18,7 +18,7 @@ function comment(partial: Partial<TaskCommentDto> & Pick<TaskCommentDto, 'id'>):
 
 describe('buildCommentThreads', () => {
   it('groups roots and replies into thread buckets', () => {
-    const comments: TaskCommentDto[] = [
+    const comments: CommentDto[] = [
       comment({ id: 11, depth: 1, parentId: 10, rootId: 10, createdAt: '2026-04-11T10:02:00.000Z' }),
       comment({ id: 10, depth: 0, parentId: null, rootId: null, createdAt: '2026-04-11T10:01:00.000Z' }),
       comment({ id: 21, depth: 1, parentId: 20, rootId: 20, createdAt: '2026-04-11T10:04:00.000Z' }),
@@ -36,7 +36,7 @@ describe('buildCommentThreads', () => {
   })
 
   it('collapses replies after the first 3 and keeps stable order', () => {
-    const comments: TaskCommentDto[] = [
+    const comments: CommentDto[] = [
       comment({ id: 100, depth: 0, parentId: null, rootId: null, createdAt: '2026-04-11T10:00:00.000Z' }),
       comment({ id: 101, depth: 1, parentId: 100, rootId: 100, createdAt: '2026-04-11T10:01:00.000Z' }),
       comment({ id: 103, depth: 1, parentId: 100, rootId: 100, createdAt: '2026-04-11T10:03:00.000Z' }),
@@ -53,7 +53,7 @@ describe('buildCommentThreads', () => {
   })
 
   it('ignores orphan replies without a valid root association', () => {
-    const comments: TaskCommentDto[] = [
+    const comments: CommentDto[] = [
       comment({ id: 1, depth: 0, parentId: null, rootId: null, createdAt: '2026-04-11T10:00:00.000Z' }),
       comment({ id: 2, depth: 1, parentId: 1, rootId: 1, createdAt: '2026-04-11T10:01:00.000Z' }),
       comment({ id: 3, depth: 1, parentId: 999, rootId: 999, createdAt: '2026-04-11T10:02:00.000Z' }),
@@ -68,7 +68,7 @@ describe('buildCommentThreads', () => {
   })
 
   it('falls back to parentId as root when rootId is missing in dirty reply data', () => {
-    const comments: TaskCommentDto[] = [
+    const comments: CommentDto[] = [
       comment({ id: 1, depth: 0, parentId: null, rootId: null, createdAt: '2026-04-11T10:00:00.000Z' }),
       comment({ id: 2, depth: 1, parentId: 1, rootId: null, createdAt: '2026-04-11T10:01:00.000Z' })
     ]
@@ -81,7 +81,7 @@ describe('buildCommentThreads', () => {
   })
 
   it('resolves root through parent chain for deep replies when rootId is missing', () => {
-    const comments: TaskCommentDto[] = [
+    const comments: CommentDto[] = [
       comment({ id: 10, depth: 0, parentId: null, rootId: null, createdAt: '2026-04-11T10:00:00.000Z' }),
       comment({ id: 11, depth: 1, parentId: 10, rootId: 10, createdAt: '2026-04-11T10:01:00.000Z' }),
       comment({ id: 12, depth: 2, parentId: 11, rootId: null, createdAt: '2026-04-11T10:02:00.000Z' })
