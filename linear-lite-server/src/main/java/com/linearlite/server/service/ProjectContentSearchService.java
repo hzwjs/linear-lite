@@ -45,11 +45,11 @@ public class ProjectContentSearchService {
         String normalizedTaskKey = normalized.toUpperCase(Locale.ROOT);
         // 结构化任务编号直接命中数据库；权限在同一条 SQL 中通过项目成员关系约束。
         if (TASK_KEY_QUERY.matcher(normalizedTaskKey).matches()) {
-            return projectContentSearchMapper.selectTaskSearchByKey(normalizedTaskKey, userId);
+            return toTaskSearchResults(projectContentSearchMapper.selectTaskSearchByKey(normalizedTaskKey, userId));
         }
         if (TASK_NUMBER_QUERY.matcher(normalized).matches()) {
-            return projectContentSearchMapper.selectTaskSearchByNumber(
-                    normalizeTaskNumber(normalized), userId);
+            return toTaskSearchResults(projectContentSearchMapper.selectTaskSearchByNumber(
+                    normalizeTaskNumber(normalized), userId));
         }
         Map<Long, ProjectPermissionScope> scopeByProjectId = permissionScopes(userId);
         if (scopeByProjectId.isEmpty()) return List.of();
@@ -84,6 +84,16 @@ public class ProjectContentSearchService {
     private String normalizeTaskNumber(String taskNumber) {
         String normalized = taskNumber.replaceFirst("^0+(?!$)", "");
         return normalized;
+    }
+
+    private List<ProjectContentSearchResponse> toTaskSearchResults(List<ProjectContentSearchResponse> results) {
+        return results.stream()
+                .map(result -> new ProjectContentSearchResponse(
+                        result.contentType(), result.resourceId(), result.projectId(),
+                        result.projectIdentifier(), result.projectName(), result.title(),
+                        ProjectContentTextExtractor.excerpt(
+                                ProjectContentTextExtractor.extract(ProjectContentType.TASK, result.excerpt()))))
+                .toList();
     }
 
     private Map<Long, ProjectPermissionScope> permissionScopes(Long userId) {

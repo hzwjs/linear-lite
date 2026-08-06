@@ -32,7 +32,6 @@ import java.util.UUID;
 @Component
 public class QdrantProjectContentSearchIndex implements ProjectContentSearchIndex {
     private static final Logger log = LoggerFactory.getLogger(QdrantProjectContentSearchIndex.class);
-    private static final int EXCERPT_CODE_POINTS = 180;
     private static final List<String> RESULT_PAYLOAD = List.of(
             "contentType", "numericId", "resourceId", "projectId", "title", "excerpt", "sourceUpdatedAtEpoch");
 
@@ -272,9 +271,7 @@ public class QdrantProjectContentSearchIndex implements ProjectContentSearchInde
     }
 
     private static String excerpt(String value) {
-        int count = value.codePointCount(0, value.length());
-        if (count <= EXCERPT_CODE_POINTS) return value;
-        return value.substring(0, value.offsetByCodePoints(0, EXCERPT_CODE_POINTS));
+        return ProjectContentTextExtractor.excerpt(value);
     }
 
     private static long epoch(LocalDateTime value) {

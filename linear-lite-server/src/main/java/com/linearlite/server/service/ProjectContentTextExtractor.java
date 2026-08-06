@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 /** 从任务描述或 BlockNote 文档中提取唯一的用户可见搜索文本。 */
 final class ProjectContentTextExtractor {
+    private static final int EXCERPT_CODE_POINTS = 180;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private ProjectContentTextExtractor() {
@@ -26,6 +27,12 @@ final class ProjectContentTextExtractor {
             // 文档内容没有第二种格式；无法解析时不猜测或回退到原始 JSON。
             return "";
         }
+    }
+
+    static String excerpt(String value) {
+        int count = value.codePointCount(0, value.length());
+        if (count <= EXCERPT_CODE_POINTS) return value;
+        return value.substring(0, value.offsetByCodePoints(0, EXCERPT_CODE_POINTS));
     }
 
     private static void appendBlocks(JsonNode blocks, StringBuilder text) {

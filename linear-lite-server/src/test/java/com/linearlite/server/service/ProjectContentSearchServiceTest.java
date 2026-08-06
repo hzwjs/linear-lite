@@ -25,12 +25,15 @@ class ProjectContentSearchServiceTest {
         ProjectContentSearchMapper taskSearchMapper = mock(ProjectContentSearchMapper.class);
         ProjectContentSearchIndex index = mock(ProjectContentSearchIndex.class);
         ProjectContentSearchResponse result = new ProjectContentSearchResponse(
-                "task", "ENG-123", 7L, "ENG", "Engineering", "Fix login", "Handle login error");
+                "task", "ENG-123", 7L, "ENG", "Engineering", "Fix login",
+                "[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Handle login error\"}]}]");
         when(taskSearchMapper.selectTaskSearchByKey("ENG-123", 9L)).thenReturn(List.of(result));
 
-        assertEquals(List.of("ENG-123"), service(memberMapper, taskSearchMapper, index)
-                .search(" eng-123 ", 9L).stream()
+        List<ProjectContentSearchResponse> results = service(memberMapper, taskSearchMapper, index)
+                .search(" eng-123 ", 9L);
+        assertEquals(List.of("ENG-123"), results.stream()
                 .map(ProjectContentSearchResponse::resourceId).toList());
+        assertEquals("Handle login error", results.get(0).excerpt());
         verifyNoInteractions(index);
     }
 

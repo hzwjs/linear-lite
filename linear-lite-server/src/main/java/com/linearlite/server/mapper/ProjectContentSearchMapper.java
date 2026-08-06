@@ -14,7 +14,7 @@ public interface ProjectContentSearchMapper {
             SELECT 'task' AS contentType, t.task_key AS resourceId,
                    t.project_id AS projectId, p.identifier AS projectIdentifier,
                    p.name AS projectName, t.title,
-                   LEFT(COALESCE(t.description, ''), 180) AS excerpt
+                   t.description AS excerpt
             FROM project_members pm
             INNER JOIN tasks t ON t.project_id = pm.project_id
             INNER JOIN projects p ON p.id = t.project_id
@@ -28,7 +28,7 @@ public interface ProjectContentSearchMapper {
             SELECT 'task' AS contentType, t.task_key AS resourceId,
                    t.project_id AS projectId, p.identifier AS projectIdentifier,
                    p.name AS projectName, t.title,
-                   LEFT(COALESCE(t.description, ''), 180) AS excerpt
+                   t.description AS excerpt
             FROM project_members pm
             INNER JOIN tasks t ON t.project_id = pm.project_id
             INNER JOIN projects p ON p.id = t.project_id
