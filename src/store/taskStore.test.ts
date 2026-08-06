@@ -341,6 +341,32 @@ describe('taskStore', () => {
     expect(store.isLoading).toBe(false)
   })
 
+  it('does not hydrate another project snapshot before its fresh task request', async () => {
+    const projectStore = useProjectStore()
+    projectStore.setActiveProject(1)
+
+    const store = useTaskStore()
+    const firstTask = baseTask({ id: 'P1', projectId: 1 })
+    vi.mocked(taskApi.list).mockResolvedValueOnce([firstTask])
+    await store.fetchTasks()
+
+    const cachedTask = baseTask({ id: 'P2-CACHED', projectId: 2 })
+    localStorage.setItem('linear-lite:tasks:v1:2', JSON.stringify([cachedTask]))
+    let resolveRefresh!: (tasks: Task[]) => void
+    vi.mocked(taskApi.list).mockReturnValueOnce(new Promise<Task[]>((resolve) => {
+      resolveRefresh = resolve
+    }))
+
+    projectStore.setActiveProject(2)
+    const pending = store.fetchTasks()
+
+    expect(store.tasks).toEqual([])
+
+    resolveRefresh([baseTask({ id: 'P2-FRESH', projectId: 2 })])
+    await pending
+    expect(store.tasks.map((task) => task.id)).toEqual(['P2-FRESH'])
+  })
+
   it('createTask inserts an optimistic row before API resolves and reconciles it', async () => {
     const projectStore = useProjectStore()
     projectStore.setActiveProject(1)

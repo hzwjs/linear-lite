@@ -130,6 +130,38 @@ describe('SidebarNavigation', () => {
     host.remove()
   })
 
+  it('shows a favorite task as selected before the route changes', async () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+
+    const app = createApp(SidebarNavigation, {
+      hidden: false,
+      userName: 'Alice',
+      userInitial: 'A',
+      locale: 'en',
+      favoritesCollapsed: false,
+      projectsCollapsed: false,
+      favorites: [buildFavorite()],
+      favoriteDocuments: [],
+      projects: [buildProject()],
+      routePath: '/',
+      routeTaskId: null,
+      activeProjectId: 1
+    })
+    app.use(i18n)
+    app.mount(host)
+    await nextTick()
+
+    const favorite = host.querySelector('[data-testid="sidebar-favorite-ENG-1"]') as HTMLButtonElement
+    favorite.click()
+    await nextTick()
+
+    expect(favorite.classList.contains('sidebar-nav__item--active')).toBe(true)
+
+    app.unmount()
+    host.remove()
+  })
+
   it('emits the new navigation contract without cross-triggering project selection', async () => {
     const onToggleFavoritesCollapsed = vi.fn()
     const onOpenFavoriteTask = vi.fn()

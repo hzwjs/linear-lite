@@ -50,6 +50,7 @@ export const useTaskStore = defineStore('taskStore', () => {
   const tasks = ref<Task[]>([])
   const taskByKeyCache = ref<Record<string, Task>>({})
   const taskListSnapshots = new Map<number, Task[]>()
+  const loadedTaskProjectId = ref<number | null>(null)
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 
@@ -115,6 +116,16 @@ export const useTaskStore = defineStore('taskStore', () => {
       ...taskByKeyCache.value,
       [next.id]: next
     }
+  }
+
+  /** 批量写入项目快照，避免逐条复制整张缓存表阻塞项目切换的首帧。 */
+  function cacheTasks(list: Task[]) {
+    const nextCache = { ...taskByKeyCache.value }
+    for (const task of list) {
+      const next = mergeTaskWithCachedDetail(task)
+      nextCache[next.id] = next
+    }
+    taskByKeyCache.value = nextCache
   }
 
   function rememberProjectTasks(projectId: number, list: Task[]) {
@@ -436,6 +447,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     if (projectId == null) {
       saveLanes.clear()
       tasks.value = []
+      loadedTaskProjectId.value = null
       error.value = null
       isLoading.value = false
       return
@@ -445,21 +457,25 @@ export const useTaskStore = defineStore('taskStore', () => {
     isLoading.value = true
     error.value = null
     saveLanes.clear()
-    const snapshot = getProjectSnapshot(requestedProjectId)
+    tasks.value = []
+    // 先发起新项目请求；跨项目不挂载大快照，避免任务列表渲染阻塞菜单首帧。
+    const request = taskApi.list(requestedProjectId, { topLevelOnly: false })
+    const snapshot = loadedTaskProjectId.value === requestedProjectId
+      ? getProjectSnapshot(requestedProjectId)
+      : null
     if (snapshot != null) {
       tasks.value = snapshot
-      for (const task of snapshot) cacheTask(task)
-    } else {
-      tasks.value = []
+      cacheTasks(snapshot)
     }
     try {
-      const list = await taskApi.list(requestedProjectId, { topLevelOnly: false })
+      const list = await request
       if (useProjectStore().activeProjectId !== requestedProjectId) return
       const mergedList = list.map(mergeTaskWithCachedDetail)
       tasks.value = mergedList
+      loadedTaskProjectId.value = requestedProjectId
       rememberProjectTasks(requestedProjectId, mergedList)
+      cacheTasks(mergedList)
       for (const task of mergedList) {
-        cacheTask(task)
         const lane = saveLanes.get(task.id)
         if (lane) lane.ackBase = cloneTask(task)
       }

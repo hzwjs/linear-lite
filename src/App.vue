@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch, onMounted, onUnmounted, ref, nextTick } from 'vue'
+import { computed, watch, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from './store/authStore'
 import { useProjectStore } from './store/projectStore'
@@ -21,7 +21,6 @@ import { useLocaleStore } from './store/localeStore'
 import { useNotificationStore } from './store/notificationStore'
 import { useIssuePanelStore } from './store/issuePanelStore'
 import { buildTaskRoute, getRouteTaskId } from './utils/taskRoute'
-import { preloadTaskDetail } from './utils/taskDetailPreload'
 import {
   Plus,
   LayoutGrid,
@@ -226,7 +225,6 @@ watch(
 
 function selectProject(id: number) {
   projectStore.setActiveProject(id)
-  taskStore.fetchTasks()
   if (route.path !== '/') {
     router.push('/')
   }
@@ -245,22 +243,12 @@ async function reorderProjects(projectIds: number[]) {
   }
 }
 
-async function openFavoriteTask(taskId: string, projectId?: number) {
+function openFavoriteTask(taskId: string, projectId?: number) {
   const targetProjectId = projectId ?? projectStore.activeProjectId
-  const task = taskStore.tasks.find((item) => item.id === taskId)
-    ?? await taskStore.fetchTaskByKey(taskId)
-  try {
-    await preloadTaskDetail(task, (parentNumericId) => taskStore.fetchSubIssues(parentNumericId, targetProjectId))
-  } catch (error) {
-    console.error(`Failed to preload favorite task detail ${taskId}:`, error)
-  }
-  taskStore.currentTaskId = taskId
-  await router.push(buildTaskRoute(taskId, targetProjectId))
-  // Switch the project only after the detail surface has replaced the large task list.
-  await nextTick()
-  if (targetProjectId != null && projectStore.activeProjectId !== targetProjectId) {
-    projectStore.setActiveProject(targetProjectId)
-  }
+  // 先提交导航，让侧栏确认与右侧任务详情加载并行；详情附属数据由 BoardView 后台预取。
+  void router.push(buildTaskRoute(taskId, targetProjectId)).catch((error) => {
+    console.error(`Failed to open favorite task ${taskId}:`, error)
+  })
 }
 
 async function openFavoriteDocument(documentId: number, projectId: number) {

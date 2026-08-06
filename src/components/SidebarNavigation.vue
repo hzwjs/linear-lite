@@ -90,14 +90,8 @@ function openFavoriteTask(task: Task) {
   }
   if (openingFavoriteId.value != null && openingFavoriteId.value !== task.id) return
   markFavoriteOpening(task)
-  // The first frame paints the local acknowledgement. Parent navigation starts
-  // on the following frame so its project/list updates cannot swallow that paint.
-  const dispatch = () => emit('open-favorite-task', task.id, task.projectId)
-  if (typeof requestAnimationFrame !== 'function') {
-    queueMicrotask(dispatch)
-    return
-  }
-  requestAnimationFrame(() => requestAnimationFrame(dispatch))
+  // 本地选中态已在 pointerdown 阶段建立，父层可以立即开始路由切换。
+  emit('open-favorite-task', task.id, task.projectId)
 }
 
 function isFavoriteDocumentActive(document: ProjectDocumentTreeNode): boolean {
@@ -105,9 +99,10 @@ function isFavoriteDocumentActive(document: ProjectDocumentTreeNode): boolean {
 }
 
 watch(
-  () => props.routeTaskId,
-  (taskId) => {
+  () => [props.routePath, props.routeTaskId] as const,
+  ([routePath, taskId], previous) => {
     if (taskId === openingFavoriteId.value) openingFavoriteId.value = null
+    else if (previous && routePath !== previous[0]) openingFavoriteId.value = null
   }
 )
 
@@ -325,7 +320,8 @@ onUnmounted(() => {
             type="button"
             class="sidebar-nav__item"
             :class="{
-              'sidebar-nav__item--active': routeTaskId === task.id,
+              // 点击确认后立即显示选中态，不能等待右侧任务详情路由完成。
+              'sidebar-nav__item--active': routeTaskId === task.id || openingFavoriteId === task.id,
               'sidebar-nav__item--opening': openingFavoriteId === task.id
             }"
             :aria-busy="openingFavoriteId === task.id"

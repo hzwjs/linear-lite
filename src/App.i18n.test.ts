@@ -51,4 +51,20 @@ describe('shell translations', () => {
     expect(appSource).toContain("result.contentType === 'document'")
     expect(appSource).toContain('`/projects/${result.projectId}/documents/${result.resourceId}`')
   })
+
+  it('navigates to a favorite task without waiting for detail-only preload', () => {
+    const handlerStart = appSource.indexOf('function openFavoriteTask')
+    const navigation = appSource.indexOf('void router.push(buildTaskRoute(taskId, targetProjectId))', handlerStart)
+
+    expect(handlerStart).toBeGreaterThan(-1)
+    expect(navigation).toBeGreaterThan(handlerStart)
+    expect(appSource).not.toContain('preloadTaskDetail')
+  })
+
+  it('lets the board own task loading after a project switch', () => {
+    const handler = appSource.match(/function selectProject\([\s\S]*?\n\}/)?.[0]
+
+    expect(handler).toBeDefined()
+    expect(handler).not.toContain('taskStore.fetchTasks()')
+  })
 })

@@ -24,8 +24,8 @@ export function invalidateTaskDetailSnapshot(taskId: string): void {
 }
 
 /**
- * Fetch the detail-only data before opening the workspace. This keeps transient
- * request states out of the continuous task editing surface.
+ * Fetch detail-only data in the background. The task workspace must not wait
+ * for these secondary requests before it can render.
  */
 export function preloadTaskDetail(
   task: Task,
