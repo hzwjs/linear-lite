@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 public class JwtProperties {
 
     private String secret = "linear-lite-default-secret-change-in-production";
-    private long expirationMs = 86400000L;
+    private long expirationMs = 2592000000L;
 
     public String getSecret() {
         return secret;

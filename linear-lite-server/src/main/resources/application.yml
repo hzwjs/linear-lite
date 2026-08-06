@@ -54,7 +54,8 @@ mybatis-plus:
 # JWT
 jwt:
   secret: ${JWT_SECRET:linear-lite-default-secret-change-in-production}
-  expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  # 授权令牌默认有效期为 30 天；部署环境可通过 JWT_EXPIRATION_MS 显式覆盖。
+  expiration-ms: ${JWT_EXPIRATION_MS:2592000000}
 
 app:
   mail:
