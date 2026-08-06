@@ -12,11 +12,11 @@ const { t } = useI18n()
 const input = ref<HTMLInputElement | null>(null)
 const dialog = ref<HTMLElement | null>(null)
 const query = ref('')
+const submittedQuery = ref('')
 const results = ref<ProjectContentSearchResult[]>([])
 const loading = ref(false)
 const error = ref(false)
 const activeIndex = ref(-1)
-let timer: ReturnType<typeof setTimeout> | null = null
 let requestId = 0
 let previousActiveElement: HTMLElement | null = null
 
@@ -25,25 +25,35 @@ const activeOptionId = computed(() => {
   return result == null ? undefined : `global-search-${result.contentType}-${result.resourceId}`
 })
 
-function search(value: string) {
-  if (timer) clearTimeout(timer)
+function resetDraftResults() {
+  requestId += 1
+  submittedQuery.value = ''
+  results.value = []
+  activeIndex.value = -1
+  error.value = false
+  loading.value = false
+}
+
+async function search(value: string) {
   const normalized = value.trim()
   results.value = []
   activeIndex.value = -1
   error.value = false
+  submittedQuery.value = normalized
   if (!normalized) { loading.value = false; return }
   const currentRequest = ++requestId
-  timer = setTimeout(async () => {
-    loading.value = true
-    try {
-      const nextResults = await searchApi.search(normalized)
-      if (currentRequest === requestId) results.value = nextResults
-    } catch {
-      if (currentRequest === requestId) error.value = true
-    } finally {
-      if (currentRequest === requestId) loading.value = false
+  loading.value = true
+  try {
+    const nextResults = await searchApi.search(normalized)
+    if (currentRequest === requestId) {
+      results.value = nextResults
+      activeIndex.value = nextResults.length > 0 ? 0 : -1
     }
-  }, 250)
+  } catch {
+    if (currentRequest === requestId) error.value = true
+  } finally {
+    if (currentRequest === requestId) loading.value = false
+  }
 }
 
 watch(() => props.open, (open) => {
@@ -57,7 +67,7 @@ watch(() => props.open, (open) => {
     previousActiveElement = null
   })
 })
-watch(query, search)
+watch(query, resetDraftResults)
 
 function onFocusIn(event: FocusEvent) {
   if (!props.open || dialog.value?.contains(event.target as Node)) return
@@ -66,15 +76,13 @@ function onFocusIn(event: FocusEvent) {
 
 onMounted(() => document.addEventListener('focusin', onFocusIn))
 onBeforeUnmount(() => {
-  if (timer) clearTimeout(timer)
   document.removeEventListener('focusin', onFocusIn)
 })
 
 function close() {
   requestId += 1
-  if (timer) clearTimeout(timer)
-  timer = null
   query.value = ''
+  submittedQuery.value = ''
   results.value = []
   error.value = false
   activeIndex.value = -1
@@ -95,7 +103,10 @@ function onKeydown(event: KeyboardEvent) {
     activeIndex.value = results.value.length ? (activeIndex.value - 1 + results.value.length) % results.value.length : -1
   } else if (event.key === 'Enter') {
     event.preventDefault()
-    selectActive()
+    if (loading.value) return
+    // 首次 Enter 提交输入；已有结果时 Enter 打开当前选中项。
+    if (activeIndex.value >= 0) selectActive()
+    else void search(query.value)
   }
 }
 </script>
@@ -135,6 +146,11 @@ function onKeydown(event: KeyboardEvent) {
         <span class="state-title">{{ t('globalSearch.emptyTitle') }}</span>
         <span class="state-description">{{ t('globalSearch.emptyDescription') }}</span>
       </div>
+      <div v-else-if="submittedQuery !== query.trim()" class="global-search-state global-search-empty" aria-live="polite">
+        <Search class="state-icon" :size="24" aria-hidden="true" />
+        <span class="state-title">{{ t('globalSearch.readyTitle') }}</span>
+        <span class="state-description">{{ t('globalSearch.readyDescription') }}</span>
+      </div>
       <div v-else-if="!results.length" class="global-search-state" aria-live="polite">
         <span class="state-title">{{ t('globalSearch.noResultsTitle') }}</span>
         <span class="state-description">{{ t('globalSearch.noResultsDescription') }}</span>
@@ -171,7 +187,7 @@ function onKeydown(event: KeyboardEvent) {
       </div>
 
       <footer v-if="query.trim() || results.length" class="global-search-footer">
-        <span><kbd>↑</kbd><kbd>↓</kbd> {{ t('globalSearch.selectHint') }}</span><span><kbd>↵</kbd> {{ t('globalSearch.openHint') }}</span><span><kbd>Esc</kbd> {{ t('globalSearch.closeHint') }}</span>
+        <span v-if="results.length"><kbd>↑</kbd><kbd>↓</kbd> {{ t('globalSearch.selectHint') }}</span><span><kbd>↵</kbd> {{ results.length ? t('globalSearch.openHint') : t('globalSearch.searchHint') }}</span><span><kbd>Esc</kbd> {{ t('globalSearch.closeHint') }}</span>
       </footer>
     </section>
   </div>

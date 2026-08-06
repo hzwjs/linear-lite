@@ -2,6 +2,7 @@ package com.linearlite.server.service;
 
 import com.linearlite.server.dto.ProjectContentSearchResponse;
 import com.linearlite.server.exception.ForbiddenOperationException;
+import com.linearlite.server.mapper.ProjectContentSearchMapper;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.ProjectMemberMapper.ProjectPermissionScope;
 import com.linearlite.server.service.ProjectContentSearchIndex.SearchScope;
@@ -18,6 +19,36 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class ProjectContentSearchServiceTest {
+    @Test
+    void searchesTaskByExactKeyWithoutQueryingContentIndex() {
+        ProjectMemberMapper memberMapper = memberMapper(List.of());
+        ProjectContentSearchMapper taskSearchMapper = mock(ProjectContentSearchMapper.class);
+        ProjectContentSearchIndex index = mock(ProjectContentSearchIndex.class);
+        ProjectContentSearchResponse result = new ProjectContentSearchResponse(
+                "task", "ENG-123", 7L, "ENG", "Engineering", "Fix login", "Handle login error");
+        when(taskSearchMapper.selectTaskSearchByKey("ENG-123", 9L)).thenReturn(List.of(result));
+
+        assertEquals(List.of("ENG-123"), service(memberMapper, taskSearchMapper, index)
+                .search(" eng-123 ", 9L).stream()
+                .map(ProjectContentSearchResponse::resourceId).toList());
+        verifyNoInteractions(index);
+    }
+
+    @Test
+    void searchesAllAuthorizedProjectsByTaskNumber() {
+        ProjectMemberMapper memberMapper = memberMapper(List.of());
+        ProjectContentSearchMapper taskSearchMapper = mock(ProjectContentSearchMapper.class);
+        ProjectContentSearchIndex index = mock(ProjectContentSearchIndex.class);
+        when(taskSearchMapper.selectTaskSearchByNumber("123", 9L)).thenReturn(List.of(
+                new ProjectContentSearchResponse("task", "ENG-123", 7L, "ENG", "Engineering", "A", ""),
+                new ProjectContentSearchResponse("task", "OPS-123", 8L, "OPS", "Operations", "B", "")));
+
+        assertEquals(List.of("ENG-123", "OPS-123"), service(memberMapper, taskSearchMapper, index)
+                .search("00123", 9L).stream()
+                .map(ProjectContentSearchResponse::resourceId).toList());
+        verifyNoInteractions(index);
+    }
+
     @Test
     void mergesOnlyLimitedIndexCandidatesInTitleBodySemanticOrder() {
         ProjectMemberMapper memberMapper = memberMapper(List.of(new ProjectPermissionScope(7L, "PHX", "Phoenix")));
@@ -117,7 +148,13 @@ class ProjectContentSearchServiceTest {
     }
 
     private static ProjectContentSearchService service(ProjectMemberMapper mapper, ProjectContentSearchIndex index) {
-        return new ProjectContentSearchService(mapper, index);
+        return service(mapper, mock(ProjectContentSearchMapper.class), index);
+    }
+
+    private static ProjectContentSearchService service(ProjectMemberMapper mapper,
+                                                        ProjectContentSearchMapper taskSearchMapper,
+                                                        ProjectContentSearchIndex index) {
+        return new ProjectContentSearchService(mapper, taskSearchMapper, index);
     }
 
     private static SearchScope allContentScope(Long projectId) {

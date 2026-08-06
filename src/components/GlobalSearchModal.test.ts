@@ -16,4 +16,11 @@ describe('GlobalSearchModal integration', () => {
     expect(source).not.toContain('result.title ||')
     expect(source).not.toContain('result.excerpt ||')
   })
+
+  it('waits for Enter before querying and keeps result opening on a second Enter', () => {
+    expect(source).not.toContain('watch(query, search)')
+    expect(source).toContain('watch(query, resetDraftResults)')
+    expect(source).toContain('if (activeIndex.value >= 0) selectActive()')
+    expect(source).toContain('else void search(query.value)')
+  })
 })

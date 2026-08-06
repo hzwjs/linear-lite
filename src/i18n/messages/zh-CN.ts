@@ -244,9 +244,10 @@ const zhCN = {
   globalSearch: {
     title: '搜索项目内容', placeholder: '搜索所有项目的任务和文档…', searchAria: '搜索所有项目的任务和文档', close: '关闭搜索',
     loading: '正在搜索相关内容…', unavailableTitle: '搜索暂时不可用', unavailableDescription: '请检查网络连接后重试。',
-    emptyTitle: '搜索跨项目内容', emptyDescription: '输入标题或正文中的关键词，查找任务和文档。',
+    emptyTitle: '搜索跨项目内容', emptyDescription: '输入任务编号、任务序号或标题、正文关键词。',
+    readyTitle: '准备搜索', readyDescription: '按 Enter 搜索。',
     noResultsTitle: '没有找到相关内容', noResultsDescription: '换个关键词或尝试更简短的描述。', resultsAria: '搜索结果',
-    resultsCount: '找到 {count} 个相关结果', type: { task: '任务', document: '文档' }, selectHint: '选择', openHint: '打开', closeHint: '关闭'
+    resultsCount: '找到 {count} 个相关结果', type: { task: '任务', document: '文档' }, selectHint: '选择', searchHint: '搜索', openHint: '打开', closeHint: '关闭'
   },
   command: {
     newTask: '新建任务',
@@ -266,7 +267,7 @@ const zhCN = {
   },
   boardView: {
     newIssue: '新建任务',
-    searchIssues: '搜索标题和描述...',
+    searchIssues: '搜索任务编号、序号、标题和描述...',
     allIssues: '全部任务',
     active: '进行中',
     backlog: '待规划',

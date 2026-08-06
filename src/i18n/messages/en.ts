@@ -244,9 +244,10 @@ const en = {
   globalSearch: {
     title: 'Search project content', placeholder: 'Search tasks and documents across projects…', searchAria: 'Search tasks and documents across projects', close: 'Close search',
     loading: 'Searching related content…', unavailableTitle: 'Search is temporarily unavailable', unavailableDescription: 'Check the connection and try again.',
-    emptyTitle: 'Search across projects', emptyDescription: 'Find tasks and documents by words in their title or content.',
+    emptyTitle: 'Search across projects', emptyDescription: 'Enter a task ID, task number, or a title or content keyword.',
+    readyTitle: 'Ready to search', readyDescription: 'Press Enter to search.',
     noResultsTitle: 'No related content found', noResultsDescription: 'Try a shorter or different search.', resultsAria: 'Search results',
-    resultsCount: '{count} related results', type: { task: 'Task', document: 'Document' }, selectHint: 'Select', openHint: 'Open', closeHint: 'Close'
+    resultsCount: '{count} related results', type: { task: 'Task', document: 'Document' }, selectHint: 'Select', searchHint: 'Search', openHint: 'Open', closeHint: 'Close'
   },
   command: {
     newTask: 'New task',
@@ -266,7 +267,7 @@ const en = {
   },
   boardView: {
     newIssue: 'New issue',
-    searchIssues: 'Search titles and descriptions...',
+    searchIssues: 'Search task IDs, numbers, titles, and descriptions...',
     allIssues: 'All issues',
     active: 'Active',
     backlog: 'Backlog',

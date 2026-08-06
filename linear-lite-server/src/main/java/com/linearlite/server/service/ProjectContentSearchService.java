@@ -4,6 +4,7 @@ import com.linearlite.server.dto.ProjectContentSearchResponse;
 import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.ProjectMemberMapper.ProjectPermissionScope;
+import com.linearlite.server.mapper.ProjectContentSearchMapper;
 import com.linearlite.server.service.ProjectContentSearchIndex.SearchScope;
 import org.springframework.stereotype.Service;
 
@@ -13,21 +14,27 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /** 在用户有权访问的项目中统一检索任务和项目文档。 */
 @Service
 public class ProjectContentSearchService {
     private static final int MAX_QUERY_LENGTH = 200;
     private static final int MAX_RESULTS = 50;
+    private static final Pattern TASK_KEY_QUERY = Pattern.compile("^\\S+-\\d+$");
+    private static final Pattern TASK_NUMBER_QUERY = Pattern.compile("^\\d+$");
     private static final List<SearchChannel> GLOBAL_CHANNELS =
             List.of(SearchChannel.TITLE, SearchChannel.BODY, SearchChannel.SEMANTIC);
 
     private final ProjectMemberMapper projectMemberMapper;
+    private final ProjectContentSearchMapper projectContentSearchMapper;
     private final ProjectContentSearchIndex searchIndex;
 
     public ProjectContentSearchService(ProjectMemberMapper projectMemberMapper,
+                                       ProjectContentSearchMapper projectContentSearchMapper,
                                        ProjectContentSearchIndex searchIndex) {
         this.projectMemberMapper = projectMemberMapper;
+        this.projectContentSearchMapper = projectContentSearchMapper;
         this.searchIndex = searchIndex;
     }
 
@@ -35,6 +42,15 @@ public class ProjectContentSearchService {
         requireUser(userId);
         String normalized = normalizeQuery(query);
         if (normalized.isEmpty()) return List.of();
+        String normalizedTaskKey = normalized.toUpperCase(Locale.ROOT);
+        // 结构化任务编号直接命中数据库；权限在同一条 SQL 中通过项目成员关系约束。
+        if (TASK_KEY_QUERY.matcher(normalizedTaskKey).matches()) {
+            return projectContentSearchMapper.selectTaskSearchByKey(normalizedTaskKey, userId);
+        }
+        if (TASK_NUMBER_QUERY.matcher(normalized).matches()) {
+            return projectContentSearchMapper.selectTaskSearchByNumber(
+                    normalizeTaskNumber(normalized), userId);
+        }
         Map<Long, ProjectPermissionScope> scopeByProjectId = permissionScopes(userId);
         if (scopeByProjectId.isEmpty()) return List.of();
         SearchScope searchScope = new SearchScope(List.copyOf(scopeByProjectId.keySet()),
@@ -62,6 +78,11 @@ public class ProjectContentSearchService {
         if (normalized.length() > MAX_QUERY_LENGTH) {
             throw new IllegalArgumentException("搜索内容不能超过 " + MAX_QUERY_LENGTH + " 个字符");
         }
+        return normalized;
+    }
+
+    private String normalizeTaskNumber(String taskNumber) {
+        String normalized = taskNumber.replaceFirst("^0+(?!$)", "");
         return normalized;
     }
 
