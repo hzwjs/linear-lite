@@ -78,7 +78,8 @@ public class WebConfig implements WebMvcConfigurer {
     @Bean
     public CorsFilter corsFilter() {
         CorsConfigurationSource source = (request) -> {
-            if (!request.getRequestURI().startsWith("/api/")) {
+            String requestUri = request.getRequestURI();
+            if (!requestUri.startsWith("/api/") && !"/mcp".equals(requestUri)) {
                 return null;
             }
             CorsConfiguration config = new CorsConfiguration();

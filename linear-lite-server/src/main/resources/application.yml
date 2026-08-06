@@ -57,6 +57,14 @@ jwt:
   # 授权令牌默认有效期为 30 天；部署环境可通过 JWT_EXPIRATION_MS 显式覆盖。
   expiration-ms: ${JWT_EXPIRATION_MS:2592000000}
 
+# MCP 2026-07-28；默认关闭，部署环境显式开启并配置 Origin allowlist。
+mcp:
+  enabled: ${MCP_ENABLED:false}
+  allowed-origins: ${MCP_ALLOWED_ORIGINS:}
+  server-name: ${MCP_SERVER_NAME:linear-lite}
+  server-version: ${MCP_SERVER_VERSION:0.1.0}
+  tool-list-ttl-ms: ${MCP_TOOL_LIST_TTL_MS:300000}
+
 app:
   mail:
     from: ${MAIL_FROM:${MAIL_USERNAME:}}

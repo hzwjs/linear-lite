@@ -42,7 +42,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
-        if (!path.startsWith("/api/")) {
+        boolean protectedApiPath = path.startsWith("/api/") || "/mcp".equals(path);
+        if (!protectedApiPath) {
+            return true;
+        }
+        // 新规范只允许 POST；让旧 GET/DELETE 请求直接得到 405，而不是被认证层改写为 401。
+        if ("/mcp".equals(path)
+                && ("GET".equalsIgnoreCase(request.getMethod()) || "DELETE".equalsIgnoreCase(request.getMethod()))) {
             return true;
         }
         if ("/api/webhooks/gitlab".equals(path) || "/api/webhooks/github".equals(path)) {
@@ -104,6 +110,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private void send401(HttpServletResponse response, String message) throws IOException {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setHeader("WWW-Authenticate", "Bearer");
         response.setContentType("application/json;charset=UTF-8");
         ApiResponse<Void> body = ApiResponse.fail(401, message);
         response.getWriter().write(objectMapper.writeValueAsString(body));
