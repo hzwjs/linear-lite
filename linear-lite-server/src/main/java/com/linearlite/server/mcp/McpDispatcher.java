@@ -28,7 +28,6 @@ public class McpDispatcher {
     public static final String NAME_HEADER = "Mcp-Name";
     private static final String CLIENT_PROTOCOL_VERSION = "io.modelcontextprotocol/protocolVersion";
     private static final String CLIENT_CAPABILITIES = "io.modelcontextprotocol/clientCapabilities";
-    private static final String SERVER_INFO = "io.modelcontextprotocol/serverInfo";
     private static final Set<String> SUPPORTED_METHODS = Set.of("server/discover", "tools/list", "tools/call");
     private static final Logger log = LoggerFactory.getLogger(McpDispatcher.class);
 
@@ -133,6 +132,10 @@ public class McpDispatcher {
         versions.add(PROTOCOL_VERSION);
         ObjectNode capabilities = result.putObject("capabilities");
         capabilities.putObject("tools").put("listChanged", false);
+        // serverInfo is a required top-level discovery result field, not response metadata.
+        ObjectNode serverInfo = result.putObject("serverInfo");
+        serverInfo.put("name", properties.getServerName());
+        serverInfo.put("version", properties.getServerVersion());
         result.put("instructions", "使用 tools/list 获取工具目录；所有写操作都以当前认证用户身份执行。");
         addCacheHints(result, true);
         return success(id, result);
@@ -209,10 +212,6 @@ public class McpDispatcher {
     private ObjectNode completeResult() {
         ObjectNode result = objectMapper.createObjectNode();
         result.put("resultType", "complete");
-        ObjectNode meta = result.putObject("_meta");
-        ObjectNode serverInfo = meta.putObject(SERVER_INFO);
-        serverInfo.put("name", properties.getServerName());
-        serverInfo.put("version", properties.getServerVersion());
         return result;
     }
 

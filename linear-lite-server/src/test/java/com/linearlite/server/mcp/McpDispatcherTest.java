@@ -53,8 +53,9 @@ class McpDispatcherTest {
         assertEquals(200, response.status());
         assertEquals("2026-07-28", response.body().path("result").path("supportedVersions").get(0).asText());
         assertEquals("linear-lite-test",
-                response.body().path("result").path("_meta")
-                        .path("io.modelcontextprotocol/serverInfo").path("name").asText());
+                response.body().path("result").path("serverInfo").path("name").asText());
+        assertTrue(response.body().path("result").path("_meta")
+                .path("io.modelcontextprotocol/serverInfo").isMissingNode());
     }
 
     @Test
