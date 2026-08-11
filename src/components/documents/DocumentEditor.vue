@@ -309,6 +309,8 @@ async function handleDocumentBodyClick(event: MouseEvent) {
         <StructuredDocumentEditor
           ref="bodyEditorRef"
           :key="document.id"
+          :document-id="document.id"
+          paste-file-as-link
           :model-value="document.content"
           :readonly="saveState === 'conflict'"
           :placeholder="t('documents.bodyPlaceholder')"

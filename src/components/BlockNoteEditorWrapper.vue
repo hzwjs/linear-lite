@@ -27,6 +27,9 @@ const props = withDefaults(
     mentionDocumentsGroupText?: string
     /** 仅任务描述等场景：块侧栏 + `/` 命令菜单 */
     blockChrome?: boolean
+    /** 文件粘贴/拖拽的上传地址由使用场景决定。 */
+    uploadFile?: (file: File) => Promise<string>
+    pasteFileAsLink?: boolean
   }>(),
   {
     modelValue: '',
@@ -55,6 +58,7 @@ const editorApi = shallowRef<EditorApi | null>(null)
 const internalValue = ref(props.modelValue)
 
 async function handleUploadFile(file: File): Promise<string> {
+  if (props.uploadFile) return props.uploadFile(file)
   const res = await uploadApi.uploadImage(file)
   return res.url
 }
@@ -143,6 +147,7 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
       :mentionDocumentsGroupText="mentionDocumentsGroupText"
       :editable="!readonly"
       :uploadFile="handleUploadFile"
+      :pasteFileAsLink="pasteFileAsLink"
       :onChange="handleChange"
       :onBlur="handleBlur"
       :onFocus="handleFocus"

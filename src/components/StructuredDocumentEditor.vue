@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
+import { documentApi } from '../services/api/documents'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     modelValue: string
+    documentId: number
+    pasteFileAsLink?: boolean
     readonly?: boolean
     placeholder?: string
     mentionMembers?: Array<{ id: number; label: string }>
@@ -26,6 +29,12 @@ const emit = defineEmits<{
 
 const editorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
 
+async function handleUploadFile(file: File): Promise<string> {
+  // 文档附件必须走文档专属接口，普通图片上传接口不会创建附件元数据。
+  const attachment = await documentApi.uploadAttachment(props.documentId, file)
+  return attachment.url
+}
+
 function focus() {
   editorRef.value?.focus()
 }
@@ -38,6 +47,8 @@ defineExpose({ focus })
     ref="editorRef"
     class="structured-document-editor"
     :model-value="modelValue"
+    :upload-file="handleUploadFile"
+    :paste-file-as-link="pasteFileAsLink"
     :readonly="readonly"
     :placeholder="placeholder"
     :mention-members="mentionMembers"
@@ -65,4 +76,5 @@ defineExpose({ focus })
   font-size: 15px;
   line-height: 1.65;
 }
+
 </style>

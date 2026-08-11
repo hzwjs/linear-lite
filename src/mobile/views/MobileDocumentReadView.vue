@@ -110,7 +110,7 @@ watch(() => [props.projectId, props.documentId], loadDocument, { immediate: true
         <h1>{{ document.title }}</h1>
       </div>
       <section class="mobile-document-body" :aria-label="t('documents.mobile.bodyLabel')">
-        <StructuredDocumentEditor :model-value="document.content" readonly />
+        <StructuredDocumentEditor :model-value="document.content" :document-id="document.id" readonly />
       </section>
     </article>
   </main>

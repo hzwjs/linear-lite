@@ -89,7 +89,11 @@ function formatDate(value: string) {
     <template v-else-if="store.activeRevision">
       <div class="document-history__preview">
         <h2>{{ store.activeRevision.title }}</h2>
-        <StructuredDocumentEditor :model-value="store.activeRevision.content" readonly />
+        <StructuredDocumentEditor
+          :model-value="store.activeRevision.content"
+          :document-id="document.id"
+          readonly
+        />
       </div>
       <footer>
         <button type="button" :disabled="restoring" @click="restoreSelected">

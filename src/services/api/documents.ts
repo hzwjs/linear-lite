@@ -52,6 +52,16 @@ export function getDocumentConflict(error: unknown): DocumentConflict | null {
 }
 
 export const documentApi = {
+  uploadAttachment(documentId: number, file: File): Promise<{ url: string }> {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api
+      .post<ApiResponse<{ url: string }>>(`/project-documents/${documentId}/attachments`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      .then(unwrap)
+  },
+
   search(projectId: number, query: string): Promise<ProjectContentSearchResult[]> {
     return api
       .get<ApiResponse<ProjectContentSearchResult[]>>(`/projects/${projectId}/documents/search`, {

@@ -2,6 +2,24 @@ import { describe, expect, it } from 'vitest'
 import { blockNoteDocHasPersistableContent, parseBlockNoteStoredBlocks } from './blockNoteDescription'
 
 describe('blockNoteDocHasPersistableContent', () => {
+  it('normalizes existing project document file blocks into attachment links', () => {
+    const doc = parseBlockNoteStoredBlocks(JSON.stringify([{
+      id: 'attachment-file',
+      type: 'file',
+      props: {
+        name: '需求说明书.docx',
+        url: '/api/project-documents/12/attachments/34/download'
+      },
+      children: []
+    }]))
+
+    expect(doc).toMatchObject([{
+      id: 'attachment-file',
+      type: 'paragraph',
+      content: [{ type: 'link', href: '/api/project-documents/12/attachments/34/download', content: '需求说明书.docx' }]
+    }])
+  })
+
   it('lets BlockNote create its default paragraph for an empty stored document', () => {
     expect(parseBlockNoteStoredBlocks('[]')).toEqual([])
   })

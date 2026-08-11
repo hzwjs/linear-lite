@@ -5,19 +5,24 @@ import DocumentEditor from './DocumentEditor.vue'
 import { documentApi } from '../../services/api/documents'
 
 vi.mock('../../services/api/documents', () => ({
-  documentApi: { downloadAttachment: vi.fn(), getAttachmentBlob: vi.fn() }
+  documentApi: { downloadAttachment: vi.fn(), getAttachmentBlob: vi.fn(), uploadAttachment: vi.fn() }
 }))
 
 vi.mock('../StructuredDocumentEditor.vue', () => ({
   default: defineComponent({
     name: 'StructuredDocumentEditorStub',
-    setup() {
+    props: { documentId: { type: Number, required: true }, uploadFile: { type: Function, required: false } },
+    setup(props) {
       const showImage = ref(false)
       onMounted(async () => {
         await nextTick()
         showImage.value = true
       })
-      return () => h('div', [
+      return () => h('div', { 'data-document-id': props.documentId }, [
+        h('button', {
+          id: 'upload-file',
+          onClick: () => props.uploadFile?.(new File(['document'], 'guide.pdf', { type: 'application/pdf' }))
+        }, 'upload'),
         h('a', { id: 'attachment', href: '/api/project-documents/12/attachments/34/download', target: '_blank' }, 'attachment'),
         h('a', { id: 'other-document', href: '/api/project-documents/99/attachments/35/download' }, 'other document'),
         h('a', { id: 'ordinary', href: '/projects/7', target: '_blank' }, 'ordinary'),
@@ -81,6 +86,7 @@ function renderEditor() {
 
 beforeEach(() => {
   vi.mocked(documentApi.getAttachmentBlob).mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
+  vi.mocked(documentApi.uploadAttachment).mockResolvedValue({ url: '/api/project-documents/12/attachments/37/download' })
   Object.defineProperty(URL, 'createObjectURL', {
     configurable: true,
     value: vi.fn(() => 'blob:authenticated-image')
@@ -123,6 +129,14 @@ describe('DocumentEditor attachment links', () => {
 
     view.app.unmount()
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:authenticated-image')
+  })
+
+  it('passes the current document id to the editor upload boundary', async () => {
+    const view = renderEditor()
+    const editor = view.host.querySelector('[data-document-id]')
+    expect(editor).toBeTruthy()
+    expect(editor?.getAttribute('data-document-id')).toBe('12')
+    view.app.unmount()
   })
 
   it('intercepts the current document attachment and downloads it through the api client', async () => {

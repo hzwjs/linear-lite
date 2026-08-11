@@ -1,5 +1,7 @@
 type RawBlock = Record<string, unknown>
 
+const PROJECT_DOCUMENT_ATTACHMENT_URL = /^\/api\/project-documents\/\d+\/attachments\/\d+\/download$/
+
 function isBlockEmpty(block: RawBlock): boolean {
   const content = block.content
   if (!Array.isArray(content) || content.length === 0) return true
@@ -52,6 +54,17 @@ export function blockNoteDocHasPersistableContent(blocks: unknown[]): boolean {
 
 /** 把 content/children 缺失或非数组的块规范成空数组，递归到 children。 */
 function normalizeBlock(block: RawBlock): RawBlock {
+  // 已保存的文件块统一转换为附件链接，复用文档现有的附件卡片样式与鉴权下载链路。
+  if (block.type === 'file') {
+    const props = block.props as Record<string, unknown> | undefined
+    const href = typeof props?.url === 'string' ? props.url : ''
+    const name = typeof props?.name === 'string' ? props.name : ''
+    if (PROJECT_DOCUMENT_ATTACHMENT_URL.test(href) && name.length > 0) {
+      block.type = 'paragraph'
+      block.content = [{ type: 'link', href, content: name }]
+      block.props = { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' }
+    }
+  }
   if (!Array.isArray(block.content) && block.type !== 'table') block.content = []
   if (!Array.isArray(block.children)) {
     block.children = []

@@ -648,6 +648,9 @@ export type BlockNoteEditorReactProps = {
   /** Should resolve the uploaded file URL */
   uploadFile?: (file: File) => Promise<string>
   'upload-file'?: (file: File) => Promise<string>
+  /** 文档附件粘贴后写入链接块，复用同步附件卡片渲染。 */
+  pasteFileAsLink?: boolean
+  'paste-file-as-link'?: boolean
   /** Called on every document change with serialized JSON and mentioned user IDs */
   onChange?: (jsonString: string, mentionedUserIds: number[]) => void
   'on-change'?: (jsonString: string, mentionedUserIds: number[]) => void
@@ -686,6 +689,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     onBlur,
     onInit,
     blockChrome = false,
+    pasteFileAsLink = false,
   } = props
 
   const blockChromeOn = blockChrome === true || props['block-chrome'] === true
@@ -716,6 +720,21 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       return Promise.reject(new Error('uploadFile not configured'))
     }
     return fn(file)
+  }, [])
+
+  const pasteFileAsLinkResolved = pasteFileAsLink || props['paste-file-as-link'] === true
+  const pasteFilesAsLinks = useCallback(async (files: File[], editorInstance: any) => {
+    const upload = uploadFileRef.current
+    if (!upload) throw new Error('uploadFile not configured')
+    let anchorId = editorInstance.getTextCursorPosition().block.id
+    for (const file of files) {
+      const url = await upload(file)
+      const inserted = editorInstance.insertBlocks([
+        { type: 'paragraph', content: [{ type: 'link', href: url, content: file.name }] },
+      ], anchorId, 'after')[0]
+      if (inserted == null) return
+      anchorId = inserted.id
+    }
   }, [])
 
   const mentionMembersRef = useRef(mentionMembers)
@@ -755,6 +774,17 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       pasteHandler: ({ event, editor, defaultPasteHandler }) => {
         const clipboardData = event.clipboardData
         const clipboardTypes = clipboardData ? Array.from(clipboardData.types) : []
+        if (pasteFileAsLinkResolved && clipboardTypes.includes('Files')) {
+          const files = clipboardData == null
+            ? []
+            : Array.from(clipboardData.items)
+              .map((item) => item.getAsFile())
+              .filter((file): file is File => file != null)
+          if (files.length > 0) {
+            void pasteFilesAsLinks(files, editor).catch(() => undefined)
+            return true
+          }
+        }
         const plainText = clipboardData
           ? clipboardTypes.includes('text/markdown')
             ? clipboardData.getData('text/markdown')

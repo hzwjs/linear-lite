@@ -24,6 +24,22 @@ describe('document attachment download', () => {
     )).toBe('迁移清单.pdf')
   })
 
+  it('uploads a file through the current document attachment endpoint', async () => {
+    const file = new File(['document'], 'guide.pdf', { type: 'application/pdf' })
+    const response = { id: 31, url: '/api/project-documents/12/attachments/31/download' }
+    vi.mocked(api.post).mockResolvedValue({ data: { data: response } } as any)
+
+    await expect(documentApi.uploadAttachment(12, file)).resolves.toEqual(response)
+
+    expect(api.post).toHaveBeenCalledWith(
+      '/project-documents/12/attachments',
+      expect.any(FormData),
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+    const formData = vi.mocked(api.post).mock.calls[0][1] as FormData
+    expect(formData.get('file')).toBe(file)
+  })
+
   it('requests a blob with the authenticated api client and downloads it with the response filename', async () => {
     const blob = new Blob(['document'])
     vi.mocked(api.get).mockResolvedValue({
