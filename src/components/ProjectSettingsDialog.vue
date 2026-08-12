@@ -5,6 +5,7 @@ import { githubWebhookUrl, gitlabWebhookUrl, type GitHubRepository, type GitLabR
 import {
   ArrowLeft,
   Bell,
+  Bot,
   Download,
   Github,
   Gitlab,
@@ -36,6 +37,9 @@ const props = defineProps<{
   githubRepositoryUrl: string
   githubWebhookSecret: string
   isGitHubLoading: boolean
+  piAgentToken: string
+  piAgentConfigured: boolean | null
+  isPiLoading: boolean
 }>()
 
 const emit = defineEmits<{
@@ -56,6 +60,7 @@ const emit = defineEmits<{
   addGitHubRepository: []
   resetGitHubWebhookSecret: [repositoryId: number]
   deleteGitHubRepository: [repositoryId: number]
+  configurePiAgent: []
 }>()
 
 const { t } = useI18n()
@@ -233,6 +238,7 @@ function onClose() {
       <nav class="settings-nav" :aria-label="t('projectSettingsModal.navigationLabel')">
         <a href="#settings-general" :class="{ 'is-active': activeSection === 'settings-general' }" :aria-current="activeSection === 'settings-general' ? 'location' : undefined" @click.prevent="navigateToSection('settings-general')"><Info aria-hidden="true" />{{ t('projectSettingsModal.basicTitle') }}</a>
         <a href="#settings-members" :class="{ 'is-active': activeSection === 'settings-members' }" :aria-current="activeSection === 'settings-members' ? 'location' : undefined" @click.prevent="navigateToSection('settings-members')"><Users aria-hidden="true" />{{ t('projectSettingsModal.membersNav') }}</a>
+        <a v-if="canDelete" href="#settings-pi-agent" :class="{ 'is-active': activeSection === 'settings-pi-agent' }" :aria-current="activeSection === 'settings-pi-agent' ? 'location' : undefined" @click.prevent="navigateToSection('settings-pi-agent')"><Bot aria-hidden="true" />{{ t('projectSettingsModal.piTitle') }}</a>
         <a href="#settings-import" :class="{ 'is-active': activeSection === 'settings-import' }" :aria-current="activeSection === 'settings-import' ? 'location' : undefined" @click.prevent="navigateToSection('settings-import')"><Download aria-hidden="true" />{{ t('projectSettingsModal.importTitle') }}</a>
         <a v-if="canDelete" href="#settings-integrations" :class="{ 'is-active': activeSection === 'settings-integrations' }" :aria-current="activeSection === 'settings-integrations' ? 'location' : undefined" @click.prevent="navigateToSection('settings-integrations')"><Gitlab aria-hidden="true" />{{ t('projectSettingsModal.integrationsNav') }}</a>
         <a v-if="canDelete" href="#settings-notifications" :class="{ 'is-active': activeSection === 'settings-notifications' }" :aria-current="activeSection === 'settings-notifications' ? 'location' : undefined" @click.prevent="navigateToSection('settings-notifications')"><Bell aria-hidden="true" />{{ t('projectSettingsModal.emailTitle') }}</a>
@@ -294,6 +300,43 @@ function onClose() {
             </button>
           </div>
           <p v-if="inviteMessage" class="feedback feedback--success" role="status" aria-live="polite">{{ inviteMessage }}</p>
+        </section>
+
+        <section v-if="canDelete" id="settings-pi-agent" class="settings-section integration-section">
+          <div class="section-header">
+            <div class="section-title-row">
+              <Bot aria-hidden="true" />
+              <h2>{{ t('projectSettingsModal.piTitle') }}</h2>
+              <span v-if="piAgentConfigured === true" class="integration-status is-connected">{{ t('projectSettingsModal.piStatusConfigured') }}</span>
+              <span v-else-if="piAgentConfigured === false" class="integration-status">{{ t('projectSettingsModal.piStatusNotConfigured') }}</span>
+              <span v-else class="integration-status">{{ t('projectSettingsModal.piStatusLoading') }}</span>
+            </div>
+            <p>{{ t('projectSettingsModal.piDescription') }}</p>
+          </div>
+          <div class="pi-project-context">
+            <span>{{ t('projectSettingsModal.piProjectLabel') }}</span>
+            <strong :title="name">{{ name }}</strong>
+            <code>{{ identifier }}</code>
+          </div>
+          <div class="pi-configure-controls" :aria-busy="isPiLoading">
+            <button
+              type="button"
+              class="btn-primary"
+              data-testid="project-settings-pi-configure"
+              :disabled="isPiLoading || isSubmitting"
+              @click="emit('configurePiAgent')"
+            >
+              <LoaderCircle v-if="isPiLoading" class="button-spinner" aria-hidden="true" />
+              {{ isPiLoading ? t('projectSettingsModal.piConfiguring') : piAgentConfigured ? t('projectSettingsModal.piReconfigure') : t('projectSettingsModal.piConfigure') }}
+            </button>
+          </div>
+          <div v-if="piAgentToken" class="gitlab-secret">
+            <p>{{ t('projectSettingsModal.piTokenOnce') }}</p>
+            <div class="gitlab-secret-row">
+              <code data-testid="project-settings-pi-token">{{ piAgentToken }}</code>
+              <button type="button" class="btn-secondary" @click="copyToClipboard(piAgentToken)">{{ copyButtonLabel(piAgentToken) }}</button>
+            </div>
+          </div>
         </section>
 
         <section id="settings-import" class="settings-section import-zone">
@@ -466,6 +509,10 @@ function onClose() {
 .section-actions { display: flex; justify-content: flex-end; }
 .invite-controls, .gitlab-controls { display: flex; align-items: center; gap: 8px; }
 .invite-controls .input, .gitlab-controls .input { flex: 1; min-width: 0; }
+.pi-project-context { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+.pi-project-context strong { max-width: min(100%, 420px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-primary); font-weight: var(--font-weight-medium); }
+.pi-project-context code { padding: 2px 6px; border-radius: var(--radius-sm); background: var(--color-bg-muted); color: var(--color-text-muted); font: 500 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.pi-configure-controls { display: flex; align-items: center; }
 .feedback { margin: 0; padding: 10px 12px; border: 1px solid; border-radius: var(--radius-md); font-size: var(--font-size-caption); }
 .feedback--error { color: var(--project-settings-danger-text); border-color: var(--project-settings-danger-border); background: var(--project-settings-danger-bg); }
 .feedback--success { margin-top: 10px; color: var(--project-settings-success-text); border-color: color-mix(in srgb, var(--project-settings-success-text) 20%, transparent); background: var(--project-settings-success-bg); }

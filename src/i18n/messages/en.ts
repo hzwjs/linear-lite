@@ -139,6 +139,17 @@ const en = {
     basicDescription: 'Set the project name and the unique identifier used in issue keys.',
     saved: 'Project details saved.',
     membersNav: 'Members',
+    piTitle: 'Local Pi Agent',
+    piDescription: 'Configure Pi Agent for the current project before assigning tasks. Each configuration rotates the Agent Token, which is shown once.',
+    piProjectLabel: 'Current project',
+    piConfigure: 'Configure Pi',
+    piReconfigure: 'Reconfigure Pi',
+    piConfiguring: 'Configuring...',
+    piConfigured: 'Pi Agent configured. Save the one-time token now.',
+    piStatusConfigured: 'Configured',
+    piStatusNotConfigured: 'Not configured',
+    piStatusLoading: 'Checking…',
+    piTokenOnce: 'The Agent Token is shown once. Copy it to the local Pi Bridge configuration page.',
     integrationsNav: 'Integrations',
     integrationsDescription: 'Connect code repositories and sync commit activity to matching issues.',
     inviteTitle: 'Invite by email',
@@ -199,7 +210,9 @@ const en = {
       githubLoadFailed: 'GitHub repositories could not be loaded',
       githubAddFailed: 'GitHub repository could not be added',
       githubResetFailed: 'GitHub secret could not be reset',
-      githubRemoveFailed: 'GitHub repository could not be removed'
+      githubRemoveFailed: 'GitHub repository could not be removed',
+      piConfigureFailed: 'Pi Agent could not be configured',
+      piStatusLoadFailed: 'Unable to read Pi Agent configuration status'
     },
     buttons: {
       save: 'Save',

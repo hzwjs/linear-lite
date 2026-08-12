@@ -44,6 +44,7 @@ public class TaskCommandService {
     private final TaskStatusService taskStatusService;
     private final TaskHierarchyCompletionService taskHierarchyCompletionService;
     private ApplicationEventPublisher eventPublisher;
+    private final AgentTaskOrchestrationService agentTaskOrchestrationService;
 
     public TaskCommandService(
             TaskMapper taskMapper,
@@ -55,7 +56,8 @@ public class TaskCommandService {
             LabelService labelService,
             TaskQueryService taskQueryService,
             TaskStatusService taskStatusService,
-            TaskHierarchyCompletionService taskHierarchyCompletionService) {
+            TaskHierarchyCompletionService taskHierarchyCompletionService,
+            AgentTaskOrchestrationService agentTaskOrchestrationService) {
         this.taskMapper = taskMapper;
         this.projectMapper = projectMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
@@ -66,6 +68,7 @@ public class TaskCommandService {
         this.taskQueryService = taskQueryService;
         this.taskStatusService = taskStatusService;
         this.taskHierarchyCompletionService = taskHierarchyCompletionService;
+        this.agentTaskOrchestrationService = agentTaskOrchestrationService;
     }
 
     @Autowired
@@ -134,6 +137,7 @@ public class TaskCommandService {
         }
         taskQueryService.enrichForUser(Collections.singletonList(inserted), creatorId);
         publishSemanticIndexRequest(inserted.getId());
+        agentTaskOrchestrationService.onTaskCreated(inserted);
         List<TaskStateChange> ancestorChanges = taskHierarchyCompletionService.completeEligibleAncestors(
                 inserted.getId(), creatorId, occurredAt);
         return new TaskMutationResponse(inserted, ancestorChanges);
@@ -278,6 +282,9 @@ public class TaskCommandService {
             labelService.replaceTaskLabels(existing.getId(), existing.getProjectId(), request.getLabels());
         }
         Task updated = taskMapper.selectById(existing.getId());
+        if (!Objects.equals(existing.getAssigneeId(), updated.getAssigneeId())) {
+            agentTaskOrchestrationService.onAssigneeChanged(existing, updated);
+        }
         recordActivityForTaskChanges(existing, updated, userId);
         if (request.getLabels() != null) {
             recordLabelsChange(

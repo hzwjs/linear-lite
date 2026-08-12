@@ -643,7 +643,12 @@ export type BlockNoteEditorReactProps = {
   initialContent?: string
   placeholder?: string
   editable?: boolean
-  mentionMembers?: Array<{ id: number; label: string }>
+  mentionMembers?: Array<{
+    id: number
+    label: string
+    principalType?: 'human' | 'agent'
+    agentKey?: string | null
+  }>
   mentionDocuments?: Array<{ id: number; title: string; projectId: number }>
   /** Should resolve the uploaded file URL */
   uploadFile?: (file: File) => Promise<string>
@@ -675,6 +680,8 @@ export type BlockNoteEditorReactProps = {
   'mention-members-group-text'?: string
   mentionDocumentsGroupText?: string
   'mention-documents-group-text'?: string
+  checkPiBridgeOnMention?: boolean
+  'check-pi-bridge-on-mention'?: boolean
 }
 
 export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
@@ -691,6 +698,9 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     blockChrome = false,
     pasteFileAsLink = false,
   } = props
+
+  const checkPiBridgeOnMention =
+    props.checkPiBridgeOnMention === true || props['check-pi-bridge-on-mention'] === true
 
   const blockChromeOn = blockChrome === true || props['block-chrome'] === true
 
@@ -1048,9 +1058,10 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
         noMatchesText={mentionNoMatchPh}
         loadingText={mentionLoadingPh}
         resolveMember={(label) => (mentionMembersRef.current ?? []).find((m) => m.label === label)}
+        checkPiBridgeOnMention={checkPiBridgeOnMention}
       />
     ),
-    [mentionSearchPh, mentionNoMatchPh, mentionLoadingPh],
+    [mentionSearchPh, mentionNoMatchPh, mentionLoadingPh, checkPiBridgeOnMention],
   )
 
   const handleStructuredMentionPick = useCallback(

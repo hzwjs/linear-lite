@@ -15,6 +15,9 @@ public class User {
     private String email;
     private String password;
     private String avatarUrl;
+    private String principalType;
+    private String agentKey;
+    private Boolean enabled;
     private LocalDateTime createdAt;
 
     public Long getId() {
@@ -55,6 +58,30 @@ public class User {
 
     public void setAvatarUrl(String avatarUrl) {
         this.avatarUrl = avatarUrl;
+    }
+
+    public String getPrincipalType() {
+        return principalType;
+    }
+
+    public void setPrincipalType(String principalType) {
+        this.principalType = principalType;
+    }
+
+    public String getAgentKey() {
+        return agentKey;
+    }
+
+    public void setAgentKey(String agentKey) {
+        this.agentKey = agentKey;
+    }
+
+    public Boolean getEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(Boolean enabled) {
+        this.enabled = enabled;
     }
 
     public LocalDateTime getCreatedAt() {

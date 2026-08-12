@@ -55,6 +55,8 @@ class TaskCommentServiceTest {
     private UserMapper userMapper;
     @Mock
     private NotificationSseBroadcaster notificationSseBroadcaster;
+    @Mock
+    private AgentTaskOrchestrationService agentTaskOrchestrationService;
     private TaskCommentService taskCommentService;
 
     @BeforeEach
@@ -66,7 +68,8 @@ class TaskCommentServiceTest {
                 inAppNotificationMapper,
                 projectMemberMapper,
                 userMapper,
-                notificationSseBroadcaster);
+                notificationSseBroadcaster,
+                agentTaskOrchestrationService);
     }
 
     @Test

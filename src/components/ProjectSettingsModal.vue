@@ -51,8 +51,12 @@ const githubRepositories = ref<GitHubRepository[]>([])
 const githubRepositoryUrl = ref('')
 const githubWebhookSecret = ref('')
 const isGitHubLoading = ref(false)
+const piAgentToken = ref('')
+const piAgentConfigured = ref<boolean | null>(null)
+const isPiLoading = ref(false)
 let emailSettingsRequestSeq = 0
 let gitlabRepositoriesRequestSeq = 0
+let piStatusRequestSeq = 0
 
 watch(
   () => [props.open, props.project] as const,
@@ -75,9 +79,13 @@ watch(
       githubRepositoryUrl.value = ''
       githubWebhookSecret.value = ''
       isGitHubLoading.value = false
+      piAgentToken.value = ''
+      piAgentConfigured.value = null
+      isPiLoading.value = false
       void loadEmailSettings(project)
       void loadGitLabRepositories(project)
       void loadGitHubRepositories(project)
+      void loadPiAgentStatus(project)
     }
     if (!open) {
       importOpen.value = false
@@ -87,6 +95,7 @@ watch(
       isEmailSaving.value = false
       isGitLabLoading.value = false
       isGitHubLoading.value = false
+      piStatusRequestSeq += 1
     }
   }
 )
@@ -185,6 +194,26 @@ async function loadGitHubRepositories(project: Project) {
   catch (e) { error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.githubLoadFailed') }
 }
 
+async function loadPiAgentStatus(project: Project) {
+  if (!canDelete.value) return
+  const requestSeq = ++piStatusRequestSeq
+  const projectId = project.id
+  isPiLoading.value = true
+  try {
+    const status = await projectApi.getPiAgentStatus(projectId)
+    if (shouldIgnoreProjectResponse(requestSeq, piStatusRequestSeq, props.project?.id, projectId)) return
+    piAgentConfigured.value = status.configured
+  } catch (e) {
+    if (shouldIgnoreProjectResponse(requestSeq, piStatusRequestSeq, props.project?.id, projectId)) return
+    piAgentConfigured.value = null
+    error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.piStatusLoadFailed')
+  } finally {
+    if (!shouldIgnoreProjectResponse(requestSeq, piStatusRequestSeq, props.project?.id, projectId)) {
+      isPiLoading.value = false
+    }
+  }
+}
+
 async function addGitHubRepository() {
   if (!props.project || !githubRepositoryUrl.value.trim() || isGitHubLoading.value) return
   const projectId = props.project.id
@@ -240,6 +269,27 @@ async function onToggleDailySummary(enabled: boolean) {
     if (props.project?.id === projectId) {
       isEmailSaving.value = false
     }
+  }
+}
+
+async function configurePiAgent() {
+  if (!props.project || !canDelete.value || isPiLoading.value) return
+  const projectId = props.project.id
+  isPiLoading.value = true
+  error.value = ''
+  piAgentToken.value = ''
+  try {
+    const configured = await projectApi.configurePiAgent(projectId)
+    if (props.project?.id !== projectId) return
+    piAgentToken.value = configured.token
+    piAgentConfigured.value = true
+    saveMessage.value = t('projectSettingsModal.piConfigured')
+  } catch (e) {
+    if (props.project?.id === projectId) {
+      error.value = e instanceof Error ? e.message : t('projectSettingsModal.errors.piConfigureFailed')
+    }
+  } finally {
+    if (props.project?.id === projectId) isPiLoading.value = false
   }
 }
 
@@ -372,6 +422,9 @@ onUnmounted(() => {
     :github-repository-url="githubRepositoryUrl"
     :github-webhook-secret="githubWebhookSecret"
     :is-git-hub-loading="isGitHubLoading"
+    :pi-agent-token="piAgentToken"
+    :pi-agent-configured="piAgentConfigured"
+    :is-pi-loading="isPiLoading"
     @update:name="name = $event; saveMessage = ''"
     @update:identifier="identifier = $event; saveMessage = ''"
     @update:invite-email="inviteEmail = $event"
@@ -384,6 +437,7 @@ onUnmounted(() => {
     @add-git-hub-repository="addGitHubRepository"
     @reset-git-hub-webhook-secret="resetGitHubWebhookSecret"
     @delete-git-hub-repository="deleteGitHubRepository"
+    @configure-pi-agent="configurePiAgent"
     @submit="submit"
     @invite="inviteMember"
     @import="openTaskImport"

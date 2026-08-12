@@ -18,6 +18,7 @@ import { documentApi } from '../services/api/documents'
 import type { ProjectDocumentTreeNode } from '../types/document'
 import { activityApi } from '../services/api/activity'
 import { taskCommentsApi } from '../services/api/taskComments'
+import { agentApi, type AgentTaskEvent, type AgentTaskStatus } from '../services/api/agent'
 import { attachmentsApi } from '../services/api/attachments'
 import { toLabelWriteItems } from '../utils/taskLabelWrite'
 import type { TaskAttachment } from '../services/api/types'
@@ -156,6 +157,39 @@ const progressStatusHint = ref('')
 let progressStatusHintTimer: ReturnType<typeof setTimeout> | null = null
 const activities = ref<TaskActivity[]>([])
 const activitiesLoading = ref(false)
+const agentStatus = ref<AgentTaskStatus | null>(null)
+const agentStatusLoading = ref(false)
+const agentEvents = ref<AgentTaskEvent[]>([])
+const agentEventsError = ref('')
+const agentEventConnected = ref(false)
+const agentCanceling = ref(false)
+const agentEventListRef = ref<HTMLOListElement | null>(null)
+let agentEventSource: EventSource | null = null
+let agentStatusLoadSequence = 0
+const cancellableAgentJobStatuses = new Set(['queued', 'leased', 'running'])
+const canStopAgent = computed(() => {
+  const status = agentStatus.value
+  return Boolean(status?.executionId && status.jobStatus && cancellableAgentJobStatuses.has(status.jobStatus))
+})
+
+function formatAgentEventDetail(event: AgentTaskEvent): string {
+  const payload = JSON.parse(event.payload) as {
+    args?: unknown
+    partialResult?: unknown
+    result?: unknown
+    content?: unknown
+  }
+  const detail = payload.args ?? payload.partialResult ?? payload.result ?? payload.content
+  if (detail == null) return ''
+  return typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2)
+}
+
+watch(agentEvents, async () => {
+  await nextTick()
+  const list = agentEventListRef.value
+  if (list) list.scrollTop = list.scrollHeight
+}, { flush: 'post' })
+
 const activityDisplayItems = computed(() =>
   groupTaskActivitiesForDisplay(activities.value.filter(isTaskActivityTimelineEvent))
 )
@@ -259,6 +293,8 @@ const mentionMembersForCommentEditor = computed(() =>
   safeArray(mentionCandidates.value).map((u) => ({
     id: u.id,
     label: (u.username ?? '').trim() || `user-${u.id}`,
+    principalType: u.principalType,
+    agentKey: u.agentKey,
   }))
 )
 
@@ -524,6 +560,78 @@ async function loadComments(options?: { silent?: boolean; preferSnapshot?: boole
   }
 }
 
+async function loadAgentStatus() {
+  const loadSequence = ++agentStatusLoadSequence
+  agentEventSource?.close()
+  agentEventSource = null
+  agentEvents.value = []
+  agentEventsError.value = ''
+  agentEventConnected.value = false
+  if (props.mode !== 'edit' || !props.task?.id) {
+    agentStatus.value = null
+    return
+  }
+  agentStatusLoading.value = true
+  try {
+    const taskKey = props.task.id
+    const status = await agentApi.getTaskStatus(taskKey)
+    if (loadSequence !== agentStatusLoadSequence || props.task?.id !== taskKey) return
+    agentStatus.value = status
+    const executionId = agentStatus.value.executionId
+    if (executionId) {
+      // 只订阅当前 execution 的实时事件，不请求历史，避免旧过程污染当前任务视图。
+      agentEventSource = agentApi.openEventStream(taskKey, executionId, (event) => {
+        if (event.executionId !== executionId) return
+        const key = `${event.jobId}:${event.sequenceNo}`
+        if (!agentEvents.value.some((item) => `${item.jobId}:${item.sequenceNo}` === key)) {
+          agentEvents.value = [...agentEvents.value, event]
+        }
+        if (event.eventType === 'completed' && agentStatus.value) {
+          agentStatus.value = { ...agentStatus.value, jobStatus: 'succeeded' }
+        } else if (event.eventType === 'failed' && agentStatus.value) {
+          agentStatus.value = { ...agentStatus.value, jobStatus: 'failed' }
+        }
+      }, () => {
+        if (props.task?.id === taskKey) agentEventConnected.value = true
+      }, () => {
+        if (props.task?.id === taskKey) agentEventConnected.value = false
+      })
+    }
+  } catch {
+    if (loadSequence !== agentStatusLoadSequence) return
+    agentStatus.value = null
+    agentEvents.value = []
+    agentEventsError.value = '执行进度加载失败'
+  } finally {
+    if (loadSequence === agentStatusLoadSequence) {
+      agentStatusLoading.value = false
+    }
+  }
+}
+
+async function cancelAgentExecution() {
+  const taskKey = props.task?.id
+  const executionId = agentStatus.value?.executionId
+  if (!taskKey || !executionId || !canStopAgent.value || agentCanceling.value) return
+  if (!window.confirm('确定停止当前 Pi 执行吗？')) return
+
+  agentCanceling.value = true
+  agentEventsError.value = ''
+  try {
+    await agentApi.cancelTask(taskKey, executionId)
+    if (props.task?.id === taskKey && agentStatus.value?.executionId === executionId) {
+      agentStatus.value = { ...agentStatus.value, sessionStatus: 'canceled', jobStatus: 'canceled' }
+      agentEventConnected.value = false
+      agentEventSource?.close()
+      agentEventSource = null
+    }
+  } catch (error) {
+    agentEventsError.value = error instanceof Error ? error.message : '停止 Pi 失败'
+  } finally {
+    agentCanceling.value = false
+  }
+}
+
 async function submitComment(payload: CommentSubmitPayload) {
   if (props.mode !== 'edit' || !props.task?.id) return
   await taskCommentsApi.create(props.task.id, payload)
@@ -738,6 +846,16 @@ watch(
   },
   { immediate: true }
 )
+
+watch(
+  [() => props.task?.id, () => props.task?.assigneeId, () => props.mode],
+  () => {
+    // 负责人切换会创建或关闭 Pi execution，必须立即切换实时 SSE 连接。
+    loadAgentStatus()
+  },
+  { immediate: true }
+)
+
 async function loadProjectMembers(projectId: number | null) {
   if (projectId == null) {
     userList.value = []
@@ -786,6 +904,9 @@ watch(effectiveProjectId, (id) => {
 })
 
 onBeforeUnmount(() => {
+  agentStatusLoadSequence += 1
+  agentEventSource?.close()
+  agentEventSource = null
   mentionDocumentsLoadSequence += 1
   if (dueStateNowTimer != null) {
     clearInterval(dueStateNowTimer)
@@ -1705,6 +1826,46 @@ async function toggleDescriptionFullscreen() {
         </section>
 
         <section v-if="mode === 'edit' && task" class="content-section subdued linear-section">
+          <div v-if="agentStatusLoading || agentStatus?.executionId" class="agent-status-panel">
+            <div class="linear-section-head linear-section-head--static">
+              <span class="linear-section-title">Pi 执行</span>
+              <span v-if="agentStatus?.jobStatus" class="agent-status-badge">{{ agentStatus.jobStatus }}</span>
+              <button
+                v-if="canStopAgent"
+                type="button"
+                class="agent-stop-button"
+                :disabled="agentCanceling"
+                :aria-busy="agentCanceling"
+                @click="cancelAgentExecution"
+              >
+                <Loader2 v-if="agentCanceling" class="icon-14 agent-stop-spinner" aria-hidden="true" />
+                <CircleX v-else class="icon-14" aria-hidden="true" />
+                {{ agentCanceling ? '停止中…' : '停止 Pi' }}
+              </button>
+            </div>
+            <div v-if="agentStatusLoading" class="agent-status-copy">状态加载中…</div>
+            <div v-else class="agent-status-copy">
+              会话：{{ agentStatus?.sessionStatus ?? '未创建' }}
+              <span v-if="agentStatus?.errorMessage"> · {{ agentStatus.errorMessage }}</span>
+            </div>
+            <div class="agent-event-area" aria-live="polite">
+              <div v-if="agentEventsError" class="agent-events-copy agent-events-copy--error">{{ agentEventsError }}</div>
+              <ol v-else-if="agentEvents.length" ref="agentEventListRef" class="agent-event-list">
+                <li v-for="event in agentEvents" :key="`${event.jobId}:${event.sequenceNo}`">
+                  <div class="agent-event-row">
+                    <span class="agent-event-summary">{{ event.summary }}</span>
+                    <time>{{ new Date(event.createdAt).toLocaleTimeString() }}</time>
+                  </div>
+                  <div v-if="formatAgentEventDetail(event)" class="agent-event-details">
+                    <pre>{{ formatAgentEventDetail(event) }}</pre>
+                  </div>
+                </li>
+              </ol>
+              <div v-else class="agent-events-copy">
+                {{ agentEventConnected ? '等待 Pi 实时事件…' : '正在连接实时事件…' }}
+              </div>
+            </div>
+          </div>
           <div class="linear-section-head linear-section-head--static">
             <span class="linear-section-title">{{ t('taskEditor.comments') }}</span>
           </div>
@@ -3189,6 +3350,126 @@ async function toggleDescriptionFullscreen() {
   font-weight: var(--font-weight-medium);
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.agent-status-panel {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  height: 280px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-accent-muted) 38%, transparent);
+}
+.agent-status-panel .linear-section-head {
+  padding: 0;
+  flex: 0 0 auto;
+}
+.agent-status-copy {
+  flex: 0 0 auto;
+  padding-top: 6px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+}
+.agent-status-badge {
+  color: var(--color-accent);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+}
+.agent-stop-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  margin-left: auto;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 45%, var(--color-border-subtle));
+  border-radius: var(--radius-sm);
+  color: var(--color-danger);
+  background: transparent;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+.agent-stop-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}
+.agent-stop-button:focus-visible {
+  outline: 2px solid var(--color-danger);
+  outline-offset: 1px;
+}
+.agent-stop-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.agent-stop-spinner {
+  animation: linear-attachment-upload-spin 1s linear infinite;
+}
+.agent-event-area {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+  overflow: hidden;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.agent-events-copy {
+  padding: 8px 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+}
+.agent-events-copy--error {
+  color: var(--color-danger);
+}
+.agent-event-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 8px 0 8px 18px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+}
+.agent-event-list li {
+  display: block;
+}
+.agent-event-row {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+.agent-event-summary {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.agent-event-list time {
+  flex: 0 0 auto;
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.agent-event-details {
+  margin: 4px 0 0 18px;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-caption);
+}
+.agent-event-details pre {
+  max-height: 120px;
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-surface-raised) 72%, transparent);
+  color: var(--color-text-secondary);
+  font: inherit;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 1100px) {

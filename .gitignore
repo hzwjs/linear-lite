@@ -18,6 +18,9 @@ target/
 # Local tooling / agent (不提交)
 .claude/
 .playwright-cli/
+.pi-bridge/
+.pi-workspaces/
+.pi-sessions/
 
 # Playwright 报告输出
 test-results/

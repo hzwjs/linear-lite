@@ -19,6 +19,16 @@ export interface GitHubRepository {
   createdAt: string
 }
 
+export interface PiAgentConfiguration {
+  agentUserId: number
+  agentKey: string
+  token: string
+}
+
+export interface PiAgentStatus {
+  configured: boolean
+}
+
 /** 供 GitLab Webhook 配置使用，随前端 API 部署前缀变化。 */
 export function gitlabWebhookUrl(): string {
   const base = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '')
@@ -129,6 +139,18 @@ export const projectApi = {
       })
   },
 
+  configurePiAgent(projectId: number): Promise<PiAgentConfiguration> {
+    return api
+      .post<ApiResponse<PiAgentConfiguration>>(`/projects/${projectId}/pi-agent`)
+      .then(unwrap)
+  },
+
+  getPiAgentStatus(projectId: number): Promise<PiAgentStatus> {
+    return api
+      .get<ApiResponse<PiAgentStatus>>(`/projects/${projectId}/pi-agent/status`)
+      .then(unwrap)
+  },
+
   listGitLabRepositories(projectId: number): Promise<GitLabRepository[]> {
     return api
       .get<ApiResponse<GitLabRepository[]>>(`/projects/${projectId}/gitlab-repositories`)
@@ -176,14 +198,22 @@ export const projectApi = {
   /** 获取项目成员列表（负责人选择用） */
   listMembers(projectId: number): Promise<User[]> {
     return api
-      .get<ApiResponse<{ id: number; username: string; avatar_url?: string }[]>>(
+      .get<ApiResponse<{
+        id: number
+        username: string
+        avatar_url?: string
+        principal_type?: 'human' | 'agent'
+        agent_key?: string | null
+      }[]>>(
         `/projects/${projectId}/members`
       )
       .then((res) =>
         asArray(unwrap(res)).map((u) => ({
           id: u.id,
           username: u.username,
-          ...(u.avatar_url != null && { avatar_url: u.avatar_url })
+          ...(u.avatar_url != null && { avatar_url: u.avatar_url }),
+          ...(u.principal_type != null && { principalType: u.principal_type }),
+          ...(u.agent_key != null && { agentKey: u.agent_key })
         }))
       )
   }

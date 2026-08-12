@@ -69,4 +69,6 @@ export interface User {
   id: number
   username: string
   avatar_url?: string
+  principalType?: 'human' | 'agent'
+  agentKey?: string | null
 }

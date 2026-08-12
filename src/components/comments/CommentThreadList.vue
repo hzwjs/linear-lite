@@ -20,7 +20,12 @@ const props = withDefaults(
     comments: CommentDto[]
     loading?: boolean
     currentUserName?: string
-    mentionMembers?: Array<{ id: number; label: string }>
+    mentionMembers?: Array<{
+      id: number
+      label: string
+      principalType?: 'human' | 'agent'
+      agentKey?: string | null
+    }>
     submitComment: CommentSubmitHandler
     deleteComment: CommentDeleteHandler
   }>(),
@@ -252,6 +257,7 @@ watch(
             ref="inlineReplyEditorRef"
             :model-value="replyBodyByRootId[thread.root.id] ?? ''"
             :mention-members="mentionMembers"
+            :check-pi-bridge-on-mention="true"
             :mention-menu-search-placeholder="t('taskList.assigneeSearchPlaceholder')"
             :mention-menu-no-matches-text="t('taskEditor.mentionNoMatches')"
             :mention-menu-loading-text="t('common.loading')"
@@ -283,6 +289,7 @@ watch(
         ref="commentEditorRef"
         v-model="commentBody"
         :mention-members="mentionMembers"
+        :check-pi-bridge-on-mention="true"
         :mention-menu-search-placeholder="t('taskList.assigneeSearchPlaceholder')"
         :mention-menu-no-matches-text="t('taskEditor.mentionNoMatches')"
         :mention-menu-loading-text="t('common.loading')"

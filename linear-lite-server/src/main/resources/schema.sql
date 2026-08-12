@@ -10,7 +10,24 @@ CREATE TABLE IF NOT EXISTS users (
     email       VARCHAR(255) NOT NULL UNIQUE,
     password    VARCHAR(255) NOT NULL,
     avatar_url  VARCHAR(512) DEFAULT NULL,
+    principal_type VARCHAR(16) NOT NULL DEFAULT 'human' COMMENT 'human 或 agent',
+    agent_key   VARCHAR(64) DEFAULT NULL COMMENT 'Agent 主体稳定标识',
+    enabled     TINYINT(1) NOT NULL DEFAULT 1,
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE UNIQUE INDEX uk_users_agent_key ON users (agent_key);
+
+CREATE TABLE IF NOT EXISTS agent_credentials (
+    id              BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    agent_user_id   BIGINT NOT NULL,
+    token_hash      CHAR(64) NOT NULL,
+    enabled         TINYINT(1) NOT NULL DEFAULT 1,
+    expires_at      DATETIME DEFAULT NULL,
+    last_seen_at    DATETIME DEFAULT NULL,
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_agent_credentials_token_hash (token_hash),
+    KEY idx_agent_credentials_user (agent_user_id, enabled)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS email_verification_codes (
@@ -189,6 +206,55 @@ CREATE INDEX idx_tasks_project_due_date ON tasks (project_id, due_date);
 CREATE INDEX idx_tasks_project_status ON tasks (project_id, status);
 CREATE INDEX idx_tasks_project_assignee ON tasks (project_id, assignee_id);
 CREATE INDEX idx_tasks_project_priority ON tasks (project_id, priority);
+
+CREATE TABLE IF NOT EXISTS project_agent_bindings (
+    id              BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    project_id      BIGINT NOT NULL,
+    agent_user_id   BIGINT NOT NULL,
+    enabled         TINYINT(1) NOT NULL DEFAULT 1,
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_project_agent_binding (project_id, agent_user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS agent_task_sessions (
+    id              BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    execution_id    VARCHAR(64) NOT NULL,
+    task_id         BIGINT NOT NULL,
+    task_key        VARCHAR(32) NOT NULL,
+    project_id      BIGINT NOT NULL,
+    agent_user_id   BIGINT NOT NULL,
+    session_id      VARCHAR(128) NOT NULL,
+    status          VARCHAR(16) NOT NULL,
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    completed_at    DATETIME DEFAULT NULL,
+    UNIQUE KEY uk_agent_task_sessions_execution (execution_id),
+    KEY idx_agent_task_sessions_task_status (task_id, status, id),
+    KEY idx_agent_task_sessions_agent (agent_user_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS agent_task_jobs (
+    id                BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    session_id        BIGINT NOT NULL,
+    execution_id      VARCHAR(64) NOT NULL,
+    task_id           BIGINT NOT NULL,
+    task_key          VARCHAR(32) NOT NULL,
+    source_type       VARCHAR(16) NOT NULL COMMENT 'assignment/comment/retry',
+    source_comment_id BIGINT DEFAULT NULL,
+    status            VARCHAR(16) NOT NULL,
+    attempt_count     INT NOT NULL DEFAULT 0,
+    lease_until       DATETIME DEFAULT NULL,
+    next_run_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    prompt            TEXT DEFAULT NULL COMMENT '发送给 Pi 的任务或评论提示',
+    error_message     VARCHAR(2048) DEFAULT NULL,
+    created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at        DATETIME DEFAULT NULL,
+    finished_at       DATETIME DEFAULT NULL,
+    UNIQUE KEY uk_agent_task_jobs_comment (source_comment_id),
+    KEY idx_agent_task_jobs_claim (status, next_run_at, lease_until, id),
+    KEY idx_agent_task_jobs_task (task_id, status, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 项目内容统一语义索引队列：代次防止旧 Worker 覆盖新变更，租约防止多实例重复领取。
 CREATE TABLE IF NOT EXISTS project_content_semantic_index_jobs (

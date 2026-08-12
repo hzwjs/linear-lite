@@ -46,6 +46,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (!protectedApiPath) {
             return true;
         }
+        // Agent API 使用独立 X-Agent-Token，不能落入人类 JWT 认证链路。
+        if (path.startsWith("/api/agent/")) {
+            return true;
+        }
         // 新规范只允许 POST；让旧 GET/DELETE 请求直接得到 405，而不是被认证层改写为 401。
         if ("/mcp".equals(path)
                 && ("GET".equalsIgnoreCase(request.getMethod()) || "DELETE".equalsIgnoreCase(request.getMethod()))) {
@@ -90,7 +94,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     }
 
     /**
-     * EventSource 无法设置 Authorization 头时，允许对通知 SSE 使用 query {@code access_token}（仅此路径）。
+     * EventSource 无法设置 Authorization 头时，允许对受保护 SSE 使用 query {@code access_token}。
      */
     private String resolveToken(HttpServletRequest request) {
         String authHeader = request.getHeader(AUTHORIZATION_HEADER);
@@ -98,7 +102,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return authHeader.substring(BEARER_PREFIX.length()).trim();
         }
         String path = request.getRequestURI();
-        if (path != null && path.endsWith("/notifications/stream")
+        if (path != null && (path.endsWith("/notifications/stream") || path.endsWith("/agent-events/stream"))
                 && "GET".equalsIgnoreCase(request.getMethod())) {
             String q = request.getParameter("access_token");
             if (q != null && !q.isBlank()) {

@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import MemberListDropdownPanel from './MemberListDropdownPanel.vue'
 import { i18n } from '../i18n'
 import type { User } from '../types/domain'
+import { isPiBridgeAvailable } from '../services/piBridge'
 
 const MemberListDropdownPanelReact = applyVueInReact(MemberListDropdownPanel, {
   beforeVueAppMount(app) {
@@ -73,7 +74,13 @@ export type MentionMemberSuggestionMenuProps = SuggestionMenuProps<DefaultReactS
   searchPlaceholder: string
   noMatchesText: string
   loadingText: string
-  resolveMember: (label: string) => { id: number; label: string } | undefined
+  resolveMember: (label: string) => {
+    id: number
+    label: string
+    principalType?: 'human' | 'agent'
+    agentKey?: string | null
+  } | undefined
+  checkPiBridgeOnMention: boolean
 }
 
 /**
@@ -87,11 +94,13 @@ export function MentionMemberSuggestionMenu({
   noMatchesText,
   loadingText,
   resolveMember,
+  checkPiBridgeOnMention,
 }: MentionMemberSuggestionMenuProps) {
   const editor = useBlockNoteEditor()
   const suggestionMenu = useExtension(SuggestionMenuExtension, { editor })
 
   const [stagingUsers, setStagingUsers] = useState<User[]>([])
+  const [piBridgeAvailable, setPiBridgeAvailable] = useState(false)
   const stagingUsersRef = useRef<User[]>([])
   stagingUsersRef.current = stagingUsers
 
@@ -102,12 +111,17 @@ export function MentionMemberSuggestionMenu({
   useEffect(() => {
     if (showMenu && !prevShowRef.current) {
       setStagingUsers([])
+      setPiBridgeAvailable(false)
+      if (checkPiBridgeOnMention) {
+        // 评论输入触发 `@` 时检测，Bridge 不可用时不展示 Pi 成员。
+        void isPiBridgeAvailable().then(setPiBridgeAvailable)
+      }
     }
     if (!showMenu && prevShowRef.current) {
       setStagingUsers([])
     }
     prevShowRef.current = showMenu
-  }, [showMenu])
+  }, [checkPiBridgeOnMention, showMenu])
 
   const query = useExtensionState(SuggestionMenuExtension, {
     selector: (s) => s?.query ?? '',
@@ -127,10 +141,17 @@ export function MentionMemberSuggestionMenu({
         user: {
           id: mem?.id ?? 0,
           username: item.title,
+          principalType: mem?.principalType,
+          agentKey: mem?.agentKey,
         } as User,
       }
-    })
-  }, [items, resolveMember])
+    }).filter((row) =>
+      !checkPiBridgeOnMention ||
+      row.user.principalType !== 'agent' ||
+      row.user.agentKey !== 'pi' ||
+      piBridgeAvailable
+    )
+  }, [checkPiBridgeOnMention, items, piBridgeAvailable, resolveMember])
 
   const stagingUserIds = useMemo(() => stagingUsers.map((u) => u.id), [stagingUsers])
 

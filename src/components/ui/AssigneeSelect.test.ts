@@ -3,19 +3,24 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createI18n } from 'vue-i18n'
 import type { User } from '../../types/domain'
 import AssigneeSelect from './AssigneeSelect.vue'
+import { isPiBridgeAvailable } from '../../services/piBridge'
+
+vi.mock('../../services/piBridge', () => ({
+  isPiBridgeAvailable: vi.fn(),
+}))
 
 const users: User[] = [
   { id: 1, username: '李明' },
   { id: 2, username: '黄志文' }
 ]
 
-async function mountSelect(modelValue: string | number = '') {
+async function mountSelect(modelValue: string | number = '', selectUsers: User[] = users) {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const onUpdate = vi.fn()
   const app = createApp(AssigneeSelect, {
     modelValue,
-    users,
+    users: selectUsers,
     'onUpdate:modelValue': onUpdate
   })
   app.use(createI18n({
@@ -80,6 +85,36 @@ describe('AssigneeSelect', () => {
     await nextTick()
 
     expect(view.onUpdate).not.toHaveBeenCalled()
+    view.app.unmount()
+  })
+
+  it('hides Pi from the assignee list when the local Bridge is unavailable', async () => {
+    vi.mocked(isPiBridgeAvailable).mockResolvedValue(false)
+    const view = await mountSelect('', [
+      ...users,
+      { id: 3, username: 'Pi', principalType: 'agent', agentKey: 'pi' },
+    ])
+    view.host.querySelector<HTMLButtonElement>('.assignee-trigger')!.click()
+    await Promise.resolve()
+    await nextTick()
+
+    const labels = [...document.querySelectorAll('.assignee-option-label')].map((node) => node.textContent)
+    expect(labels).toEqual(['未分配', '李明', '黄志文'])
+    view.app.unmount()
+  })
+
+  it('shows Pi after the local Bridge health check succeeds', async () => {
+    vi.mocked(isPiBridgeAvailable).mockResolvedValue(true)
+    const view = await mountSelect('', [
+      ...users,
+      { id: 3, username: 'Pi', principalType: 'agent', agentKey: 'pi' },
+    ])
+    view.host.querySelector<HTMLButtonElement>('.assignee-trigger')!.click()
+    await Promise.resolve()
+    await nextTick()
+
+    const labels = [...document.querySelectorAll('.assignee-option-label')].map((node) => node.textContent)
+    expect(labels).toContain('Pi · Agent')
     view.app.unmount()
   })
 })

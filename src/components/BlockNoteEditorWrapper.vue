@@ -16,7 +16,12 @@ const props = withDefaults(
     modelValue?: string
     placeholder?: string
     minHeight?: number
-    mentionMembers?: Array<{ id: number; label: string }>
+    mentionMembers?: Array<{
+      id: number
+      label: string
+      principalType?: 'human' | 'agent'
+      agentKey?: string | null
+    }>
     mentionDocuments?: Array<{ id: number; title: string; projectId: number }>
     readonly?: boolean
     /** `@` 成员菜单：与 TaskRowAssigneePicker 一致的搜索框占位与空态文案（仅传 mentionMembers 时生效） */
@@ -25,6 +30,8 @@ const props = withDefaults(
     mentionMenuLoadingText?: string
     mentionMembersGroupText?: string
     mentionDocumentsGroupText?: string
+    /** 评论 `@` 打开时检测本地 Bridge，并隐藏不可用的 Pi。 */
+    checkPiBridgeOnMention?: boolean
     /** 仅任务描述等场景：块侧栏 + `/` 命令菜单 */
     blockChrome?: boolean
     /** 文件粘贴/拖拽的上传地址由使用场景决定。 */
@@ -42,6 +49,7 @@ const props = withDefaults(
     mentionMenuLoadingText: '',
     mentionMembersGroupText: '',
     mentionDocumentsGroupText: '',
+    checkPiBridgeOnMention: false,
   }
 )
 
@@ -145,6 +153,7 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
       :mentionMenuLoadingText="mentionMenuLoadingText"
       :mentionMembersGroupText="mentionMembersGroupText"
       :mentionDocumentsGroupText="mentionDocumentsGroupText"
+      :checkPiBridgeOnMention="checkPiBridgeOnMention"
       :editable="!readonly"
       :uploadFile="handleUploadFile"
       :pasteFileAsLink="pasteFileAsLink"
