@@ -12,6 +12,10 @@ const props = withDefaults(
     placeholder?: string
     mentionMembers?: Array<{ id: number; label: string }>
     mentionDocuments?: Array<{ id: number; title: string; projectId: number }>
+    /** 附件上传中的占位文本模板，`{name}` 替换为文件名。 */
+    fileUploadingText?: string
+    /** 附件上传失败的占位文本模板，`{name}` 替换为文件名。 */
+    fileUploadFailedText?: string
   }>(),
   {
     readonly: false,
@@ -49,6 +53,8 @@ defineExpose({ focus })
     :model-value="modelValue"
     :upload-file="handleUploadFile"
     :paste-file-as-link="pasteFileAsLink"
+    :file-uploading-text="fileUploadingText"
+    :file-upload-failed-text="fileUploadFailedText"
     :readonly="readonly"
     :placeholder="placeholder"
     :mention-members="mentionMembers"

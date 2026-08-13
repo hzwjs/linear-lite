@@ -311,6 +311,8 @@ async function handleDocumentBodyClick(event: MouseEvent) {
           :key="document.id"
           :document-id="document.id"
           paste-file-as-link
+          :file-uploading-text="$t('documents.attachmentUploading')"
+          :file-upload-failed-text="$t('documents.attachmentUploadFailed')"
           :model-value="document.content"
           :readonly="saveState === 'conflict'"
           :placeholder="t('documents.bodyPlaceholder')"

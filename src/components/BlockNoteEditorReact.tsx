@@ -199,6 +199,11 @@ export function buildProjectDocumentMentionHref(projectId: number, documentId: n
   return `/projects/${projectId}/documents/${documentId}`
 }
 
+/** 附件上传占位文本：把 i18n 模板里的 `{name}` 替换为文件名；模板未配置时退回直白文案。 */
+export function formatUploadFeedback(template: string | undefined, fileName: string, fallback: string): string {
+  return template ? template.replace(/\{name\}/g, fileName) : fallback
+}
+
 export function createProjectDocumentLinkInline(projectId: number, documentId: number, title: string) {
   return {
     type: 'link' as const,
@@ -656,6 +661,12 @@ export type BlockNoteEditorReactProps = {
   /** 文档附件粘贴后写入链接块，复用同步附件卡片渲染。 */
   pasteFileAsLink?: boolean
   'paste-file-as-link'?: boolean
+  /** 附件上传中的占位文本模板，`{name}` 替换为文件名（由 Vue i18n 传入）。 */
+  fileUploadingText?: string
+  'file-uploading-text'?: string
+  /** 附件上传失败的占位文本模板，`{name}` 替换为文件名（由 Vue i18n 传入）。 */
+  fileUploadFailedText?: string
+  'file-upload-failed-text'?: string
   /** Called on every document change with serialized JSON and mentioned user IDs */
   onChange?: (jsonString: string, mentionedUserIds: number[]) => void
   'on-change'?: (jsonString: string, mentionedUserIds: number[]) => void
@@ -733,19 +744,58 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   }, [])
 
   const pasteFileAsLinkResolved = pasteFileAsLink || props['paste-file-as-link'] === true
+  const fileUploadingTextResolved = props.fileUploadingText ?? props['file-uploading-text']
+  const fileUploadFailedTextResolved = props.fileUploadFailedText ?? props['file-upload-failed-text']
+
   const pasteFilesAsLinks = useCallback(async (files: File[], editorInstance: any) => {
     const upload = uploadFileRef.current
     if (!upload) throw new Error('uploadFile not configured')
     let anchorId = editorInstance.getTextCursorPosition().block.id
     for (const file of files) {
-      const url = await upload(file)
-      const inserted = editorInstance.insertBlocks([
-        { type: 'paragraph', content: [{ type: 'link', href: url, content: file.name }] },
+      // 粘贴瞬间先插入“上传中”占位块，提供开始反馈；完成后再原地替换为附件链接卡片。
+      const placeholder = editorInstance.insertBlocks([
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: formatUploadFeedback(fileUploadingTextResolved, file.name, `Uploading ${file.name}…`),
+              styles: { textColor: 'gray' },
+            },
+          ],
+        },
       ], anchorId, 'after')[0]
-      if (inserted == null) return
+      if (placeholder == null) return
+      anchorId = placeholder.id
+      let url: string
+      try {
+        url = await upload(file)
+      } catch {
+        // 上传失败：占位块改写为可见错误提示，不再静默吞掉异常。
+        if (editorInstance.getBlock(placeholder.id) != null) {
+          editorInstance.updateBlock(placeholder.id, {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: formatUploadFeedback(fileUploadFailedTextResolved, file.name, `Uploading ${file.name} failed`),
+                styles: { textColor: 'red' },
+              },
+            ],
+          })
+        }
+        continue
+      }
+      // 用户可能在上传期间删除了占位块；块已不存在时放弃原地替换，避免抛出异常。
+      if (editorInstance.getBlock(placeholder.id) == null) continue
+      const inserted = editorInstance.updateBlock(placeholder.id, {
+        type: 'paragraph',
+        content: [{ type: 'link', href: url, content: file.name }],
+      })
+      if (inserted == null) continue
       anchorId = inserted.id
     }
-  }, [])
+  }, [fileUploadingTextResolved, fileUploadFailedTextResolved])
 
   const mentionMembersRef = useRef(mentionMembers)
   mentionMembersRef.current = mentionMembers

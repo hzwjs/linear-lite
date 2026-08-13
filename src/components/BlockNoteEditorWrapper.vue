@@ -37,6 +37,10 @@ const props = withDefaults(
     /** 文件粘贴/拖拽的上传地址由使用场景决定。 */
     uploadFile?: (file: File) => Promise<string>
     pasteFileAsLink?: boolean
+    /** 附件上传中的占位文本模板，`{name}` 替换为文件名（由 Vue i18n 传入）。 */
+    fileUploadingText?: string
+    /** 附件上传失败的占位文本模板，`{name}` 替换为文件名（由 Vue i18n 传入）。 */
+    fileUploadFailedText?: string
   }>(),
   {
     modelValue: '',
@@ -157,6 +161,8 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
       :editable="!readonly"
       :uploadFile="handleUploadFile"
       :pasteFileAsLink="pasteFileAsLink"
+      :fileUploadingText="fileUploadingText"
+      :fileUploadFailedText="fileUploadFailedText"
       :onChange="handleChange"
       :onBlur="handleBlur"
       :onFocus="handleFocus"
