@@ -27,6 +27,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
 
   let saveTimer: ReturnType<typeof setTimeout> | null = null
   let editSequence = 0
+  let pendingRevision = false
   let activeSavePromise: Promise<void> | null = null
   let treeLoadSequence = 0
   let visibleTreeLoadSequence = 0
@@ -40,6 +41,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
   function resetEditorState() {
     cancelScheduledSave()
     editSequence = 0
+    pendingRevision = false
     saveState.value = 'idle'
     conflictVersion.value = null
     activeRevision.value = null
@@ -185,14 +187,18 @@ export const useDocumentStore = defineStore('documentStore', () => {
 
   async function performSave(): Promise<void> {
     const document = activeDocument.value
-    if (!document || saveState.value === 'conflict' || saveState.value === 'invalid' || saveState.value === 'idle') return
+    const createRevision = pendingRevision
+    if (!document || saveState.value === 'conflict' || saveState.value === 'invalid' ||
+      saveState.value === 'idle' || (saveState.value === 'saved' && !createRevision)) return
+    pendingRevision = false
     cancelScheduledSave()
     const submittedId = document.id
     const submittedSequence = editSequence
     const submitted = {
       expectedVersion: document.version,
       title: document.title,
-      content: document.content
+      content: document.content,
+      createRevision
     }
     saveState.value = 'saving'
     try {
@@ -237,8 +243,14 @@ export const useDocumentStore = defineStore('documentStore', () => {
 
   async function flushSaves() {
     cancelScheduledSave()
+    if (saveState.value !== 'dirty' && saveState.value !== 'saving' && saveState.value !== 'failed') return
+    pendingRevision = true
     await saveNow()
-    if (saveState.value === 'dirty') await saveNow()
+    if (saveState.value === 'dirty') {
+      pendingRevision = true
+      await saveNow()
+    }
+    if (pendingRevision) await saveNow()
   }
 
   async function reloadAfterConflict() {

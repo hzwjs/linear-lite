@@ -46,6 +46,13 @@ import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../uti
 import { blockNoteDocHasPersistableContent, parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import { getTaskDueState } from '../utils/taskDueState'
+import {
+  agentEventSkillName,
+  agentEventToolCallId,
+  formatAgentEventDetail,
+  formatAgentToolCall
+} from '../utils/agentEventDisplay'
+import { renderMarkdown } from '../utils/markdown'
 import { captureTaskLoadContext, isTaskLoadStale } from '../utils/taskLoadContext'
 import { readTaskDetailSnapshot } from '../utils/taskDetailPreload'
 import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
@@ -167,21 +174,43 @@ const agentEventListRef = ref<HTMLOListElement | null>(null)
 let agentEventSource: EventSource | null = null
 let agentStatusLoadSequence = 0
 const cancellableAgentJobStatuses = new Set(['queued', 'leased', 'running'])
+const isAgentExecutionActive = computed(() => {
+  const status = agentStatus.value
+  return Boolean(status?.executionId && status.jobStatus && cancellableAgentJobStatuses.has(status.jobStatus))
+})
 const canStopAgent = computed(() => {
   const status = agentStatus.value
   return Boolean(status?.executionId && status.jobStatus && cancellableAgentJobStatuses.has(status.jobStatus))
 })
+const shouldShowAgentPanel = computed(() =>
+  props.mode === 'edit' && (isAgentExecutionActive.value || agentEvents.value.length > 0)
+)
+const renderedAgentEvents = computed(() => agentEvents.value.filter((event) => {
+  if (event.eventType !== 'tool_result') return true
+  const toolCallId = agentEventToolCallId(event)
+  return !agentEvents.value.some((candidate) =>
+    agentEventToolCallId(candidate) === toolCallId && Boolean(agentEventSkillName(candidate))
+  )
+}))
 
-function formatAgentEventDetail(event: AgentTaskEvent): string {
-  const payload = JSON.parse(event.payload) as {
-    args?: unknown
-    partialResult?: unknown
-    result?: unknown
-    content?: unknown
-  }
-  const detail = payload.args ?? payload.partialResult ?? payload.result ?? payload.content
-  if (detail == null) return ''
-  return typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2)
+function appendAgentEvents(events: AgentTaskEvent[]) {
+  const knownKeys = new Set(agentEvents.value.map((item) => `${item.jobId}:${item.sequenceNo}`))
+  const nextEvents = events.filter((event) => {
+    const key = `${event.jobId}:${event.sequenceNo}`
+    if (knownKeys.has(key)) return false
+    knownKeys.add(key)
+    return true
+  })
+  if (nextEvents.length) agentEvents.value = [...agentEvents.value, ...nextEvents].sort((a, b) => a.sequenceNo - b.sequenceNo)
+}
+
+function agentToolLabel(event: AgentTaskEvent): string {
+  const match = event.summary.match(/^(?:正在调用工具|工具调用完成|工具调用失败)：([^·]+)/)
+  return match?.[1]?.trim() || '工具'
+}
+
+function agentToolCommand(event: AgentTaskEvent): string {
+  return formatAgentToolCall(event)
 }
 
 watch(agentEvents, async () => {
@@ -567,8 +596,9 @@ async function loadAgentStatus() {
   agentEvents.value = []
   agentEventsError.value = ''
   agentEventConnected.value = false
+  // 状态重载期间不保留旧执行记录，避免切换任务时右侧栏短暂展示过期内容。
+  agentStatus.value = null
   if (props.mode !== 'edit' || !props.task?.id) {
-    agentStatus.value = null
     return
   }
   agentStatusLoading.value = true
@@ -578,23 +608,35 @@ async function loadAgentStatus() {
     if (loadSequence !== agentStatusLoadSequence || props.task?.id !== taskKey) return
     agentStatus.value = status
     const executionId = agentStatus.value.executionId
-    if (executionId) {
-      // 只订阅当前 execution 的实时事件，不请求历史，避免旧过程污染当前任务视图。
-      agentEventSource = agentApi.openEventStream(taskKey, executionId, (event) => {
-        if (event.executionId !== executionId) return
-        const key = `${event.jobId}:${event.sequenceNo}`
-        if (!agentEvents.value.some((item) => `${item.jobId}:${item.sequenceNo}` === key)) {
-          agentEvents.value = [...agentEvents.value, event]
-        }
-        if (event.eventType === 'completed' && agentStatus.value) {
+    const jobId = agentStatus.value.jobId
+    if (executionId && jobId != null) {
+      // SSE 建立时会先回放当前进程缓存，再推送增量事件，避免执行先于页面连接而丢失内容。
+      agentEventSource = agentApi.openEventStream(taskKey, executionId, jobId, (event) => {
+        if (event.executionId !== executionId || event.jobId !== jobId) return
+        appendAgentEvents([event])
+        if (event.eventType === 'started' && agentStatus.value) {
+          agentStatus.value = { ...agentStatus.value, jobStatus: 'running' }
+        } else if (event.eventType === 'completed' && agentStatus.value) {
           agentStatus.value = { ...agentStatus.value, jobStatus: 'succeeded' }
+          agentEventConnected.value = false
+          agentEventSource?.close()
+          agentEventSource = null
         } else if (event.eventType === 'failed' && agentStatus.value) {
           agentStatus.value = { ...agentStatus.value, jobStatus: 'failed' }
+          agentEventConnected.value = false
+          agentEventSource?.close()
+          agentEventSource = null
         }
       }, () => {
         if (props.task?.id === taskKey) agentEventConnected.value = true
       }, () => {
         if (props.task?.id === taskKey) agentEventConnected.value = false
+      }, () => {
+        if (props.task?.id === taskKey && !isAgentExecutionActive.value) {
+          agentEventConnected.value = false
+          agentEventSource?.close()
+          agentEventSource = null
+        }
       })
     }
   } catch {
@@ -635,7 +677,11 @@ async function cancelAgentExecution() {
 async function submitComment(payload: CommentSubmitPayload) {
   if (props.mode !== 'edit' || !props.task?.id) return
   await taskCommentsApi.create(props.task.id, payload)
-  await loadComments({ silent: true })
+  await Promise.all([
+    loadComments({ silent: true }),
+    // @Pi 会在评论事务内创建续接 Job；立即重读状态并重建 SSE，切换到该 Job 的实时事件。
+    loadAgentStatus()
+  ])
   void notificationStore.refreshUnread()
 }
 
@@ -916,6 +962,10 @@ onBeforeUnmount(() => {
 
 function toDateInputValue(ms: number | undefined | null): string {
   return formatDateInputValue(ms)
+}
+
+function formatPropertyDate(value: string): string {
+  return value || '未设置'
 }
 
 function formLabelStableKey(rows: { id?: number; name: string }[]): string {
@@ -1226,6 +1276,7 @@ function isFormDirty(): boolean {
 async function performAutoSave() {
   if (props.mode !== 'edit' || !props.task) return
   const payload = getPayload()
+  const previousAssigneeId = props.task.assigneeId ?? null
   if (!payload.title) return
   if (!isFormDirty()) return
   if (descriptionUploadState.value.hasPending || descriptionUploadState.value.hasFailed) return
@@ -1264,6 +1315,11 @@ async function performAutoSave() {
     formLabels.value = safeArray(merged.labels).map((l) => ({ id: l.id, name: l.name }))
     lastAcknowledgedSave = { taskId: props.task.id, signature: formSaveSignature() }
     clearTaskEditDraft(props.task.id)
+    if (previousAssigneeId !== (merged.assigneeId ?? null)) {
+      // 负责人变更会在服务端创建或关闭 Pi execution；保存响应写回任务后立即刷新执行状态，避免漏掉首个 watcher。
+      await nextTick()
+      await loadAgentStatus()
+    }
     await loadActivities({ silent: true })
     saveStatus.value = 'saved'
     setTimeout(() => {
@@ -1464,7 +1520,9 @@ async function toggleDescriptionFullscreen() {
     class="editor-panel"
     :class="{
       'editor-panel--inline': props.variant === 'inline',
-      'editor-panel--create': props.mode === 'create'
+      'editor-panel--create': props.mode === 'create',
+      // Agent 执行存在时才切换到横向属性 + 右侧执行栏布局；普通任务保留原属性侧栏。
+      'editor-panel--agent-layout': shouldShowAgentPanel
     }"
     :aria-label="t('taskEditor.workspaceAria')"
   >
@@ -1592,7 +1650,7 @@ async function toggleDescriptionFullscreen() {
                 @focus="onDescriptionFocus"
                 @blur="onDescriptionBlur"
                 :placeholder="t('taskEditor.descriptionPlaceholder')"
-                :min-height="isDescriptionFullscreen ? 520 : 96"
+                :min-height="isDescriptionFullscreen ? 520 : 64"
               />
             </div>
           </section>
@@ -1604,7 +1662,160 @@ async function toggleDescriptionFullscreen() {
           style="display: none"
           @change="onAttachmentInputChange"
         />
-        <section v-if="mode === 'edit' && task" class="content-section subdued linear-section">
+        <section
+          v-if="shouldShowAgentPanel"
+          class="content-section subdued linear-section task-properties-section"
+        >
+          <div class="props-card props-card--horizontal">
+            <section class="prop-group prop-group--properties">
+              <div class="prop-grid">
+                <div class="prop-item prop-item--status">
+                  <CustomSelect
+                    id="task-status"
+                    v-model="formStatus"
+                    :options="statusOptions"
+                    :search-placeholder="t('boardView.filterByStatus')"
+                    search-shortcut-badge="S"
+                    :aria-label="t('common.status')"
+                    trigger-class="prop-trigger prop-trigger--linear"
+                  />
+                </div>
+                <div class="prop-item prop-item--priority">
+                  <CustomSelect
+                    id="task-priority"
+                    v-model="formPriority"
+                    :options="priorityOptions"
+                    :aria-label="t('common.priority')"
+                    trigger-class="prop-trigger prop-trigger--linear"
+                  />
+                </div>
+                <div class="prop-item prop-item--assignee">
+                  <AssigneeSelect
+                    id="task-assignee"
+                    v-model="formAssigneeId"
+                    :users="userList"
+                    :placeholder="t('common.unassigned')"
+                    :aria-label="t('common.assignee')"
+                    :external-label="importedAssigneeOnlyLabel"
+                    trigger-class="prop-trigger prop-trigger--avatar"
+                    trigger-mode="avatar"
+                  />
+                </div>
+                <div class="prop-date-group">
+                  <div class="prop-item prop-item--planned-start">
+                    <CustomDatePicker
+                      id="task-planned-start"
+                      v-model="formPlannedStartDate"
+                      :placeholder="t('common.plannedStartDate')"
+                      :aria-label="t('common.plannedStartDate')"
+                      trigger-class="prop-trigger prop-trigger--linear"
+                    >
+                      <template #trigger="{ toggle }">
+                        <button
+                          type="button"
+                          class="prop-date-trigger"
+                          :aria-label="t('common.plannedStartDate')"
+                          @click="toggle"
+                        >
+                          <CalendarDays class="icon-14" aria-hidden="true" />
+                          <span>{{ formatPropertyDate(formPlannedStartDate) }}</span>
+                        </button>
+                      </template>
+                    </CustomDatePicker>
+                  </div>
+                  <div class="prop-item prop-item--due-date">
+                    <CustomDatePicker
+                      id="task-due"
+                      v-model="formDueDate"
+                      :placeholder="t('common.dueDate')"
+                      :aria-label="t('common.dueDate')"
+                      :trigger-class="`prop-trigger prop-trigger--linear ${taskDueDateToneClass}`"
+                    >
+                      <template #trigger="{ toggle }">
+                        <button
+                          type="button"
+                          class="prop-date-trigger"
+                          :class="taskDueDateToneClass"
+                          :aria-label="t('common.dueDate')"
+                          @click="toggle"
+                        >
+                          <CalendarDays class="icon-14" aria-hidden="true" />
+                          <span>{{ formatPropertyDate(formDueDate) }}</span>
+                        </button>
+                      </template>
+                    </CustomDatePicker>
+                  </div>
+                </div>
+                <div v-if="mode === 'edit'" class="prop-item prop-item--progress">
+                  <div class="prop-progress-control">
+                    <BarChart3 class="icon-14 prop-progress-icon" aria-hidden="true" />
+                    <div class="prop-progress-visual" aria-hidden="true">
+                      <span
+                        class="prop-progress-fill"
+                        :style="{ width: `${clampTaskProgress(formProgressPercent)}%` }"
+                      />
+                      <span
+                        class="prop-progress-thumb"
+                        :style="{ left: `${clampTaskProgress(formProgressPercent)}%` }"
+                      />
+                    </div>
+                    <input
+                      id="task-progress"
+                      v-model.number="formProgressPercent"
+                      class="prop-progress-range"
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      :aria-label="t('taskEditor.progressAria')"
+                    />
+                    <span class="prop-progress-value">{{ clampTaskProgress(formProgressPercent) }}%</span>
+                  </div>
+                </div>
+              </div>
+              <p v-if="progressStatusHint" class="prop-row-help prop-row-help--progress" role="status">
+                {{ progressStatusHint }}
+              </p>
+            </section>
+
+            <section v-if="showPropRowLabels" class="prop-group prop-group--labels">
+              <div class="prop-label-row">
+                <Tag class="icon-14 prop-label-icon" aria-hidden="true" />
+                <div class="prop-label-control">
+                  <div class="prop-row prop-row-labels">
+                    <TaskLabelCombobox
+                      ref="taskLabelComboboxRef"
+                      v-model="labelInput"
+                      :labels="formLabels"
+                      :project-id="effectiveProjectId"
+                      :disabled="mode !== 'edit' || !task"
+                      :task-id="task?.id ?? null"
+                      :placeholder="t('taskEditor.addLabel')"
+                      :ariaLabel="t('taskEditor.addLabel')"
+                      :remove-label-aria-label="t('taskEditor.removeLabel')"
+                      :delete-definition-aria-label="t('taskEditor.deleteProjectLabelDefinition')"
+                      :no-matches-text="t('boardView.noLabelsMatch')"
+                      @pick="pickSuggestion"
+                      @create="commitLabelInput"
+                      @remove="removeFormLabel"
+                      @open-change="onLabelPickerOpenChange"
+                      @delete-label-definition="onDeleteLabelDefinition"
+                    />
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section v-if="mode === 'edit' && task?.completedAt" class="prop-group prop-group--completed">
+              <div class="prop-completed-value">
+                <CalendarDays class="icon-14" aria-hidden="true" />
+                <span>{{ new Date(task.completedAt).toLocaleString() }}</span>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section v-if="mode === 'edit' && task" class="content-section subdued linear-section task-attachments-section">
           <div class="linear-section-head-wrap">
             <button
               v-if="showAttachmentBody"
@@ -1680,7 +1891,7 @@ async function toggleDescriptionFullscreen() {
           </div>
         </section>
 
-        <section v-if="mode === 'edit' && task" class="content-section subdued linear-section">
+        <section v-if="mode === 'edit' && task" class="content-section subdued linear-section task-sub-issues-section">
           <div class="sub-issue-toolbar">
             <button
               type="button"
@@ -1825,47 +2036,7 @@ async function toggleDescriptionFullscreen() {
           </div>
         </section>
 
-        <section v-if="mode === 'edit' && task" class="content-section subdued linear-section">
-          <div v-if="agentStatusLoading || agentStatus?.executionId" class="agent-status-panel">
-            <div class="linear-section-head linear-section-head--static">
-              <span class="linear-section-title">Pi 执行</span>
-              <span v-if="agentStatus?.jobStatus" class="agent-status-badge">{{ agentStatus.jobStatus }}</span>
-              <button
-                v-if="canStopAgent"
-                type="button"
-                class="agent-stop-button"
-                :disabled="agentCanceling"
-                :aria-busy="agentCanceling"
-                @click="cancelAgentExecution"
-              >
-                <Loader2 v-if="agentCanceling" class="icon-14 agent-stop-spinner" aria-hidden="true" />
-                <CircleX v-else class="icon-14" aria-hidden="true" />
-                {{ agentCanceling ? '停止中…' : '停止 Pi' }}
-              </button>
-            </div>
-            <div v-if="agentStatusLoading" class="agent-status-copy">状态加载中…</div>
-            <div v-else class="agent-status-copy">
-              会话：{{ agentStatus?.sessionStatus ?? '未创建' }}
-              <span v-if="agentStatus?.errorMessage"> · {{ agentStatus.errorMessage }}</span>
-            </div>
-            <div class="agent-event-area" aria-live="polite">
-              <div v-if="agentEventsError" class="agent-events-copy agent-events-copy--error">{{ agentEventsError }}</div>
-              <ol v-else-if="agentEvents.length" ref="agentEventListRef" class="agent-event-list">
-                <li v-for="event in agentEvents" :key="`${event.jobId}:${event.sequenceNo}`">
-                  <div class="agent-event-row">
-                    <span class="agent-event-summary">{{ event.summary }}</span>
-                    <time>{{ new Date(event.createdAt).toLocaleTimeString() }}</time>
-                  </div>
-                  <div v-if="formatAgentEventDetail(event)" class="agent-event-details">
-                    <pre>{{ formatAgentEventDetail(event) }}</pre>
-                  </div>
-                </li>
-              </ol>
-              <div v-else class="agent-events-copy">
-                {{ agentEventConnected ? '等待 Pi 实时事件…' : '正在连接实时事件…' }}
-              </div>
-            </div>
-          </div>
+        <section v-if="mode === 'edit' && task" class="content-section subdued linear-section task-comments-section">
           <div class="linear-section-head linear-section-head--static">
             <span class="linear-section-title">{{ t('taskEditor.comments') }}</span>
           </div>
@@ -1954,13 +2125,14 @@ async function toggleDescriptionFullscreen() {
         </div>
       </div>
 
-      <div class="editor-props">
+      <!-- 普通任务不显示 Agent 时沿用原右侧属性栏，避免横向属性行破坏正文节奏。 -->
+      <div v-if="!shouldShowAgentPanel" class="editor-props">
         <div class="props-card">
           <section class="prop-group prop-group--properties">
             <h3 class="prop-group-title">{{ t('taskEditor.properties') }}</h3>
             <div class="prop-row prop-row--inline">
               <CustomSelect
-                id="task-status"
+                id="task-status-sidebar"
                 v-model="formStatus"
                 :options="statusOptions"
                 :search-placeholder="t('boardView.filterByStatus')"
@@ -1971,7 +2143,7 @@ async function toggleDescriptionFullscreen() {
             </div>
             <div class="prop-row prop-row--inline">
               <CustomSelect
-                id="task-priority"
+                id="task-priority-sidebar"
                 v-model="formPriority"
                 :options="priorityOptions"
                 :aria-label="t('common.priority')"
@@ -1981,7 +2153,7 @@ async function toggleDescriptionFullscreen() {
             <div class="prop-row prop-row--inline">
               <div class="prop-assignee-stack">
                 <AssigneeSelect
-                  id="task-assignee"
+                  id="task-assignee-sidebar"
                   v-model="formAssigneeId"
                   :users="userList"
                   :placeholder="t('common.unassigned')"
@@ -2001,7 +2173,7 @@ async function toggleDescriptionFullscreen() {
             <div class="prop-row prop-row--date">
               <span class="prop-row-name">{{ t('common.plannedStartDate') }}</span>
               <CustomDatePicker
-                id="task-planned-start"
+                id="task-planned-start-sidebar"
                 v-model="formPlannedStartDate"
                 :placeholder="t('common.plannedStartDate')"
                 :aria-label="t('common.plannedStartDate')"
@@ -2010,15 +2182,13 @@ async function toggleDescriptionFullscreen() {
             </div>
             <div class="prop-row prop-row--date">
               <span class="prop-row-name">{{ t('common.dueDate') }}</span>
-              <div class="prop-row-stack">
-                <CustomDatePicker
-                  id="task-due"
-                  v-model="formDueDate"
-                  :placeholder="t('common.dueDate')"
-                  :aria-label="t('common.dueDate')"
-                  :trigger-class="`prop-trigger prop-trigger--linear ${taskDueDateToneClass}`"
-                />
-              </div>
+              <CustomDatePicker
+                id="task-due-sidebar"
+                v-model="formDueDate"
+                :placeholder="t('common.dueDate')"
+                :aria-label="t('common.dueDate')"
+                :trigger-class="`prop-trigger prop-trigger--linear ${taskDueDateToneClass}`"
+              />
             </div>
             <div v-if="mode === 'edit'" class="prop-row prop-row--progress">
               <span class="prop-row-name">{{ t('taskEditor.progress') }}</span>
@@ -2034,7 +2204,7 @@ async function toggleDescriptionFullscreen() {
                   />
                 </div>
                 <input
-                  id="task-progress"
+                  id="task-progress-sidebar"
                   v-model.number="formProgressPercent"
                   class="prop-progress-range"
                   type="range"
@@ -2051,43 +2221,111 @@ async function toggleDescriptionFullscreen() {
             </p>
           </section>
 
-          <section class="prop-group">
-            <h3 class="prop-group-title">{{ t('common.labels') }}</h3>
-            <div v-if="showPropRowLabels" class="prop-row prop-row-labels">
-              <TaskLabelCombobox
-                ref="taskLabelComboboxRef"
-                v-model="labelInput"
-                :labels="formLabels"
-                :project-id="effectiveProjectId"
-                :disabled="mode !== 'edit' || !task"
-                :task-id="task?.id ?? null"
-                :placeholder="t('taskEditor.addLabel')"
-                :ariaLabel="t('taskEditor.addLabel')"
-                :remove-label-aria-label="t('taskEditor.removeLabel')"
-                :delete-definition-aria-label="t('taskEditor.deleteProjectLabelDefinition')"
-                :no-matches-text="t('boardView.noLabelsMatch')"
-                @pick="pickSuggestion"
-                @create="commitLabelInput"
-                @remove="removeFormLabel"
-                @open-change="onLabelPickerOpenChange"
-                @delete-label-definition="onDeleteLabelDefinition"
-              />
+          <section v-if="showPropRowLabels" class="prop-group prop-group--labels">
+            <div class="prop-label-row">
+              <Tag class="icon-14 prop-label-icon" aria-hidden="true" />
+              <div class="prop-label-control">
+                <div class="prop-row prop-row-labels">
+                  <TaskLabelCombobox
+                    ref="taskLabelComboboxRef"
+                    v-model="labelInput"
+                    :labels="formLabels"
+                    :project-id="effectiveProjectId"
+                    :disabled="mode !== 'edit' || !task"
+                    :task-id="task?.id ?? null"
+                    :placeholder="t('taskEditor.addLabel')"
+                    :ariaLabel="t('taskEditor.addLabel')"
+                    :remove-label-aria-label="t('taskEditor.removeLabel')"
+                    :delete-definition-aria-label="t('taskEditor.deleteProjectLabelDefinition')"
+                    :no-matches-text="t('boardView.noLabelsMatch')"
+                    @pick="pickSuggestion"
+                    @create="commitLabelInput"
+                    @remove="removeFormLabel"
+                    @open-change="onLabelPickerOpenChange"
+                    @delete-label-definition="onDeleteLabelDefinition"
+                  />
+                </div>
+              </div>
             </div>
           </section>
 
-          <section class="prop-group">
-            <h3 class="prop-group-title">{{ t('common.project') }}</h3>
-            <div class="prop-row prop-row--static">
-              <div class="prop-static-value" :aria-label="t('common.project')">
-                <Folder class="icon-14" aria-hidden="true" />
-                <span>{{ taskProjectName ?? t('taskEditor.noProject') }}</span>
-              </div>
-            </div>
-            <div v-if="mode === 'edit' && task?.completedAt" class="prop-row prop-row--date prop-row--readonly">
-              <span class="prop-row-name">{{ t('taskEditor.completedAt') }}</span>
-              <span class="read-only-value">{{ new Date(task.completedAt).toLocaleString() }}</span>
+          <section v-if="mode === 'edit' && task?.completedAt" class="prop-group prop-group--completed">
+            <div class="prop-completed-value">
+              <CalendarDays class="icon-14" aria-hidden="true" />
+              <span>{{ new Date(task.completedAt).toLocaleString() }}</span>
             </div>
           </section>
+        </div>
+      </div>
+
+      <div
+        v-if="shouldShowAgentPanel"
+        class="editor-agent"
+      >
+        <div
+          class="agent-status-panel"
+          :class="{ 'agent-status-panel--active': isAgentExecutionActive }"
+        >
+          <div class="linear-section-head linear-section-head--static">
+            <span class="linear-section-title">Pi 执行</span>
+            <span v-if="agentStatus?.jobStatus" class="agent-status-badge">{{ agentStatus.jobStatus }}</span>
+            <button
+              v-if="canStopAgent"
+              type="button"
+              class="agent-stop-button"
+              :disabled="agentCanceling"
+              :aria-busy="agentCanceling"
+              @click="cancelAgentExecution"
+            >
+              <Loader2 v-if="agentCanceling" class="icon-14 agent-stop-spinner" aria-hidden="true" />
+              <CircleX v-else class="icon-14" aria-hidden="true" />
+              {{ agentCanceling ? '停止中…' : '停止 Pi' }}
+            </button>
+          </div>
+          <div class="agent-status-copy">
+            会话：{{ agentStatus?.sessionStatus ?? '未创建' }}
+            <span v-if="agentStatus?.errorMessage"> · {{ agentStatus.errorMessage }}</span>
+          </div>
+          <div v-if="isAgentExecutionActive || agentEvents.length" class="agent-event-area" aria-live="polite">
+            <div v-if="agentEventsError" class="agent-events-copy agent-events-copy--error">{{ agentEventsError }}</div>
+            <ol v-else-if="agentEvents.length" ref="agentEventListRef" class="agent-event-list">
+              <li
+                v-for="event in renderedAgentEvents"
+                :key="`${event.jobId}:${event.sequenceNo}`"
+                :class="`agent-event-item agent-event-item--${event.eventType}`"
+              >
+                <div v-if="event.eventType === 'progress'" class="agent-event-assistant">
+                  <div
+                    class="agent-event-markdown markdown-body"
+                    v-html="renderMarkdown(formatAgentEventDetail(event))"
+                  />
+                  <time>{{ new Date(event.createdAt).toLocaleTimeString() }}</time>
+                </div>
+                <div v-else-if="event.eventType === 'tool_call'" class="agent-tool-call">
+                  <div class="agent-tool-heading" :class="{ 'agent-tool-heading--skill': agentEventSkillName(event) }">
+                    <span v-if="agentEventSkillName(event)"><strong>[skill]</strong> {{ agentEventSkillName(event) }}</span>
+                    <span v-else>调用 {{ agentToolLabel(event) }}</span>
+                    <time>{{ new Date(event.createdAt).toLocaleTimeString() }}</time>
+                  </div>
+                  <pre v-if="!agentEventSkillName(event)"><code>{{ agentToolCommand(event) }}</code></pre>
+                </div>
+                <details v-else-if="event.eventType === 'tool_result'" class="agent-tool-result">
+                  <summary>
+                    <span>{{ event.summary.startsWith('工具调用失败') ? '工具执行失败' : '工具执行完成' }} · {{ agentToolLabel(event) }}</span>
+                    <time>{{ new Date(event.createdAt).toLocaleTimeString() }}</time>
+                  </summary>
+                  <pre>{{ formatAgentEventDetail(event) }}</pre>
+                </details>
+                <div v-else class="agent-event-row">
+                  <span class="agent-event-summary">{{ event.summary }}</span>
+                  <time>{{ new Date(event.createdAt).toLocaleTimeString() }}</time>
+                </div>
+              </li>
+            </ol>
+            <div v-else class="agent-events-copy">
+              {{ agentEventConnected ? '等待 Pi 实时事件…' : '正在连接实时事件…' }}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -2133,6 +2371,49 @@ async function toggleDescriptionFullscreen() {
 }
 .editor-panel--inline .editor-props {
   overflow: visible;
+}
+/* 详情页各内容段共用同一条内容起始线，避免标题、附件和评论各自漂移。 */
+.editor-panel--inline .linear-section {
+  box-sizing: border-box;
+  padding-inline: var(--task-editor-content-inset);
+}
+.editor-panel--inline .linear-section + .linear-section {
+  margin-top: 0;
+}
+.editor-panel--inline .linear-section.subdued {
+  padding-top: 12px;
+}
+.editor-panel--inline .linear-section.task-properties-section {
+  padding-top: 4px;
+}
+.editor-panel--inline .task-attachments-section,
+.editor-panel--inline .task-sub-issues-section,
+.editor-panel--inline .task-comments-section,
+.editor-panel--inline .activity-section {
+  padding-top: 12px;
+}
+/* 无 Agent 执行内容时回到原来的详情节奏：属性留在右侧，正文段落不被横向属性行打断。 */
+.editor-panel--inline:not(.editor-panel--agent-layout) .linear-section {
+  padding-inline: 0;
+  padding-top: 18px;
+}
+.editor-panel--inline:not(.editor-panel--agent-layout) .linear-section + .linear-section {
+  margin-top: 4px;
+}
+.editor-panel--inline:not(.editor-panel--agent-layout) .linear-section.subdued {
+  padding-top: 18px;
+}
+.editor-panel--inline:not(.editor-panel--agent-layout) .content-section.description-section {
+  margin-top: 16px;
+}
+.editor-panel--inline:not(.editor-panel--agent-layout) .description-section__surface {
+  padding: 10px var(--task-editor-content-inset);
+}
+.editor-panel--inline:not(.editor-panel--agent-layout) .task-attachments-section,
+.editor-panel--inline:not(.editor-panel--agent-layout) .task-sub-issues-section,
+.editor-panel--inline:not(.editor-panel--agent-layout) .task-comments-section,
+.editor-panel--inline:not(.editor-panel--agent-layout) .activity-section {
+  order: 0;
 }
 .editor-header {
   min-height: var(--header-height);
@@ -2365,6 +2646,289 @@ async function toggleDescriptionFullscreen() {
   gap: 0;
   overflow-y: auto;
 }
+.task-properties-section {
+  order: 2;
+  margin-top: 0;
+  padding-top: 0;
+}
+.task-attachments-section { order: 1; }
+.task-sub-issues-section { order: 3; }
+.task-comments-section { order: 4; }
+.activity-section { order: 5; }
+.props-card--horizontal {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  max-width: none;
+}
+.prop-grid {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  overflow: visible;
+  background: var(--color-bg-base);
+}
+.prop-item {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 40px;
+  padding: 2px 4px;
+  border-right: none;
+}
+.prop-item:last-child {
+  border-right: none;
+}
+/* 前三个字段按控件内容收缩，避免固定列宽在字段之间制造空白。 */
+.prop-item--status,
+.prop-item--priority,
+.prop-item--assignee {
+  flex: 0 0 auto;
+  width: auto;
+  padding-inline: 0;
+}
+.prop-item--status :deep(.custom-select),
+.prop-item--priority :deep(.custom-select),
+.prop-item--assignee :deep(.assignee-select) {
+  width: auto;
+}
+.prop-item--status :deep(.custom-select-trigger),
+.prop-item--priority :deep(.custom-select-trigger),
+.prop-item--assignee :deep(.assignee-trigger) {
+  width: auto;
+  min-width: 0;
+}
+.prop-item--assignee :deep(.assignee-trigger) {
+  width: 28px;
+  padding-inline: 0;
+}
+.prop-date-group {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  width: auto;
+  gap: 6px;
+  min-width: 0;
+}
+.prop-date-group .prop-item {
+  flex: 0 0 auto;
+  width: auto;
+  padding-inline: 0;
+}
+.prop-date-group .prop-item > :deep(.custom-date-picker),
+.prop-date-group :deep(.custom-date-picker) {
+  width: auto;
+}
+.prop-date-group .prop-date-trigger {
+  width: auto;
+  justify-content: flex-start;
+  padding-inline: 4px;
+}
+.prop-item--progress {
+  flex: 1 1 auto;
+  min-width: 220px;
+  margin-left: 16px;
+}
+.prop-item > :deep(.custom-select),
+.prop-item > :deep(.assignee-select),
+.prop-item > :deep(.custom-date-picker) {
+  width: 100%;
+  min-width: 0;
+}
+.prop-item > :deep(.custom-select .prop-trigger),
+.prop-item > :deep(.assignee-trigger),
+.prop-date-trigger {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+}
+.props-card--horizontal :deep(.custom-select) {
+  width: 100%;
+  min-width: 0;
+}
+.props-card--horizontal :deep(.custom-select .prop-trigger),
+.props-card--horizontal :deep(.assignee-trigger),
+.props-card--horizontal :deep(.custom-date-picker) {
+  width: 100%;
+  min-width: 0;
+}
+.prop-grid > .prop-item--status :deep(.custom-select),
+.prop-grid > .prop-item--priority :deep(.custom-select) {
+  width: auto;
+}
+.prop-grid > .prop-item--status :deep(.custom-select .prop-trigger),
+.prop-grid > .prop-item--priority :deep(.custom-select .prop-trigger) {
+  width: auto;
+}
+.prop-grid > .prop-item--assignee :deep(.assignee-select),
+.prop-grid > .prop-item--assignee :deep(.assignee-trigger) {
+  width: 28px;
+}
+.prop-grid > .prop-item--assignee :deep(.assignee-trigger) {
+  padding-inline: 0;
+}
+.props-card--horizontal .prop-date-group :deep(.custom-date-picker) {
+  width: auto;
+}
+.props-card--horizontal :deep(.custom-select .prop-trigger) {
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  text-align: left;
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+.props-card--horizontal :deep(.custom-select .prop-trigger:hover),
+.props-card--horizontal :deep(.custom-select .prop-trigger:focus-visible),
+.props-card--horizontal :deep(.assignee-trigger:hover),
+.props-card--horizontal :deep(.assignee-trigger:focus-visible) {
+  border-color: var(--color-border);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.props-card--horizontal :deep(.prop-trigger .trigger-chevron) {
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+.props-card--horizontal :deep(.prop-trigger:hover .trigger-chevron),
+.props-card--horizontal :deep(.prop-trigger:focus-visible .trigger-chevron) {
+  opacity: 1;
+}
+.props-card--horizontal :deep(.prop-trigger--icon-only .trigger-chevron) {
+  display: none;
+}
+.props-card--horizontal :deep(.prop-trigger--icon-only) {
+  justify-content: flex-start;
+  gap: 8px;
+}
+.props-card--horizontal :deep(.prop-trigger--icon-only .trigger-label) {
+  display: block;
+}
+.props-card--horizontal :deep(.prop-trigger--icon-only .trigger-icon) {
+  color: var(--color-text-secondary);
+}
+.prop-item > :deep(.custom-select .prop-trigger:hover),
+.prop-item > :deep(.custom-select .prop-trigger:focus-visible),
+.prop-item > :deep(.assignee-trigger:hover),
+.prop-item > :deep(.assignee-trigger:focus-visible),
+.prop-date-trigger:hover,
+.prop-date-trigger:focus-visible {
+  border-color: var(--color-border);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.prop-item > :deep(.custom-select .prop-trigger--icon-only) {
+  justify-content: center;
+  gap: 0;
+  padding-inline: 4px;
+}
+.prop-item > :deep(.prop-trigger--icon-only .trigger-label),
+.prop-item > :deep(.prop-trigger--icon-only .trigger-chevron) {
+  display: none;
+}
+.prop-item > :deep(.prop-trigger--icon-only .trigger-icon) {
+  color: var(--color-text-secondary);
+}
+.prop-item > :deep(.assignee-select--avatar),
+.prop-item > :deep(.assignee-select--avatar .assignee-trigger) {
+  width: 100%;
+}
+.prop-item > :deep(.assignee-select--avatar .assignee-trigger) {
+  justify-content: center;
+  padding-inline: 4px;
+}
+.prop-date-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  font: inherit;
+  text-align: center;
+}
+.prop-date-trigger span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prop-item--progress {
+  min-width: 0;
+}
+.prop-item--progress .prop-progress-control {
+  width: 100%;
+}
+.prop-progress-icon {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+}
+.prop-group--labels {
+  width: 100%;
+}
+.prop-label-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 2px 4px;
+}
+.prop-label-icon {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+}
+.prop-label-control {
+  flex: 1;
+  min-width: 0;
+}
+.prop-label-control .prop-row-labels,
+.prop-label-control :deep(.task-label-combobox) {
+  width: 100%;
+}
+.prop-label-control :deep(.label-trigger-icon) {
+  display: none;
+}
+.prop-group--completed {
+  align-items: flex-end;
+}
+.prop-completed-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+.editor-agent {
+  box-sizing: border-box;
+  flex: 0 0 clamp(320px, 30vw, 420px);
+  min-width: 320px;
+  min-height: 0;
+  padding: 18px 20px 20px;
+  border-left: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-base);
+  overflow: hidden;
+}
+.editor-agent .agent-status-panel {
+  height: 100%;
+  margin: 0;
+}
+.editor-agent .agent-status-panel--active {
+  height: 100%;
+}
 .content-meta {
   display: flex;
   flex-wrap: wrap;
@@ -2398,7 +2962,7 @@ async function toggleDescriptionFullscreen() {
 }
 .content-section.description-section {
   position: relative;
-  margin-top: 16px;
+  margin-top: 10px;
   padding-top: 0;
   min-height: 0;
   flex-shrink: 0;
@@ -2419,7 +2983,7 @@ async function toggleDescriptionFullscreen() {
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: transparent;
-  padding: 10px var(--task-editor-content-inset);
+  padding: 4px var(--task-editor-content-inset) 6px;
   transition:
     border-color var(--transition-fast),
     background-color var(--transition-fast),
@@ -2491,12 +3055,12 @@ async function toggleDescriptionFullscreen() {
   background: var(--color-bg-hover);
 }
 .linear-section {
-  padding-top: 18px;
+  padding-top: 12px;
   border-top: none;
   flex-shrink: 0;
 }
 .linear-section + .linear-section {
-  margin-top: 4px;
+  margin-top: 0;
 }
 .linear-section-head-wrap {
   display: flex;
@@ -3102,7 +3666,7 @@ async function toggleDescriptionFullscreen() {
   color: var(--color-text-muted);
 }
 .subdued {
-  padding-top: 18px;
+  padding-top: 12px;
   border-top: none;
 }
 .title-input {
@@ -3141,6 +3705,11 @@ async function toggleDescriptionFullscreen() {
   border: none;
   border-radius: 0;
   background: transparent;
+}
+.props-card.props-card--horizontal {
+  gap: 6px;
+  width: 100%;
+  max-width: none;
 }
 .prop-group {
   display: flex;
@@ -3353,16 +3922,18 @@ async function toggleDescriptionFullscreen() {
 }
 
 .agent-status-panel {
-  margin: 0 0 12px;
-  padding: 10px 12px;
-  height: 280px;
+  margin: 0;
+  padding: 0;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--color-accent-muted) 38%, transparent);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+.agent-status-panel--active {
+  height: 420px;
 }
 .agent-status-panel .linear-section-head {
   padding: 0;
@@ -3429,20 +4000,115 @@ async function toggleDescriptionFullscreen() {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  display: grid;
-  gap: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   margin: 0;
-  padding: 8px 0 8px 18px;
+  padding: 12px 2px 12px 0;
   color: var(--color-text-secondary);
   font-size: var(--font-size-caption);
 }
 .agent-event-list li {
   display: block;
 }
+.agent-event-item--started,
+.agent-event-item--completed,
+.agent-event-item--failed {
+  padding: 0 2px;
+}
 .agent-event-row {
   display: flex;
   gap: 8px;
   justify-content: space-between;
+}
+.agent-event-assistant {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 2px;
+}
+.agent-event-markdown {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-body);
+  line-height: 1.6;
+}
+.agent-event-markdown :deep(p) {
+  margin: 0 0 8px;
+}
+.agent-event-markdown :deep(p:last-child),
+.agent-event-markdown :deep(ul:last-child),
+.agent-event-markdown :deep(ol:last-child) {
+  margin-bottom: 0;
+}
+.agent-event-markdown :deep(ul),
+.agent-event-markdown :deep(ol) {
+  margin: 6px 0 10px;
+  padding-left: 22px;
+}
+.agent-event-markdown :deep(li) {
+  display: list-item;
+  margin: 3px 0;
+}
+.agent-event-markdown :deep(strong) {
+  font-weight: var(--font-weight-semibold);
+}
+.agent-tool-call,
+.agent-tool-result {
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
+}
+.agent-tool-heading,
+.agent-tool-result summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+}
+.agent-tool-heading--skill {
+  color: var(--color-accent);
+  background: var(--color-accent-muted);
+}
+.agent-tool-heading--skill strong {
+  margin-right: 4px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-weight: var(--font-weight-semibold);
+}
+.agent-tool-result summary {
+  cursor: pointer;
+  list-style-position: inside;
+}
+.agent-tool-result summary:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.agent-tool-result summary:focus-visible {
+  outline: 2px solid var(--color-accent-muted-border);
+  outline-offset: -2px;
+}
+.agent-tool-call pre,
+.agent-tool-result pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-top: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-tool-result pre {
+  max-height: 280px;
 }
 .agent-event-summary {
   min-width: 0;
@@ -3452,24 +4118,6 @@ async function toggleDescriptionFullscreen() {
   flex: 0 0 auto;
   color: var(--color-text-tertiary);
   font-variant-numeric: tabular-nums;
-}
-.agent-event-details {
-  margin: 4px 0 0 18px;
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
-}
-.agent-event-details pre {
-  max-height: 120px;
-  margin: 4px 0 0;
-  padding: 6px 8px;
-  overflow: auto;
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--color-surface-raised) 72%, transparent);
-  color: var(--color-text-secondary);
-  font: inherit;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 @media (max-width: 1100px) {
@@ -3481,6 +4129,21 @@ async function toggleDescriptionFullscreen() {
 
   .editor-body {
     flex-direction: column;
+  }
+
+  .prop-grid {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .prop-item--progress {
+    margin-left: 0;
+  }
+
+  .editor-agent {
+    flex-basis: 420px;
+    border-top: 1px solid var(--color-border-subtle);
+    border-left: none;
   }
 
   .editor-props {
@@ -3497,12 +4160,44 @@ async function toggleDescriptionFullscreen() {
     max-width: none;
     gap: 24px 32px;
   }
+
+  .props-card--horizontal {
+    display: flex;
+    grid-template-columns: none;
+    gap: 6px;
+  }
 }
 
 @media (max-width: 680px) {
+  .prop-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .prop-item {
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .prop-item:nth-child(2n) {
+    border-right: none;
+  }
+
+  .prop-item:nth-last-child(-n + 2) {
+    border-bottom: none;
+  }
+
+  .editor-agent {
+    min-width: 0;
+    flex-basis: 360px;
+  }
+
   .props-card {
     display: flex;
     gap: 24px;
+  }
+
+  .props-card--horizontal {
+    gap: 6px;
   }
 }
 </style>

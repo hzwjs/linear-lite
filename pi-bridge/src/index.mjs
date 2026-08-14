@@ -1,15 +1,14 @@
-import { mkdir, access } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
-import { resolve, join, relative, isAbsolute } from 'node:path'
+import { resolve, join } from 'node:path'
 import { extractFinalAssistantText, toProgressEvent } from './event-stream.mjs'
 import { createConfigServer } from './config-server.mjs'
-import { ProjectConfigStore, validateProjectId } from './workspace-config.mjs'
+import { ProjectConfigStore } from './workspace-config.mjs'
 import { BridgeSettingsStore } from './bridge-settings.mjs'
 
 const config = {
   piBinary: process.env.PI_BINARY ?? 'pi',
-  workspaceRoot: resolve(process.env.PI_BRIDGE_WORKSPACE_ROOT ?? './.pi-workspaces'),
   sessionRoot: resolve(process.env.PI_BRIDGE_SESSION_ROOT ?? './.pi-sessions'),
   projectConfigFile: resolve(process.env.PI_BRIDGE_CONFIG_FILE ?? './.pi-bridge/projects.json'),
   settingsFile: resolve(process.env.PI_BRIDGE_SETTINGS_FILE ?? './.pi-bridge/settings.json'),
@@ -17,27 +16,91 @@ const config = {
   configPort: Number(process.env.PI_BRIDGE_CONFIG_PORT ?? 9780),
   pollMs: Number(process.env.PI_BRIDGE_POLL_MS ?? 2000),
   cancelPollMs: Number(process.env.PI_BRIDGE_CANCEL_POLL_MS ?? 2000),
+  apiTimeoutMs: Number(process.env.PI_BRIDGE_API_TIMEOUT_MS ?? 10000),
+  apiRetryDelayMs: Number(process.env.PI_BRIDGE_API_RETRY_DELAY_MS ?? 1000),
+  heartbeatMs: Number(process.env.PI_BRIDGE_HEARTBEAT_MS ?? 30000),
 }
 
 export const projectStore = new ProjectConfigStore(config.projectConfigFile)
 export const settingsStore = new BridgeSettingsStore(config.settingsFile)
 
-async function api(path, options = {}) {
-  const settings = await settingsStore.read()
-  if (!settings.agentToken) throw new Error('Bridge 尚未配置 Linear Lite 连接')
-  const response = await fetch(`${settings.apiBaseUrl}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Agent-Token': settings.agentToken,
-      ...(options.headers ?? {}),
-    },
-  })
-  const body = await response.json().catch(() => null)
-  if (!response.ok || body?.code >= 400) {
-    throw new Error(body?.message ?? `Linear Lite API ${response.status}`)
+const RETRYABLE_ERROR = Symbol('retryableBridgeError')
+
+function sleep(ms) {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
+}
+
+function retryableError(error) {
+  return Boolean(error?.[RETRYABLE_ERROR])
+}
+
+function markRetryable(error) {
+  error[RETRYABLE_ERROR] = true
+  return error
+}
+
+/**
+ * 所有出站请求都必须有超时；网络错误和 5xx 只重试当前请求，4xx 直接暴露配置或权限问题。
+ * 这样断网时 Bridge 保持执行上下文，网络恢复后原请求会自动继续，而不是把 Job 标记为失败。
+ */
+export function createApiClient({
+  settingsStore: store = settingsStore,
+  fetchImpl = globalThis.fetch,
+  requestTimeoutMs = config.apiTimeoutMs,
+  retryDelayMs = config.apiRetryDelayMs,
+  sleepImpl = sleep,
+} = {}) {
+  return async function api(path, options = {}) {
+    const settings = await store.read()
+    if (!settings.agentToken) throw new Error('Bridge 尚未配置 Linear Lite 连接')
+    let retryAttempt = 0
+    while (true) {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs)
+      try {
+        const response = await fetchImpl(`${settings.apiBaseUrl}${path}`, {
+          ...options,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Agent-Token': settings.agentToken,
+            ...(options.headers ?? {}),
+          },
+          signal: controller.signal,
+        })
+        const body = await response.json().catch(() => null)
+        if (!response.ok || body?.code >= 400) {
+          const error = new Error(body?.message ?? `Linear Lite API ${response.status}`)
+          if (response.status >= 500) markRetryable(error)
+          throw error
+        }
+        return body?.data
+      } catch (error) {
+        if (!retryableError(error)) {
+          if (error?.name === 'AbortError' || error instanceof TypeError) markRetryable(error)
+          else throw error
+        }
+        retryAttempt += 1
+        const delay = Math.min(retryDelayMs * (2 ** Math.min(retryAttempt - 1, 5)), 30000)
+        await sleepImpl(delay)
+      } finally {
+        clearTimeout(timeoutId)
+      }
+    }
   }
-  return body?.data
+}
+
+export const api = createApiClient()
+
+/** 串行上传队列在单批次失败后必须继续消费后续批次，避免一个断网请求永久毒化整条队列。 */
+export function createRecoveringSerialQueue() {
+  let tail = Promise.resolve()
+  return {
+    enqueue(operation) {
+      const result = tail.catch(() => {}).then(operation)
+      tail = result
+      return result
+    },
+  }
 }
 
 function safeSegment(value, label) {
@@ -47,43 +110,17 @@ function safeSegment(value, label) {
   return value
 }
 
-export async function ensureWorktree(job, { configStore = projectStore, workspaceRoot = config.workspaceRoot } = {}) {
-  // projectId 是任务到本地仓库的唯一稳定键，项目名称不参与路径或仓库解析。
-  const projectId = validateProjectId(job.projectId)
-  const repository = await configStore.resolveRepository(projectId)
-  const projectSegment = safeSegment(String(projectId), 'projectId')
-  const path = join(workspaceRoot, projectSegment, safeSegment(job.taskKey, 'taskKey'))
-  const rootRelative = relative(workspaceRoot, path)
-  if (rootRelative.startsWith('..') || isAbsolute(rootRelative)) throw new Error('worktree path escapes workspace root')
-  await mkdir(join(workspaceRoot, projectSegment), { recursive: true })
-  try {
-    await access(path)
-  } catch {
-    await runCommand('git', ['-C', repository, 'worktree', 'add', '--detach', path, 'HEAD'])
-    return path
-  }
-  const commonGitDir = await runCommand('git', [
-    '-C', path,
-    'rev-parse', '--path-format=absolute', '--git-common-dir',
-  ])
-  if (commonGitDir !== join(repository, '.git')) {
-    throw new Error(`任务 worktree 与 projectId 对应仓库不一致：${path}`)
-  }
-  return path
+export async function resolveTaskDirectory(job, { configStore = projectStore } = {}) {
+  // projectId 是任务到本地目录的唯一稳定键，Pi 直接在绑定目录中执行。
+  return configStore.resolveDirectory(job.projectId)
 }
 
-function runCommand(command, args) {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] })
-    let stderr = ''
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString() })
-    let stdout = ''
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString() })
-    child.on('error', reject)
-    child.on('close', (code) => code === 0
-      ? resolvePromise(stdout.trim())
-      : reject(new Error(stderr || `${command} exited ${code}`)))
-  })
+export function buildPiArgs(job, sessionDir) {
+  return [
+    '--mode', 'rpc',
+    '--session-dir', sessionDir,
+    '--session-id', safeSegment(job.executionId, 'executionId'),
+  ]
 }
 
 async function startPi(job, cwd) {
@@ -91,12 +128,8 @@ async function startPi(job, cwd) {
   await mkdir(sessionDir, { recursive: true })
   // 会话文件是 Bridge 的本地状态；Linear Lite 只传递不透明的 executionId。
   // 同一 executionId 的评论续接复用同一个 session-dir，不同任务使用不同 executionId。
-  const args = [
-    '--mode', 'rpc',
-    '--session-dir', sessionDir,
-    '--session-id', safeSegment(job.executionId, 'executionId'),
-    '--no-extensions', '--no-skills', '--no-context-files',
-  ]
+  // 不禁用用户的 skills、extensions 与上下文文件，确保 Bridge 与用户终端启动的是同一种 Pi。
+  const args = buildPiArgs(job, sessionDir)
   return spawn(config.piBinary, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] })
 }
 
@@ -127,10 +160,25 @@ function readRpc(child) {
     },
     waitFor(predicate, timeoutMs = 30000) {
       return new Promise((resolvePromise, reject) => {
-        const timer = setTimeout(() => { listeners.delete(listener); reject(new Error('Pi RPC response timeout')) }, timeoutMs)
-        const listener = (message) => {
-          if (predicate(message)) { clearTimeout(timer); listeners.delete(listener); resolvePromise(message) }
+        const timer = setTimeout(() => {
+          listeners.delete(listener)
+          child.removeListener('close', onClose)
+          reject(new Error('Pi RPC response timeout'))
+        }, timeoutMs)
+        const onClose = () => {
+          clearTimeout(timer)
+          listeners.delete(listener)
+          reject(new Error('Pi 子进程已退出'))
         }
+        const listener = (message) => {
+          if (predicate(message)) {
+            clearTimeout(timer)
+            listeners.delete(listener)
+            child.removeListener('close', onClose)
+            resolvePromise(message)
+          }
+        }
+        child.once('close', onClose)
         listeners.add(listener)
       })
     },
@@ -148,25 +196,40 @@ async function reportJobFailure(job, error) {
 export async function execute(job) {
   let cwd
   try {
-    cwd = await ensureWorktree(job)
+    cwd = await resolveTaskDirectory(job)
   } catch (error) {
-    // projectId 未配置或本地仓库失效时，必须把确定原因写回当前 Job。
+    // projectId 未配置或本地目录失效时，必须把确定原因写回当前 Job。
     await reportJobFailure(job, error)
     return
   }
   const child = await startPi(job, cwd)
   const rpc = readRpc(child)
+  let canceledByServer = false
+  let heartbeatInFlight = false
+  const renewLease = async () => {
+    if (heartbeatInFlight || canceledByServer) return
+    heartbeatInFlight = true
+    try {
+      await api(`/api/agent/jobs/${job.jobId}/heartbeat`, {
+        method: 'POST',
+        body: JSON.stringify({ executionId: job.executionId }),
+      })
+    } catch (error) {
+      console.error(`[pi-bridge] heartbeat failed: ${error.message}`)
+    } finally {
+      heartbeatInFlight = false
+    }
+  }
   const heartbeat = setInterval(() => {
-    api(`/api/agent/jobs/${job.jobId}/heartbeat`, {
-      method: 'POST',
-      body: JSON.stringify({ executionId: job.executionId }),
-    }).catch(() => {})
-  }, 60_000)
+    void renewLease()
+  }, config.heartbeatMs)
+  // 领取成功后立即续租，给初始化 Pi 和断网恢复留出完整租约窗口。
+  void renewLease()
   let stderr = ''
   let progressTimer = null
   let progressSequence = 1
   let pendingProgress = []
-  let progressFlush = Promise.resolve()
+  const progressQueue = createRecoveringSerialQueue()
 
   const flushProgress = () => {
     if (progressTimer != null) {
@@ -175,13 +238,12 @@ export async function execute(job) {
     }
     const batch = pendingProgress
     pendingProgress = []
-    if (!batch.length) return progressFlush
+    if (!batch.length) return Promise.resolve()
     // 进度批次串行发送，保证服务端收到的 sequence_no 与 Pi 事件顺序一致。
-    progressFlush = progressFlush.then(() => api(`/api/agent/jobs/${job.jobId}/events`, {
+    return progressQueue.enqueue(() => api(`/api/agent/jobs/${job.jobId}/events`, {
       method: 'POST',
       body: JSON.stringify({ executionId: job.executionId, events: batch }),
     }))
-    return progressFlush
   }
 
   const queueProgress = (event) => {
@@ -206,7 +268,6 @@ export async function execute(job) {
     const event = toProgressEvent(message)
     if (event) queueProgress(event)
   })
-  let canceledByServer = false
   let cancelReject
   let cancelCheckInFlight = false
   const cancellation = new Promise((_, reject) => { cancelReject = reject })
@@ -288,7 +349,6 @@ export async function main() {
 }
 
 export async function startBridge() {
-  await mkdir(config.workspaceRoot, { recursive: true })
   await mkdir(config.sessionRoot, { recursive: true })
   let pollingStarted = false
   const startPolling = () => {

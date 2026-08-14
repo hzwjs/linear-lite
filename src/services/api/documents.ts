@@ -103,6 +103,10 @@ export const documentApi = {
     return (await requestDocumentAttachment(documentId, attachmentId)).blob
   },
 
+  async deleteAttachment(documentId: number, attachmentId: number): Promise<void> {
+    await api.delete(`/project-documents/${documentId}/attachments/${attachmentId}`)
+  },
+
   async downloadAttachment(documentId: number, attachmentId: number): Promise<void> {
     const response = await requestDocumentAttachment(documentId, attachmentId)
     // 服务端以 filename* 输出 UTF-8 文件名；缺失时必须中止，避免静默生成错误文件名。
@@ -119,7 +123,7 @@ export const documentApi = {
 
   update(
     documentId: number,
-    body: { expectedVersion: number; title: string; content: string }
+    body: { expectedVersion: number; title: string; content: string; createRevision: boolean }
   ): Promise<ProjectDocument> {
     return api
       .put<ApiResponse<ProjectDocument>>(`/project-documents/${documentId}`, body)

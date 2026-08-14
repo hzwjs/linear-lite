@@ -143,7 +143,7 @@ class ProjectDocumentCommandServiceTest {
         when(documentMapper.selectById(11L)).thenReturn(document(11L, 3L, null, 2L, 0));
 
         assertThrows(IllegalArgumentException.class, () -> service.update(
-                11L, new UpdateProjectDocumentRequest(2L, "标题", "{}"), 7L));
+                11L, new UpdateProjectDocumentRequest(2L, "标题", "{}", false), 7L));
 
         verify(documentMapper, never()).updateContentIfVersionMatches(any(), any(), any(), any(), any());
     }
@@ -153,13 +153,69 @@ class ProjectDocumentCommandServiceTest {
         ProjectDocument initial = document(11L, 3L, null, 2L, 0);
         ProjectDocument concurrent = document(11L, 3L, null, 3L, 0);
         when(documentMapper.selectById(11L)).thenReturn(initial, concurrent);
-        when(documentMapper.updateContentIfVersionMatches(11L, 2L, "标题", "[]", 7L)).thenReturn(0);
+        when(documentMapper.updateContentIfVersionMatches(11L, 2L, "新标题", "[]", 7L)).thenReturn(0);
 
         DocumentVersionConflictException error = assertThrows(DocumentVersionConflictException.class, () ->
-                service.update(11L, new UpdateProjectDocumentRequest(2L, "标题", "[]"), 7L));
+                service.update(11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]", false), 7L));
 
         assertEquals(3L, error.getCurrentVersion());
         verify(revisionMapper, never()).insert(any());
+    }
+
+    @Test
+    void updateAutosaveChangesCurrentDocumentWithoutCreatingRevision() {
+        ProjectDocument initial = document(11L, 3L, null, 2L, 0);
+        ProjectDocument saved = document(11L, 3L, null, 3L, 0);
+        saved.setTitle("新标题");
+        when(documentMapper.selectById(11L)).thenReturn(initial, saved);
+        when(documentMapper.updateContentIfVersionMatches(11L, 2L, "新标题", "[]", 7L)).thenReturn(1);
+
+        ProjectDocumentResponse response = service.update(
+                11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]", false), 7L);
+
+        assertEquals(3L, response.version());
+        verify(revisionMapper, never()).insert(any());
+        verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
+                ProjectContentType.DOCUMENT, 11L));
+    }
+
+    @Test
+    void updateCheckpointCreatesRevision() {
+        ProjectDocument initial = document(11L, 3L, null, 2L, 0);
+        ProjectDocument saved = document(11L, 3L, null, 3L, 0);
+        saved.setTitle("新标题");
+        when(documentMapper.selectById(11L)).thenReturn(initial, saved);
+        when(documentMapper.updateContentIfVersionMatches(11L, 2L, "新标题", "[]", 7L)).thenReturn(1);
+
+        service.update(11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]", true), 7L);
+
+        verify(revisionMapper).insert(any(ProjectDocumentRevision.class));
+    }
+
+    @Test
+    void updateSkipsUnchangedContentAndVersion() {
+        ProjectDocument current = document(11L, 3L, null, 2L, 0);
+        when(documentMapper.selectById(11L)).thenReturn(current);
+
+        ProjectDocumentResponse response = service.update(
+                11L, new UpdateProjectDocumentRequest(2L, "标题", "[]", false), 7L);
+
+        assertEquals(2L, response.version());
+        verify(documentMapper, never()).updateContentIfVersionMatches(any(), any(), any(), any(), any());
+        verify(revisionMapper, never()).insert(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void unchangedCheckpointCreatesRevisionForAnAutosavedCurrentVersion() {
+        ProjectDocument current = document(11L, 3L, null, 2L, 0);
+        when(documentMapper.selectById(11L)).thenReturn(current);
+        when(revisionMapper.selectOne(any())).thenReturn(null);
+
+        service.update(11L, new UpdateProjectDocumentRequest(2L, "标题", "[]", true), 7L);
+
+        verify(revisionMapper).insert(any(ProjectDocumentRevision.class));
+        verify(documentMapper, never()).updateContentIfVersionMatches(any(), any(), any(), any(), any());
     }
 
     @Test

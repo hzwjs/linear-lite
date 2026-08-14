@@ -133,11 +133,14 @@ public class AgentTaskOrchestrationService {
         job.setLeaseUntil(leaseUntil);
         job.setStartedAt(LocalDateTime.now());
         jobMapper.updateById(job);
+        // 任务描述就是 Pi 的唯一执行输入；Bridge 自行处理状态回报，不能把编排约定混入用户提示词。
         String prompt = "comment".equals(job.getSourceType())
                 ? job.getPrompt()
-                : "请处理任务 " + task.getTaskKey() + "：" + task.getTitle()
-                + "\n任务描述：\n" + (task.getDescription() == null ? "" : task.getDescription())
-                + "\n完成后请通过 Linear Lite Agent 接口回报结果，不要自动将任务标记为 done。";
+                : task.getDescription();
+        if (prompt == null || prompt.isBlank()) {
+            throw new ConflictOperationException("分配给 Pi 的任务必须填写任务描述");
+        }
+        prompt = prompt.trim();
         // 领取响应只携带项目身份，Bridge 根据 projectId 在本地完成仓库映射；sessionId 不承载路径语义。
         return new AgentJobClaimResponse(job.getId(), session.getExecutionId(), session.getId(),
                 project.getId(), project.getName(), task.getTaskKey(), task.getTitle(), task.getDescription(),
@@ -244,12 +247,12 @@ public class AgentTaskOrchestrationService {
                     .orderByDesc(AgentTaskSession::getCreatedAt)
                     .last("LIMIT 1"));
         }
-        if (session == null) return new AgentTaskStatusResponse(null, null, null, null, null, null);
+        if (session == null) return new AgentTaskStatusResponse(null, null, null, null, null, null, null);
         AgentTaskJob job = jobMapper.selectOne(new LambdaQueryWrapper<AgentTaskJob>()
                 .eq(AgentTaskJob::getSessionId, session.getId())
-                .orderByDesc(AgentTaskJob::getCreatedAt)
+                .orderByDesc(AgentTaskJob::getCreatedAt, AgentTaskJob::getId)
                 .last("LIMIT 1"));
-        return new AgentTaskStatusResponse(session.getExecutionId(), session.getStatus(),
+        return new AgentTaskStatusResponse(session.getExecutionId(), job == null ? null : job.getId(), session.getStatus(),
                 job == null ? null : job.getStatus(), job == null ? null : job.getSourceType(),
                 job == null ? null : job.getErrorMessage(), session.getUpdatedAt());
     }
@@ -258,7 +261,7 @@ public class AgentTaskOrchestrationService {
     public AgentTaskStatusResponse getAgentJobStatus(Long agentUserId, Long jobId, String executionId) {
         AgentTaskJob job = requireAgentJob(agentUserId, jobId, executionId);
         AgentTaskSession session = sessionMapper.selectById(job.getSessionId());
-        return new AgentTaskStatusResponse(session.getExecutionId(), session.getStatus(), job.getStatus(),
+        return new AgentTaskStatusResponse(session.getExecutionId(), job.getId(), session.getStatus(), job.getStatus(),
                 job.getSourceType(), job.getErrorMessage(), session.getUpdatedAt());
     }
 

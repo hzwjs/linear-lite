@@ -250,8 +250,9 @@ const en = {
     saveFailedTitle: 'Changes could not be saved', saveFailedDescription: 'Your draft remains open. Retry when the connection is available.',
     titleRequired: 'Document title is required', titleRequiredDescription: 'Enter a document title before saving again.',
     mentionMembersGroup: 'Members', mentionDocumentsGroup: 'Documents', mentionNoMatches: 'No members or documents match.',
-    attachmentUploading: 'Uploading attachment {name}…', attachmentUploadFailed: 'Uploading {name} failed',
+    attachmentUploading: 'Uploading attachment {name}…', attachmentUploadFailed: 'Uploading {name} failed', deleteAttachment: 'Delete attachment',
     attachmentDocumentMismatch: 'This attachment does not belong to the current document. The download was blocked.',
+    imageLoading: 'Loading image…', imageLoadFailed: 'Image failed to load',
     mobile: { title: 'Project document', readonly: 'Read only', back: 'Back', loading: 'Loading document…', loadFailed: 'Document could not be loaded', projectMismatch: 'This document does not belong to the current project.', bodyLabel: 'Document content' },
     saveState: { idle: 'Not edited', dirty: 'Unsaved changes', saving: 'Saving…', saved: 'Saved', conflict: 'Save conflict', invalid: 'Title required', failed: 'Save failed' }
   },

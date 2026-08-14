@@ -130,13 +130,17 @@ function insertMention(userId: string, label: string) {
   editorApi.value?.insertMention(userId, label)
 }
 
+function removeAttachmentLink(href: string): boolean {
+  return editorApi.value?.removeAttachmentLink(href) ?? false
+}
+
 function handleSurfaceClick() {
   // Suppress if user just finished a drag-select
   if (window.getSelection()?.toString()) return
   focusAppend()
 }
 
-defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention })
+defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmentLink })
 </script>
 
 <template>

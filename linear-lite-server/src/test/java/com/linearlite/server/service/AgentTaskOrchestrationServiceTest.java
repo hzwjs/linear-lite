@@ -2,6 +2,7 @@ package com.linearlite.server.service;
 
 import com.linearlite.server.dto.AgentJobClaimResponse;
 import com.linearlite.server.dto.AgentSessionStateRequest;
+import com.linearlite.server.dto.AgentTaskStatusResponse;
 import com.linearlite.server.entity.AgentTaskJob;
 import com.linearlite.server.entity.AgentTaskSession;
 import com.linearlite.server.entity.Project;
@@ -109,6 +110,7 @@ class AgentTaskOrchestrationServiceTest {
         task.setTaskKey("LINEAR-LITE-84");
         task.setProjectId(30L);
         task.setTitle("按项目身份领取任务");
+        task.setDescription("查询广州明天的天气");
         task.setAssigneeId(7L);
 
         Project project = new Project();
@@ -125,7 +127,34 @@ class AgentTaskOrchestrationServiceTest {
         assertEquals(20L, response.sessionId());
         assertEquals(30L, response.projectId());
         assertEquals("Linear Lite", response.projectName());
+        assertEquals("查询广州明天的天气", response.prompt());
         verify(jobMapper).updateById(job);
+    }
+
+    @Test
+    void taskStatusIdentifiesTheLatestCommentJobWithinTheSameExecution() {
+        Task task = new Task();
+        task.setId(10L);
+        when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-96", 7L)).thenReturn(task);
+        AgentTaskSession session = new AgentTaskSession();
+        session.setId(20L);
+        session.setTaskId(10L);
+        session.setExecutionId("exec-1");
+        session.setStatus("active");
+        when(sessionMapper.selectOne(any())).thenReturn(session);
+        AgentTaskJob commentJob = new AgentTaskJob();
+        commentJob.setId(22L);
+        commentJob.setSessionId(20L);
+        commentJob.setStatus("queued");
+        commentJob.setSourceType("comment");
+        when(jobMapper.selectOne(any())).thenReturn(commentJob);
+
+        AgentTaskStatusResponse status = service.getTaskStatus("LINEAR-LITE-96", 7L);
+
+        assertEquals("exec-1", status.executionId());
+        assertEquals(22L, status.jobId());
+        assertEquals("comment", status.sourceType());
+        assertEquals("queued", status.jobStatus());
     }
 
     @Test

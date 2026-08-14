@@ -24,9 +24,10 @@ public class TaskAgentEventController {
     public SseEmitter stream(
             HttpServletRequest request,
             @PathVariable String taskKey,
-            @RequestParam String executionId) {
+            @RequestParam String executionId,
+            @RequestParam Long jobId) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
-        SseEmitter emitter = eventService.stream(taskKey, userId, executionId);
+        SseEmitter emitter = eventService.stream(taskKey, userId, executionId, jobId);
         try {
             emitter.send(SseEmitter.event().name("ready").data("connected"));
         } catch (java.io.IOException error) {

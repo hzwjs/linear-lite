@@ -70,6 +70,14 @@ describe('document attachment download', () => {
     })
   })
 
+  it('deletes an attachment through the current document resource', async () => {
+    vi.mocked(api.delete).mockResolvedValue({} as any)
+
+    await expect(documentApi.deleteAttachment(12, 34)).resolves.toBeUndefined()
+
+    expect(api.delete).toHaveBeenCalledWith('/project-documents/12/attachments/34')
+  })
+
   it('fails before creating a download when Content-Disposition has no UTF-8 filename', async () => {
     vi.mocked(api.get).mockResolvedValue({
       data: new Blob(['document']),

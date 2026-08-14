@@ -106,13 +106,26 @@ public class ProjectDocumentCommandService {
         }
         String title = requireTitle(request.title());
         String content = requireBlockNoteJson(request.content());
+        if (!Objects.equals(current.getVersion(), request.expectedVersion())) {
+            throwVersionConflict(documentId);
+        }
+        if (Objects.equals(current.getTitle(), title) && Objects.equals(current.getContentJson(), content)) {
+            if (request.createRevision() && revisionMapper.selectOne(new LambdaQueryWrapper<ProjectDocumentRevision>()
+                    .eq(ProjectDocumentRevision::getDocumentId, documentId)
+                    .eq(ProjectDocumentRevision::getVersion, current.getVersion())) == null) {
+                insertRevision(current, userId);
+            }
+            return toResponse(current, userId);
+        }
         int updated = documentMapper.updateContentIfVersionMatches(
                 documentId, request.expectedVersion(), title, content, userId);
         if (updated != 1) {
             throwVersionConflict(documentId);
         }
         ProjectDocument saved = requireDocument(documentId);
-        insertRevision(saved, userId);
+        if (request.createRevision()) {
+            insertRevision(saved, userId);
+        }
         publishUpsert(saved.getId());
         return toResponse(saved, userId);
     }

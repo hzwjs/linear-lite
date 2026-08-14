@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { formatUploadFeedback } from './BlockNoteEditorReact'
+import { formatUploadFeedback, isPastedImageFile } from './BlockNoteEditorReact'
 import blockNoteReactSource from './BlockNoteEditorReact.tsx?raw'
 
 describe('document attachment upload feedback', () => {
+  it('routes pasted image files to image blocks instead of attachment links', () => {
+    expect(isPastedImageFile(new File(['png'], 'diagram.png', { type: 'image/png' }))).toBe(true)
+    expect(isPastedImageFile(new File(['pdf'], 'guide.pdf', { type: 'application/pdf' }))).toBe(false)
+    expect(blockNoteReactSource).toMatch(
+      /const inserted = isPastedImageFile\(file\)\s+\?[\s\S]+type: 'image',\s+props: \{ name: file\.name, url \}/
+    )
+  })
+
   it('replaces the {name} placeholder with the file name', () => {
     expect(formatUploadFeedback('正在上传附件 {name}…', 'guide.pdf', 'fallback')).toBe(
       '正在上传附件 guide.pdf…'

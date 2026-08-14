@@ -3,6 +3,7 @@ const TOOL_EVENT_LABELS = {
   tool_execution_end: '工具调用完成',
 }
 const MAX_DETAIL_LENGTH = 6000
+const MAX_SUMMARY_DETAIL_LENGTH = 180
 
 function toolName(message) {
   return typeof message.toolName === 'string' && message.toolName.trim()
@@ -20,17 +21,44 @@ function compactValue(value) {
   if (value === undefined) return null
   const text = jsonText(value)
   if (text.length <= MAX_DETAIL_LENGTH) return value
-  return `${text.slice(0, MAX_DETAIL_LENGTH)}\n…详情已截断`
+  // 大型工具结果按终端可读文本截断，不能退化成带转义符的 JSON 字符串。
+  return `${readableValue(value).slice(0, MAX_DETAIL_LENGTH)}\n…详情已截断`
+}
+
+function readableValue(value) {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Array.isArray(value.content) &&
+    value.content.every((item) => item && item.type === 'text' && typeof item.text === 'string')
+  ) {
+    return value.content.map((item) => item.text).join('\n')
+  }
+  if (Array.isArray(value)) {
+    const textItems = value.filter((item) => item && item.type === 'text' && typeof item.text === 'string')
+    if (textItems.length === value.length) return textItems.map((item) => item.text).join('\n')
+    return value.map((item, index) => `${index + 1}. ${readableValue(item)}`).join('\n')
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value)
+      .map(([key, item]) => {
+        const detail = readableValue(item)
+        return detail ? `${key}: ${detail}` : `${key}:`
+      })
+      .join('\n')
+  }
+  return String(value)
 }
 
 function detailPreview(value) {
-  return jsonText(value).replace(/\s+/g, ' ').trim().slice(0, 180)
+  return readableValue(value).replace(/\s+/g, ' ').trim().slice(0, MAX_SUMMARY_DETAIL_LENGTH)
 }
 
 function toolInputSummary(args) {
-  if (args && typeof args.command === 'string' && args.command.trim()) {
-    return `命令：${args.command.trim().slice(0, 180)}`
-  }
   const preview = detailPreview(args)
   return preview ? `参数：${preview}` : ''
 }
@@ -56,20 +84,13 @@ export function extractFinalAssistantText(agentEnd) {
   return ''
 }
 
-/** 将 Pi 生命周期事件转换为可展示的结构化进度，只暴露工具参数和结果，不暴露 assistant 内部过程文本。 */
+/** 将 Pi 终端保留的完整消息与工具结果转换为 SSE，跳过 token 增量和工具中间刷新。 */
 export function toProgressEvent(message) {
   if (!message || typeof message.type !== 'string') return null
   if (message.type === 'agent_start') {
     return { eventType: 'started', summary: 'Pi 已开始处理任务', payload: {} }
   }
-  if (message.type === 'turn_start') {
-    return {
-      eventType: 'progress',
-      summary: `开始第 ${Number(message.turnIndex ?? 0) + 1} 轮处理`,
-      payload: { turnIndex: message.turnIndex },
-    }
-  }
-  if (message.type === 'message_update' && message.message?.role === 'assistant') {
+  if (message.type === 'message_end' && message.message?.role === 'assistant') {
     const text = textFromMessage(message.message)
     if (!text) return null
     return {
@@ -80,6 +101,9 @@ export function toProgressEvent(message) {
         content: compactValue(text),
       },
     }
+  }
+  if (message.type === 'agent_end' && message.willRetry !== true) {
+    return { eventType: 'completed', summary: 'Pi 执行完成', payload: {} }
   }
   if (message.type === 'tool_execution_start' || message.type === 'tool_execution_end') {
     const name = toolName(message)
@@ -98,19 +122,6 @@ export function toProgressEvent(message) {
         ...(message.type === 'tool_execution_start'
           ? { args: compactValue(message.args) }
           : { result: compactValue(message.result), isError: message.isError === true }),
-      },
-    }
-  }
-  if (message.type === 'tool_execution_update') {
-    const name = toolName(message)
-    const detail = detailPreview(message.partialResult)
-    return {
-      eventType: 'progress',
-      summary: `工具输出：${name}${detail ? ` · ${detail}` : ''}`,
-      payload: {
-        toolName: name,
-        toolCallId: typeof message.toolCallId === 'string' ? message.toolCallId : null,
-        partialResult: compactValue(message.partialResult),
       },
     }
   }

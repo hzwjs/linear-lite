@@ -71,7 +71,7 @@ const CONFIG_PAGE = `<!doctype html>
     <header>
       <div class="eyebrow">Pi Bridge / Local setup</div>
       <h1>Pi Bridge 配置</h1>
-      <p>完成两步配置：先连接 Linear Lite，再把已配置 Pi 的项目绑定到本地 Git 仓库。</p>
+      <p>完成两步配置：先连接 Linear Lite，再把已配置 Pi 的项目绑定到本地目录。</p>
     </header>
     <section class="panel">
       <div class="section-heading">
@@ -88,7 +88,7 @@ const CONFIG_PAGE = `<!doctype html>
     </section>
     <section class="panel" id="mapping-panel">
       <div class="section-heading">
-        <div><div class="step">Step 2</div><h2>绑定项目仓库</h2><p>每个 Linear Lite 项目绑定一个本地 Git 仓库，任务会在该仓库创建独立 worktree。</p></div>
+        <div><div class="step">Step 2</div><h2>绑定项目目录</h2><p>每个 Linear Lite 项目绑定一个本地目录，Pi 会直接在该目录中执行任务。</p></div>
         <button class="secondary" id="new-mapping" type="button">添加项目绑定</button>
       </div>
       <div id="mapping-area" class="mapping-area" aria-disabled="true">
@@ -97,7 +97,7 @@ const CONFIG_PAGE = `<!doctype html>
           <p class="editor-hint">只显示已在 Linear Lite 中配置 Pi 的项目。</p>
           <form id="mapping-form" class="mapping-form">
             <label>Linear Lite 项目<select name="projectId" required><option value="">请先连接 Linear Lite</option></select></label>
-            <label>本地 Git 仓库绝对路径<input name="repositoryPath" required placeholder="例如 /Users/me/code/linear-lite"></label>
+            <label>本地目录绝对路径<input name="directoryPath" required placeholder="例如 /Users/me/code/linear-lite"></label>
             <div class="editor-actions"><button type="submit">保存绑定</button><button id="cancel-mapping" class="text" type="button">取消</button></div>
           </form>
           <div id="message" role="status" aria-live="polite"></div>
@@ -117,7 +117,7 @@ const CONFIG_PAGE = `<!doctype html>
     const newMappingButton = document.querySelector('#new-mapping')
     const cancelMappingButton = document.querySelector('#cancel-mapping')
     const projectSelect = form.querySelector('[name="projectId"]')
-    const repositoryInput = form.elements.repositoryPath
+    const directoryInput = form.elements.directoryPath
     const editorTitle = document.querySelector('#editor-title')
     const message = document.querySelector('#message')
     const connectionBadge = document.querySelector('#connection-badge')
@@ -160,8 +160,8 @@ const CONFIG_PAGE = `<!doctype html>
         const row = node('div', '', 'mapping')
         const key = node('div', item.projectName, 'key')
         const details = node('div')
-        details.append(node('div', item.repositoryPath, 'path'))
-        details.append(node('div', item.valid ? 'Git 仓库可用' : item.error, item.valid ? 'status' : 'status invalid'))
+        details.append(node('div', item.directoryPath, 'path'))
+        details.append(node('div', item.valid ? '本地目录可用' : item.error, item.valid ? 'status' : 'status invalid'))
         const actions = node('div')
         const edit = document.createElement('button')
         edit.type = 'button'; edit.className = 'text'; edit.textContent = '编辑'
@@ -169,10 +169,10 @@ const CONFIG_PAGE = `<!doctype html>
           state.editingProjectId = item.projectId
           mappingEditor.hidden = false
           editorTitle.textContent = '编辑项目绑定'
-          repositoryInput.value = item.repositoryPath
+          directoryInput.value = item.directoryPath
           newMappingButton.textContent = '取消编辑'
           renderProjectOptions()
-          repositoryInput.focus()
+          directoryInput.focus()
         })
         const remove = document.createElement('button')
         remove.type = 'button'; remove.className = 'text'; remove.textContent = '移除'
@@ -251,13 +251,13 @@ const CONFIG_PAGE = `<!doctype html>
       if (!state.settingsConfigured) { showMessage('请先完成 Step 1，连接 Linear Lite。', true); return }
       const submitButton = form.querySelector('button[type="submit"]')
       submitButton.disabled = true
-      showMessage('正在校验 Git 仓库…')
+      showMessage('正在校验本地目录…')
       const data = new FormData(form)
       const projectId = data.get('projectId').trim()
       const project = state.availableProjects.find((item) => String(item.projectId) === projectId)
-      const repositoryPath = data.get('repositoryPath').trim()
+      const directoryPath = data.get('directoryPath').trim()
       try {
-        const response = await fetch('/api/projects/' + encodeURIComponent(projectId), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectName: project?.projectName, repositoryPath }) })
+        const response = await fetch('/api/projects/' + encodeURIComponent(projectId), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectName: project?.projectName, directoryPath }) })
         const body = await response.json()
         if (!response.ok) throw new Error(body.message || '保存绑定失败')
         state.editingProjectId = null
@@ -288,7 +288,12 @@ function sendJson(response, status, body, request) {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
   }
-  if (origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+  // Pi 选择器运行在 Linear Lite 页面中；只允许本机开发来源和当前部署来源访问健康检查。
+  const allowedOrigins = new Set([
+    'http://124.223.84.101:9080',
+    ...(process.env.PI_BRIDGE_ALLOWED_ORIGIN ? [process.env.PI_BRIDGE_ALLOWED_ORIGIN] : []),
+  ])
+  if (origin && (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) || allowedOrigins.has(origin))) {
     headers['Access-Control-Allow-Origin'] = origin
     headers.Vary = 'Origin'
   }
@@ -349,7 +354,7 @@ export function createConfigServer({ store, settingsStore, projectProvider, onSe
         const projectId = decodeURIComponent(match[1])
         let body
         try { body = JSON.parse(await readBody(request) || '{}') } catch { throw new Error('请求体不是有效 JSON') }
-        const saved = await store.save(projectId, body.projectName, body.repositoryPath)
+        const saved = await store.save(projectId, body.projectName, body.directoryPath)
         sendJson(response, 200, saved)
         return
       }

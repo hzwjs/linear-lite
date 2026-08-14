@@ -5,14 +5,17 @@ import DocumentEditor from './DocumentEditor.vue'
 import { documentApi } from '../../services/api/documents'
 
 vi.mock('../../services/api/documents', () => ({
-  documentApi: { downloadAttachment: vi.fn(), getAttachmentBlob: vi.fn(), uploadAttachment: vi.fn() }
+  documentApi: { deleteAttachment: vi.fn(), downloadAttachment: vi.fn(), getAttachmentBlob: vi.fn(), uploadAttachment: vi.fn() }
 }))
+
+const removeAttachmentLink = vi.fn()
 
 vi.mock('../StructuredDocumentEditor.vue', () => ({
   default: defineComponent({
     name: 'StructuredDocumentEditorStub',
     props: { documentId: { type: Number, required: true }, uploadFile: { type: Function, required: false } },
-    setup(props) {
+    setup(props, { expose }) {
+      expose({ removeAttachmentLink })
       const showImage = ref(false)
       onMounted(async () => {
         await nextTick()
@@ -74,7 +77,7 @@ function renderEditor() {
     legacy: false,
     locale: 'en',
     messages: { en: {
-      attachments: { downloadFailed: 'Download failed' },
+      attachments: { deleteFailed: 'Delete failed', downloadFailed: 'Download failed' },
       documents: { attachmentDocumentMismatch: 'Wrong document' }
     } },
     missingWarn: false,
@@ -85,8 +88,10 @@ function renderEditor() {
 }
 
 beforeEach(() => {
+  vi.mocked(documentApi.deleteAttachment).mockResolvedValue()
   vi.mocked(documentApi.getAttachmentBlob).mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
   vi.mocked(documentApi.uploadAttachment).mockResolvedValue({ url: '/api/project-documents/12/attachments/37/download' })
+  removeAttachmentLink.mockReturnValue(true)
   Object.defineProperty(URL, 'createObjectURL', {
     configurable: true,
     value: vi.fn(() => 'blob:authenticated-image')
@@ -98,13 +103,47 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.mocked(documentApi.deleteAttachment).mockReset()
   vi.mocked(documentApi.downloadAttachment).mockReset()
   vi.mocked(documentApi.getAttachmentBlob).mockReset()
+  removeAttachmentLink.mockReset()
   vi.restoreAllMocks()
   document.body.replaceChildren()
 })
 
 describe('DocumentEditor attachment links', () => {
+  it('deletes an attachment from the card without requiring text-block editing', async () => {
+    const view = renderEditor()
+    await nextTick()
+    await nextTick()
+
+    const deleteButton = view.host.querySelector<HTMLButtonElement>('.document-attachment-delete')
+    expect(deleteButton).not.toBeNull()
+    deleteButton?.click()
+    await nextTick()
+    await nextTick()
+
+    expect(documentApi.deleteAttachment).toHaveBeenCalledWith(12, 34)
+    expect(removeAttachmentLink).toHaveBeenCalledWith('/api/project-documents/12/attachments/34/download')
+    view.app.unmount()
+  })
+
+  it('keeps the attachment available and reports a delete failure', async () => {
+    vi.mocked(documentApi.deleteAttachment).mockRejectedValueOnce(new Error('network'))
+    const view = renderEditor()
+    await nextTick()
+    await nextTick()
+
+    view.host.querySelector<HTMLButtonElement>('.document-attachment-delete')?.click()
+    await nextTick()
+    await nextTick()
+
+    expect(view.host.textContent).toContain('Delete failed')
+    expect(view.host.querySelector('.document-attachment-delete')).not.toBeNull()
+    expect(removeAttachmentLink).not.toHaveBeenCalled()
+    view.app.unmount()
+  })
+
   it('does not mutate editor-owned attachment link attributes during hydration', async () => {
     const view = renderEditor()
     await nextTick()
@@ -129,6 +168,32 @@ describe('DocumentEditor attachment links', () => {
 
     view.app.unmount()
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:authenticated-image')
+  })
+
+  it('shows a friendly loading state while a protected attachment image is fetched', async () => {
+    let resolveBlob!: (blob: Blob) => void
+    vi.mocked(documentApi.getAttachmentBlob).mockReturnValueOnce(new Promise((resolve) => {
+      resolveBlob = resolve
+    }))
+    const view = renderEditor()
+    await nextTick()
+    await nextTick()
+    await nextTick()
+
+    const image = view.host.querySelector<HTMLImageElement>('#attachment-image')
+    const host = image?.closest<HTMLElement>('.document-attachment-image-host--loading')
+    expect(host).not.toBeNull()
+    expect(host?.querySelector('.document-attachment-image-status')).not.toBeNull()
+    expect(host?.querySelector('.document-attachment-image-status__text')?.textContent).toBe('documents.imageLoading')
+    expect(image?.dataset.documentAttachmentState).toBe('loading')
+    expect(image?.getAttribute('aria-busy')).toBe('true')
+
+    resolveBlob(new Blob(['image'], { type: 'image/png' }))
+    await nextTick()
+    await nextTick()
+    expect(image?.dataset.documentAttachmentState).toBe('loading')
+
+    view.app.unmount()
   })
 
   it('passes the current document id to the editor upload boundary', async () => {

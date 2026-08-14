@@ -47,7 +47,7 @@ describe('documentStore autosave', () => {
     store.updateDraft({ title: 'First' })
     await vi.advanceTimersByTimeAsync(800)
     expect(documentApi.update).toHaveBeenNthCalledWith(1, 8, {
-      expectedVersion: 1, title: 'First', content: '[]'
+      expectedVersion: 1, title: 'First', content: '[]', createRevision: false
     })
 
     store.updateDraft({ title: 'Second' })
@@ -55,7 +55,7 @@ describe('documentStore autosave', () => {
     await vi.runAllTimersAsync()
 
     expect(documentApi.update).toHaveBeenNthCalledWith(2, 8, {
-      expectedVersion: 2, title: 'Second', content: '[]'
+      expectedVersion: 2, title: 'Second', content: '[]', createRevision: false
     })
     expect(store.activeDocument?.version).toBe(3)
     expect(store.saveState).toBe('saved')
@@ -91,6 +91,29 @@ describe('documentStore autosave', () => {
     expect(documentApi.update).not.toHaveBeenCalled()
     expect(store.saveState).toBe('invalid')
     expect(store.error).toBeNull()
+  })
+
+  it('does not save when leaving an unchanged document', async () => {
+    const store = useDocumentStore()
+    store.activeDocument = document()
+    store.saveState = 'saved'
+
+    await store.flushSaves()
+
+    expect(documentApi.update).not.toHaveBeenCalled()
+  })
+
+  it('creates a revision when flushing a dirty document before leaving', async () => {
+    vi.mocked(documentApi.update).mockResolvedValue(document({ title: 'Local draft', version: 2 }))
+    const store = useDocumentStore()
+    store.activeDocument = document()
+
+    store.updateDraft({ title: 'Local draft' })
+    await store.flushSaves()
+
+    expect(documentApi.update).toHaveBeenCalledWith(8, {
+      expectedVersion: 1, title: 'Local draft', content: '[]', createRevision: true
+    })
   })
 
   it('keeps save failures out of the document tree error state', async () => {

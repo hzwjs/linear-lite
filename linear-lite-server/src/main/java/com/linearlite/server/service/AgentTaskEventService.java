@@ -102,9 +102,13 @@ public class AgentTaskEventService {
     }
 
     public org.springframework.web.servlet.mvc.method.annotation.SseEmitter stream(
-            String taskKey, Long userId, String executionId) {
+            String taskKey, Long userId, String executionId, Long jobId) {
         requireTaskExecution(taskKey, userId, executionId);
-        return broadcaster.register(executionId);
+        var status = orchestrationService.getTaskStatus(taskKey, userId);
+        if (!executionId.equals(status.executionId()) || !jobId.equals(status.jobId())) {
+            throw new ConflictOperationException("Agent Job 已不是任务的当前执行");
+        }
+        return broadcaster.register(executionId, jobId);
     }
 
     private void requireTaskExecution(Long taskId, String executionId) {

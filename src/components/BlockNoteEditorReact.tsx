@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import '@blocknote/mantine/style.css'
 import PhotoSwipe from 'photoswipe'
 import { BlockNoteView } from '@blocknote/mantine'
@@ -202,6 +202,23 @@ export function buildProjectDocumentMentionHref(projectId: number, documentId: n
 /** 附件上传占位文本：把 i18n 模板里的 `{name}` 替换为文件名；模板未配置时退回直白文案。 */
 export function formatUploadFeedback(template: string | undefined, fileName: string, fallback: string): string {
   return template ? template.replace(/\{name\}/g, fileName) : fallback
+}
+
+export function isPastedImageFile(file: Pick<File, 'type'>): boolean {
+  return file.type.startsWith('image/')
+}
+
+function hasNumberedListItem(blocks: readonly any[]): boolean {
+  return blocks.some((block) =>
+    block?.type === 'numberedListItem' ||
+    (Array.isArray(block?.children) && hasNumberedListItem(block.children)),
+  )
+}
+
+/** BlockNote 0.48 用事务初始化有序列表索引；initialContent 直传时需主动触发一次。 */
+export function initializeNumberedListIndices(editor: any): void {
+  if (!hasNumberedListItem(editor.document)) return
+  editor.replaceBlocks(editor.document, editor.document)
 }
 
 export function createProjectDocumentLinkInline(projectId: number, documentId: number, title: string) {
@@ -633,6 +650,34 @@ function extractMentionIdsFromBlocks(blocks: AnyBlock[]): number[] {
   return [...new Set(ids)]
 }
 
+function removeAttachmentLinkFromDocument(editor: any, href: string): boolean {
+  const blocksToRemove: string[] = []
+  let removed = false
+
+  const visit = (blocks: readonly any[]) => {
+    for (const block of blocks) {
+      if (Array.isArray(block.content)) {
+        const remainingContent = block.content.filter(
+          (inline: any) => inline?.type !== 'link' || inline.href !== href,
+        )
+        if (remainingContent.length !== block.content.length) {
+          removed = true
+          if (block.type === 'paragraph' && remainingContent.length === 0) {
+            blocksToRemove.push(block.id)
+          } else {
+            editor.updateBlock(block.id, { content: remainingContent })
+          }
+        }
+      }
+      if (Array.isArray(block.children) && block.children.length > 0) visit(block.children)
+    }
+  }
+
+  visit(editor.document)
+  if (blocksToRemove.length > 0) editor.removeBlocks(blocksToRemove)
+  return removed
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────────
 
 export interface EditorApi {
@@ -640,6 +685,7 @@ export interface EditorApi {
   focusAppend: () => void
   getMentionedUserIds: () => number[]
   insertMention: (userId: string, label: string) => void
+  removeAttachmentLink: (href: string) => boolean
 }
 
 /** Vue/veaury 可能以 `upload-file` 传入，与 React 的 `uploadFile` 并存 */
@@ -658,7 +704,7 @@ export type BlockNoteEditorReactProps = {
   /** Should resolve the uploaded file URL */
   uploadFile?: (file: File) => Promise<string>
   'upload-file'?: (file: File) => Promise<string>
-  /** 文档附件粘贴后写入链接块，复用同步附件卡片渲染。 */
+  /** 文档中的普通附件粘贴后写入链接块，图片粘贴后写入可预览的图片块。 */
   pasteFileAsLink?: boolean
   'paste-file-as-link'?: boolean
   /** 附件上传中的占位文本模板，`{name}` 替换为文件名（由 Vue i18n 传入）。 */
@@ -747,12 +793,12 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   const fileUploadingTextResolved = props.fileUploadingText ?? props['file-uploading-text']
   const fileUploadFailedTextResolved = props.fileUploadFailedText ?? props['file-upload-failed-text']
 
-  const pasteFilesAsLinks = useCallback(async (files: File[], editorInstance: any) => {
+  const pasteFiles = useCallback(async (files: File[], editorInstance: any) => {
     const upload = uploadFileRef.current
     if (!upload) throw new Error('uploadFile not configured')
     let anchorId = editorInstance.getTextCursorPosition().block.id
     for (const file of files) {
-      // 粘贴瞬间先插入“上传中”占位块，提供开始反馈；完成后再原地替换为附件链接卡片。
+      // 粘贴瞬间先插入“上传中”占位块，图片上传完成后原地替换为图片块，普通文件仍替换为附件链接卡片。
       const placeholder = editorInstance.insertBlocks([
         {
           type: 'paragraph',
@@ -788,10 +834,15 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       }
       // 用户可能在上传期间删除了占位块；块已不存在时放弃原地替换，避免抛出异常。
       if (editorInstance.getBlock(placeholder.id) == null) continue
-      const inserted = editorInstance.updateBlock(placeholder.id, {
-        type: 'paragraph',
-        content: [{ type: 'link', href: url, content: file.name }],
-      })
+      const inserted = isPastedImageFile(file)
+        ? editorInstance.updateBlock(placeholder.id, {
+            type: 'image',
+            props: { name: file.name, url },
+          })
+        : editorInstance.updateBlock(placeholder.id, {
+            type: 'paragraph',
+            content: [{ type: 'link', href: url, content: file.name }],
+          })
       if (inserted == null) continue
       anchorId = inserted.id
     }
@@ -841,7 +892,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
               .map((item) => item.getAsFile())
               .filter((file): file is File => file != null)
           if (files.length > 0) {
-            void pasteFilesAsLinks(files, editor).catch(() => undefined)
+            void pasteFiles(files, editor).catch(() => undefined)
             return true
           }
         }
@@ -914,6 +965,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       },
       getMentionedUserIds: () =>
         extractMentionIdsFromBlocks(editor.document as unknown as AnyBlock[]),
+      removeAttachmentLink: (href: string) => removeAttachmentLinkFromDocument(editor, href),
       insertMention: (userId: string, label: string) => {
         editor.focus()
         editor.insertInlineContent(
@@ -960,6 +1012,11 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       if (hydrationTimer != null) window.clearTimeout(hydrationTimer)
       observer.disconnect()
     }
+  }, [editor])
+
+  // 必须在 BlockNoteView 注册 onChange 之前初始化索引，避免这次内部事务被误判为用户编辑并触发自动保存。
+  useLayoutEffect(() => {
+    initializeNumberedListIndices(editor)
   }, [editor])
 
   useEffect(() => {

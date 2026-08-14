@@ -4,6 +4,7 @@ import { JWT_STORAGE_KEY } from './constants'
 
 export interface AgentTaskStatus {
   executionId: string | null
+  jobId: number | null
   sessionStatus: string | null
   jobStatus: string | null
   sourceType: string | null
@@ -22,7 +23,7 @@ export interface AgentTaskEvent {
   createdAt: string
 }
 
-function eventStreamUrl(taskKey: string, executionId: string): string {
+function eventStreamUrl(taskKey: string, executionId: string, jobId: number): string {
   const token = localStorage.getItem(JWT_STORAGE_KEY)
   if (!token) throw new Error('缺少登录凭证')
   const base = api.defaults.baseURL ?? '/api'
@@ -31,6 +32,7 @@ function eventStreamUrl(taskKey: string, executionId: string): string {
     window.location.origin
   )
   url.searchParams.set('executionId', executionId)
+  url.searchParams.set('jobId', String(jobId))
   url.searchParams.set('access_token', token)
   return url.toString()
 }
@@ -50,11 +52,13 @@ export const agentApi = {
   openEventStream(
     taskKey: string,
     executionId: string,
+    jobId: number,
     onEvent: (event: AgentTaskEvent) => void,
     onOpen?: () => void,
-    onError?: () => void
+    onError?: () => void,
+    onReplayComplete?: () => void
   ): EventSource {
-    const source = new EventSource(eventStreamUrl(taskKey, executionId))
+    const source = new EventSource(eventStreamUrl(taskKey, executionId, jobId))
     source.addEventListener('agent-event', (event) => {
       try {
         onEvent(JSON.parse((event as MessageEvent).data) as AgentTaskEvent)
@@ -64,6 +68,7 @@ export const agentApi = {
     })
     if (onOpen) source.addEventListener('open', onOpen)
     if (onError) source.addEventListener('error', onError)
+    if (onReplayComplete) source.addEventListener('replay-complete', onReplayComplete)
     return source
   }
 }

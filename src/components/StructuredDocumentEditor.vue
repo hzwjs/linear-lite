@@ -43,7 +43,11 @@ function focus() {
   editorRef.value?.focus()
 }
 
-defineExpose({ focus })
+function removeAttachmentLink(href: string): boolean {
+  return editorRef.value?.removeAttachmentLink(href) ?? false
+}
+
+defineExpose({ focus, removeAttachmentLink })
 </script>
 
 <template>

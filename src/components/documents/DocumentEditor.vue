@@ -38,6 +38,7 @@ const documentPageRef = ref<HTMLElement | null>(null)
 const documentBodyRef = ref<HTMLElement | null>(null)
 const attachmentDownloadError = ref('')
 const attachmentDownloadPending = ref(false)
+const attachmentDeletePending = new Set<number>()
 const relativeTimeClock = ref(Date.now())
 const attachmentImageObjectUrls = new Map<HTMLImageElement, string>()
 const pendingAttachmentImages = new WeakSet<HTMLImageElement>()
@@ -61,9 +62,79 @@ function matchDocumentAttachmentEvent(event: MouseEvent): RegExpMatchArray | nul
   return anchor == null ? null : matchDocumentAttachmentPath(anchor.getAttribute('href'))
 }
 
+function ensureDocumentAttachmentDeleteButtons() {
+  const body = documentBodyRef.value
+  if (body == null) return
+
+  for (const button of body.querySelectorAll<HTMLButtonElement>('.document-attachment-delete')) {
+    const href = button.dataset.attachmentHref
+    const anchor = href == null
+      ? null
+      : Array.from(body.querySelectorAll<HTMLAnchorElement>('a[href]'))
+        .find((candidate) => candidate.getAttribute('href') === href) ?? null
+    const match = matchDocumentAttachmentPath(href ?? null)
+    if (anchor == null || match == null || Number(match[1]) !== props.document.id) {
+      button.remove()
+      button.parentElement?.classList.remove('document-attachment-host')
+    }
+  }
+
+  if (props.saveState === 'conflict') return
+  for (const anchor of body.querySelectorAll<HTMLAnchorElement>('a[href]')) {
+    const href = anchor.getAttribute('href')
+    const match = matchDocumentAttachmentPath(href)
+    if (match == null || Number(match[1]) !== props.document.id) continue
+    const host = anchor.parentElement
+    if (host == null) continue
+    host.classList.add('document-attachment-host')
+    let button = host.querySelector<HTMLButtonElement>(':scope > .document-attachment-delete')
+    if (button == null) {
+      button = window.document.createElement('button')
+      button.type = 'button'
+      button.className = 'document-attachment-delete'
+      button.contentEditable = 'false'
+      host.appendChild(button)
+    }
+    const attachmentHref = href ?? ''
+    const attachmentId = match[2]
+    const deleteLabel = t('documents.deleteAttachment')
+    if (button.dataset.attachmentHref !== attachmentHref) button.dataset.attachmentHref = attachmentHref
+    if (button.dataset.attachmentId !== attachmentId) button.dataset.attachmentId = attachmentId
+    const pending = attachmentDeletePending.has(Number(attachmentId))
+    if (button.disabled !== pending) button.disabled = pending
+    if (button.getAttribute('aria-label') !== deleteLabel) button.setAttribute('aria-label', deleteLabel)
+    if (button.title !== deleteLabel) button.title = deleteLabel
+  }
+}
+
 function revokeAttachmentImageUrls() {
   for (const objectUrl of attachmentImageObjectUrls.values()) URL.revokeObjectURL(objectUrl)
   attachmentImageObjectUrls.clear()
+}
+
+function setAttachmentImageState(image: HTMLImageElement, state: 'loading' | 'loaded' | 'error') {
+  const host = image.closest<HTMLElement>('.bn-block-content') ?? image.parentElement
+  if (host == null) return
+  let status = host.querySelector<HTMLElement>(':scope > .document-attachment-image-status')
+  if (status == null) {
+    // 图片鉴权完成前由独立状态层接管展示，避免浏览器破损图片占位与加载提示叠加。
+    status = window.document.createElement('span')
+    status.className = 'document-attachment-image-status'
+    status.setAttribute('aria-live', 'polite')
+    status.innerHTML = '<span class="document-attachment-image-status__icon" aria-hidden="true"></span><span class="document-attachment-image-status__text"></span>'
+    host.appendChild(status)
+  }
+  host.classList.toggle('document-attachment-image-host--loading', state === 'loading')
+  host.classList.toggle('document-attachment-image-host--error', state === 'error')
+  status.hidden = state === 'loaded'
+  const statusText = status.querySelector<HTMLElement>('.document-attachment-image-status__text')
+  if (statusText != null) {
+    statusText.textContent = state === 'loading'
+      ? t('documents.imageLoading')
+      : t('documents.imageLoadFailed')
+  }
+  image.dataset.documentAttachmentState = state
+  image.setAttribute('aria-busy', state === 'loading' ? 'true' : 'false')
 }
 
 async function hydrateDocumentAttachments() {
@@ -89,6 +160,16 @@ async function hydrateDocumentAttachments() {
     }
 
     pendingAttachmentImages.add(image)
+    setAttachmentImageState(image, 'loading')
+    let blobAssigned = false
+    const markLoaded = () => {
+      if (blobAssigned) setAttachmentImageState(image, 'loaded')
+    }
+    const markFailed = () => {
+      if (blobAssigned) setAttachmentImageState(image, 'error')
+    }
+    image.addEventListener('load', markLoaded, { once: true })
+    image.addEventListener('error', markFailed, { once: true })
     try {
       const blob = await documentApi.getAttachmentBlob(documentId, attachmentId)
       if (generation !== attachmentImageGeneration || !body.contains(image)) continue
@@ -96,8 +177,11 @@ async function hydrateDocumentAttachments() {
       const objectUrl = URL.createObjectURL(blob)
       attachmentImageObjectUrls.set(image, objectUrl)
       image.src = objectUrl
+      blobAssigned = true
+      if (image.complete && image.naturalWidth > 0) markLoaded()
     } catch {
       if (generation === attachmentImageGeneration) {
+        setAttachmentImageState(image, 'error')
         attachmentDownloadError.value = t('attachments.downloadFailed')
       }
     } finally {
@@ -113,8 +197,12 @@ onMounted(async () => {
   const body = documentBodyRef.value
   if (body == null) return
   // BlockNote 会在父组件 mounted 后继续异步构建图片节点，监听新增节点后再执行精确路径水合。
-  attachmentImageObserver = new MutationObserver(() => { void hydrateDocumentAttachments() })
+  attachmentImageObserver = new MutationObserver(() => {
+    ensureDocumentAttachmentDeleteButtons()
+    void hydrateDocumentAttachments()
+  })
   attachmentImageObserver.observe(body, { childList: true, subtree: true })
+  ensureDocumentAttachmentDeleteButtons()
   void hydrateDocumentAttachments()
 })
 watch(
@@ -124,6 +212,7 @@ watch(
       attachmentImageGeneration += 1
       revokeAttachmentImageUrls()
     }
+    ensureDocumentAttachmentDeleteButtons()
     void hydrateDocumentAttachments()
   },
   { flush: 'post' }
@@ -185,12 +274,47 @@ async function copyDraft() {
 }
 
 function handleDocumentBodyMouseDown(event: MouseEvent) {
+  if (event.target instanceof Element && event.target.closest('.document-attachment-delete') != null) {
+    event.stopPropagation()
+    return
+  }
   if (matchDocumentAttachmentEvent(event) == null) return
   // ProseMirror 会在 mousedown 后注册 document mouseup，并在 click 前通过 window.open 打开链接。
   event.stopPropagation()
 }
 
+async function handleDocumentAttachmentDelete(button: HTMLButtonElement) {
+  const href = button.dataset.attachmentHref ?? ''
+  const match = matchDocumentAttachmentPath(href)
+  if (match == null) return
+  const documentId = Number(match[1])
+  const attachmentId = Number(match[2])
+  if (documentId !== props.document.id || attachmentDeletePending.has(attachmentId)) return
+
+  attachmentDownloadError.value = ''
+  attachmentDeletePending.add(attachmentId)
+  ensureDocumentAttachmentDeleteButtons()
+  try {
+    await documentApi.deleteAttachment(documentId, attachmentId)
+    bodyEditorRef.value?.removeAttachmentLink(href)
+  } catch {
+    attachmentDownloadError.value = t('attachments.deleteFailed')
+  } finally {
+    attachmentDeletePending.delete(attachmentId)
+    ensureDocumentAttachmentDeleteButtons()
+  }
+}
+
 async function handleDocumentBodyClick(event: MouseEvent) {
+  if (event.target instanceof Element) {
+    const deleteButton = event.target.closest<HTMLButtonElement>('.document-attachment-delete')
+    if (deleteButton != null && documentBodyRef.value?.contains(deleteButton)) {
+      event.preventDefault()
+      event.stopPropagation()
+      void handleDocumentAttachmentDelete(deleteButton)
+      return
+    }
+  }
   const match = matchDocumentAttachmentEvent(event)
   if (match == null) return
 
@@ -457,7 +581,7 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   display: block;
   min-height: 48px;
   margin: 5px 0;
-  padding: 13px 48px 13px 46px;
+  padding: 13px 96px 13px 46px;
   overflow: hidden;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
@@ -497,7 +621,7 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 }
 
 .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]::after) {
-  right: 15px;
+  right: 64px;
   color: var(--color-text-secondary);
   opacity: 0;
   -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3Cpath d='M12 15V3'/%3E%3C/svg%3E");
@@ -516,6 +640,128 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]:focus-visible) {
   outline: 2px solid var(--color-border-strong);
   outline-offset: 2px;
+}
+
+.document-editor__body :deep(.document-attachment-host) {
+  position: relative;
+}
+
+.document-editor__body :deep(.document-attachment-image-host--loading),
+.document-editor__body :deep(.document-attachment-image-host--error) {
+  position: relative;
+  min-height: clamp(160px, 22vw, 280px);
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
+}
+
+.document-editor__body :deep(.document-attachment-image-host--loading) {
+  background:
+    linear-gradient(110deg, transparent 30%, color-mix(in srgb, var(--color-bg-hover) 72%, transparent) 48%, transparent 66%),
+    var(--color-bg-subtle);
+  background-size: 220% 100%;
+  animation: document-attachment-image-shimmer 1.6s ease-in-out infinite;
+}
+
+/* 文档阅读态不需要 BlockNote 图片块的选中轮廓，避免左侧出现突兀的蓝色竖条。 */
+.document-editor__body :deep(.bn-block-content:has(img[data-document-attachment-state]) > *) {
+  outline: none !important;
+}
+
+.document-editor__body :deep(.document-attachment-image-status) {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.document-editor__body :deep(.document-attachment-image-status[hidden]) {
+  display: none;
+}
+
+.document-editor__body :deep(.document-attachment-image-status__icon) {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  /* 加载反馈使用中性色，避免在阅读界面引入突兀的蓝色强调。 */
+  border: 2px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  border-top-color: var(--color-text-secondary);
+  border-radius: 50%;
+  animation: document-attachment-image-spin 0.8s linear infinite;
+}
+
+.document-editor__body :deep(.document-attachment-image-host--error) {
+  border-color: color-mix(in srgb, var(--color-danger) 28%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-danger) 6%, var(--color-bg-base));
+}
+
+.document-editor__body :deep(.document-attachment-image-host--loading img),
+.document-editor__body :deep(.document-attachment-image-host--error img) {
+  display: none !important;
+}
+
+.document-editor__body :deep(.document-attachment-image-host--loading .bn-image-preview-button),
+.document-editor__body :deep(.document-attachment-image-host--error .bn-image-preview-button) {
+  display: none;
+}
+
+.document-editor__body :deep(.document-attachment-delete) {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  z-index: 1;
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.document-editor__body :deep(.document-attachment-delete::before) {
+  width: 18px;
+  height: 18px;
+  background: currentColor;
+  content: '';
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18'/%3E%3Cpath d='M8 6V4h8v2'/%3E%3Cpath d='M19 6v14H5V6'/%3E%3Cpath d='M10 11v5'/%3E%3Cpath d='M14 11v5'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18'/%3E%3Cpath d='M8 6V4h8v2'/%3E%3Cpath d='M19 6v14H5V6'/%3E%3Cpath d='M10 11v5'/%3E%3Cpath d='M14 11v5'/%3E%3C/svg%3E");
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.document-editor__body :deep(.document-attachment-delete:hover) {
+  background: var(--color-bg-hover);
+  color: var(--color-danger);
+}
+
+.document-editor__body :deep(.document-attachment-delete:focus-visible) {
+  outline: 2px solid var(--color-border-strong);
+  outline-offset: -2px;
+}
+
+.document-editor__body :deep(.document-attachment-delete:disabled) {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .document-editor__attachment-error {
@@ -540,8 +786,15 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 
 .spin { animation: document-spin 800ms linear infinite; }
 @keyframes document-spin { to { transform: rotate(360deg); } }
+@keyframes document-attachment-image-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+@keyframes document-attachment-image-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; }
+  .document-editor__body :deep(.document-attachment-image-host--loading) { animation: none; }
+  .document-editor__body :deep(.document-attachment-image-status__icon) { animation: none; }
   .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]),
   .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]::after) { transition: none; }
 }

@@ -3,6 +3,7 @@ package com.linearlite.server.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.dto.AgentTaskEventBatchRequest;
 import com.linearlite.server.dto.AgentTaskEventRequest;
+import com.linearlite.server.dto.AgentTaskStatusResponse;
 import com.linearlite.server.entity.AgentTaskJob;
 import com.linearlite.server.entity.AgentTaskSession;
 import com.linearlite.server.entity.Task;
@@ -51,8 +52,11 @@ class AgentTaskEventServiceTest {
         AgentTaskSession session = new AgentTaskSession();
         session.setExecutionId("exec-1");
         when(sessionMapper.selectOne(any())).thenReturn(session);
-        service.requireTaskExecution("LINEAR-LITE-84", 7L, "exec-1");
+        when(orchestrationService.getTaskStatus("LINEAR-LITE-84", 7L))
+                .thenReturn(new AgentTaskStatusResponse("exec-1", 9L, "active", "queued", "comment", null, null));
+        service.stream("LINEAR-LITE-84", 7L, "exec-1", 9L);
         verify(taskPermissionGuard).requireTaskAccessByKey("LINEAR-LITE-84", 7L);
+        verify(broadcaster).register("exec-1", 9L);
     }
 
     private static AgentTaskJob job(Long id) {
