@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Archive, ChevronRight, FileText, MoreHorizontal, Plus, Star } from 'lucide-vue-next'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ProjectDocumentTreeNode } from '../../types/document'
 
@@ -32,6 +32,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const menuOpen = ref(false)
+const rowRef = ref<HTMLElement | null>(null)
 const dragPlacement = ref<'before' | 'inside' | 'after' | null>(null)
 const children = computed(() => props.childrenByParent.get(props.node.id) ?? [])
 const hasChildren = computed(() => children.value.length > 0)
@@ -57,6 +58,16 @@ watch(
     if (documentId != null) menuOpen.value = false
   }
 )
+
+function closeMenuOnOutsideClick(event: MouseEvent) {
+  const row = rowRef.value
+  if (row == null || row.contains(event.target as Node)) return
+  menuOpen.value = false
+}
+
+onMounted(() => window.document.addEventListener('click', closeMenuOnOutsideClick, true))
+onBeforeUnmount(() => window.document.removeEventListener('click', closeMenuOnOutsideClick, true))
+
 const parentNode = computed(() => {
   if (props.node.parentDocumentId == null) return null
   for (const nodes of props.childrenByParent.values()) {
@@ -201,6 +212,7 @@ function onDocumentKeydown(event: KeyboardEvent) {
   >
     <div
       class="document-tree-row"
+      ref="rowRef"
       :class="[
         { 'document-tree-row--active': activeId === node.id },
         { 'document-tree-row--dragging': isDragging },
@@ -247,10 +259,11 @@ function onDocumentKeydown(event: KeyboardEvent) {
         :aria-expanded="menuOpen"
         aria-haspopup="menu"
         @click.stop="menuOpen = !menuOpen"
+        @keydown.esc.stop="menuOpen = false"
       >
         <MoreHorizontal aria-hidden="true" />
       </button>
-      <div v-if="menuOpen" class="document-tree-row__menu" role="menu">
+      <div v-if="menuOpen" class="document-tree-row__menu" role="menu" @keydown.esc.stop="menuOpen = false">
         <button type="button" role="menuitem" @click="menuOpen = false; emit('toggleFavorite', node)">
           <Star aria-hidden="true" />{{ node.favorited ? t('documents.removeFavorite') : t('documents.addFavorite') }}
         </button>

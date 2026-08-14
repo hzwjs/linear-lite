@@ -239,6 +239,7 @@ const zhCN = {
     archived: '已归档', archivedDescription: '归档的文档子树会保留原有结构。', noArchived: '暂无已归档文档。', restore: '恢复',
     history: '历史版本', version: '版本 {version}', backToHistory: '返回版本历史', historyLoadFailed: '版本历史加载失败。', noHistory: '暂无历史版本。',
     restoreThisVersion: '恢复此版本', restoring: '正在恢复…', documentTitle: '文档标题',
+    exportPdf: '导出 PDF', exportingPdf: '正在准备 PDF…', moreActions: '更多操作',
     bodyPlaceholder: '记录项目背景、决策与方案…', breadcrumbLabel: '文档位置',
     minimapLabel: '文档快速定位', minimapControlLabel: '拖动或使用方向键快速浏览文档',
     minimapPosition: '文档阅读位置 {percent}%', minimapEmptyBlock: '空白段落',

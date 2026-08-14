@@ -107,6 +107,25 @@ describe('DocumentTree keyboard interaction', () => {
     app.unmount()
   })
 
+  it('closes the document actions menu when focus moves outside the row', async () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const app = createApp(DocumentTree, { projectId: 7, nodes, activeId: 1, moving: false })
+    app.use(i18n)
+    app.mount(host)
+    await nextTick()
+
+    const trigger = host.querySelector('[aria-label="Actions for Root"]') as HTMLButtonElement
+    trigger.click()
+    await nextTick()
+    expect(host.querySelector('[role="menu"]')).not.toBeNull()
+
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+    expect(host.querySelector('[role="menu"]')).toBeNull()
+    app.unmount()
+  })
+
   it('uses the whole document row as the drag source', async () => {
     const onMove = vi.fn()
     const draggableNodes = [

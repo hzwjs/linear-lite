@@ -239,6 +239,7 @@ const en = {
     archived: 'Archived', archivedDescription: 'Archived document subtrees retain their original structure.', noArchived: 'No archived documents.', restore: 'Restore',
     history: 'History', version: 'Version {version}', backToHistory: 'Back to version history', historyLoadFailed: 'Version history could not be loaded.', noHistory: 'No versions yet.',
     restoreThisVersion: 'Restore this version', restoring: 'Restoring…', documentTitle: 'Document title',
+    exportPdf: 'Export PDF', exportingPdf: 'Preparing PDF…', moreActions: 'More actions',
     bodyPlaceholder: 'Write project context, decisions, and plans…', breadcrumbLabel: 'Document location',
     minimapLabel: 'Document quick navigation', minimapControlLabel: 'Drag or use arrow keys to browse the document',
     minimapPosition: 'Document reading position {percent}%', minimapEmptyBlock: 'Empty paragraph',

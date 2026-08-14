@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ChevronLeft, FileText, Loader2, Star } from 'lucide-vue-next'
+import { ChevronLeft, FileDown, FileText, Loader2, Star } from 'lucide-vue-next'
 import StructuredDocumentEditor from '../../components/StructuredDocumentEditor.vue'
 import { documentApi } from '../../services/api/documents'
 import { useProjectStore } from '../../store/projectStore'
 import type { ProjectDocument } from '../../types/document'
+import { startDocumentPdfExport } from '../../utils/documentPdfExport'
 import MobileEmptyState from '../components/MobileEmptyState.vue'
 
 const props = defineProps<{ projectId: number; documentId: number }>()
@@ -16,7 +17,9 @@ const document = ref<ProjectDocument | null>(null)
 const loading = ref(true)
 const loadError = ref('')
 const favoritePending = ref(false)
+const exportingPdf = ref(false)
 let loadSequence = 0
+let restorePdfExportState: (() => void) | null = null
 
 const projectName = computed(() => (
   projectStore.projects.find((project) => project.id === props.projectId)?.name
@@ -60,7 +63,17 @@ async function toggleFavorite() {
   }
 }
 
+function exportPdf() {
+  if (document.value == null || exportingPdf.value) return
+  exportingPdf.value = true
+  restorePdfExportState = startDocumentPdfExport(document.value.title.trim() || t('documents.untitled'), () => {
+    exportingPdf.value = false
+    restorePdfExportState = null
+  })
+}
+
 watch(() => [props.projectId, props.documentId], loadDocument, { immediate: true })
+onBeforeUnmount(() => restorePdfExportState?.())
 </script>
 
 <template>
@@ -70,20 +83,34 @@ watch(() => [props.projectId, props.documentId], loadDocument, { immediate: true
         <ChevronLeft :size="24" />
       </button>
       <span class="mobile-document-nav-title">{{ t('documents.mobile.title') }}</span>
-      <button
-        v-if="document"
-        type="button"
-        class="mobile-document-favorite"
-        :class="{ 'is-active': document.favorited }"
-        :disabled="favoritePending"
-        :aria-label="document.favorited ? t('documents.removeFavorite') : t('documents.addFavorite')"
-        :aria-pressed="document.favorited"
-        @click="toggleFavorite"
-      >
-        <Loader2 v-if="favoritePending" :size="19" class="mobile-spinner" aria-hidden="true" />
-        <Star v-else :size="20" aria-hidden="true" />
-      </button>
-      <span v-else class="mobile-document-readonly-label">{{ t('documents.mobile.readonly') }}</span>
+      <div class="mobile-document-nav-actions">
+        <button
+          v-if="document"
+          type="button"
+          class="mobile-document-favorite"
+          :class="{ 'is-active': document.favorited }"
+          :disabled="favoritePending"
+          :aria-label="document.favorited ? t('documents.removeFavorite') : t('documents.addFavorite')"
+          :aria-pressed="document.favorited"
+          @click="toggleFavorite"
+        >
+          <Loader2 v-if="favoritePending" :size="19" class="mobile-spinner" aria-hidden="true" />
+          <Star v-else :size="20" aria-hidden="true" />
+        </button>
+        <button
+          v-if="document"
+          type="button"
+          class="mobile-document-export"
+          :disabled="exportingPdf"
+          :aria-label="t('documents.exportPdf')"
+          :title="t('documents.exportPdf')"
+          @click="exportPdf"
+        >
+          <Loader2 v-if="exportingPdf" :size="19" class="mobile-spinner" aria-hidden="true" />
+          <FileDown v-else :size="20" aria-hidden="true" />
+        </button>
+        <span v-else class="mobile-document-readonly-label">{{ t('documents.mobile.readonly') }}</span>
+      </div>
     </header>
 
     <div v-if="loading" class="mobile-detail-loading" role="status" aria-live="polite">

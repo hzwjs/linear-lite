@@ -201,3 +201,24 @@ textarea,
 .u-selected-accent.u-focus-ring:focus-visible {
   outline-color: var(--color-border-strong);
 }
+
+@media print {
+  @page { margin: 18mm 16mm; }
+
+  html,
+  body,
+  #app { height: auto !important; min-height: 0 !important; overflow: visible !important; }
+
+  body.document-pdf-export .app-layout { display: block !important; height: auto !important; overflow: visible !important; }
+  body.document-pdf-export .app-layout > :not(.main) { display: none !important; }
+  body.document-pdf-export .main,
+  body.document-pdf-export .documents-view,
+  body.document-pdf-export .documents-view__workspace,
+  body.document-pdf-export .documents-content { display: block !important; min-height: 0 !important; overflow: visible !important; }
+  body.document-pdf-export .documents-sidebar { display: none !important; }
+  body.document-pdf-export .mobile-app,
+  body.document-pdf-export .mobile-shell,
+  body.document-pdf-export .mobile-document-view,
+  body.document-pdf-export .mobile-document-content { display: block !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
+  body.document-pdf-export .mobile-document-view .mobile-navigation-bar { display: none !important; }
+}

@@ -429,6 +429,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.mobile-document-nav-actions { display: flex; align-items: center; justify-self: end; gap: 2px; }
 .mobile-document-readonly-label {
   justify-self: end;
   margin-right: 12px;
@@ -449,6 +450,8 @@
 .mobile-document-favorite.is-active { color: #b7791f; }
 .mobile-document-favorite.is-active svg { fill: currentColor; }
 .mobile-document-favorite:active { background: var(--m-surface-soft); }
+.mobile-document-export { display: inline-flex; align-items: center; justify-content: center; }
+.mobile-document-export:active { background: var(--m-surface-soft); }
 .mobile-document-content {
   min-width: 0;
   flex: 1;

@@ -23,6 +23,20 @@ describe('DocumentEditor long-form layout', () => {
     expect(source).not.toContain('document-editor__actions .document-editor__favorite')
   })
 
+  it('keeps history and archive actions inside the toolbar more menu', () => {
+    expect(source).toContain('class="document-editor__more"')
+    expect(source).toContain('class="document-editor__more-menu" role="menu"')
+    const moreMenuSource = source.slice(source.indexOf('class="document-editor__more-menu"'))
+    const toolbarActionsSource = source.slice(
+      source.indexOf('class="document-editor__actions"'),
+      source.indexOf('class="document-editor__more"')
+    )
+    expect(moreMenuSource).toContain("t('documents.history')")
+    expect(moreMenuSource).toContain("t('documents.archive')")
+    expect(toolbarActionsSource).not.toContain("t('documents.history')")
+    expect(toolbarActionsSource).not.toContain("t('documents.archive')")
+  })
+
   it('mounts the minimap against the single document scroll owner', () => {
     expect(source).toContain('ref="documentPageRef" class="document-editor__page"')
     expect(source).toContain('<DocumentMinimap :scroll-element="documentPageRef" :controls="`document-scroll-${document.id}`" />')

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { Archive, Check, Clock3, Copy, Loader2, RefreshCw, Star, TriangleAlert } from 'lucide-vue-next'
+import { Archive, Check, Clock3, Copy, FileDown, Loader2, MoreHorizontal, RefreshCw, Star, TriangleAlert } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StructuredDocumentEditor from '../StructuredDocumentEditor.vue'
 import DocumentMinimap from './DocumentMinimap.vue'
 import { documentApi } from '../../services/api/documents'
 import type { DocumentSaveState, ProjectDocument, ProjectDocumentTreeNode } from '../../types/document'
+import { startDocumentPdfExport } from '../../utils/documentPdfExport'
 
 const DOCUMENT_ATTACHMENT_PATH = /^\/api\/project-documents\/(\d+)\/attachments\/(\d+)\/download$/
 
@@ -33,7 +34,10 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const copied = ref(false)
+const exportingPdf = ref(false)
+const moreOpen = ref(false)
 const bodyEditorRef = ref<InstanceType<typeof StructuredDocumentEditor> | null>(null)
+const moreMenuRef = ref<HTMLElement | null>(null)
 const documentPageRef = ref<HTMLElement | null>(null)
 const documentBodyRef = ref<HTMLElement | null>(null)
 const attachmentDownloadError = ref('')
@@ -45,6 +49,7 @@ const pendingAttachmentImages = new WeakSet<HTMLImageElement>()
 let attachmentImageObserver: MutationObserver | null = null
 let attachmentImageGeneration = 0
 let relativeTimeTimer: ReturnType<typeof setInterval> | null = null
+let restorePdfExportState: (() => void) | null = null
 
 function matchDocumentAttachmentPath(value: string | null): RegExpMatchArray | null {
   try {
@@ -60,6 +65,12 @@ function matchDocumentAttachmentEvent(event: MouseEvent): RegExpMatchArray | nul
   if (!(event.target instanceof Element)) return null
   const anchor = event.target.closest<HTMLAnchorElement>('a[href]')
   return anchor == null ? null : matchDocumentAttachmentPath(anchor.getAttribute('href'))
+}
+
+function onMoreMenuOutsideClick(event: MouseEvent) {
+  const menu = moreMenuRef.value
+  if (menu == null || menu.contains(event.target as Node)) return
+  moreOpen.value = false
 }
 
 function ensureDocumentAttachmentDeleteButtons() {
@@ -191,6 +202,7 @@ async function hydrateDocumentAttachments() {
 }
 
 onMounted(async () => {
+  window.document.addEventListener('click', onMoreMenuOutsideClick, true)
   // 页面停留期间按分钟刷新相对时间，避免“最近更新”文案逐渐失真。
   relativeTimeTimer = window.setInterval(() => { relativeTimeClock.value = Date.now() }, 60_000)
   await nextTick()
@@ -219,6 +231,8 @@ watch(
 )
 onBeforeUnmount(() => {
   if (relativeTimeTimer != null) clearInterval(relativeTimeTimer)
+  window.document.removeEventListener('click', onMoreMenuOutsideClick, true)
+  restorePdfExportState?.()
   attachmentImageObserver?.disconnect()
   attachmentImageObserver = null
   attachmentImageGeneration += 1
@@ -271,6 +285,19 @@ async function copyDraft() {
   await navigator.clipboard.writeText(`${props.document.title}\n\n${props.document.content}`)
   copied.value = true
   window.setTimeout(() => { copied.value = false }, 1800)
+}
+
+function exportPdf() {
+  if (exportingPdf.value) return
+  exportingPdf.value = true
+  // 通过打印态隐藏工作区 chrome，并把当前文档标题作为 PDF 默认文件名。
+  restorePdfExportState = startDocumentPdfExport(
+    props.document.title.trim() || t('documents.untitled'),
+    () => {
+      exportingPdf.value = false
+      restorePdfExportState = null
+    }
+  )
 }
 
 function handleDocumentBodyMouseDown(event: MouseEvent) {
@@ -372,12 +399,32 @@ async function handleDocumentBodyClick(event: MouseEvent) {
           <Check v-else-if="saveState === 'saved'" aria-hidden="true" />
           {{ saveLabel }}
         </span>
-        <button type="button" :title="t('documents.history')" @click="emit('history')">
-          <Clock3 aria-hidden="true" /><span>{{ t('documents.history') }}</span>
+        <button type="button" :title="t('documents.exportPdf')" :disabled="exportingPdf" @click="exportPdf">
+          <Loader2 v-if="exportingPdf" class="spin" aria-hidden="true" />
+          <FileDown v-else aria-hidden="true" /><span>{{ exportingPdf ? t('documents.exportingPdf') : t('documents.exportPdf') }}</span>
         </button>
-        <button type="button" :title="t('documents.archive')" @click="emit('archive')">
-          <Archive aria-hidden="true" /><span>{{ t('documents.archive') }}</span>
-        </button>
+        <div ref="moreMenuRef" class="document-editor__more">
+          <button
+            type="button"
+            class="document-editor__more-trigger"
+            :title="t('documents.moreActions')"
+            :aria-label="t('documents.moreActions')"
+            :aria-expanded="moreOpen"
+            aria-haspopup="menu"
+            @click.stop="moreOpen = !moreOpen"
+            @keydown.esc.stop="moreOpen = false"
+          >
+            <MoreHorizontal aria-hidden="true" />
+          </button>
+          <div v-if="moreOpen" class="document-editor__more-menu" role="menu" @keydown.esc.stop="moreOpen = false">
+            <button type="button" role="menuitem" @click="moreOpen = false; emit('history')">
+              <Clock3 aria-hidden="true" /><span>{{ t('documents.history') }}</span>
+            </button>
+            <button type="button" role="menuitem" @click="moreOpen = false; emit('archive')">
+              <Archive aria-hidden="true" /><span>{{ t('documents.archive') }}</span>
+            </button>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -422,6 +469,7 @@ async function handleDocumentBodyClick(event: MouseEvent) {
           @input="emit('updateTitle', ($event.target as HTMLInputElement).value)"
           @keydown="handleTitleKeydown"
         />
+        <h1 class="document-editor__print-title">{{ document.title }}</h1>
         <p v-if="updatedMetadata" class="document-editor__updated">{{ updatedMetadata }}</p>
       </div>
       <div
@@ -505,26 +553,37 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 }
 
 .document-editor__actions,
-.document-editor__actions button,
+.document-editor__actions > button,
 .document-editor__save-state {
   display: flex;
   align-items: center;
 }
 
 .document-editor__actions { flex: none; gap: 6px; }
-.document-editor__actions button { gap: 6px; border-radius: var(--radius-sm); color: var(--color-text-secondary); }
-.document-editor__actions button:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.document-editor__actions > button { gap: 6px; border-radius: var(--radius-sm); color: var(--color-text-secondary); }
+.document-editor__actions > button:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
 .document-editor__favorite { display: inline-flex; flex: 0 0 24px; align-items: center; justify-content: center; width: 24px; height: 24px; min-width: 24px; min-height: 24px; padding: 4px; border-radius: var(--radius-sm); color: var(--color-text-muted); transition: color var(--transition-fast), background var(--transition-fast); }
 .document-editor__favorite:hover { background: var(--color-bg-hover); color: var(--color-text-secondary); }
 .document-editor__favorite--active { color: #d4a106; }
 .document-editor__favorite--active:hover { color: #b58900; }
 .document-editor__favorite--active svg { fill: currentColor; }
-.document-editor__actions button:focus-visible,
+.document-editor__actions > button:focus-visible,
 .document-editor__favorite:focus-visible { outline: 2px solid var(--color-border-strong); outline-offset: 1px; }
-.document-editor__actions svg,
+.document-editor__actions > button svg,
 .document-editor__save-state svg { width: 14px; height: 14px; }
 .document-editor__favorite svg { width: 16px; height: 16px; }
 .document-editor__save-state { gap: 5px; padding: 0 6px; color: var(--color-text-muted); font-size: var(--font-size-caption); }
+
+.document-editor__more { position: relative; }
+.document-editor__more-trigger { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0 !important; border-radius: var(--radius-sm); color: var(--color-text-secondary); }
+.document-editor__more-trigger:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.document-editor__more-trigger:focus-visible { outline: 2px solid var(--color-border-strong); outline-offset: 1px; }
+.document-editor__more-trigger svg { width: 16px; height: 16px; }
+.document-editor__more-menu { position: absolute; z-index: 20; top: calc(100% + 4px); right: 0; width: 152px; padding: 4px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-base); box-shadow: var(--shadow-popover); }
+.document-editor__more-menu button { display: flex; width: 100%; align-items: center; gap: 8px; padding: 7px 8px; border-radius: var(--radius-sm); color: var(--color-text-secondary); text-align: left; }
+.document-editor__more-menu button:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.document-editor__more-menu button:focus-visible { outline: 2px solid var(--color-border-strong); outline-offset: -2px; }
+.document-editor__more-menu svg { width: 14px; height: 14px; flex: none; }
 
 .document-editor__conflict {
   display: grid;
@@ -565,6 +624,7 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 
 .document-editor__title:focus-visible { outline: none; }
 .document-editor__title[readonly] { color: var(--color-text-secondary); }
+.document-editor__print-title { display: none; }
 
 .document-editor__heading { margin-bottom: 20px; }
 
@@ -797,5 +857,22 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   .document-editor__body :deep(.document-attachment-image-status__icon) { animation: none; }
   .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]),
   .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]::after) { transition: none; }
+}
+
+@media print {
+  .document-editor { display: block; min-height: auto; background: #fff; }
+  .document-editor__toolbar,
+  .document-editor__conflict,
+  .document-editor__attachment-error,
+  .document-editor__title,
+  :deep(.document-minimap) { display: none !important; }
+  .document-editor__page { display: block; min-height: auto; padding: 0; overflow: visible; }
+  .document-editor__print-title { display: block; margin: 0 0 8mm; color: #0d0d0d; font-size: 28px; font-weight: 600; line-height: 1.2; }
+  .document-editor__heading { margin-bottom: 8mm; }
+  .document-editor__updated { margin-top: 3mm; color: #666; font-size: 10pt; }
+  .document-editor__body :deep(.bn-editor) { min-height: auto !important; padding: 0 !important; font-size: 11pt; line-height: 1.6; }
+  .document-editor__body :deep(.bn-image-preview-button),
+  .document-editor__body :deep(.document-attachment-delete),
+  .document-editor__body :deep(.document-attachment-image-status) { display: none !important; }
 }
 </style>
