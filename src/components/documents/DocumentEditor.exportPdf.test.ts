@@ -2,6 +2,8 @@ import { createApp, defineComponent, h, nextTick } from 'vue'
 import { createI18n } from 'vue-i18n'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import DocumentEditor from './DocumentEditor.vue'
+// ?raw 拿到 SFC 源码文本，用于断言打印态 CSS 规则（jsdom 不应用 @media print）。
+import documentEditorSource from './DocumentEditor.vue?raw'
 
 vi.mock('../StructuredDocumentEditor.vue', () => ({
   default: defineComponent({
@@ -68,5 +70,10 @@ describe('DocumentEditor PDF export', () => {
     expect(document.title).toBe('Linear Lite')
     app.unmount()
     print.mockRestore()
+  })
+
+  it('hides the updated-by metadata in the print stylesheet so the PDF only contains document content', () => {
+    const printBlock = documentEditorSource.match(/@media print \{([\s\S]*?)\n\}/)?.[1] ?? ''
+    expect(printBlock).toMatch(/^\s*\.document-editor__updated \{ display: none !important; \}$/m)
   })
 })

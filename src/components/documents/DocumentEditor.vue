@@ -869,7 +869,8 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   .document-editor__page { display: block; min-height: auto; padding: 0; overflow: visible; }
   .document-editor__print-title { display: block; margin: 0 0 8mm; color: #0d0d0d; font-size: 28px; font-weight: 600; line-height: 1.2; }
   .document-editor__heading { margin-bottom: 8mm; }
-  .document-editor__updated { margin-top: 3mm; color: #666; font-size: 10pt; }
+  /* PDF 导出只输出文档内容，不导出“更新人 已更新 X前”这类编辑元信息 */
+  .document-editor__updated { display: none !important; }
   .document-editor__body :deep(.bn-editor) { min-height: auto !important; padding: 0 !important; font-size: 11pt; line-height: 1.6; }
   .document-editor__body :deep(.bn-image-preview-button),
   .document-editor__body :deep(.document-attachment-delete),
