@@ -86,6 +86,19 @@ public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
             @Param("userId") Long userId,
             @Param("archived") boolean archived);
 
+    /** 按精确标题查询当前用户可访问的文档，标题重复时由查询服务拒绝不确定结果。 */
+    @Select("""
+            SELECT d.*
+            FROM project_documents d
+            INNER JOIN project_members member
+              ON member.project_id = d.project_id AND member.user_id = #{userId}
+            WHERE d.title = #{title}
+            ORDER BY d.id ASC
+            """)
+    List<ProjectDocument> selectAccessibleByTitle(
+            @Param("title") String title,
+            @Param("userId") Long userId);
+
     @Update("""
             UPDATE project_documents
             SET title = #{title}, content_json = #{contentJson}, last_editor_id = #{editorId},

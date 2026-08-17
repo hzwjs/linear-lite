@@ -197,10 +197,17 @@ public class McpToolRegistry {
 
     private Object getDocument(JsonNode rawArguments, Long userId) {
         JsonNode arguments = McpArgumentValidator.object(rawArguments);
-        McpArgumentValidator.fields(arguments, "documentId");
-        Long documentId = requiredLong(arguments, "documentId");
+        McpArgumentValidator.fields(arguments, "documentId", "title");
+        Long documentId = McpArgumentValidator.optionalLong(arguments, "documentId");
+        String title = McpArgumentValidator.optionalText(arguments, "title", 256);
+        if ((documentId == null) == (title == null)) {
+            throw new McpInvalidParamsException("documentId 与 title 必须且只能提供一个");
+        }
         // 查询服务统一执行项目成员权限校验，并返回版本号供 update_document 使用。
-        return projectDocumentQueryService.getDocument(documentId, userId);
+        if (documentId != null) {
+            return projectDocumentQueryService.getDocument(documentId, userId);
+        }
+        return projectDocumentQueryService.getDocumentByTitle(title, userId);
     }
 
     private Object createDocument(JsonNode rawArguments, Long userId) {
@@ -336,9 +343,19 @@ public class McpToolRegistry {
     }
 
     private ObjectNode getDocumentDefinition() {
-        return tool("get_document", "获取文档内容", "按文档 ID 获取文档标题、BlockNote JSON 正文、版本号和元数据。",
-                objectSchema(Map.of("documentId", integerSchema("文档 ID")), "documentId"),
+        return tool("get_document", "获取文档内容", "按文档 ID 或精确标题获取文档标题、BlockNote JSON 正文、版本号和元数据。",
+                getDocumentInputSchema(),
                 true, true);
+    }
+
+    private ObjectNode getDocumentInputSchema() {
+        ObjectNode schema = objectSchema(Map.of(
+                "documentId", integerSchema("文档 ID"),
+                "title", stringSchema("文档精确标题", 1, 256)));
+        ArrayNode oneOf = schema.putArray("oneOf");
+        oneOf.add(objectSchema(Map.of("documentId", integerSchema("文档 ID")), "documentId"));
+        oneOf.add(objectSchema(Map.of("title", stringSchema("文档精确标题", 1, 256)), "title"));
+        return schema;
     }
 
     private ObjectNode updateDocumentDefinition() {

@@ -175,6 +175,24 @@ class McpDispatcherTest {
         verify(projectDocumentQueryService).getDocument(68L, 9L);
     }
 
+    @Test
+    void invokesGetDocumentByTitleWhenTitleIsTheOnlyCondition() throws Exception {
+        ProjectDocumentResponse document = new ProjectDocumentResponse(
+                68L, 7L, null, null, null, "安全扫描", "正文", 0, 3L,
+                9L, 9L, false, null, null, null);
+        when(projectDocumentQueryService.getDocumentByTitle("安全扫描", 9L)).thenReturn(document);
+
+        String body = request("9", "tools/call",
+                "{\"name\":\"get_document\",\"arguments\":{\"title\":\"安全扫描\"}}");
+        McpDispatcher.DispatchResponse response = dispatcher.dispatch(
+                body, "2026-07-28", "tools/call", "get_document", null, 9L);
+
+        assertEquals(200, response.status());
+        assertEquals(68L, response.body().path("result").path("structuredContent")
+                .path("id").asLong());
+        verify(projectDocumentQueryService).getDocumentByTitle("安全扫描", 9L);
+    }
+
     private String request(String id, String method, String params) {
         String extraParams = "{}".equals(params) ? "}}" : "," + params.substring(1) + "}";
         return "{\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"method\":\"" + method

@@ -8,6 +8,7 @@ import com.linearlite.server.dto.ProjectDocumentTreeNode;
 import com.linearlite.server.entity.ProjectDocument;
 import com.linearlite.server.entity.ProjectDocumentFavorite;
 import com.linearlite.server.entity.ProjectDocumentRevision;
+import com.linearlite.server.exception.ConflictOperationException;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
@@ -45,6 +46,18 @@ public class ProjectDocumentQueryService {
 
     public ProjectDocumentResponse getDocument(Long documentId, Long userId) {
         return toResponse(requireDocument(documentId, userId), isFavorite(documentId, userId));
+    }
+
+    public ProjectDocumentResponse getDocumentByTitle(String title, Long userId) {
+        List<ProjectDocument> documents = documentMapper.selectAccessibleByTitle(title, userId);
+        if (documents.isEmpty()) {
+            throw new ResourceNotFoundException("项目文档不存在: " + title);
+        }
+        if (documents.size() > 1) {
+            throw new ConflictOperationException("文档标题不唯一，请改用 documentId: " + title);
+        }
+        ProjectDocument document = documents.get(0);
+        return toResponse(document, isFavorite(document.getId(), userId));
     }
 
     public List<ProjectDocumentRevisionSummary> listRevisions(Long documentId, Long userId) {

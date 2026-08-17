@@ -75,7 +75,7 @@ flowchart LR
 | `add_task_comment` | `taskKey`, `body` | `parentId`, `mentionedUserIds` | `TaskCommentService.create` | `TaskCommentResponse` |
 | `get_task` | `taskKey` | 无 | `TaskQueryService.getByKeyOrThrow` | `Task` |
 | `list_documents` | `projectId` | `archived` | `ProjectDocumentQueryService.listTree` | `ProjectDocumentTreeNode[]` |
-| `get_document` | `documentId` | 无 | `ProjectDocumentQueryService.getDocument` | `ProjectDocumentResponse` |
+| `get_document` | `documentId` 或 `title`（二选一） | 无 | `ProjectDocumentQueryService.getDocument` / `getDocumentByTitle` | `ProjectDocumentResponse` |
 | `create_document` | `projectId`, `title` | `parentDocumentId`, `content`, `externalSource`, `externalSourceId` | `ProjectDocumentCommandService.create` | `ProjectDocumentResponse` |
 | `update_document` | `documentId`, `expectedVersion`, `title`, `content` | 无 | `ProjectDocumentCommandService.update` | `ProjectDocumentResponse` |
 
@@ -87,7 +87,7 @@ flowchart LR
 - `update_document.expectedVersion` 必填，直接复用文档乐观锁。版本冲突返回工具错误结果，并在结构化错误数据中带当前版本；不自动重读、不覆盖、不降级为无版本更新。
 - `content` 继续使用项目现有 BlockNote JSON 字符串格式，不在 MCP 层转换为 Markdown 或其他格式。
 - `list_documents` 默认只返回未归档文档的树投影，不读取正文；传入 `archived: true` 时返回已归档文档树。
-- `get_document` 返回文档正文和当前 `version`，供客户端在调用 `update_document` 前读取乐观锁版本。
+- `get_document` 必须且只能提供 `documentId` 或精确 `title` 其中一个；标题匹配到多个文档时要求客户端改用 ID。工具返回文档正文和当前 `version`，供客户端在调用 `update_document` 前读取乐观锁版本。
 - 不接受 `Authorization`、JWT、用户 ID、项目成员 ID 等权限控制字段作为工具业务参数，避免模型伪造调用身份。
 
 ## 5. 认证、权限与安全
