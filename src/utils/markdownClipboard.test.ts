@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shouldPasteClipboardAsMarkdown } from './markdownClipboard'
+import { asciiTableToMarkdown, shouldPasteClipboardAsMarkdown } from './markdownClipboard'
 
 describe('shouldPasteClipboardAsMarkdown', () => {
   it('recognizes raw markdown copied as plain text', () => {
@@ -24,5 +24,36 @@ describe('shouldPasteClipboardAsMarkdown', () => {
         '# Title\n\n## Section\n\n- item',
       ),
     ).toBe(true)
+  })
+
+  it('recognizes a GFM table when rich HTML is also on the clipboard', () => {
+    expect(
+      shouldPasteClipboardAsMarkdown(
+        ['text/html', 'text/plain'],
+        '| 风险 | 影响等级 |\n| --- | --- |\n| 数据库绑定 | 高 |',
+      ),
+    ).toBe(true)
+  })
+
+  it('does not classify arbitrary pipe-delimited text as a table', () => {
+    expect(
+      shouldPasteClipboardAsMarkdown(
+        ['text/html', 'text/plain'],
+        '问题 A | 问题 B\n普通文本 | 普通文本',
+      ),
+    ).toBe(false)
+  })
+
+  it('converts a Unicode box-drawing table with wrapped cells to GFM', () => {
+    expect(
+      asciiTableToMarkdown(
+        '┌───┬────────┬────┐\n' +
+        '│ # │ 风险   │ 等级 │\n' +
+        '├───┼────────┼────┤\n' +
+        '│ 1 │ 数据库 │ 高  │\n' +
+        '│   │ 绑定   │    │\n' +
+        '└───┴────────┴────┘',
+      ),
+    ).toBe('| # | 风险 | 等级 |\n| --- | --- | --- |\n| 1 | 数据库 绑定 | 高 |')
   })
 })

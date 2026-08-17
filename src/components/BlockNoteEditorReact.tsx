@@ -20,7 +20,7 @@ import {
 import { createCodeBlockSpec } from '@blocknote/core/blocks'
 import type { HighlighterGeneric, LanguageInput } from '@shikijs/types'
 import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
-import { shouldPasteClipboardAsMarkdown } from '../utils/markdownClipboard'
+import { asciiTableToMarkdown, shouldPasteClipboardAsMarkdown } from '../utils/markdownClipboard'
 import { normalizeMermaidRenderError, renderMermaidSvg } from '../utils/mermaidRenderer'
 import { MentionMemberSuggestionMenu } from './MentionMemberSuggestionMenu'
 import {
@@ -904,6 +904,13 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
         const isInCodeBlock = editor.transact(
           (tr) => tr.selection.$from.parent.type.spec.code && tr.selection.$to.parent.type.spec.code,
         )
+
+        // 外部文档/LLM 常把表格复制成 Unicode 框线文本；先转换成 GFM，避免按多个段落保存。
+        const asciiTableMarkdown = !isInCodeBlock ? asciiTableToMarkdown(plainText) : undefined
+        if (asciiTableMarkdown) {
+          editor.pasteMarkdown(asciiTableMarkdown)
+          return true
+        }
 
         // Raw Markdown copied from a file/editor usually has no HTML MIME entry,
         // so bypass BlockNote's narrow Markdown detector and parse it explicitly.
