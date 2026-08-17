@@ -2,7 +2,7 @@
 
 ## 1. 方案结论
 
-在现有 `linear-lite-server` 中新增一个基于 Spring MVC 的 MCP 协议适配层，提供唯一入口 `POST /mcp`，严格实现 MCP `2026-07-28` 规范，只暴露项目、任务、评论和文档相关的 8 个工具。
+在现有 `linear-lite-server` 中新增一个基于 Spring MVC 的 MCP 协议适配层，提供唯一入口 `POST /mcp`，严格实现 MCP `2026-07-28` 规范，只暴露项目、任务、评论和文档相关的 10 个工具。
 
 协议层只负责 JSON-RPC 解析、规范校验、工具发现、认证上下文传递和结果封装；业务执行全部复用现有领域服务，不新增一套项目、任务或文档业务逻辑，也不新增数据库表。
 
@@ -41,7 +41,7 @@ flowchart LR
     E --> V["协议/Origin/请求头校验"]
     V --> D["McpDispatcher"]
     D --> R["固定工具注册表"]
-    R --> H["8 个工具处理器"]
+    R --> H["10 个工具处理器"]
     H --> S["现有领域 Service"]
     S --> DB[("MySQL")]
     S --> O["MCP JSON-RPC result"]
@@ -57,7 +57,7 @@ flowchart LR
 - `McpToolRegistry`：保存固定、确定顺序的工具定义和对应处理器，不根据连接状态动态改变工具集合。
 - `McpToolHandler`：工具处理器接口；每个工具处理器只做参数映射和结果转换。
 - `McpJsonRpcRequest`、`McpJsonRpcResponse`、`McpError` 等协议 record：与既有 `ApiResponse` 分离，避免把 REST 响应包装泄露到 MCP wire format。
-- `McpToolSchemas`：集中维护 8 个工具的输入、输出 schema 和工具说明。
+- `McpToolSchemas`：集中维护 10 个工具的输入、输出 schema 和工具说明。
 - `McpExceptionMapper`：将业务异常转为 `isError: true` 的工具结果，并将协议异常转为 JSON-RPC error。
 
 工具处理器不得调用 Controller，不得直接访问 Mapper，不得从工具参数读取 `creatorId`、`userId` 或其他权限主体字段。当前用户统一来自既有 JWT 过滤器注入的 `userId` 请求属性。
@@ -74,6 +74,8 @@ flowchart LR
 | `update_task` | `taskKey` | `title`, `parentId`, `clearParent`, `description`, `status`, `priority`, `assigneeId`, `clearAssignee`, `dueDate`, `clearDueDate`, `plannedStartDate`, `clearPlannedStart`, `progressPercent`, `labels` | `TaskCommandService.update` | `TaskMutationResponse` |
 | `add_task_comment` | `taskKey`, `body` | `parentId`, `mentionedUserIds` | `TaskCommentService.create` | `TaskCommentResponse` |
 | `get_task` | `taskKey` | 无 | `TaskQueryService.getByKeyOrThrow` | `Task` |
+| `list_documents` | `projectId` | `archived` | `ProjectDocumentQueryService.listTree` | `ProjectDocumentTreeNode[]` |
+| `get_document` | `documentId` | 无 | `ProjectDocumentQueryService.getDocument` | `ProjectDocumentResponse` |
 | `create_document` | `projectId`, `title` | `parentDocumentId`, `content`, `externalSource`, `externalSourceId` | `ProjectDocumentCommandService.create` | `ProjectDocumentResponse` |
 | `update_document` | `documentId`, `expectedVersion`, `title`, `content` | 无 | `ProjectDocumentCommandService.update` | `ProjectDocumentResponse` |
 
@@ -84,6 +86,8 @@ flowchart LR
 - `update_task` 保留现有更新语义：`parentId` 与 `clearParent`、`assigneeId` 与 `clearAssignee`、`dueDate` 与 `clearDueDate`、`plannedStartDate` 与 `clearPlannedStart` 互斥；未传字段不变。
 - `update_document.expectedVersion` 必填，直接复用文档乐观锁。版本冲突返回工具错误结果，并在结构化错误数据中带当前版本；不自动重读、不覆盖、不降级为无版本更新。
 - `content` 继续使用项目现有 BlockNote JSON 字符串格式，不在 MCP 层转换为 Markdown 或其他格式。
+- `list_documents` 默认只返回未归档文档的树投影，不读取正文；传入 `archived: true` 时返回已归档文档树。
+- `get_document` 返回文档正文和当前 `version`，供客户端在调用 `update_document` 前读取乐观锁版本。
 - 不接受 `Authorization`、JWT、用户 ID、项目成员 ID 等权限控制字段作为工具业务参数，避免模型伪造调用身份。
 
 ## 5. 认证、权限与安全
@@ -169,8 +173,8 @@ flowchart LR
 
 ## 9. 完成标准
 
-- 新 MCP 客户端使用 `2026-07-28` 请求元数据和 Streamable HTTP POST，可完成 `server/discover`、`tools/list` 和 8 个工具调用。
-- `tools/list` 始终以确定顺序返回 8 个工具及合法 JSON Schema 2020-12 定义。
+- 新 MCP 客户端使用 `2026-07-28` 请求元数据和 Streamable HTTP POST，可完成 `server/discover`、`tools/list` 和 10 个工具调用。
+- `tools/list` 始终以确定顺序返回 10 个工具及合法 JSON Schema 2020-12 定义。
 - 创建、更新、查询、评论和文档操作都经过当前 JWT 用户对应的项目权限校验。
 - 文档更新严格要求 `expectedVersion`，冲突可被客户端识别且不会覆盖他人修改。
 - `/mcp` 不存在旧初始化握手、协议会话、旧 SSE endpoint、query token 和字段兼容回退逻辑。

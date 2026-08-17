@@ -4,7 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.config.McpProperties;
 import com.linearlite.server.entity.Project;
+import com.linearlite.server.dto.ProjectDocumentResponse;
+import com.linearlite.server.dto.ProjectDocumentTreeNode;
 import com.linearlite.server.service.ProjectDocumentCommandService;
+import com.linearlite.server.service.ProjectDocumentQueryService;
 import com.linearlite.server.service.ProjectService;
 import com.linearlite.server.service.TaskCommandService;
 import com.linearlite.server.service.TaskCommentService;
@@ -24,11 +27,13 @@ class McpDispatcherTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private ProjectService projectService;
+    private ProjectDocumentQueryService projectDocumentQueryService;
     private McpDispatcher dispatcher;
 
     @BeforeEach
     void setUp() {
         projectService = mock(ProjectService.class);
+        projectDocumentQueryService = mock(ProjectDocumentQueryService.class);
         McpProperties properties = new McpProperties();
         properties.setServerName("linear-lite-test");
         properties.setServerVersion("test");
@@ -40,7 +45,8 @@ class McpDispatcherTest {
                 mock(TaskCommandService.class),
                 mock(TaskQueryService.class),
                 mock(TaskCommentService.class),
-                mock(ProjectDocumentCommandService.class));
+                mock(ProjectDocumentCommandService.class),
+                projectDocumentQueryService);
         dispatcher = new McpDispatcher(objectMapper, properties, registry);
     }
 
@@ -59,15 +65,17 @@ class McpDispatcherTest {
     }
 
     @Test
-    void listsAllEightToolsInStableOrder() throws Exception {
+    void listsAllTenToolsInStableOrder() throws Exception {
         McpDispatcher.DispatchResponse response = dispatcher.dispatch(
                 request("2", "tools/list", "{}"),
                 "2026-07-28", "tools/list", null, null, 7L);
 
         JsonNode tools = response.body().path("result").path("tools");
-        assertEquals(8, tools.size());
+        assertEquals(10, tools.size());
         assertEquals("list_projects", tools.get(0).path("name").asText());
-        assertEquals("update_document", tools.get(7).path("name").asText());
+        assertEquals("list_documents", tools.get(6).path("name").asText());
+        assertEquals("get_document", tools.get(7).path("name").asText());
+        assertEquals("update_document", tools.get(9).path("name").asText());
         assertEquals("private", response.body().path("result").path("cacheScope").asText());
         assertTrue(tools.get(2).path("inputSchema").path("properties").has("projectId"));
     }
@@ -129,6 +137,42 @@ class McpDispatcherTest {
         assertEquals("ENG", response.body().path("result").path("structuredContent").get(0)
                 .path("identifier").asText());
         verify(projectService).list(7L);
+    }
+
+    @Test
+    void invokesListDocumentsWithAuthenticatedUser() throws Exception {
+        ProjectDocumentTreeNode document = new ProjectDocumentTreeNode(
+                68L, 7L, null, "安全扫描", 0, 3L, true, null);
+        when(projectDocumentQueryService.listTree(7L, 9L, false))
+                .thenReturn(java.util.List.of(document));
+
+        String body = request("7", "tools/call",
+                "{\"name\":\"list_documents\",\"arguments\":{\"projectId\":7}}");
+        McpDispatcher.DispatchResponse response = dispatcher.dispatch(
+                body, "2026-07-28", "tools/call", "list_documents", null, 9L);
+
+        assertEquals(200, response.status());
+        assertEquals(68L, response.body().path("result").path("structuredContent").get(0)
+                .path("id").asLong());
+        verify(projectDocumentQueryService).listTree(7L, 9L, false);
+    }
+
+    @Test
+    void invokesGetDocumentWithAuthenticatedUser() throws Exception {
+        ProjectDocumentResponse document = new ProjectDocumentResponse(
+                68L, 7L, null, null, null, "安全扫描", "正文", 0, 3L,
+                9L, 9L, false, null, null, null);
+        when(projectDocumentQueryService.getDocument(68L, 9L)).thenReturn(document);
+
+        String body = request("8", "tools/call",
+                "{\"name\":\"get_document\",\"arguments\":{\"documentId\":68}}");
+        McpDispatcher.DispatchResponse response = dispatcher.dispatch(
+                body, "2026-07-28", "tools/call", "get_document", null, 9L);
+
+        assertEquals(200, response.status());
+        assertEquals("正文", response.body().path("result").path("structuredContent")
+                .path("content").asText());
+        verify(projectDocumentQueryService).getDocument(68L, 9L);
     }
 
     private String request(String id, String method, String params) {

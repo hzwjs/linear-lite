@@ -10,6 +10,7 @@ import com.linearlite.server.dto.TaskLabelItemRequest;
 import com.linearlite.server.dto.UpdateProjectDocumentRequest;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.service.ProjectDocumentCommandService;
+import com.linearlite.server.service.ProjectDocumentQueryService;
 import com.linearlite.server.service.ProjectService;
 import com.linearlite.server.service.TaskCommandService;
 import com.linearlite.server.service.TaskCommentService;
@@ -37,6 +38,7 @@ public class McpToolRegistry {
     private final TaskQueryService taskQueryService;
     private final TaskCommentService taskCommentService;
     private final ProjectDocumentCommandService projectDocumentCommandService;
+    private final ProjectDocumentQueryService projectDocumentQueryService;
     private final Map<String, ToolHandler> handlers;
     private final List<ObjectNode> definitions;
 
@@ -47,7 +49,8 @@ public class McpToolRegistry {
             TaskCommandService taskCommandService,
             TaskQueryService taskQueryService,
             TaskCommentService taskCommentService,
-            ProjectDocumentCommandService projectDocumentCommandService) {
+            ProjectDocumentCommandService projectDocumentCommandService,
+            ProjectDocumentQueryService projectDocumentQueryService) {
         this.objectMapper = objectMapper;
         this.markdownToBlockNoteConverter = markdownToBlockNoteConverter;
         this.projectService = projectService;
@@ -55,6 +58,7 @@ public class McpToolRegistry {
         this.taskQueryService = taskQueryService;
         this.taskCommentService = taskCommentService;
         this.projectDocumentCommandService = projectDocumentCommandService;
+        this.projectDocumentQueryService = projectDocumentQueryService;
 
         Map<String, ToolHandler> registered = new LinkedHashMap<>();
         registered.put("list_projects", this::listProjects);
@@ -63,6 +67,8 @@ public class McpToolRegistry {
         registered.put("update_task", this::updateTask);
         registered.put("add_task_comment", this::addTaskComment);
         registered.put("get_task", this::getTask);
+        registered.put("list_documents", this::listDocuments);
+        registered.put("get_document", this::getDocument);
         registered.put("create_document", this::createDocument);
         registered.put("update_document", this::updateDocument);
         this.handlers = Map.copyOf(registered);
@@ -73,6 +79,8 @@ public class McpToolRegistry {
                 updateTaskDefinition(),
                 addTaskCommentDefinition(),
                 getTaskDefinition(),
+                listDocumentsDefinition(),
+                getDocumentDefinition(),
                 createDocumentDefinition(),
                 updateDocumentDefinition());
     }
@@ -176,6 +184,23 @@ public class McpToolRegistry {
         McpArgumentValidator.fields(arguments, "taskKey");
         String taskKey = McpArgumentValidator.requiredText(arguments, "taskKey", 32);
         return taskQueryService.getByKeyOrThrow(taskKey, userId);
+    }
+
+    private Object listDocuments(JsonNode rawArguments, Long userId) {
+        JsonNode arguments = McpArgumentValidator.object(rawArguments);
+        McpArgumentValidator.fields(arguments, "projectId", "archived");
+        Long projectId = requiredLong(arguments, "projectId");
+        Boolean archived = McpArgumentValidator.optionalBoolean(arguments, "archived");
+        // 列表只走树投影，正文读取必须显式调用 get_document，避免批量加载 LONGTEXT 内容。
+        return projectDocumentQueryService.listTree(projectId, userId, Boolean.TRUE.equals(archived));
+    }
+
+    private Object getDocument(JsonNode rawArguments, Long userId) {
+        JsonNode arguments = McpArgumentValidator.object(rawArguments);
+        McpArgumentValidator.fields(arguments, "documentId");
+        Long documentId = requiredLong(arguments, "documentId");
+        // 查询服务统一执行项目成员权限校验，并返回版本号供 update_document 使用。
+        return projectDocumentQueryService.getDocument(documentId, userId);
     }
 
     private Object createDocument(JsonNode rawArguments, Long userId) {
@@ -300,6 +325,20 @@ public class McpToolRegistry {
                         "externalSource", stringSchema("外部来源类型", 1, 64),
                         "externalSourceId", stringSchema("外部来源文档 ID", 1, 128)), "projectId", "title"),
                 false, false);
+    }
+
+    private ObjectNode listDocumentsDefinition() {
+        return tool("list_documents", "获取文档列表", "获取项目文档树；默认只返回未归档文档，不包含正文内容。",
+                objectSchema(Map.of(
+                        "projectId", integerSchema("项目 ID"),
+                        "archived", booleanSchema("是否查询已归档文档")), "projectId"),
+                true, true);
+    }
+
+    private ObjectNode getDocumentDefinition() {
+        return tool("get_document", "获取文档内容", "按文档 ID 获取文档标题、BlockNote JSON 正文、版本号和元数据。",
+                objectSchema(Map.of("documentId", integerSchema("文档 ID")), "documentId"),
+                true, true);
     }
 
     private ObjectNode updateDocumentDefinition() {
