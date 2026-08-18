@@ -2347,12 +2347,20 @@ async function toggleDescriptionFullscreen() {
   max-height: none;
   height: auto;
   min-height: 100%;
+  /* 不被外层 flex 拉伸：面板高度随内容撑开，sticky head 的包含块才覆盖整个滚动区域 */
+  align-self: flex-start;
   border-radius: 0;
   box-shadow: none;
   border: none;
   border-left: 1px solid var(--color-border-subtle);
   /* 内联布局：纵向滚动由工作区外层承担，避免中间内容列出现独立滚动条 */
   overflow: visible;
+}
+/* 内联布局由工作区外层滚动：head 固定在视口顶部，正文在其下方滚动。 */
+.editor-panel--inline .editor-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 .editor-panel--inline .editor-body {
   flex: 0 0 auto;
