@@ -49,7 +49,8 @@ import { blockNoteDocHasPersistableContent, parseBlockNoteStoredBlocks } from '.
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import { getTaskDueState } from '../utils/taskDueState'
 import {
-  formatAgentEventActivity
+  formatAgentEventActivity,
+  formatAgentEventDetail
 } from '../utils/agentEventDisplay'
 import { captureTaskLoadContext, isTaskLoadStale } from '../utils/taskLoadContext'
 import { readTaskDetailSnapshot } from '../utils/taskDetailPreload'
@@ -84,7 +85,6 @@ import {
   Tag,
   CalendarDays,
   UserRound,
-  UsersRound,
   BarChart3,
   Pencil,
   ChevronDown,
@@ -174,6 +174,14 @@ const agentPreparing = ref(false)
 const agentPrompt = ref('')
 const agentSubmitting = ref(false)
 const agentPanelOpen = ref(false)
+type AgentConversationMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  pending?: boolean
+}
+const agentConversation = ref<AgentConversationMessage[]>([])
+let agentConversationSequence = 0
 let agentEventSource: EventSource | null = null
 let agentStatusLoadSequence = 0
 let agentBridgeReconnectTimer: ReturnType<typeof setInterval> | null = null
@@ -206,18 +214,48 @@ function closeAgentEventStream() {
   agentEventConnected.value = false
 }
 
+function appendAgentConversationMessage(message: Omit<AgentConversationMessage, 'id'>) {
+  agentConversation.value.push({
+    ...message,
+    id: `agent-message-${agentConversationSequence++}`
+  })
+}
+
+function updatePendingAgentReply(content: string) {
+  const pendingReply = [...agentConversation.value]
+    .reverse()
+    .find((message) => message.role === 'assistant' && message.pending)
+  if (pendingReply) {
+    pendingReply.content = content
+    return
+  }
+  appendAgentConversationMessage({ role: 'assistant', content, pending: true })
+}
+
 function applyAgentEvent(event: AgentTaskEvent) {
   agentEventsError.value = ''
   agentLiveActivity.value = formatAgentEventActivity(event)
+  if (event.eventType === 'progress') {
+    const detail = formatAgentEventDetail(event)
+    if (detail) updatePendingAgentReply(detail)
+  }
   if (event.eventType === 'started' && agentStatus.value) {
     agentStatus.value = { ...agentStatus.value, jobStatus: 'running' }
   } else if (event.eventType === 'completed' && agentStatus.value) {
     agentStatus.value = { ...agentStatus.value, sessionStatus: 'waiting_input', jobStatus: 'succeeded' }
     agentLiveActivity.value = ''
+    const pendingReply = [...agentConversation.value]
+      .reverse()
+      .find((message) => message.role === 'assistant' && message.pending)
+    if (pendingReply) pendingReply.pending = false
     closeAgentEventStream()
   } else if (event.eventType === 'failed' && agentStatus.value) {
     agentStatus.value = { ...agentStatus.value, sessionStatus: 'waiting_input', jobStatus: 'failed' }
     agentLiveActivity.value = ''
+    const pendingReply = [...agentConversation.value]
+      .reverse()
+      .find((message) => message.role === 'assistant' && message.pending)
+    if (pendingReply) pendingReply.pending = false
     closeAgentEventStream()
   }
 }
@@ -742,6 +780,9 @@ async function submitLocalPiTurn() {
   if (!taskKey || !executionId || !prompt || !canSubmitLocalPiTurn.value || agentSubmitting.value) return
   agentSubmitting.value = true
   agentEventsError.value = ''
+  // 先写入本地会话，再清空输入框，确保用户输入始终出现在对话记录中。
+  appendAgentConversationMessage({ role: 'user', content: prompt })
+  appendAgentConversationMessage({ role: 'assistant', content: '', pending: true })
   try {
     agentStatus.value = await agentApi.submitTurn(taskKey, executionId, prompt)
     agentPrompt.value = ''
@@ -997,6 +1038,8 @@ watch(
 watch(
   [() => props.task?.id, () => props.task?.assigneeId, () => props.mode],
   () => {
+    agentConversation.value = []
+    agentConversationSequence = 0
     // 负责人切换会创建或关闭 Pi execution，必须立即切换实时 SSE 连接。
     loadAgentStatus()
   },
@@ -2169,16 +2212,6 @@ async function toggleDescriptionFullscreen() {
         <section class="content-section subdued linear-section activity-section">
           <div class="linear-section-head linear-section-head--static activity-section-head">
             <span class="linear-section-title">{{ t('taskEditor.activity') }}</span>
-            <div class="activity-section-actions">
-              <button type="button" class="linear-unsubscribe">{{ t('taskEditor.unsubscribe') }}</button>
-              <button
-                type="button"
-                class="activity-subscribers-button"
-                :aria-label="t('taskEditor.unsubscribe')"
-              >
-                <UsersRound :size="15" aria-hidden="true" />
-              </button>
-            </div>
           </div>
           <div class="linear-section-body">
             <div v-if="activitiesLoading" class="activity-empty">{{ t('taskEditor.loadingActivity') }}</div>
@@ -2382,25 +2415,22 @@ async function toggleDescriptionFullscreen() {
           class="agent-status-panel"
           :class="{ 'agent-status-panel--active': isAgentExecutionActive }"
         >
-          <div class="linear-section-head linear-section-head--static">
-            <span class="linear-section-title">本地 Pi</span>
-            <span v-if="agentStatus?.jobStatus" class="agent-status-badge">{{ agentStatus.jobStatus }}</span>
-            <span v-if="agentPreparing" class="agent-status-badge">准备中</span>
-            <button
-              v-if="canStopAgent"
-              type="button"
-              class="agent-stop-button"
-              :disabled="agentCanceling"
-              :aria-busy="agentCanceling"
-              @click="cancelAgentExecution"
-            >
-              <Loader2 v-if="agentCanceling" class="icon-14 agent-stop-spinner" aria-hidden="true" />
-              <CircleX v-else class="icon-14" aria-hidden="true" />
-              {{ agentCanceling ? '停止中…' : '停止 Pi' }}
-            </button>
-          </div>
           <div v-if="agentEventsError && !isAgentExecutionActive" class="agent-events-copy agent-events-copy--error">
             {{ agentEventsError }}
+          </div>
+          <div v-if="agentConversation.length" class="agent-conversation" aria-live="polite">
+            <div
+              v-for="message in agentConversation"
+              :key="message.id"
+              class="agent-message"
+              :class="`agent-message--${message.role}`"
+            >
+              <span class="agent-message__author">{{ message.role === 'user' ? '你' : 'Pi' }}</span>
+              <div v-if="message.content" class="agent-message__content">{{ message.content }}</div>
+              <div v-else-if="message.pending" class="agent-message__content agent-message__content--pending">
+                Pi 正在处理…
+              </div>
+            </div>
           </div>
           <div v-if="isAgentExecutionActive" class="agent-event-area" aria-live="polite">
             <div v-if="agentEventsError" class="agent-events-copy agent-events-copy--error">{{ agentEventsError }}</div>
@@ -2416,7 +2446,7 @@ async function toggleDescriptionFullscreen() {
               aria-label="补充本地 Pi 指令"
               rows="3"
               :placeholder="canSubmitLocalPiTurn ? '补充本轮指令…' : '当前执行完成后可提交下一轮…'"
-              :disabled="agentSubmitting"
+              :disabled="agentSubmitting || agentCanceling"
               @keydown.meta.enter.prevent="submitLocalPiTurn"
               @keydown.ctrl.enter.prevent="submitLocalPiTurn"
             />
@@ -2425,13 +2455,15 @@ async function toggleDescriptionFullscreen() {
               <button
                 type="button"
                 class="agent-submit-button"
-                :disabled="!agentPrompt.trim() || agentSubmitting || !canSubmitLocalPiTurn"
-                :aria-busy="agentSubmitting"
-                aria-label="发送给本地 Pi"
-                title="发送给本地 Pi"
-                @click="submitLocalPiTurn"
+                :class="{ 'agent-submit-button--stop': isAgentExecutionActive }"
+                :disabled="agentSubmitting || agentCanceling || (!isAgentExecutionActive && (!agentPrompt.trim() || !canSubmitLocalPiTurn))"
+                :aria-busy="agentSubmitting || agentCanceling"
+                :aria-label="isAgentExecutionActive ? '停止本地 Pi' : '发送给本地 Pi'"
+                :title="isAgentExecutionActive ? '停止本地 Pi' : '发送给本地 Pi'"
+                @click="isAgentExecutionActive ? cancelAgentExecution() : submitLocalPiTurn()"
               >
-                <Loader2 v-if="agentSubmitting" class="icon-14 agent-stop-spinner" aria-hidden="true" />
+                <Loader2 v-if="agentSubmitting || agentCanceling" class="icon-14 agent-stop-spinner" aria-hidden="true" />
+                <CircleX v-else-if="isAgentExecutionActive" aria-hidden="true" />
                 <ArrowUp v-else aria-hidden="true" />
               </button>
             </div>
@@ -3761,48 +3793,8 @@ async function toggleDescriptionFullscreen() {
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }
-.linear-unsubscribe {
-  padding: 0;
-  border: none;
-  background: transparent;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: color var(--transition-fast);
-}
 .activity-section-head {
   width: 100%;
-}
-.activity-section-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  margin-left: auto;
-}
-.activity-subscribers-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-full);
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-.activity-subscribers-button:hover,
-.activity-subscribers-button:focus-visible {
-  background: var(--color-bg-hover);
-  color: var(--color-text-secondary);
-}
-.activity-subscribers-button:focus-visible {
-  outline: 2px solid var(--color-accent-muted-border);
-  outline-offset: 1px;
-}
-.linear-unsubscribe:hover {
-  color: var(--color-text-secondary);
 }
 /* 评论展示与编辑样式归 CommentThreadList 组件所有。 */
 .section-kicker {
@@ -4096,11 +4088,6 @@ async function toggleDescriptionFullscreen() {
   padding: 0;
   flex: 0 0 auto;
 }
-.agent-status-badge {
-  color: var(--color-accent);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-medium);
-}
 .agent-submit-button {
   display: inline-flex;
   align-items: center;
@@ -4120,6 +4107,14 @@ async function toggleDescriptionFullscreen() {
 .agent-submit-button:hover:not(:disabled) {
   color: var(--color-bg-base);
   background: var(--color-text-primary);
+}
+.agent-submit-button--stop {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--color-bg-base));
+}
+.agent-submit-button--stop:hover:not(:disabled) {
+  color: var(--color-bg-base);
+  background: var(--color-danger);
 }
 .agent-submit-button:disabled {
   cursor: not-allowed;
@@ -4186,35 +4181,55 @@ async function toggleDescriptionFullscreen() {
   font-size: var(--font-size-caption);
   white-space: nowrap;
 }
-/* 输入框与底部操作栏共享外层边界，形成连续的 Codex 式 composer。 */
-.agent-stop-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 30px;
-  margin-left: auto;
-  padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--color-danger) 45%, var(--color-border-subtle));
-  border-radius: var(--radius-sm);
-  color: var(--color-danger);
-  background: transparent;
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-}
-.agent-stop-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-}
-.agent-stop-button:focus-visible {
-  outline: 2px solid var(--color-danger);
-  outline-offset: 1px;
-}
-.agent-stop-button:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
+/* 输入框与底部操作栏共享外层边界，发送按钮在执行中切换为停止操作。 */
 .agent-stop-spinner {
   animation: linear-attachment-upload-spin 1s linear infinite;
+}
+.agent-conversation {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px 2px 16px;
+  scrollbar-gutter: stable;
+}
+.agent-message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 88%;
+  margin-bottom: 14px;
+}
+.agent-message--user {
+  align-items: flex-end;
+  margin-left: auto;
+}
+.agent-message--assistant {
+  align-items: flex-start;
+  margin-right: auto;
+}
+.agent-message__author {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-caption);
+}
+.agent-message__content {
+  padding: 9px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  background: var(--color-bg-muted);
+  font-size: var(--font-size-body);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-message--user .agent-message__content {
+  border-color: var(--color-accent-muted);
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.agent-message__content--pending {
+  color: var(--color-text-secondary);
+  font-style: italic;
 }
 .agent-event-area {
   min-height: 0;

@@ -551,7 +551,6 @@ const en = {
     createSubIssue: 'Create',
     creatingSubIssue: 'Creating...',
     activity: 'Activity',
-    unsubscribe: 'Unsubscribe',
     loadingActivity: 'Loading activity...',
     noActivityYet: 'No activity yet.',
     createdIssueSuffix: 'created the issue',

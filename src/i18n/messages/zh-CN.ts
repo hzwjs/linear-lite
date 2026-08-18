@@ -551,7 +551,6 @@ const zhCN = {
     createSubIssue: '创建',
     creatingSubIssue: '创建中...',
     activity: '活动',
-    unsubscribe: '取消订阅',
     loadingActivity: '活动加载中...',
     noActivityYet: '暂无活动。',
     createdIssueSuffix: '创建了该任务',
