@@ -4,6 +4,12 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.mjs",
+    "service:install": "node scripts/service.mjs install",
+    "service:start": "node scripts/service.mjs start",
+    "service:restart": "node scripts/service.mjs restart",
+    "service:status": "node scripts/service.mjs status",
+    "service:logs": "node scripts/service.mjs logs",
+    "service:uninstall": "node scripts/service.mjs uninstall",
     "test": "node --test test/*.test.mjs"
   }
 }

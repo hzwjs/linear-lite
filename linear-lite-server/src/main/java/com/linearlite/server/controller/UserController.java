@@ -32,7 +32,9 @@ public class UserController {
     @GetMapping
     public ResponseEntity<ApiResponse<List<UserSummaryDto>>> list() {
         List<User> users = userMapper.selectList(null);
+        // 负责人选择器只暴露真实用户；本地 Pi 是执行能力，不是可分配的系统用户。
         List<UserSummaryDto> list = users.stream()
+                .filter(u -> "human".equals(u.getPrincipalType()))
                 .map(u -> new UserSummaryDto(u.getId(), u.getUsername(), u.getAvatarUrl(),
                         u.getPrincipalType(), u.getAgentKey()))
                 .collect(Collectors.toList());

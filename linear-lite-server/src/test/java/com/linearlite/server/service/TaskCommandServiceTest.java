@@ -56,9 +56,6 @@ class TaskCommandServiceTest {
     private TaskHierarchyCompletionService taskHierarchyCompletionService;
     @Mock
     private ApplicationEventPublisher eventPublisher;
-    @Mock
-    private AgentTaskOrchestrationService agentTaskOrchestrationService;
-
     private TaskCommandService taskCommandService;
 
     @BeforeEach
@@ -73,8 +70,7 @@ class TaskCommandServiceTest {
                 labelService,
                 taskQueryService,
                 taskStatusService,
-                taskHierarchyCompletionService,
-                agentTaskOrchestrationService
+                taskHierarchyCompletionService
         );
         taskCommandService.setEventPublisher(eventPublisher);
         org.mockito.Mockito.lenient().when(taskHierarchyCompletionService.completeEligibleAncestors(

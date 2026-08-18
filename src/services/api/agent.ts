@@ -12,6 +12,11 @@ export interface AgentTaskStatus {
   updatedAt: string | null
 }
 
+export interface LocalPiPrepareResponse {
+  status: AgentTaskStatus
+  attachmentCode: string
+}
+
 export interface AgentTaskEvent {
   id: number
   executionId: string
@@ -28,7 +33,7 @@ function eventStreamUrl(taskKey: string, executionId: string, jobId: number): st
   if (!token) throw new Error('缺少登录凭证')
   const base = api.defaults.baseURL ?? '/api'
   const url = new URL(
-    `${base}/tasks/${encodeURIComponent(taskKey)}/agent-events/stream`,
+    `${base}/tasks/${encodeURIComponent(taskKey)}/local-pi/events/stream`,
     window.location.origin
   )
   url.searchParams.set('executionId', executionId)
@@ -38,13 +43,25 @@ function eventStreamUrl(taskKey: string, executionId: string, jobId: number): st
 }
 
 export const agentApi = {
-  getTaskStatus(taskKey: string): Promise<AgentTaskStatus> {
-    return api.get<ApiResponse<AgentTaskStatus>>(`/tasks/${encodeURIComponent(taskKey)}/agent-status`)
+  prepareLocalPi(taskKey: string): Promise<LocalPiPrepareResponse> {
+    return api.post<ApiResponse<LocalPiPrepareResponse>>(`/tasks/${encodeURIComponent(taskKey)}/local-pi/prepare`)
       .then(unwrap)
   },
 
+  getTaskStatus(taskKey: string): Promise<AgentTaskStatus> {
+    return api.get<ApiResponse<AgentTaskStatus>>(`/tasks/${encodeURIComponent(taskKey)}/local-pi/status`)
+      .then(unwrap)
+  },
+
+  submitTurn(taskKey: string, executionId: string, prompt: string): Promise<AgentTaskStatus> {
+    return api.post<ApiResponse<AgentTaskStatus>>(`/tasks/${encodeURIComponent(taskKey)}/local-pi/turns`, {
+      executionId,
+      prompt
+    }).then(unwrap)
+  },
+
   cancelTask(taskKey: string, executionId: string): Promise<void> {
-    return api.post<ApiResponse<void>>(`/tasks/${encodeURIComponent(taskKey)}/agent-cancel`, {
+    return api.post<ApiResponse<void>>(`/tasks/${encodeURIComponent(taskKey)}/local-pi/cancel`, {
       executionId
     }).then(unwrap)
   },

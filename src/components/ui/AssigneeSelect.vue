@@ -4,7 +4,6 @@ import { Check, Search, UserRound } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import type { User } from '../../types/domain'
 import { getAvatarColorByUsername, getInitials } from '../../utils/avatar'
-import { isPiBridgeAvailable } from '../../services/piBridge'
 
 type AssigneeValue = string | number | null
 type AssigneeOption = {
@@ -53,13 +52,6 @@ const query = ref('')
 const highlightedIndex = ref(0)
 const popoverStyle = ref({ top: '0px', left: '0px' })
 const listboxId = `${useId()}-assignee-listbox`
-const piBridgeAvailable = ref(false)
-let piBridgeCheckSequence = 0
-
-function isPiAgent(user: User): boolean {
-  return user.principalType === 'agent' && user.agentKey === 'pi'
-}
-
 const normalizedUsers = computed(() =>
   props.users.filter(
     (user, index, users) =>
@@ -81,11 +73,7 @@ const selectedUser = computed(() =>
     : normalizedUsers.value.find((user) => user.id === selectedId.value)
 )
 
-const hasPiAgent = computed(() => normalizedUsers.value.some(isPiAgent))
-
-const selectableUsers = computed(() =>
-  normalizedUsers.value.filter((user) => !isPiAgent(user) || piBridgeAvailable.value)
-)
+const selectableUsers = computed(() => normalizedUsers.value.filter((user) => user.principalType !== 'agent'))
 
 const displayLabel = computed(() =>
   selectedUser.value?.username?.trim() ||
@@ -153,13 +141,6 @@ function updatePopoverPosition() {
 
 async function open() {
   if (props.disabled || isOpen.value) return
-  const checkSequence = ++piBridgeCheckSequence
-  piBridgeAvailable.value = false
-  if (hasPiAgent.value) {
-    // 点击负责人控件时再检测，Bridge 不可用时从列表移除 Pi，关闭整改调用入口。
-    piBridgeAvailable.value = await isPiBridgeAvailable()
-    if (checkSequence !== piBridgeCheckSequence) return
-  }
   query.value = ''
   isOpen.value = true
   emit('open-change', true)

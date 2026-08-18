@@ -1,13 +1,8 @@
 import { createApp, nextTick } from 'vue'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { createI18n } from 'vue-i18n'
 import type { User } from '../../types/domain'
 import AssigneeSelect from './AssigneeSelect.vue'
-import { isPiBridgeAvailable } from '../../services/piBridge'
-
-vi.mock('../../services/piBridge', () => ({
-  isPiBridgeAvailable: vi.fn(),
-}))
 
 const users: User[] = [
   { id: 1, username: '李明' },
@@ -88,14 +83,12 @@ describe('AssigneeSelect', () => {
     view.app.unmount()
   })
 
-  it('hides Pi from the assignee list when the local Bridge is unavailable', async () => {
-    vi.mocked(isPiBridgeAvailable).mockResolvedValue(false)
+  it('never exposes the local Pi as a task assignee', async () => {
     const view = await mountSelect('', [
       ...users,
       { id: 3, username: 'Pi', principalType: 'agent', agentKey: 'pi' },
     ])
     view.host.querySelector<HTMLButtonElement>('.assignee-trigger')!.click()
-    await Promise.resolve()
     await nextTick()
 
     const labels = [...document.querySelectorAll('.assignee-option-label')].map((node) => node.textContent)
@@ -103,18 +96,4 @@ describe('AssigneeSelect', () => {
     view.app.unmount()
   })
 
-  it('shows Pi after the local Bridge health check succeeds', async () => {
-    vi.mocked(isPiBridgeAvailable).mockResolvedValue(true)
-    const view = await mountSelect('', [
-      ...users,
-      { id: 3, username: 'Pi', principalType: 'agent', agentKey: 'pi' },
-    ])
-    view.host.querySelector<HTMLButtonElement>('.assignee-trigger')!.click()
-    await Promise.resolve()
-    await nextTick()
-
-    const labels = [...document.querySelectorAll('.assignee-option-label')].map((node) => node.textContent)
-    expect(labels).toContain('Pi · Agent')
-    view.app.unmount()
-  })
 })

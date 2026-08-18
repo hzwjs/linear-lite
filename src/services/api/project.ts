@@ -19,16 +19,6 @@ export interface GitHubRepository {
   createdAt: string
 }
 
-export interface PiAgentConfiguration {
-  agentUserId: number
-  agentKey: string
-  token: string
-}
-
-export interface PiAgentStatus {
-  configured: boolean
-}
-
 /** 供 GitLab Webhook 配置使用，随前端 API 部署前缀变化。 */
 export function gitlabWebhookUrl(): string {
   const base = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '')
@@ -137,18 +127,6 @@ export const projectApi = {
       .then((res) => {
         unwrap(res)
       })
-  },
-
-  configurePiAgent(projectId: number): Promise<PiAgentConfiguration> {
-    return api
-      .post<ApiResponse<PiAgentConfiguration>>(`/projects/${projectId}/pi-agent`)
-      .then(unwrap)
-  },
-
-  getPiAgentStatus(projectId: number): Promise<PiAgentStatus> {
-    return api
-      .get<ApiResponse<PiAgentStatus>>(`/projects/${projectId}/pi-agent/status`)
-      .then(unwrap)
   },
 
   listGitLabRepositories(projectId: number): Promise<GitLabRepository[]> {

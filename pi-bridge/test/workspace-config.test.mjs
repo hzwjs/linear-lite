@@ -56,6 +56,15 @@ test('local HTTP page reads, validates, saves and removes mappings', async () =>
     store,
     settingsStore,
     projectProvider: async () => [{ projectId: 42, projectName: 'Engineering' }],
+    healthProvider: () => ({
+      status: 'online',
+      configured: true,
+      backendReachable: true,
+      version: 'test',
+      startedAt: '2026-08-17T00:00:00.000Z',
+      lastConnectedAt: '2026-08-17T00:00:01.000Z',
+    }),
+    onAttach: async (attachmentCode) => ({ attachmentToken: `token-for-${attachmentCode}` }),
     port: 0,
   })
   const address = await configServer.listen()
@@ -65,28 +74,56 @@ test('local HTTP page reads, validates, saves and removes mappings', async () =>
     assert.equal(page.status, 200)
     const pageText = await page.text()
     assert.match(pageText, /Pi Bridge 配置/)
-    assert.match(pageText, /Agent Token/)
+    assert.doesNotMatch(pageText, /Bridge Credential/)
     assert.match(pageText, /Linear Lite 项目/)
     assert.match(pageText, /添加项目绑定/)
 
     const initialSettings = await fetch(`${baseUrl}/api/settings`)
-    assert.deepEqual(await initialSettings.json(), { apiBaseUrl: 'http://127.0.0.1:9080', configured: false })
+    assert.deepEqual(await initialSettings.json(), { apiBaseUrl: 'http://127.0.0.1:9080', configured: true })
 
     const savedSettings = await fetch(`${baseUrl}/api/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiBaseUrl: 'http://127.0.0.1:9080/', agentToken: 'pi_test_token' }),
+      body: JSON.stringify({ apiBaseUrl: 'http://127.0.0.1:9080/' }),
     })
     assert.equal(savedSettings.status, 200)
     assert.deepEqual(await savedSettings.json(), { apiBaseUrl: 'http://127.0.0.1:9080', configured: true })
-    assert.match(await readFile(join(root, 'settings.json'), 'utf8'), /pi_test_token/)
+    assert.doesNotMatch(await readFile(join(root, 'settings.json'), 'utf8'), /credential/i)
 
     const health = await fetch(`${baseUrl}/healthz`, {
       headers: { Origin: 'http://localhost:5173' },
     })
     assert.equal(health.status, 200)
-    assert.deepEqual(await health.json(), { status: 'ok' })
+    assert.deepEqual(await health.json(), {
+      status: 'online',
+      configured: true,
+      backendReachable: true,
+      version: 'test',
+      startedAt: '2026-08-17T00:00:00.000Z',
+      lastConnectedAt: '2026-08-17T00:00:01.000Z',
+    })
     assert.equal(health.headers.get('access-control-allow-origin'), 'http://localhost:5173')
+
+    const attached = await fetch(`${baseUrl}/api/attach`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+      body: JSON.stringify({ attachmentCode: 'one-time-code' }),
+    })
+    assert.equal(attached.status, 200)
+    assert.deepEqual(await attached.json(), { attachmentToken: 'token-for-one-time-code' })
+    assert.equal(attached.headers.get('access-control-allow-origin'), 'http://localhost:5173')
+
+    const preflight = await fetch(`${baseUrl}/api/attach`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'http://localhost:5173',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type',
+      },
+    })
+    assert.equal(preflight.status, 204)
+    assert.equal(preflight.headers.get('access-control-allow-methods'), 'GET,POST,PUT,DELETE,OPTIONS')
+    assert.equal(preflight.headers.get('access-control-allow-headers'), 'Content-Type')
 
     const empty = await fetch(`${baseUrl}/api/projects`)
     assert.deepEqual(await empty.json(), { projects: [] })

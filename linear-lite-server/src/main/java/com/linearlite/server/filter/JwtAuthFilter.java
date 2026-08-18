@@ -46,8 +46,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (!protectedApiPath) {
             return true;
         }
-        // Agent API 使用独立 X-Agent-Token，不能落入人类 JWT 认证链路。
-        if (path.startsWith("/api/agent/")) {
+        // Bridge API 使用一次性 execution attachment，不能落入人类 JWT 认证链路。
+        if (path.startsWith("/api/bridge/")) {
             return true;
         }
         // 新规范只允许 POST；让旧 GET/DELETE 请求直接得到 405，而不是被认证层改写为 401。
@@ -102,7 +102,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return authHeader.substring(BEARER_PREFIX.length()).trim();
         }
         String path = request.getRequestURI();
-        if (path != null && (path.endsWith("/notifications/stream") || path.endsWith("/agent-events/stream"))
+        if (path != null && (path.endsWith("/notifications/stream") || path.endsWith("/local-pi/events/stream"))
                 && "GET".equalsIgnoreCase(request.getMethod())) {
             String q = request.getParameter("access_token");
             if (q != null && !q.isBlank()) {

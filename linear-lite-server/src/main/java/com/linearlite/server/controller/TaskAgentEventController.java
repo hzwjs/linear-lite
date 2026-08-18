@@ -20,7 +20,7 @@ public class TaskAgentEventController {
         this.eventService = eventService;
     }
 
-    @GetMapping(path = "/{taskKey}/agent-events/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @GetMapping(path = "/{taskKey}/local-pi/events/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(
             HttpServletRequest request,
             @PathVariable String taskKey,

@@ -11,9 +11,8 @@ import com.linearlite.server.exception.ConflictOperationException;
 import com.linearlite.server.mapper.AgentTaskJobMapper;
 import com.linearlite.server.mapper.AgentTaskSessionMapper;
 import com.linearlite.server.mapper.ProjectMapper;
-import com.linearlite.server.mapper.ProjectAgentBindingMapper;
+import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.TaskMapper;
-import com.linearlite.server.mapper.UserMapper;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -21,32 +20,88 @@ import java.time.LocalDateTime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class AgentTaskOrchestrationServiceTest {
-    private final UserMapper userMapper = mock(UserMapper.class);
     private final TaskMapper taskMapper = mock(TaskMapper.class);
     private final ProjectMapper projectMapper = mock(ProjectMapper.class);
-    private final ProjectAgentBindingMapper bindingMapper = mock(ProjectAgentBindingMapper.class);
+    private final ProjectMemberMapper projectMemberMapper = mock(ProjectMemberMapper.class);
     private final AgentTaskSessionMapper sessionMapper = mock(AgentTaskSessionMapper.class);
     private final AgentTaskJobMapper jobMapper = mock(AgentTaskJobMapper.class);
     private final TaskPermissionGuard taskPermissionGuard = mock(TaskPermissionGuard.class);
     private final AgentTaskOrchestrationService service = new AgentTaskOrchestrationService(
-            userMapper, taskMapper, projectMapper, bindingMapper, sessionMapper, jobMapper, taskPermissionGuard);
+            taskMapper, projectMapper, projectMemberMapper, sessionMapper, jobMapper, taskPermissionGuard);
+
+    @Test
+    void preparesCompletedTaskByResumingItsExistingPiSession() {
+        Task task = new Task();
+        task.setId(10L);
+        task.setTaskKey("LINEAR-LITE-101");
+        task.setProjectId(6L);
+        task.setAssigneeId(7L);
+        task.setStatus("done");
+        when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-101", 7L)).thenReturn(task);
+
+        AgentTaskSession session = new AgentTaskSession();
+        session.setId(20L);
+        session.setExecutionId("exec-existing");
+        session.setStatus("waiting_input");
+        session.setAgentUserId(7L);
+        when(sessionMapper.selectOne(any())).thenReturn(session);
+        when(jobMapper.selectOne(any())).thenReturn(null);
+
+        AgentTaskStatusResponse status = service.prepare(7L, "LINEAR-LITE-101");
+
+        assertEquals("exec-existing", status.executionId());
+        assertEquals("waiting_input", status.sessionStatus());
+        assertEquals("done", task.getStatus());
+        verify(sessionMapper, never()).insert(any());
+    }
+
+    @Test
+    void submitsAnotherTurnForCompletedTaskWithoutChangingTaskStatus() {
+        Task task = new Task();
+        task.setId(10L);
+        task.setTaskKey("LINEAR-LITE-101");
+        task.setProjectId(6L);
+        task.setAssigneeId(7L);
+        task.setStatus("done");
+        when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-101", 7L)).thenReturn(task);
+
+        AgentTaskSession session = new AgentTaskSession();
+        session.setId(20L);
+        session.setExecutionId("exec-existing");
+        session.setStatus("waiting_input");
+        session.setAgentUserId(7L);
+        when(sessionMapper.selectOne(any())).thenReturn(session);
+        when(jobMapper.selectCount(any())).thenReturn(0L);
+
+        AgentTaskStatusResponse status = service.submitTurn(
+                7L, "LINEAR-LITE-101", "exec-existing", "继续修复验收反馈");
+
+        assertEquals("exec-existing", status.executionId());
+        assertEquals("queued", status.jobStatus());
+        assertEquals("done", task.getStatus());
+        verify(jobMapper).insert(any(AgentTaskJob.class));
+        verifyNoInteractions(taskMapper);
+    }
 
     @Test
     void cancelsOnlyTaskTheHumanUserCanAccess() {
         Task task = new Task();
         task.setId(10L);
+        task.setAssigneeId(7L);
         when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-84", 7L)).thenReturn(task);
         AgentTaskSession session = new AgentTaskSession();
         session.setId(20L);
         session.setTaskId(10L);
-        session.setStatus("active");
+        session.setStatus("running");
         session.setExecutionId("exec-1");
         when(sessionMapper.selectOne(any())).thenReturn(session);
 
@@ -72,11 +127,12 @@ class AgentTaskOrchestrationServiceTest {
     void refusesOldExecutionIdWithoutChangingTheCurrentSession() {
         Task task = new Task();
         task.setId(10L);
+        task.setAssigneeId(7L);
         when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-84", 7L)).thenReturn(task);
         AgentTaskSession session = new AgentTaskSession();
         session.setId(20L);
         session.setTaskId(10L);
-        session.setStatus("active");
+        session.setStatus("running");
         session.setExecutionId("exec-new");
         when(sessionMapper.selectOne(any())).thenReturn(session);
 
@@ -93,7 +149,8 @@ class AgentTaskOrchestrationServiceTest {
         job.setSessionId(20L);
         job.setExecutionId("exec-1");
         job.setTaskId(10L);
-        job.setSourceType("assignment");
+        job.setSourceType("turn");
+        job.setPrompt("查询广州明天的天气");
         job.setStatus("queued");
         job.setAttemptCount(0);
         job.setNextRunAt(LocalDateTime.now().minusMinutes(1));
@@ -102,7 +159,7 @@ class AgentTaskOrchestrationServiceTest {
         session.setId(20L);
         session.setExecutionId("exec-1");
         session.setAgentUserId(7L);
-        session.setStatus("active");
+        session.setStatus("running");
         session.setSessionId("pi-session-opaque");
 
         Task task = new Task();
@@ -117,7 +174,7 @@ class AgentTaskOrchestrationServiceTest {
         project.setId(30L);
         project.setName("Linear Lite");
 
-        when(jobMapper.selectOne(any())).thenReturn(job);
+        when(jobMapper.selectClaimableForOwner(eq(7L), any(LocalDateTime.class))).thenReturn(job);
         when(sessionMapper.selectById(20L)).thenReturn(session);
         when(taskMapper.selectById(10L)).thenReturn(task);
         when(projectMapper.selectById(30L)).thenReturn(project);
@@ -132,29 +189,25 @@ class AgentTaskOrchestrationServiceTest {
     }
 
     @Test
-    void taskStatusIdentifiesTheLatestCommentJobWithinTheSameExecution() {
+    void taskStatusIgnoresLegacyNonTurnJobsWhenTheSessionIsIdle() {
         Task task = new Task();
         task.setId(10L);
+        task.setAssigneeId(7L);
         when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-96", 7L)).thenReturn(task);
         AgentTaskSession session = new AgentTaskSession();
         session.setId(20L);
         session.setTaskId(10L);
         session.setExecutionId("exec-1");
-        session.setStatus("active");
+        session.setStatus("running");
         when(sessionMapper.selectOne(any())).thenReturn(session);
-        AgentTaskJob commentJob = new AgentTaskJob();
-        commentJob.setId(22L);
-        commentJob.setSessionId(20L);
-        commentJob.setStatus("queued");
-        commentJob.setSourceType("comment");
-        when(jobMapper.selectOne(any())).thenReturn(commentJob);
+        when(jobMapper.selectOne(any())).thenReturn(null);
 
         AgentTaskStatusResponse status = service.getTaskStatus("LINEAR-LITE-96", 7L);
 
         assertEquals("exec-1", status.executionId());
-        assertEquals(22L, status.jobId());
-        assertEquals("comment", status.sourceType());
-        assertEquals("queued", status.jobStatus());
+        assertEquals(null, status.jobId());
+        assertEquals(null, status.sourceType());
+        assertEquals(null, status.jobStatus());
     }
 
     @Test

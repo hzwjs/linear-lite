@@ -1,140 +1,202 @@
-# Linear Lite × 本地 Pi 联动技术方案
+# Linear Lite × 本地 Pi 执行方案
 
 ## 1. 方案结论
 
-采用“Linear Lite 后端编排 + 每位用户一个本地 Pi Bridge + Pi RPC 独立会话 + MCP 业务回写”的单一架构。
+采用“真实任务负责人 + 本地 Pi 图标入口 + 非驻留执行面板 + 单任务单轮执行 + 常驻 Bridge”的架构。
 
-任务负责人始终是 Linear Lite 中的真实用户，Pi 不是用户、不是独立负责人，也不出现在负责人选择器中。每位用户在自己的电脑上运行一个本地 Pi Bridge，Bridge 以该用户的 Agent Credential 访问 Linear Lite，只能认领当前用户负责且被允许交给 Pi 处理的任务。Pi 负责在该用户配置的项目工作区内执行任务，所有任务状态、评论和执行结果仍通过 Linear Lite 既有任务服务写回。
+任务负责人始终是 Linear Lite 中的真实用户。Pi 不是用户、不是负责人，也不出现在负责人选择器、项目成员或评论 mention 中。
 
-本方案支持：
+负责人通过任务详情中的本地 Pi 图标打开执行面板。执行面板不常驻、不改变任务详情布局；打开后自动准备当前任务上下文。面板底部始终保留输入框，负责人可以在上下文准备完成后提交一轮指令。
 
-- 任务继续指派给真实用户，负责人语义不因 Pi 执行而改变；
-- 用户将自己负责的指定任务交给本地 Pi 认领和处理；
-- 每个任务拥有独立的 Pi 会话和独立工作区；
-- 任务未完成时，用户可要求本地 Pi 在原会话中继续处理；
-- Pi、Bridge 或网络中断后的会话恢复；
-- 任务重新指派后的旧会话终止；
-- 多个任务并行执行且互不共享上下文和文件。
+同一任务同一时间只允许一个本地 Pi Job。执行中不创建排队项、不接受下一轮提交；负责人只能终止当前 Job。当前 Job 结束后，输入框重新允许提交下一轮，后续轮次复用同一个执行上下文和 Pi session。
 
-## 2. 总体架构
+系统取消 Agent Token、Bridge Credential 及所有用户可见的凭证配置。Bridge 通过本机浏览器触发的一次性内存握手获得当前执行授权，不落盘、不出现在任务页面、不需要用户复制粘贴。
 
-```mermaid
-flowchart LR
-    U[用户] --> F[Linear Lite 前端]
-    F --> A[Linear Lite REST API]
-    A --> T[任务领域服务]
-    T --> DB[(MySQL)]
-    T --> Q[Agent Task Job 持久化队列]
-    B[用户本地 Pi Bridge] -->|以用户身份领取/心跳/回报| A
-    B -->|启动独立 RPC 进程| P[本地 Pi]
-    P --> W[用户项目工作区]
-    B -->|任务状态/评论/结果| M[MCP 业务接口]
-    M --> T
-```
-
-Linear Lite 不直接创建或管理 Pi 子进程，也不通过浏览器或内存态 SSE 触发执行。Bridge 主动向后端领取任务，因此后端无需访问用户本地端口。
-
-身份边界固定为：
+## 2. 领域边界
 
 ```text
-Linear Lite 用户账号
-  -> 用户自己的 Agent Credential
-  -> 用户自己的 Pi Bridge
-  -> 用户自己的 Pi 进程
+Task Assignee       任务业务负责人，必须是真实用户
+Local Pi Execution  负责人对当前任务发起的一组本地执行
+Execution Context   连续多轮执行共享的上下文身份
+Turn                负责人提交的一轮指令
+Job                 一轮 Turn 对应的持久化执行单元
+Bridge              用户电脑上的常驻本地进程
+Pi                  Bridge 启动的本地执行进程
 ```
 
-## 3. 身份与数据模型
-
-### 3.1 任务负责人和本地 Pi 的关系
-
-沿用现有 `tasks.assignee_id` 作为唯一负责人字段，但该字段只允许指向真实用户：
+固定关系：
 
 ```text
 tasks.assignee_id
-  -> users.id(principal_type=human)
-  -> 该用户本地 Pi Bridge
-  -> Pi
+  -> 真实用户
+  -> 负责人点击本地 Pi 图标
+  -> Execution Context
+  -> 单个 queued Job
+  -> Bridge
+  -> 本地 Pi session
 ```
 
-系统不新增 Pi 用户，不在 `users` 中创建 `principal_type=agent` 或 `agent_key=pi` 的主体，也不把 Pi 写入 `tasks.assignee_id`。`assignee_display_name` 不能作为 Pi 执行身份或任务负责人来源。
-
-本地 Pi 的执行权限由 Bridge 所属用户决定：
-
-1. Bridge 必须使用当前用户自己的 Agent Credential；
-2. Bridge 只能认领 `tasks.assignee_id = credential.owner_user_id` 的任务；
-3. 任务必须属于该用户有权限访问的项目；
-4. 项目必须配置该用户本地 Pi 使用的工作区；
-5. 任何条件不满足时拒绝认领，不切换到其他用户、其他任务或其他目录。
-
-### 3.2 Agent Credential
-
-每位用户配置自己的本地 Pi 时创建一条 Credential，服务端只保存哈希：
+禁止关系：
 
 ```text
-agent_credentials
-  id
-  owner_user_id       -- users.id，真实用户
-  token_hash
-  enabled
-  expires_at
-  last_seen_at
-  created_at
+tasks.assignee_id -> Pi
+任务创建/指派 -> 自动执行
+普通评论/@Pi -> 执行
+Bridge 扫描全部任务 -> 自动领取
+任务页面展示或复制凭证
+同一任务并行或排队多个 Job
 ```
 
-Bridge 使用专用 Token 访问 Agent API 和 MCP。不得复用用户 JWT，不得把 Token 放入任务标题、描述、评论或 Pi prompt。Credential 的权限范围固定为 `owner_user_id` 对应用户可操作的数据。
+## 3. 端到端架构
 
-### 3.3 用户项目工作区绑定
-
-工作区绑定描述“哪个用户的本地 Pi 在哪个项目使用什么工作区”，不描述一个独立 Pi Agent：
-
-```text
-user_project_workspaces
-  project_id
-  owner_user_id       -- users.id，Bridge 所属用户
-  workspace_key
-  enabled
-  created_at
-  updated_at
+```mermaid
+flowchart LR
+    U[真实任务负责人] --> F[任务详情]
+    F -->|点击本地 Pi 图标| P[非驻留执行面板]
+    P -->|自动准备上下文/提交一轮| A[Linear Lite API]
+    A --> D[(数据库)]
+    B[常驻 Bridge] -->|本机握手绑定的执行授权| A
+    B -->|领取当前唯一 Job| J[Local Pi Job]
+    B --> R[Pi RPC session]
+    R --> W[负责人本地工作区]
+    B -->|事件/结果| A
+    A -->|SSE/状态查询| P
 ```
 
-`workspace_key` 是项目级稳定标识。用户本地 Bridge 将它映射到实际 Git 仓库路径；Linear Lite 不接受任务提交的任意路径。只有 `owner_user_id` 与任务负责人一致时，Bridge 才能使用该绑定执行任务。
+Linear Lite 负责任务权限、Execution Context、Turn、Job 和状态；Bridge 负责本地工作区、Pi 进程、心跳、事件和结果回写；浏览器只负责发起执行、补充输入和展示状态。
 
-### 3.4 Pi 执行会话
+## 4. 用户交互
 
-一个任务的一次 Pi 执行建立一个逻辑会话。会话记录执行时的真实负责人和 Bridge 所属用户，二者必须相同：
+### 4.1 任务详情默认状态
+
+- 任务详情页不显示本地 Pi 执行面板。
+- 只有当前任务负责人看到本地 Pi 图标；非负责人看不到入口。
+- 图标使用 tooltip 和 `aria-label`，不使用“交给本地 Pi”文字按钮。
+- 任务属性侧栏、正文宽度和页面滚动行为不因本地 Pi 功能改变。
+- 项目设置页、负责人选择器和评论编辑器不出现 Pi 配置入口。
+
+### 4.2 打开执行面板
+
+负责人点击本地 Pi 图标后：
+
+1. 打开非驻留执行面板，面板覆盖在任务详情右侧，不挤压正文、不改变父布局宽度；
+2. 浏览器向服务端请求或恢复当前任务的 Execution Context；
+3. 若没有上下文，服务端创建一个 `waiting_input` Context；
+4. 面板展示上下文摘要、当前状态和底部输入框；
+5. 准备过程不创建 Job、不启动 Pi、不改变任务负责人、不改变任务业务状态。
+
+“准备上下文”不是页面上的可见按钮，而是打开执行面板后的内部动作。准备中的状态通过面板状态文本展示。
+
+### 4.3 底部输入框
+
+输入框固定在执行面板底部，面板打开期间始终存在：
+
+- 上下文准备中：输入框可编辑，发送按钮等待上下文就绪；
+- 等待输入：输入框和发送按钮可用；
+- 执行中：输入框仍可编辑，但发送按钮不可用，不产生排队；
+- 执行完成或失败：输入框重新可提交下一轮；
+- 当前任务终止：输入框回到等待输入状态，可重新提交。
+
+负责人提交一轮输入后，服务端只创建一个 Job。执行中提交的内容不进入队列，前端不保存排队列表。
+
+### 4.4 当前执行终止
+
+执行中的面板只提供“终止当前执行”操作：
+
+- 终止当前 Bridge Job；
+- 停止当前 Pi 进程；
+- 将 Job 标记为 `canceled`；
+- 将 Execution Context 恢复为 `waiting_input`；
+- 不创建取消队列、不影响任务负责人、不删除历史 Turn。
+
+## 5. 状态模型
+
+### 5.1 Execution Context
 
 ```text
-agent_task_sessions
+absent -> preparing -> waiting_input -> running -> waiting_input
+                                      \-> canceled -> waiting_input
+                                      \-> completed
+```
+
+规则：
+
+- 一个任务在同一负责人下最多一个 active Execution Context；
+- 重复打开面板返回同一个 Context；
+- `preparing` 和 `waiting_input` 没有 Job；
+- `running` 同时只能有一个 Job；
+- 终止当前 Job 后 Context 回到 `waiting_input`；
+- 任务终态或负责人变更时 Context 进入 `canceled`，旧负责人不能继续操作。
+
+### 5.2 Job
+
+```text
+none -> queued -> leased -> running -> succeeded
+                              |       \-> failed
+                              \-> canceled
+```
+
+规则：
+
+- 只有负责人提交有效输入才创建 Job；
+- 一个 Execution Context 不允许同时存在多个 `queued/leased/running` Job；
+- Bridge 只领取当前用户通过当前执行面板创建的 Job；
+- `succeeded`、`failed`、`canceled` 都是当前轮终态；
+- 下一轮只能在当前 Job 终态后创建。
+
+## 6. 数据模型
+
+### 6.1 任务负责人
+
+继续使用 `tasks.assignee_id`，但只允许真实用户：
+
+```text
+tasks.assignee_id -> users.id(principal_type=human)
+```
+
+任务创建、任务指派和普通评论不会写入 Execution Context 或 Job。
+
+### 6.2 Execution Context
+
+```text
+local_pi_executions
   id
   execution_id
   task_id
   task_key
   project_id
-  assignee_user_id    -- tasks.assignee_id 的快照
-  owner_user_id       -- Credential 所属用户，必须等于 assignee_user_id
-  session_id
+  owner_user_id
   workspace_key
-  status              active | completed | canceled
+  session_id
+  status             preparing | waiting_input | running | completed | canceled
   created_at
   updated_at
   completed_at
 ```
 
-`execution_id` 是 Linear Lite 的执行身份，`session_id` 是 Pi 的会话身份。二者都必须持久化，Bridge 重启后按原值恢复。任务负责人变更后，旧会话不能继续写回。
-
-### 3.5 Pi 执行队列
+### 6.3 Turn
 
 ```text
-agent_task_jobs
+local_pi_turns
   id
-  session_id
+  execution_id
+  owner_user_id
+  prompt
+  sequence_no
+  created_at
+```
+
+### 6.4 Job
+
+```text
+local_pi_jobs
+  id
+  turn_id
   execution_id
   task_id
   task_key
   owner_user_id
-  source_type          claim | continuation | retry
-  source_comment_id
-  status               queued | leased | running | succeeded | failed | canceled
+  status             queued | leased | running | succeeded | failed | canceled
   attempt_count
   lease_until
   next_run_at
@@ -144,251 +206,197 @@ agent_task_jobs
   finished_at
 ```
 
-约束：
+### 6.5 Bridge 会话握手
 
-- 本地 Pi 原子认领任务时创建 `claim` job 和新的 session；
-- 用户要求本地 Pi 继续处理时创建 `continuation` job，并继续使用当前 session；
-- 用户显式点击“重新开始”才创建 `retry` job 和新的 session；
-- 同一任务、同一评论只能产生一条 continuation job；
-- 任务重新指派时，旧 session 及其未执行 job 全部取消；
-- job 的 `owner_user_id` 必须等于 session 的 `owner_user_id`，且等于任务当前 `assignee_id`。
+不建立 Agent Token、Bridge Credential 或可复制凭证表。
 
-## 4. 任务触发和认领链路
-
-### 4.1 负责人指派
-
-任务创建和更新仍从现有 REST API 或 MCP 进入 `TaskCommandService`。任务负责人只从真实项目成员中选择，指派流程只负责写入负责人和活动记录，不因为负责人是某个 Agent 而创建执行任务。
-
-负责人变化时：
-
-1. 写入新的 `tasks.assignee_id`；
-2. 记录任务活动；
-3. 取消旧负责人对应的 active session 和未执行 job；
-4. 不自动将任务负责人改为 Pi，也不自动替换为其他负责人。
-
-任务是否交给 Pi 处理，由负责人自己的本地 Pi Bridge 通过认领接口决定。
-
-### 4.2 本地 Pi 认领指定责任人的任务
-
-Bridge 使用 Credential 访问“可认领任务”接口。服务端从 Credential 得到唯一的 `owner_user_id`，只返回满足以下条件的任务：
+本机握手只建立短时内存绑定：
 
 ```text
-tasks.assignee_id = owner_user_id
-任务属于 owner_user_id 可访问的项目
-项目存在 owner_user_id 的启用工作区绑定
-任务不是终态
-任务没有其他有效 session
+browser JWT
+  -> 服务端创建一次性 execution attachment
+  -> localhost Bridge attach
+  -> Bridge 内存保存 owner_user_id + execution_id
+  -> 执行结束或超时后释放
 ```
 
-用户在 Linear Lite 中对指定任务点击“交给本地 Pi 处理”，或在本地 Pi Bridge 中选择该任务后，Bridge 调用认领接口。认领必须在数据库事务中完成：
+绑定不写入 Bridge 配置文件，不出现在日志、URL、页面文本或任务评论中。Bridge 只能通过已绑定的 `execution_id` 访问当前 Job。
 
-1. 校验任务当前负责人等于 Credential 所属用户；
-2. 校验项目权限和用户工作区绑定；
-3. 校验任务没有其他 active session；
-4. 创建 `agent_task_sessions`；
-5. 创建 `claim` job；
-6. 返回 `execution_id`、`session_id` 和任务快照。
+## 7. API 设计
 
-认领成功后，Pi Bridge 才启动本地 Pi 进程。认领失败直接返回明确错误，不降级为其他用户、不创建无负责人执行记录。
+### 7.1 人类用户 API
 
-### 4.3 继续处理
+```text
+POST /api/tasks/{taskKey}/local-pi/prepare
+GET  /api/tasks/{taskKey}/local-pi/status
+POST /api/tasks/{taskKey}/local-pi/turns
+POST /api/tasks/{taskKey}/local-pi/cancel
+```
 
-本地 Pi 不是可被任务评论 `@` 的用户。用户在任务详情中点击“继续交给本地 Pi 处理”，或在当前 Pi 执行面板提交继续指令，系统创建 `continuation` job。继续指令的评论正文作为该 job 的唯一新增 prompt 内容。
+所有接口使用当前登录用户 JWT，服务端从会话取得用户 ID，不接受客户端传入负责人 ID。
 
-创建 continuation job 时必须校验：
+`prepare`：
 
-1. 当前操作用户是任务负责人；
-2. 当前任务负责人仍等于 session 的 `owner_user_id`；
-3. session 处于 `active`；
-4. 任务不是终态。
+- 仅任务负责人可调用；
+- 创建或恢复 active Execution Context；
+- 不创建 Turn、不创建 Job、不启动 Pi；
+- 返回 Context 状态和最近一轮结果。
 
-Bridge 按 `created_at + id` 顺序向同一个 Pi session 投递，保证用户反馈不会乱序。任务负责人变更后，原负责人不能再为该任务创建 continuation job。
+`turns` 请求：
 
-触发规则固定如下：
+```json
+{
+  "executionId": "execution-opaque-id",
+  "prompt": "请检查当前实现并完成本轮修改"
+}
+```
 
-| 条件 | 行为 |
-|---|---|
-| 本地 Pi 认领当前用户负责的未完成任务 | 创建 claim job 和新 session |
-| 当前 session 正在处理，用户提交继续指令 | 创建 continuation job，使用 RPC `follow_up` 排队 |
-| Pi 进程已退出但 session 存在 | 重新启动 Pi 并加载原 session |
-| 任务已完成或已取消 | 只保存操作记录，不触发执行 |
-| Bridge 所属用户不是当前任务负责人 | 拒绝认领或继续处理 |
-| session 文件不存在 | 标记 job 失败并明确提示会话不可恢复 |
+服务端校验任务负责人、Context 归属、Context 状态和输入内容。若当前已有 `queued/leased/running` Job，直接返回冲突，不创建队列项。
 
-不会因为 session 丢失而静默创建新会话。
+`cancel` 只终止当前 active Job，取消 `queued/leased/running` 状态，Context 回到 `waiting_input`，不删除历史 Turn。
 
-### 4.4 运行时序
+### 7.2 Bridge API
+
+Bridge API 不接受 Agent Token 或 Bridge Credential。请求必须来自当前 execution attachment，并且 attachment 只绑定一个负责人和一个 Execution Context：
+
+```text
+POST /api/bridge/executions/attach
+POST /api/bridge/jobs/claim
+POST /api/bridge/jobs/{jobId}/heartbeat
+POST /api/bridge/jobs/{jobId}/events
+GET  /api/bridge/jobs/{jobId}/status
+POST /api/bridge/jobs/{jobId}/succeeded
+POST /api/bridge/jobs/{jobId}/failed
+POST /api/bridge/executions/{executionId}/detach
+```
+
+`claim` 必须同时满足：
+
+```text
+attachment.execution_id = job.execution_id
+job.status = queued 或已过期 leased
+execution.status = waiting_input
+tasks.assignee_id = attachment.owner_user_id
+任务未进入终态
+```
+
+Bridge 不扫描任务列表、不接收任意任务 ID、不接收任意工作区路径。
+
+## 8. Bridge 与 Pi 运行链路
 
 ```mermaid
 sequenceDiagram
-    participant U as 任务负责人
+    participant U as 负责人
     participant L as Linear Lite
-    participant Q as 持久化队列
-    participant B as 负责人本地 Pi Bridge
-    participant P as 原 Pi Session
-    participant W as 用户项目工作区
+    participant B as 常驻 Bridge
+    participant P as Pi RPC
+    participant W as 本地工作区
 
-    U->>L: 对指定任务点击“交给本地 Pi 处理”
-    L->>L: 校验任务负责人 = 当前用户
-    L->>Q: 创建 claim job 和 execution session
-    B->>L: 以当前用户 Credential 领取 job
-    B->>W: 定位当前用户的项目工作区
-    B->>P: 启动或恢复 execution_id 对应 session
-    P->>W: 处理任务并执行命令
-    P-->>B: 返回过程事件和最终结果
-    B->>L: 回写状态、结果评论和 job 状态
-    U->>L: 提交“继续处理”指令
-    L->>Q: 创建 continuation job
-    B->>P: 在原 session 中 follow_up
+    U->>L: 点击本地 Pi 图标
+    L->>L: 校验负责人并准备 Context
+    L->>B: 建立一次性本机 execution attachment
+    B-->>L: attachment ready
+    L-->>U: 面板显示 Context 和输入框
+    U->>L: 提交一轮指令
+    L->>L: 创建 Turn + queued Job
+    B->>L: claim 当前 execution 的 Job
+    B->>P: 启动或恢复同一 session
+    P->>W: 执行本轮指令
+    P-->>B: 实时事件和最终结果
+    B->>L: 回写状态、事件和结果
+    L-->>U: 面板恢复为可提交状态
+    U->>L: 可继续提交下一轮
 ```
 
-## 5. 本地 Pi Bridge 设计
+## 9. 常驻与恢复
 
-### 5.1 进程模型
-
-每个 active session 使用一个 Pi RPC 子进程：
+Bridge 继续作为当前 macOS 用户的 `launchd LaunchAgent` 常驻：
 
 ```text
-一个 agent_task_session
-  -> 一个 Pi 进程
-  -> 一个 session_id
-  -> 一个 session 文件目录
-  -> 一个 owner_user_id 的项目工作区
+launchd
+  -> Bridge
+      -> localhost 控制服务
+      -> 当前 execution attachment
+      -> 当前唯一 Job 轮询
+      -> Pi RPC 子进程
 ```
 
-Pi 通过 `--mode rpc` 启动。Bridge 以用户项目工作区作为子进程 `cwd`，使用固定的 `session_id` 和 `session_dir` 恢复会话。
+运行规则：
 
-Bridge 不共享多个任务的 stdin/stdout，不复用一个全局 Pi 会话。
+- `KeepAlive=true`、`ThrottleInterval=10`；
+- Bridge 只轮询当前 attachment 对应的 Job；
+- 网络中断时保留当前 Pi session 和 Job 租约；
+- 网络恢复后继续心跳、事件和结果回写；
+- Bridge 重启后由打开的执行面板重新 attach；
+- 浏览器关闭或 attachment 过期时，Bridge 停止当前 Pi 进程并释放本地绑定；
+- 任务被重新指派时，旧 Context 和 Job 失效，旧 Bridge 的回写被拒绝；
+- Bridge 不提供公网入站端口。
 
-### 5.2 会话恢复
+## 10. 前端改造
 
-- Bridge 进程重启：按 `session_id` 恢复原会话；
-- Pi 子进程异常退出：保留 job，等待租约超时后由同一用户的 Bridge 重新领取；
-- RPC 正在执行时收到继续指令：使用 `follow_up` 排队；
-- Pi 空闲时收到继续指令：恢复 session 后使用 `prompt`；
-- 任务被重新指派：向旧 Pi 发送终止信号，取消旧 session 的未执行 job。
+### 10.1 入口
 
-### 5.3 Pi 任务工具
+- 在任务详情头部操作区增加本地 Pi 图标；
+- 只对当前任务负责人显示；
+- 提供 tooltip、`aria-label` 和执行中状态标识；
+- 删除“交给本地 Pi”“准备上下文”“生成凭证”等文字按钮；
+- 删除项目设置中的 Pi Agent 配置入口。
 
-Bridge 加载一个受控的 Linear Lite Pi Extension，为 Pi 提供以下任务级工具：
+### 10.2 执行面板
 
-```text
-linear_task_get
-linear_task_comment
-linear_task_update
-linear_task_complete
-linear_task_fail
-```
+- 使用非驻留右侧 drawer 或浮层，不参与 `editor-panel` 的宽度计算；
+- 打开后自动准备上下文，不展示准备按钮；
+- 顶部显示任务标识、执行状态和关闭按钮；
+- 中部显示上下文摘要、当前轮实时事件和最近结果；
+- 底部使用 sticky composer，输入框始终在位；
+- 执行中只显示“终止当前执行”，不显示排队列表；
+- 面板关闭后保留服务端 Context，重新打开恢复状态。
 
-这些工具只能操作当前 `execution_id` 对应的任务。Bridge 负责校验 `owner_user_id = tasks.assignee_id`，再通过 MCP 或任务 API 调用现有领域服务。Pi 不直接访问 MySQL，也不直接调用任意 Linear Lite 任务接口。
+### 10.3 负责人选择器与评论
 
-## 6. 状态规则
+- 负责人选择器只展示真实用户；
+- 删除 Pi Agent 健康检查过滤和 Pi 选项；
+- 评论编辑器删除 `@Pi` 触发语义；
+- 普通评论永远不创建本地 Pi Job。
 
-### 6.1 Linear Lite 任务状态
+## 11. 删除范围
 
-继续沿用现有任务状态：
+本次重构不保留兼容层：
 
-```text
-backlog / todo -> in_progress -> done
-```
+1. 删除 Pi 用户、Pi 负责人和 `principal_type=agent` 的业务入口；
+2. 删除项目 Pi Agent 配置接口和项目 Pi 绑定；
+3. 删除任务创建、负责人变更和普通评论创建 Job 的逻辑；
+4. 删除 Agent Token、Bridge Credential、凭证生成、凭证展示和凭证配置字段；
+5. 删除旧 Agent API 和旧 `/agent-*` 任务接口；
+6. 删除前端排队状态、排队列表和排队取消操作；
+7. 删除旧 Agent session/job 语义，收敛为 Local Pi Execution/Job；
+8. 不新增双读、双写、字段回退或旧配置 fallback。
 
-- 本地 Pi 开始首次处理时更新为 `in_progress`；
-- Pi 只有在显式调用 `linear_task_complete` 后才能更新为 `done`；
-- 执行失败时任务保留 `in_progress`，并写入失败评论；
-- 用户继续处理时不改变负责人和 `execution_id`。
+## 12. 实施顺序
 
-### 6.2 执行状态
+1. 收敛领域词汇和数据库模型，确保任务负责人始终是真实用户；
+2. 删除 Pi 用户、Pi Agent 项目配置和自动创建 Job 路径；
+3. 增加 prepare、status、turn、cancel 的负责人 API；
+4. 增加 execution attachment，移除所有持久化凭证和配置页面；
+5. 将 Job 创建点收敛到负责人提交 Turn 的事务；
+6. 将 Bridge claim 限制为当前 attachment 的唯一 execution；
+7. 重做任务详情入口和非驻留执行面板；
+8. 将底部输入框固定为面板常驻 composer，执行中只允许终止；
+9. 保留 launchd 常驻、网络重连、租约、心跳和 Pi session 恢复；
+10. 删除旧文件、旧接口、旧字段和旧配置路径，形成单一路径。
 
-任务状态表示业务进度，Pi session/job 状态表示自动化执行进度，二者不混用：
+## 13. 完成标准
 
-```text
-Session: active -> completed | canceled
-Job: queued -> leased -> running -> succeeded | failed | canceled
-```
-
-一个 session 可以包含多个成功的 job：首次认领是一个 job，每次继续处理是一个 continuation job。
-
-## 7. Agent API
-
-新增受 Agent Credential 保护的接口。所有接口从 Token 解析 `owner_user_id`，不接受客户端传入的 Agent 用户 ID：
-
-```text
-GET  /api/agent/tasks/available
-POST /api/agent/tasks/{taskKey}/claim
-POST /api/agent/jobs/{jobId}/heartbeat
-POST /api/agent/jobs/{jobId}/succeeded
-POST /api/agent/jobs/{jobId}/failed
-GET  /api/agent/sessions/{executionId}
-POST /api/agent/sessions/{executionId}/cancel
-```
-
-接口约束：
-
-- 可认领任务查询只返回当前 Credential 所属用户负责的任务；
-- 认领使用数据库事务和唯一有效 session 约束，避免多个本地 Bridge 重复执行；
-- 心跳超时后 job 可由同一用户的 Bridge 重新领取；
-- 上报结果必须携带 `execution_id` 和 job 版本；
-- 任务负责人、用户工作区绑定或 session 已变化时拒绝旧 job 回写；
-- Bridge 不提供公网入站监听。
-
-现有 `/mcp` 继续作为业务操作入口，增加 Agent Credential 认证后复用既有项目成员、任务权限和评论服务。[McpController.java](/Users/huangzhiwen/Documents/work/02code/product/linear-lite-1/linear-lite-server/src/main/java/com/linearlite/server/controller/McpController.java:19)
-
-## 8. 前端调整
-
-### 8.1 负责人选择
-
-- 负责人下拉框只显示真实项目成员，不显示 Pi；
-- 任务负责人字段继续展示真实用户；
-- 删除“将 Pi 指派为负责人”的交互和文案；
-- 在任务详情增加“交给本地 Pi 处理”操作；
-- 只有当前登录用户是任务负责人，且当前项目存在该用户的工作区绑定时，才允许发起认领；
-- 认领失败直接展示后端错误，不静默切换负责人或工作区。
-
-### 8.2 任务详情
-
-增加本地 Pi 执行面板：
-
-```text
-负责人：真实用户
-执行代理：负责人本地 Pi
-当前会话：执行中 / 等待反馈 / 已完成 / 已失败 / 已取消
-最近一次执行：开始时间、结束时间、错误信息
-操作：交给本地 Pi 处理、继续处理、重新开始、取消执行
-```
-
-“执行代理”是执行来源展示，不是任务负责人字段。评论编辑器不提供 `@Pi` 提及选项；继续处理通过结构化操作创建 continuation job。
-
-## 9. 安全与并发
-
-- Agent Token 只保存哈希并支持撤销和轮换；
-- Agent Credential 绑定真实用户，不能绑定不存在的 Pi 主体；
-- Bridge 只能访问 Credential 所属用户负责且有权限访问的项目任务；
-- 每个 Bridge job 绑定唯一 `owner_user_id` 和 `execution_id`；
-- 同一 session 串行处理，不允许并行 prompt；
-- 同一任务的旧 session 不能写回新负责人执行；
-- Pi 工作区使用任务专属 Git worktree，文件系统不共享；
-- 评论正文、任务描述和命令输出都视为不可信输入，不记录 Agent Token；
-- 任务状态、评论和活动均复用现有领域服务，不新增绕过权限的数据库写入路径。
-
-## 10. 实施顺序
-
-1. 在 `schema.sql` 中将 Agent 身份改为用户 Credential，并落地用户项目工作区、session 和 job 表；
-2. 删除 Pi 独立用户主体和“Pi 作为负责人”的数据路径；
-3. 增加按 `owner_user_id` 限定范围的 Agent 认证、可认领任务查询和认领 API；
-4. 实现认领事务、租约、心跳、Pi RPC 启停和 session 恢复；
-5. 实现任务专属 Git worktree 和 Pi Extension；
-6. 实现继续处理、任务状态、评论、完成和失败回写；
-7. 增加前端“交给本地 Pi 处理”及执行状态界面，移除 Pi 负责人和 `@Pi` 交互。
-
-## 11. 完成标准
-
-- 所有任务的负责人始终是真实用户，系统不存在 Pi 作为任务负责人的数据路径；
-- 本地 Pi Bridge 只能认领其 Credential 所属用户负责的指定任务；
-- 认领后后端产生可追踪的 claim job 和 execution session；
-- Bridge 可为任务创建独立 Pi session 和 Git worktree；
-- 每个任务的 Pi 上下文、stdin/stdout 和文件目录相互隔离；
-- 任务未完成时，负责人提交继续处理指令能恢复原 `execution_id` 对应的 session；
-- Pi 进程或 Bridge 重启后可以恢复原 session，不重复创建执行记录；
-- 任务重新指派后，旧负责人本地 Pi 不能继续修改任务；
-- Pi 完成、失败、取消和继续处理均能在任务详情和评论中追踪；
-- 所有任务变更经过既有权限、活动记录和任务领域服务。
+- 任务详情默认不显示本地 Pi 面板；
+- 只有负责人看到本地 Pi 图标；
+- 点击图标后自动准备上下文，不显示准备按钮；
+- 执行面板底部输入框始终在位；
+- 同一任务同一时间最多一个 Job；
+- 执行中不产生排队项，只能终止当前 Job；
+- 当前 Job 结束后可以提交下一轮；
+- 多轮执行复用同一个 Execution Context 和 Pi session；
+- 普通评论、任务创建和负责人变更不会启动 Pi；
+- 系统不创建、不展示、不要求用户复制任何凭证；
+- Bridge 只能领取当前 execution attachment 对应的显式 Job；
+- Bridge 重启或网络恢复后可以恢复当前执行；
+- 任务重新指派后旧负责人和旧 Bridge 不能继续回写。

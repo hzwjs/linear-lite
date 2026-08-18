@@ -11,17 +11,15 @@ import com.linearlite.server.dto.CreateTaskCommentRequest;
 import com.linearlite.server.entity.AgentTaskJob;
 import com.linearlite.server.entity.AgentTaskSession;
 import com.linearlite.server.entity.Project;
-import com.linearlite.server.entity.ProjectAgentBinding;
+import com.linearlite.server.entity.ProjectMember;
 import com.linearlite.server.entity.Task;
-import com.linearlite.server.entity.User;
 import com.linearlite.server.exception.ConflictOperationException;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.AgentTaskJobMapper;
 import com.linearlite.server.mapper.AgentTaskSessionMapper;
 import com.linearlite.server.mapper.ProjectMapper;
-import com.linearlite.server.mapper.ProjectAgentBindingMapper;
+import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.TaskMapper;
-import com.linearlite.server.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,91 +30,86 @@ import java.util.UUID;
 /** 任务自动化编排的唯一写入口，保证 assignment/comment 都落到同一 execution_id。 */
 @Service
 public class AgentTaskOrchestrationService {
-    public static final String PI_AGENT_KEY = "pi";
-    private static final String ACTIVE = "active";
-    private static final String TERMINAL = "done";
-
-    private final UserMapper userMapper;
     private final TaskMapper taskMapper;
     private final ProjectMapper projectMapper;
-    private final ProjectAgentBindingMapper bindingMapper;
+    private final ProjectMemberMapper projectMemberMapper;
     private final AgentTaskSessionMapper sessionMapper;
     private final AgentTaskJobMapper jobMapper;
     private final TaskPermissionGuard taskPermissionGuard;
 
     public AgentTaskOrchestrationService(
-            UserMapper userMapper,
             TaskMapper taskMapper,
             ProjectMapper projectMapper,
-            ProjectAgentBindingMapper bindingMapper,
+            ProjectMemberMapper projectMemberMapper,
             AgentTaskSessionMapper sessionMapper,
             AgentTaskJobMapper jobMapper,
             TaskPermissionGuard taskPermissionGuard) {
-        this.userMapper = userMapper;
         this.taskMapper = taskMapper;
         this.projectMapper = projectMapper;
-        this.bindingMapper = bindingMapper;
+        this.projectMemberMapper = projectMemberMapper;
         this.sessionMapper = sessionMapper;
         this.jobMapper = jobMapper;
         this.taskPermissionGuard = taskPermissionGuard;
     }
 
+    /** 负责人显式准备上下文；此操作不创建 Job，也不启动 Pi。 */
     @Transactional(rollbackFor = Exception.class)
-    public void onTaskCreated(Task task) {
-        if (isPi(task.getAssigneeId())) {
-            createAssignment(task);
-        }
-    }
-
-    @Transactional(rollbackFor = Exception.class)
-    public void onAssigneeChanged(Task before, Task after) {
-        boolean wasPi = isPi(before.getAssigneeId());
-        boolean isPi = isPi(after.getAssigneeId());
-        if (wasPi && !isPi) {
-            cancelActiveSession(after.getId());
-        }
-        if (!wasPi && isPi) {
-            createAssignment(after);
-        }
-    }
-
-    @Transactional(rollbackFor = Exception.class)
-    public void enqueueCommentContinuation(Task task, Long commentId, String body, Long piMentionId) {
-        if (!isPi(task.getAssigneeId()) || !isPi(piMentionId) || isTerminal(task.getStatus())) {
-            return;
-        }
+    public AgentTaskStatusResponse prepare(Long ownerUserId, String taskKey) {
+        Task task = taskPermissionGuard.requireTaskAccessByKey(taskKey, ownerUserId);
+        requireOwner(task, ownerUserId);
+        // 任务流程状态与 Pi 会话生命周期相互独立；已完成任务仍需恢复原会话继续处理反馈。
         AgentTaskSession session = activeSession(task.getId());
         if (session == null) {
-            return;
+            session = new AgentTaskSession();
+            session.setExecutionId(UUID.randomUUID().toString().replace("-", ""));
+            session.setTaskId(task.getId());
+            session.setTaskKey(task.getTaskKey());
+            session.setProjectId(task.getProjectId());
+            session.setAgentUserId(ownerUserId);
+            session.setSessionId(session.getExecutionId());
+            session.setStatus("waiting_input");
+            sessionMapper.insert(session);
+        }
+        return taskStatus(session, currentTurnJob(session.getId()));
+    }
+
+    /** 负责人提交一轮补充内容后才创建 queued Job；普通评论不会走此入口。 */
+    @Transactional(rollbackFor = Exception.class)
+    public AgentTaskStatusResponse submitTurn(Long ownerUserId, String taskKey, String executionId, String prompt) {
+        Task task = taskPermissionGuard.requireTaskAccessByKey(taskKey, ownerUserId);
+        requireOwner(task, ownerUserId);
+        if (prompt == null || prompt.isBlank()) {
+            throw new IllegalArgumentException("本轮补充内容不能为空");
+        }
+        AgentTaskSession session = requireActiveSession(task.getId(), executionId, ownerUserId);
+        if (!"waiting_input".equals(session.getStatus())) {
+            throw new ConflictOperationException("当前本地 Pi 正在执行，请等待本轮完成");
         }
         if (jobMapper.selectCount(new LambdaQueryWrapper<AgentTaskJob>()
-                .eq(AgentTaskJob::getSourceCommentId, commentId)) > 0) {
-            return;
+                .eq(AgentTaskJob::getSessionId, session.getId())
+                .eq(AgentTaskJob::getSourceType, "turn")
+                .in(AgentTaskJob::getStatus, "queued", "leased", "running")) > 0) {
+            throw new ConflictOperationException("当前执行上下文已有未完成轮次");
         }
-        AgentTaskJob job = newJob(session, task, "comment");
-        job.setSourceCommentId(commentId);
-        // 评论正文是执行输入，不与失败原因共用字段，避免长评论受错误字段长度限制。
-        job.setPrompt(body.trim());
+        AgentTaskJob job = newJob(session, task, "turn");
+        job.setPrompt(prompt.trim());
         jobMapper.insert(job);
+        return taskStatus(session, job);
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public AgentJobClaimResponse claim(Long agentUserId) {
-        AgentTaskJob job = jobMapper.selectOne(new LambdaQueryWrapper<AgentTaskJob>()
-                .in(AgentTaskJob::getStatus, "queued", "leased")
-                .le(AgentTaskJob::getNextRunAt, LocalDateTime.now())
-                .and(w -> w.isNull(AgentTaskJob::getLeaseUntil)
-                        .or().lt(AgentTaskJob::getLeaseUntil, LocalDateTime.now()))
-                .orderByAsc(AgentTaskJob::getCreatedAt, AgentTaskJob::getId)
-                // selectOne 必须把锁定范围收敛为一条，否则并发队列有多条到期 Job 时会触发多行结果异常。
-                .last("LIMIT 1 FOR UPDATE"));
+    public AgentJobClaimResponse claim(Long ownerUserId) {
+        // 领取查询在数据库层绑定负责人，避免某个 Bridge 先拿到其他负责人的 Job 再取消它。
+        // Job 时间由 Java 统一写入，领取比较也使用同一时钟，避免数据库 UTC 与应用本地时区造成 8 小时漂移。
+        AgentTaskJob job = jobMapper.selectClaimableForOwner(ownerUserId, LocalDateTime.now());
         if (job == null) {
             return null;
         }
         AgentTaskSession session = sessionMapper.selectById(job.getSessionId());
         Task task = taskMapper.selectById(job.getTaskId());
-        if (session == null || task == null || !agentUserId.equals(session.getAgentUserId())
-                || !ACTIVE.equals(session.getStatus()) || !agentUserId.equals(task.getAssigneeId())) {
+        if (session == null || task == null || !ownerUserId.equals(session.getAgentUserId())
+                || (!"waiting_input".equals(session.getStatus()) && !"running".equals(session.getStatus()))
+                || !ownerUserId.equals(task.getAssigneeId())) {
             job.setStatus("canceled");
             job.setFinishedAt(LocalDateTime.now());
             job.setErrorMessage("任务负责人或会话已变化");
@@ -133,55 +126,68 @@ public class AgentTaskOrchestrationService {
         job.setLeaseUntil(leaseUntil);
         job.setStartedAt(LocalDateTime.now());
         jobMapper.updateById(job);
-        // 任务描述就是 Pi 的唯一执行输入；Bridge 自行处理状态回报，不能把编排约定混入用户提示词。
-        String prompt = "comment".equals(job.getSourceType())
-                ? job.getPrompt()
-                : task.getDescription();
+        // 负责人提交的 Turn prompt 是本轮唯一执行输入；准备上下文不会隐式执行任务描述。
+        String prompt = job.getPrompt();
         if (prompt == null || prompt.isBlank()) {
             throw new ConflictOperationException("分配给 Pi 的任务必须填写任务描述");
         }
         prompt = prompt.trim();
         // 领取响应只携带项目身份，Bridge 根据 projectId 在本地完成仓库映射；sessionId 不承载路径语义。
+        session.setStatus("running");
+        sessionMapper.updateById(session);
         return new AgentJobClaimResponse(job.getId(), session.getExecutionId(), session.getId(),
                 project.getId(), project.getName(), task.getTaskKey(), task.getTitle(), task.getDescription(),
                 job.getSourceType(), job.getSourceCommentId(), prompt, leaseUntil);
     }
 
     public List<AgentProjectResponse> listEnabledProjects(Long agentUserId) {
-        return bindingMapper.selectEnabledProjects(agentUserId);
+        List<Long> projectIds = projectMemberMapper.selectList(new LambdaQueryWrapper<ProjectMember>()
+                .eq(ProjectMember::getUserId, agentUserId)
+                .orderByAsc(ProjectMember::getProjectId))
+                .stream().map(ProjectMember::getProjectId).distinct().toList();
+        return projectMapper.selectBatchIds(projectIds).stream()
+                .sorted(java.util.Comparator.comparing(Project::getName).thenComparing(Project::getId))
+                .map(project -> new AgentProjectResponse(project.getId(), project.getName()))
+                .toList();
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void heartbeat(Long agentUserId, Long jobId, String executionId) {
-        AgentTaskJob job = requireOwnedJob(agentUserId, jobId, executionId);
+    public void heartbeat(Long ownerUserId, Long jobId, String executionId) {
+        AgentTaskJob job = requireOwnedJob(ownerUserId, jobId, executionId);
         job.setStatus("running");
         job.setLeaseUntil(LocalDateTime.now().plusMinutes(5));
         jobMapper.updateById(job);
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void succeed(Long agentUserId, Long jobId, String executionId, String result,
+    public void succeed(Long ownerUserId, Long jobId, String executionId, String result,
                         TaskCommentWriter commentWriter) {
-        AgentTaskJob job = requireOwnedJob(agentUserId, jobId, executionId);
+        AgentTaskJob job = requireOwnedJob(ownerUserId, jobId, executionId);
         job.setStatus("succeeded");
         job.setLeaseUntil(null);
         job.setFinishedAt(LocalDateTime.now());
         jobMapper.updateById(job);
         if (result != null && !result.isBlank()) {
-            commentWriter.write(job.getTaskKey(), agentUserId, result.trim());
+            commentWriter.write(job.getTaskKey(), ownerUserId, result.trim());
         }
+        AgentTaskSession session = sessionMapper.selectById(job.getSessionId());
+        session.setStatus("waiting_input");
+        sessionMapper.updateById(session);
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void fail(Long agentUserId, Long jobId, String executionId, String errorMessage,
+    public void fail(Long ownerUserId, Long jobId, String executionId, String errorMessage,
                      TaskCommentWriter commentWriter) {
-        AgentTaskJob job = requireOwnedJob(agentUserId, jobId, executionId);
+        AgentTaskJob job = requireOwnedJob(ownerUserId, jobId, executionId);
         job.setStatus("failed");
         job.setLeaseUntil(null);
         job.setErrorMessage(errorMessage == null ? "Pi 执行失败" : errorMessage.trim());
         job.setFinishedAt(LocalDateTime.now());
         jobMapper.updateById(job);
-        commentWriter.write(job.getTaskKey(), agentUserId, "Pi 执行失败：" + job.getErrorMessage());
+        commentWriter.write(job.getTaskKey(), ownerUserId, "本地 Pi 执行失败：" + job.getErrorMessage());
+        AgentTaskSession session = sessionMapper.selectById(job.getSessionId());
+        session.setStatus("waiting_input");
+        sessionMapper.updateById(session);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -199,6 +205,7 @@ public class AgentTaskOrchestrationService {
     @Transactional(rollbackFor = Exception.class)
     public void cancelTask(Long userId, String taskKey, String executionId) {
         Task task = taskPermissionGuard.requireTaskAccessByKey(taskKey, userId);
+        requireOwner(task, userId);
         if (executionId == null || executionId.isBlank()) {
             throw new IllegalArgumentException("executionId 不能为空");
         }
@@ -240,6 +247,7 @@ public class AgentTaskOrchestrationService {
 
     public AgentTaskStatusResponse getTaskStatus(String taskKey, Long userId) {
         Task task = taskPermissionGuard.requireTaskAccessByKey(taskKey, userId);
+        requireOwner(task, userId);
         AgentTaskSession session = activeSession(task.getId());
         if (session == null) {
             session = sessionMapper.selectOne(new LambdaQueryWrapper<AgentTaskSession>()
@@ -248,10 +256,7 @@ public class AgentTaskOrchestrationService {
                     .last("LIMIT 1"));
         }
         if (session == null) return new AgentTaskStatusResponse(null, null, null, null, null, null, null);
-        AgentTaskJob job = jobMapper.selectOne(new LambdaQueryWrapper<AgentTaskJob>()
-                .eq(AgentTaskJob::getSessionId, session.getId())
-                .orderByDesc(AgentTaskJob::getCreatedAt, AgentTaskJob::getId)
-                .last("LIMIT 1"));
+        AgentTaskJob job = currentTurnJob(session.getId());
         return new AgentTaskStatusResponse(session.getExecutionId(), job == null ? null : job.getId(), session.getStatus(),
                 job == null ? null : job.getStatus(), job == null ? null : job.getSourceType(),
                 job == null ? null : job.getErrorMessage(), session.getUpdatedAt());
@@ -263,31 +268,6 @@ public class AgentTaskOrchestrationService {
         AgentTaskSession session = sessionMapper.selectById(job.getSessionId());
         return new AgentTaskStatusResponse(session.getExecutionId(), job.getId(), session.getStatus(), job.getStatus(),
                 job.getSourceType(), job.getErrorMessage(), session.getUpdatedAt());
-    }
-
-    private void createAssignment(Task task) {
-        ProjectAgentBinding binding = bindingMapper.selectOne(new LambdaQueryWrapper<ProjectAgentBinding>()
-                .eq(ProjectAgentBinding::getProjectId, task.getProjectId())
-                .eq(ProjectAgentBinding::getAgentUserId, task.getAssigneeId())
-                .eq(ProjectAgentBinding::getEnabled, true));
-        if (binding == null) {
-            throw new ConflictOperationException("项目未配置 Pi Agent");
-        }
-        AgentTaskSession active = activeSession(task.getId());
-        if (active != null) {
-            return;
-        }
-        AgentTaskSession session = new AgentTaskSession();
-        session.setExecutionId(UUID.randomUUID().toString().replace("-", ""));
-        session.setTaskId(task.getId());
-        session.setTaskKey(task.getTaskKey());
-        session.setProjectId(task.getProjectId());
-        session.setAgentUserId(task.getAssigneeId());
-        session.setSessionId(session.getExecutionId());
-        session.setStatus(ACTIVE);
-        sessionMapper.insert(session);
-        AgentTaskJob job = newJob(session, task, "assignment");
-        jobMapper.insert(job);
     }
 
     private AgentTaskJob newJob(AgentTaskSession session, Task task, String sourceType) {
@@ -306,20 +286,53 @@ public class AgentTaskOrchestrationService {
     private AgentTaskSession activeSession(Long taskId) {
         return sessionMapper.selectOne(new LambdaQueryWrapper<AgentTaskSession>()
                 .eq(AgentTaskSession::getTaskId, taskId)
-                .eq(AgentTaskSession::getStatus, ACTIVE)
+                .in(AgentTaskSession::getStatus, "waiting_input", "running")
                 .orderByDesc(AgentTaskSession::getCreatedAt)
                 .last("LIMIT 1"));
     }
 
-    private void cancelActiveSession(Long taskId) {
-        AgentTaskSession session = activeSession(taskId);
-        if (session == null) return;
-        cancelSession(session);
+    private void requireOwner(Task task, Long ownerUserId) {
+        if (ownerUserId == null || !ownerUserId.equals(task.getAssigneeId())) {
+            throw new ConflictOperationException("只有任务负责人可以安排本地 Pi");
+        }
+    }
+
+    private AgentTaskSession requireActiveSession(Long taskId, String executionId, Long ownerUserId) {
+        if (executionId == null || executionId.isBlank()) {
+            throw new IllegalArgumentException("executionId 不能为空");
+        }
+        AgentTaskSession session = sessionMapper.selectOne(new LambdaQueryWrapper<AgentTaskSession>()
+                .eq(AgentTaskSession::getTaskId, taskId)
+                .eq(AgentTaskSession::getExecutionId, executionId)
+                .eq(AgentTaskSession::getAgentUserId, ownerUserId)
+                .in(AgentTaskSession::getStatus, "waiting_input", "running")
+                .last("LIMIT 1"));
+        if (session == null) {
+            throw new ConflictOperationException("执行上下文不存在或已结束，请重新准备本地 Pi");
+        }
+        return session;
+    }
+
+    private AgentTaskJob currentTurnJob(Long sessionId) {
+        return jobMapper.selectOne(new LambdaQueryWrapper<AgentTaskJob>()
+                .eq(AgentTaskJob::getSessionId, sessionId)
+                .eq(AgentTaskJob::getSourceType, "turn")
+                .in(AgentTaskJob::getStatus, "queued", "leased", "running")
+                .orderByDesc(AgentTaskJob::getCreatedAt, AgentTaskJob::getId)
+                .last("LIMIT 1"));
+    }
+
+    private AgentTaskStatusResponse taskStatus(AgentTaskSession session, AgentTaskJob job) {
+        return new AgentTaskStatusResponse(session.getExecutionId(), job == null ? null : job.getId(),
+                session.getStatus(), job == null ? null : job.getStatus(),
+                job == null ? null : job.getSourceType(), job == null ? null : job.getErrorMessage(),
+                session.getUpdatedAt());
     }
 
     private void cancelSession(AgentTaskSession session) {
-        session.setStatus("canceled");
-        session.setCompletedAt(LocalDateTime.now());
+        // 终止的是当前 Job，不是整个任务执行上下文；负责人可以在同一 Context 中重新提交下一轮。
+        session.setStatus("waiting_input");
+        session.setCompletedAt(null);
         sessionMapper.updateById(session);
         jobMapper.update(null, new UpdateWrapper<AgentTaskJob>()
                 .eq("session_id", session.getId())
@@ -332,7 +345,7 @@ public class AgentTaskOrchestrationService {
     AgentTaskJob requireOwnedJob(Long agentUserId, Long jobId, String executionId) {
         AgentTaskJob job = requireAgentJob(agentUserId, jobId, executionId);
         AgentTaskSession session = sessionMapper.selectById(job.getSessionId());
-        if (!ACTIVE.equals(session.getStatus())
+        if (!("waiting_input".equals(session.getStatus()) || "running".equals(session.getStatus()))
                 || !("leased".equals(job.getStatus()) || "running".equals(job.getStatus()))) {
             throw new ConflictOperationException("Agent Job 已过期或不属于当前执行会话");
         }
@@ -360,17 +373,6 @@ public class AgentTaskOrchestrationService {
         job.setStatus("running");
         job.setLeaseUntil(LocalDateTime.now().plusMinutes(5));
         jobMapper.updateById(job);
-    }
-
-    private boolean isPi(Long userId) {
-        if (userId == null) return false;
-        User user = userMapper.selectById(userId);
-        return user != null && Boolean.TRUE.equals(user.getEnabled())
-                && "agent".equals(user.getPrincipalType()) && PI_AGENT_KEY.equals(user.getAgentKey());
-    }
-
-    private boolean isTerminal(String status) {
-        return TERMINAL.equals(status) || "canceled".equals(status) || "duplicate".equals(status);
     }
 
     @FunctionalInterface

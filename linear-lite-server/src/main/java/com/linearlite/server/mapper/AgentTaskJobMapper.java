@@ -3,7 +3,27 @@ package com.linearlite.server.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.linearlite.server.entity.AgentTaskJob;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+
+import java.time.LocalDateTime;
 
 @Mapper
 public interface AgentTaskJobMapper extends BaseMapper<AgentTaskJob> {
+    @Select("""
+            SELECT j.*
+            FROM agent_task_jobs j
+            INNER JOIN agent_task_sessions s ON s.id = j.session_id
+            WHERE s.agent_user_id = #{ownerUserId}
+              AND j.source_type = 'turn'
+              AND j.status IN ('queued', 'leased')
+              AND j.next_run_at <= #{now}
+              AND (j.lease_until IS NULL OR j.lease_until < #{now})
+            ORDER BY j.created_at, j.id
+            LIMIT 1
+            FOR UPDATE
+            """)
+    AgentTaskJob selectClaimableForOwner(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("now") LocalDateTime now);
 }

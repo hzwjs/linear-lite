@@ -14,11 +14,6 @@ export function validateApiBaseUrl(value) {
   return url.toString().replace(/\/$/, '')
 }
 
-export function validateAgentToken(value) {
-  if (typeof value !== 'string' || !value.trim()) throw new Error('Agent Token 不能为空')
-  return value.trim()
-}
-
 function parseSettings(text, filePath) {
   let parsed
   try { parsed = JSON.parse(text) } catch { throw new Error(`Bridge 连接配置不是有效 JSON：${filePath}`) }
@@ -27,7 +22,6 @@ function parseSettings(text, filePath) {
   }
   return {
     apiBaseUrl: validateApiBaseUrl(parsed.apiBaseUrl),
-    agentToken: validateAgentToken(parsed.agentToken),
   }
 }
 
@@ -41,20 +35,19 @@ export class BridgeSettingsStore {
     try {
       return parseSettings(await readFile(this.filePath, 'utf8'), this.filePath)
     } catch (error) {
-      if (error?.code === 'ENOENT') return { apiBaseUrl: DEFAULT_API_BASE_URL, agentToken: '' }
+      if (error?.code === 'ENOENT') return { apiBaseUrl: DEFAULT_API_BASE_URL }
       throw error
     }
   }
 
   async publicSettings() {
     const settings = await this.read()
-    return { apiBaseUrl: settings.apiBaseUrl, configured: Boolean(settings.agentToken) }
+    return { apiBaseUrl: settings.apiBaseUrl, configured: true }
   }
 
-  async save(apiBaseUrl, agentToken) {
+  async save(apiBaseUrl) {
     const settings = {
       apiBaseUrl: validateApiBaseUrl(apiBaseUrl),
-      agentToken: validateAgentToken(agentToken),
     }
     return this.enqueueWrite(async () => {
       await mkdir(dirname(this.filePath), { recursive: true })

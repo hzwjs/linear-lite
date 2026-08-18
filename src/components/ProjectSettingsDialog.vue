@@ -5,7 +5,6 @@ import { githubWebhookUrl, gitlabWebhookUrl, type GitHubRepository, type GitLabR
 import {
   ArrowLeft,
   Bell,
-  Bot,
   Download,
   Github,
   Gitlab,
@@ -37,9 +36,6 @@ const props = defineProps<{
   githubRepositoryUrl: string
   githubWebhookSecret: string
   isGitHubLoading: boolean
-  piAgentToken: string
-  piAgentConfigured: boolean | null
-  isPiLoading: boolean
 }>()
 
 const emit = defineEmits<{
@@ -60,7 +56,6 @@ const emit = defineEmits<{
   addGitHubRepository: []
   resetGitHubWebhookSecret: [repositoryId: number]
   deleteGitHubRepository: [repositoryId: number]
-  configurePiAgent: []
 }>()
 
 const { t } = useI18n()
@@ -238,7 +233,6 @@ function onClose() {
       <nav class="settings-nav" :aria-label="t('projectSettingsModal.navigationLabel')">
         <a href="#settings-general" :class="{ 'is-active': activeSection === 'settings-general' }" :aria-current="activeSection === 'settings-general' ? 'location' : undefined" @click.prevent="navigateToSection('settings-general')"><Info aria-hidden="true" />{{ t('projectSettingsModal.basicTitle') }}</a>
         <a href="#settings-members" :class="{ 'is-active': activeSection === 'settings-members' }" :aria-current="activeSection === 'settings-members' ? 'location' : undefined" @click.prevent="navigateToSection('settings-members')"><Users aria-hidden="true" />{{ t('projectSettingsModal.membersNav') }}</a>
-        <a v-if="canDelete" href="#settings-pi-agent" :class="{ 'is-active': activeSection === 'settings-pi-agent' }" :aria-current="activeSection === 'settings-pi-agent' ? 'location' : undefined" @click.prevent="navigateToSection('settings-pi-agent')"><Bot aria-hidden="true" />{{ t('projectSettingsModal.piTitle') }}</a>
         <a href="#settings-import" :class="{ 'is-active': activeSection === 'settings-import' }" :aria-current="activeSection === 'settings-import' ? 'location' : undefined" @click.prevent="navigateToSection('settings-import')"><Download aria-hidden="true" />{{ t('projectSettingsModal.importTitle') }}</a>
         <a v-if="canDelete" href="#settings-integrations" :class="{ 'is-active': activeSection === 'settings-integrations' }" :aria-current="activeSection === 'settings-integrations' ? 'location' : undefined" @click.prevent="navigateToSection('settings-integrations')"><Gitlab aria-hidden="true" />{{ t('projectSettingsModal.integrationsNav') }}</a>
         <a v-if="canDelete" href="#settings-notifications" :class="{ 'is-active': activeSection === 'settings-notifications' }" :aria-current="activeSection === 'settings-notifications' ? 'location' : undefined" @click.prevent="navigateToSection('settings-notifications')"><Bell aria-hidden="true" />{{ t('projectSettingsModal.emailTitle') }}</a>
@@ -300,43 +294,6 @@ function onClose() {
             </button>
           </div>
           <p v-if="inviteMessage" class="feedback feedback--success" role="status" aria-live="polite">{{ inviteMessage }}</p>
-        </section>
-
-        <section v-if="canDelete" id="settings-pi-agent" class="settings-section integration-section">
-          <div class="section-header">
-            <div class="section-title-row">
-              <Bot aria-hidden="true" />
-              <h2>{{ t('projectSettingsModal.piTitle') }}</h2>
-              <span v-if="piAgentConfigured === true" class="integration-status is-connected">{{ t('projectSettingsModal.piStatusConfigured') }}</span>
-              <span v-else-if="piAgentConfigured === false" class="integration-status">{{ t('projectSettingsModal.piStatusNotConfigured') }}</span>
-              <span v-else class="integration-status">{{ t('projectSettingsModal.piStatusLoading') }}</span>
-            </div>
-            <p>{{ t('projectSettingsModal.piDescription') }}</p>
-          </div>
-          <div class="pi-project-context">
-            <span>{{ t('projectSettingsModal.piProjectLabel') }}</span>
-            <strong :title="name">{{ name }}</strong>
-            <code>{{ identifier }}</code>
-          </div>
-          <div class="pi-configure-controls" :aria-busy="isPiLoading">
-            <button
-              type="button"
-              class="btn-primary"
-              data-testid="project-settings-pi-configure"
-              :disabled="isPiLoading || isSubmitting"
-              @click="emit('configurePiAgent')"
-            >
-              <LoaderCircle v-if="isPiLoading" class="button-spinner" aria-hidden="true" />
-              {{ isPiLoading ? t('projectSettingsModal.piConfiguring') : piAgentConfigured ? t('projectSettingsModal.piReconfigure') : t('projectSettingsModal.piConfigure') }}
-            </button>
-          </div>
-          <div v-if="piAgentToken" class="gitlab-secret">
-            <p>{{ t('projectSettingsModal.piTokenOnce') }}</p>
-            <div class="gitlab-secret-row">
-              <code data-testid="project-settings-pi-token">{{ piAgentToken }}</code>
-              <button type="button" class="btn-secondary" @click="copyToClipboard(piAgentToken)">{{ copyButtonLabel(piAgentToken) }}</button>
-            </div>
-          </div>
         </section>
 
         <section id="settings-import" class="settings-section import-zone">

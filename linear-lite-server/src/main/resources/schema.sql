@@ -18,18 +18,6 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE UNIQUE INDEX uk_users_agent_key ON users (agent_key);
 
-CREATE TABLE IF NOT EXISTS agent_credentials (
-    id              BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    agent_user_id   BIGINT NOT NULL,
-    token_hash      CHAR(64) NOT NULL,
-    enabled         TINYINT(1) NOT NULL DEFAULT 1,
-    expires_at      DATETIME DEFAULT NULL,
-    last_seen_at    DATETIME DEFAULT NULL,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_agent_credentials_token_hash (token_hash),
-    KEY idx_agent_credentials_user (agent_user_id, enabled)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
 CREATE TABLE IF NOT EXISTS email_verification_codes (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     email       VARCHAR(255) NOT NULL,
@@ -206,16 +194,6 @@ CREATE INDEX idx_tasks_project_due_date ON tasks (project_id, due_date);
 CREATE INDEX idx_tasks_project_status ON tasks (project_id, status);
 CREATE INDEX idx_tasks_project_assignee ON tasks (project_id, assignee_id);
 CREATE INDEX idx_tasks_project_priority ON tasks (project_id, priority);
-
-CREATE TABLE IF NOT EXISTS project_agent_bindings (
-    id              BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    project_id      BIGINT NOT NULL,
-    agent_user_id   BIGINT NOT NULL,
-    enabled         TINYINT(1) NOT NULL DEFAULT 1,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_project_agent_binding (project_id, agent_user_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS agent_task_sessions (
     id              BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,

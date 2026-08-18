@@ -12,6 +12,7 @@ import { taskCommentsApi } from '../services/api/taskComments'
 import { taskApi } from '../services/api/task'
 import { agentApi } from '../services/api/agent'
 import { useTaskStore } from '../store/taskStore'
+import { useAuthStore } from '../store/authStore'
 import { formatAgentEventDetail } from '../utils/agentEventDisplay'
 
 vi.mock('vue-router', () => ({
@@ -148,10 +149,18 @@ vi.mock('../services/api/task', () => ({
 
 vi.mock('../services/api/agent', () => ({
   agentApi: {
+    prepareLocalPi: vi.fn(),
+    submitTurn: vi.fn(),
     getTaskStatus: vi.fn(),
     openEventStream: vi.fn(),
     cancelTask: vi.fn()
   }
+}))
+
+vi.mock('../services/piBridge', () => ({
+  attachPiBridge: vi.fn().mockResolvedValue(undefined),
+  getPiBridgeHealth: vi.fn().mockResolvedValue({ configured: true, status: 'online' }),
+  isPiBridgeAvailable: vi.fn().mockResolvedValue(true)
 }))
 
 function flushPromises() {
@@ -173,11 +182,12 @@ function createTask(overrides: Partial<Task> = {}): Task {
   }
 }
 
-async function mountEditor(task: Task) {
+async function mountEditor(task: Task, ownerId?: number) {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const pinia = createPinia()
   setActivePinia(pinia)
+  if (ownerId != null) useAuthStore().setSession('test-token', ownerId, 'Owner')
   useTaskStore().tasks = [task]
   const app = createApp(TaskEditor, {
     mode: 'edit',
@@ -326,7 +336,7 @@ describe('TaskEditor comments adapter', () => {
     }
   })
 
-  it('switches the Pi event stream to a comment job immediately after mentioning Pi', async () => {
+  it('does not trigger local Pi from an ordinary comment mention', async () => {
     vi.mocked(projectApi.listMembers).mockResolvedValue([
       { id: 42, username: 'Pi', principalType: 'agent', agentKey: 'pi' }
     ])
@@ -349,11 +359,8 @@ describe('TaskEditor comments adapter', () => {
         errorMessage: null,
         updatedAt: '2026-08-12T00:01:00.000Z'
       })
-    const firstStreamClose = vi.fn()
     const secondStreamClose = vi.fn()
-    vi.mocked(agentApi.openEventStream)
-      .mockReturnValueOnce({ close: firstStreamClose } as unknown as EventSource)
-      .mockReturnValue({ close: secondStreamClose } as unknown as EventSource)
+    vi.mocked(agentApi.openEventStream).mockReturnValue({ close: secondStreamClose } as unknown as EventSource)
 
     const view = await mountEditor(createTask({ assigneeId: 42 }))
     try {
@@ -374,17 +381,7 @@ describe('TaskEditor comments adapter', () => {
         parentId: null
       })
       expect(agentApi.getTaskStatus).toHaveBeenCalledTimes(2)
-      expect(firstStreamClose).toHaveBeenCalledOnce()
-      expect(agentApi.openEventStream).toHaveBeenLastCalledWith(
-        'ENG-1',
-        'execution-1',
-        2,
-        expect.any(Function),
-        expect.any(Function),
-        expect.any(Function),
-        expect.any(Function)
-      )
-      expect(view.host.querySelector('.agent-status-badge')?.textContent).toContain('queued')
+      expect(agentApi.openEventStream).not.toHaveBeenCalled()
     } finally {
       view.unmount()
     }
@@ -417,7 +414,7 @@ describe('TaskEditor comments adapter', () => {
     }
   })
 
-  it('renders live Pi events and closes the stream after completion', async () => {
+  it('renders one live local Pi activity for the task owner', async () => {
     vi.mocked(agentApi.getTaskStatus).mockResolvedValue({
       executionId: 'execution-1',
       jobId: 1,
@@ -427,6 +424,18 @@ describe('TaskEditor comments adapter', () => {
       errorMessage: null,
       updatedAt: '2026-08-12T00:00:00.000Z'
     })
+    vi.mocked(agentApi.prepareLocalPi).mockResolvedValue({
+      status: {
+        executionId: 'execution-1',
+        jobId: 1,
+        sessionStatus: 'active',
+        jobStatus: 'running',
+        sourceType: 'turn',
+        errorMessage: null,
+        updatedAt: '2026-08-12T00:00:00.000Z'
+      },
+      attachmentCode: 'attachment-code'
+    })
     let onEvent: ((event: Parameters<typeof formatAgentEventDetail>[0]) => void) | undefined
     const close = vi.fn()
     vi.mocked(agentApi.openEventStream).mockImplementation((_taskKey, _executionId, _jobId, eventHandler, onOpen) => {
@@ -435,8 +444,13 @@ describe('TaskEditor comments adapter', () => {
       return { close } as unknown as EventSource
     })
 
-    const view = await mountEditor(createTask())
+    const view = await mountEditor(createTask({ assigneeId: 42 }), 42)
     try {
+      view.host.querySelector<HTMLButtonElement>('.agent-launch-button')?.click()
+      await nextTick()
+      await flushPromises()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      await nextTick()
         expect(agentApi.openEventStream).toHaveBeenCalledWith(
           'ENG-1',
           'execution-1',
@@ -446,9 +460,9 @@ describe('TaskEditor comments adapter', () => {
           expect.any(Function),
           expect.any(Function)
         )
-      expect(view.host.querySelector('.agent-event-area')).not.toBeNull()
-      expect(view.host.querySelector('.editor-props')).toBeNull()
-      expect(view.host.querySelector('.props-card--horizontal')).not.toBeNull()
+      expect(document.body.querySelector('.agent-event-area')).not.toBeNull()
+      expect(view.host.querySelector('.editor-props')).not.toBeNull()
+      expect(view.host.querySelector('.props-card--horizontal')).toBeNull()
 
       onEvent?.({
         id: 0,
@@ -461,7 +475,7 @@ describe('TaskEditor comments adapter', () => {
         createdAt: '2026-08-12T00:00:00.000Z'
       })
       await nextTick()
-      expect(view.host.querySelector('.agent-status-badge')?.textContent).toContain('running')
+      expect(document.body.querySelector('.agent-status-badge')?.textContent).toContain('running')
 
       onEvent?.({
         id: 1,
@@ -470,7 +484,7 @@ describe('TaskEditor comments adapter', () => {
         sequenceNo: 1,
         eventType: 'tool_call',
         summary: '正在调用工具：bash',
-        payload: JSON.stringify({ args: { command: 'pwd', path: '/tmp' } }),
+        payload: JSON.stringify({ toolName: 'bash', args: { command: 'pwd', path: '/tmp' } }),
         createdAt: '2026-08-12T00:00:01.000Z'
       })
       onEvent?.({
@@ -480,7 +494,7 @@ describe('TaskEditor comments adapter', () => {
         sequenceNo: 2,
         eventType: 'tool_result',
         summary: '工具调用完成：bash',
-        payload: JSON.stringify({ result: { content: [{ type: 'text', text: '/tmp' }] } }),
+        payload: JSON.stringify({ toolName: 'bash', result: { content: [{ type: 'text', text: '/tmp' }] } }),
         createdAt: '2026-08-12T00:00:02.000Z'
       })
       onEvent?.({
@@ -498,12 +512,11 @@ describe('TaskEditor comments adapter', () => {
       })
       await nextTick()
 
-      expect(view.host.querySelector('.agent-tool-call code')?.textContent).toContain('$ pwd')
-      expect(view.host.querySelector('.agent-tool-result')?.hasAttribute('open')).toBe(false)
-      expect(view.host.querySelector('.agent-tool-result pre')?.textContent).toContain('/tmp')
-      expect(view.host.querySelector('.agent-event-markdown strong')?.textContent).toBe('气温：')
-      expect(view.host.querySelectorAll('.agent-event-markdown li')).toHaveLength(2)
-      expect(view.host.querySelector('.agent-event-markdown')?.textContent).not.toContain('**')
+      expect(document.body.querySelector('.agent-live-activity')?.textContent).toContain('正在整理结果')
+      expect(document.body.querySelector('.agent-tool-call')).toBeNull()
+      expect(document.body.querySelector('.agent-tool-result')).toBeNull()
+      expect(document.body.textContent).not.toContain('$ pwd')
+      expect(document.body.textContent).not.toContain('广州明天')
 
       onEvent?.({
         id: 31,
@@ -534,8 +547,7 @@ describe('TaskEditor comments adapter', () => {
         createdAt: '2026-08-12T00:00:03.200Z'
       })
       await nextTick()
-      expect(view.host.querySelector('.agent-tool-heading--skill')?.textContent).toContain('[skill] ego-browser')
-      expect(view.host.textContent).not.toContain('Long skill instructions')
+      expect(document.body.textContent).not.toContain('Long skill instructions')
 
       onEvent?.({
         id: 4,
@@ -550,14 +562,36 @@ describe('TaskEditor comments adapter', () => {
       await nextTick()
 
       expect(close).toHaveBeenCalledOnce()
-      expect(view.host.querySelector('.agent-status-badge')?.textContent).toContain('succeeded')
-      expect(view.host.querySelector('.agent-event-area')).not.toBeNull()
+      expect(document.body.querySelector('.agent-status-panel')).not.toBeNull()
+      expect(document.body.querySelector('.agent-event-area')).toBeNull()
+      expect(document.body.querySelector('.agent-turn-input')).not.toBeNull()
     } finally {
       view.unmount()
     }
   })
 
-  it('hides a completed execution when no event content is available', async () => {
+  it('shows the backend business message when preparing local Pi is rejected', async () => {
+    vi.mocked(agentApi.prepareLocalPi).mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { message: '执行上下文已结束' } }
+    })
+
+    const view = await mountEditor(createTask({ assigneeId: 42, status: 'done' }), 42)
+    try {
+      view.host.querySelector<HTMLButtonElement>('.agent-launch-button')?.click()
+      await nextTick()
+      await flushPromises()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      await nextTick()
+
+      expect(document.body.querySelector('.agent-events-copy--error')?.textContent)
+        .toContain('执行上下文已结束')
+    } finally {
+      view.unmount()
+    }
+  })
+
+  it('does not reconnect to a completed execution after refresh', async () => {
     vi.mocked(agentApi.getTaskStatus).mockResolvedValue({
       executionId: 'execution-1',
       jobId: 1,
@@ -574,15 +608,7 @@ describe('TaskEditor comments adapter', () => {
       expect(view.host.querySelector('.agent-event-area')).toBeNull()
       expect(view.host.querySelector('.editor-props')).not.toBeNull()
       expect(view.host.querySelector('.props-card--horizontal')).toBeNull()
-      expect(agentApi.openEventStream).toHaveBeenCalledWith(
-        'ENG-1',
-        'execution-1',
-        1,
-        expect.any(Function),
-        expect.any(Function),
-        expect.any(Function),
-        expect.any(Function)
-      )
+      expect(agentApi.openEventStream).not.toHaveBeenCalled()
     } finally {
       view.unmount()
     }
@@ -635,7 +661,7 @@ describe('TaskEditor comments adapter', () => {
     ].join('\n'))
   })
 
-  it('reloads Pi execution status after changing the assignee in the detail view', async () => {
+  it('does not expose local Pi execution to a non-owner after assignee changes', async () => {
     vi.mocked(taskApi.update).mockResolvedValue({
       task: createTask({ assigneeId: 42 }),
       autoCompletedAncestors: []
@@ -669,8 +695,7 @@ describe('TaskEditor comments adapter', () => {
 
       expect(taskApi.update).toHaveBeenCalled()
       expect(agentApi.getTaskStatus).toHaveBeenCalledTimes(2)
-      expect(view.host.querySelector('.agent-status-panel')).not.toBeNull()
-      expect(view.host.querySelector('.agent-status-badge')?.textContent).toContain('queued')
+      expect(view.host.querySelector('.agent-status-panel')).toBeNull()
     } finally {
       view.unmount()
     }

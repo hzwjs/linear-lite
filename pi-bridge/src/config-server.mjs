@@ -25,7 +25,7 @@ const CONFIG_PAGE = `<!doctype html>
     .status-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
     .status-chip.ready { border-color: #547b43; color: var(--accent); }
     form { display: grid; gap: 12px; align-items: end; }
-    .connection-form { grid-template-columns: 1fr 1fr auto; margin-top: 22px; }
+    .connection-form { grid-template-columns: 1fr auto; margin-top: 22px; }
     .mapping-form { grid-template-columns: minmax(220px, 1fr) 2fr auto; margin-top: 20px; }
     label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
     input, select { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--text); padding: 0 12px; font: inherit; outline: none; }
@@ -71,7 +71,7 @@ const CONFIG_PAGE = `<!doctype html>
     <header>
       <div class="eyebrow">Pi Bridge / Local setup</div>
       <h1>Pi Bridge 配置</h1>
-      <p>完成两步配置：先连接 Linear Lite，再把已配置 Pi 的项目绑定到本地目录。</p>
+      <p>完成两步配置：先连接 Linear Lite，再把需要本地执行的项目绑定到本地目录。</p>
     </header>
     <section class="panel">
       <div class="section-heading">
@@ -80,10 +80,9 @@ const CONFIG_PAGE = `<!doctype html>
       </div>
       <form id="settings-form" class="connection-form">
         <label>Linear Lite 地址<input name="apiBaseUrl" type="url" required placeholder="例如 http://127.0.0.1:9080"></label>
-        <label>Agent Token<input name="agentToken" type="password" required autocomplete="off" placeholder="首次配置或更换时粘贴 Token"></label>
         <button type="submit">保存连接</button>
       </form>
-      <p class="form-hint">Token 只保存在本机 Bridge，不会在页面回显。若当前已连接，只有更换 Token 时才需要重新填写。</p>
+      <p class="form-hint">Bridge 通过任务详情中的本机执行面板自动建立连接，不需要配置或复制凭证。</p>
       <div id="connection-status" class="connection-status" role="status" aria-live="polite"></div>
     </section>
     <section class="panel" id="mapping-panel">
@@ -94,7 +93,7 @@ const CONFIG_PAGE = `<!doctype html>
       <div id="mapping-area" class="mapping-area" aria-disabled="true">
         <div id="mapping-editor" class="mapping-editor" hidden>
           <p id="editor-title" class="editor-title">添加项目绑定</p>
-          <p class="editor-hint">只显示已在 Linear Lite 中配置 Pi 的项目。</p>
+          <p class="editor-hint">只显示当前登录用户可访问的项目。</p>
           <form id="mapping-form" class="mapping-form">
             <label>Linear Lite 项目<select name="projectId" required><option value="">请先连接 Linear Lite</option></select></label>
             <label>本地目录绝对路径<input name="directoryPath" required placeholder="例如 /Users/me/code/linear-lite"></label>
@@ -126,6 +125,13 @@ const CONFIG_PAGE = `<!doctype html>
     const state = { settingsConfigured: false, availableProjects: [], mappings: [], editingProjectId: null }
     const showMessage = (text, error = false) => { message.textContent = text; message.className = error ? 'error' : ''; message.setAttribute('role', error ? 'alert' : 'status') }
     const showConnectionStatus = (text, ready = false) => { connectionStatus.textContent = text; connectionStatus.className = ready ? 'connection-status ready' : 'connection-status' }
+    const healthMessage = (health) => {
+      if (health.status === 'online') return ['Linear Lite 已连接。', true]
+      if (health.status === 'connecting' || health.status === 'degraded') return ['Bridge 正在重连 Linear Lite…', false]
+      if (health.status === 'waiting_for_browser') return ['等待任务详情建立本机执行连接。', false]
+      if (health.status === 'stopping') return ['Bridge 正在停止。', false]
+      return ['请先保存 Linear Lite 连接。', false]
+    }
     const setConnectionState = (configured) => {
       state.settingsConfigured = configured
       connectionBadge.textContent = configured ? '已连接' : '未连接'
@@ -192,10 +198,16 @@ const CONFIG_PAGE = `<!doctype html>
       const body = await response.json()
       if (!response.ok) throw new Error(body.message || '读取连接配置失败')
       settingsForm.elements.apiBaseUrl.value = body.apiBaseUrl
-      settingsForm.elements.agentToken.value = ''
       setConnectionState(body.configured)
-      showConnectionStatus(body.configured ? 'Linear Lite 已连接。' : '请先保存 Linear Lite 连接。', body.configured)
+      showConnectionStatus(body.configured ? '正在检查 Bridge 连接…' : '请先保存 Linear Lite 连接。')
       renderProjectOptions(); renderMappings()
+    }
+    async function loadBridgeHealth() {
+      const response = await fetch('/healthz', { cache: 'no-store' })
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.message || '读取 Bridge 状态失败')
+      const [messageText, ready] = healthMessage(body)
+      showConnectionStatus(messageText, ready)
     }
     async function loadAvailableProjects() {
       if (!state.settingsConfigured) { state.availableProjects = []; renderProjectOptions(); return }
@@ -235,14 +247,13 @@ const CONFIG_PAGE = `<!doctype html>
       showConnectionStatus('正在连接 Linear Lite…')
       const data = new FormData(settingsForm)
       try {
-        const response = await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiBaseUrl: data.get('apiBaseUrl').trim(), agentToken: data.get('agentToken').trim() }) })
+        const response = await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiBaseUrl: data.get('apiBaseUrl').trim() }) })
         const body = await response.json()
         if (!response.ok) throw new Error(body.message || '保存连接配置失败')
-        settingsForm.elements.agentToken.value = ''
         setConnectionState(true)
-        showConnectionStatus('Linear Lite 已连接，正在读取可绑定项目…', true)
+        showConnectionStatus('正在读取可绑定项目…')
         await refreshProjectData()
-        showConnectionStatus('Linear Lite 已连接。', true)
+        await loadBridgeHealth()
       } catch (error) { setConnectionState(false); showConnectionStatus(error.message); showMessage(error.message, true) }
       finally { submitButton.disabled = false }
     })
@@ -270,11 +281,11 @@ const CONFIG_PAGE = `<!doctype html>
       finally { submitButton.disabled = false }
     })
     document.querySelector('#refresh').addEventListener('click', async () => {
-      try { await loadSettings(); await refreshProjectData() }
+      try { await loadSettings(); await refreshProjectData(); await loadBridgeHealth() }
       catch (error) { showConnectionStatus(error.message); showMessage(error.message, true) }
     })
     async function initialize() {
-      try { await loadSettings(); await refreshProjectData() }
+      try { await loadSettings(); await refreshProjectData(); await loadBridgeHealth() }
       catch (error) { setConnectionState(false); showConnectionStatus(error.message); showMessage(error.message, true) }
     }
     initialize()
@@ -295,6 +306,8 @@ function sendJson(response, status, body, request) {
   ])
   if (origin && (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) || allowedOrigins.has(origin))) {
     headers['Access-Control-Allow-Origin'] = origin
+    headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
+    headers['Access-Control-Allow-Headers'] = 'Content-Type'
     headers.Vary = 'Origin'
   }
   response.writeHead(status, headers)
@@ -313,20 +326,25 @@ function readBody(request) {
   })
 }
 
-export function createConfigServer({ store, settingsStore, projectProvider, onSettingsSaved = () => {}, host = '127.0.0.1', port = 9780 } = {}) {
+export function createConfigServer({ store, settingsStore, projectProvider, onSettingsSaved = () => {}, onAttach = null, healthProvider, host = '127.0.0.1', port = 9780 } = {}) {
   if (!store) throw new Error('ProjectConfigStore is required')
   if (!settingsStore) throw new Error('BridgeSettingsStore is required')
   if (!projectProvider) throw new Error('projectProvider is required')
+  if (!healthProvider) throw new Error('healthProvider is required')
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', `http://${host}`)
     try {
+      if (request.method === 'OPTIONS') {
+        sendJson(response, 204, null, request)
+        return
+      }
       if (request.method === 'GET' && url.pathname === '/') {
         response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
         response.end(CONFIG_PAGE)
         return
       }
       if (request.method === 'GET' && url.pathname === '/healthz') {
-        sendJson(response, 200, { status: 'ok' }, request)
+        sendJson(response, 200, healthProvider(), request)
         return
       }
       if (request.method === 'GET' && url.pathname === '/api/settings') {
@@ -336,9 +354,16 @@ export function createConfigServer({ store, settingsStore, projectProvider, onSe
       if (request.method === 'PUT' && url.pathname === '/api/settings') {
         let body
         try { body = JSON.parse(await readBody(request) || '{}') } catch { throw new Error('请求体不是有效 JSON') }
-        await settingsStore.save(body.apiBaseUrl, body.agentToken)
+        await settingsStore.save(body.apiBaseUrl)
         await onSettingsSaved()
         sendJson(response, 200, await settingsStore.publicSettings())
+        return
+      }
+      if (request.method === 'POST' && url.pathname === '/api/attach') {
+        if (!onAttach) throw new Error('本机执行绑定暂不可用')
+        let body
+        try { body = JSON.parse(await readBody(request) || '{}') } catch { throw new Error('请求体不是有效 JSON') }
+        sendJson(response, 200, await onAttach(body.attachmentCode), request)
         return
       }
       if (request.method === 'GET' && url.pathname === '/api/projects') {
@@ -366,7 +391,7 @@ export function createConfigServer({ store, settingsStore, projectProvider, onSe
       sendJson(response, 404, { message: '配置接口不存在' })
     } catch (error) {
       const status = /配置文件|JSON|请求体/.test(error.message) ? 500 : 400
-      sendJson(response, status, { message: error.message })
+        sendJson(response, status, { message: error.message }, request)
     }
   })
   return {

@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
+import { homedir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { extractFinalAssistantText, toProgressEvent } from './event-stream.mjs'
 import { createConfigServer } from './config-server.mjs'
@@ -9,9 +10,10 @@ import { BridgeSettingsStore } from './bridge-settings.mjs'
 
 const config = {
   piBinary: process.env.PI_BINARY ?? 'pi',
-  sessionRoot: resolve(process.env.PI_BRIDGE_SESSION_ROOT ?? './.pi-sessions'),
-  projectConfigFile: resolve(process.env.PI_BRIDGE_CONFIG_FILE ?? './.pi-bridge/projects.json'),
-  settingsFile: resolve(process.env.PI_BRIDGE_SETTINGS_FILE ?? './.pi-bridge/settings.json'),
+  dataRoot: resolve(process.env.PI_BRIDGE_DATA_ROOT ?? join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge', 'data')),
+  sessionRoot: resolve(process.env.PI_BRIDGE_SESSION_ROOT ?? join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge', 'sessions')),
+  projectConfigFile: resolve(process.env.PI_BRIDGE_CONFIG_FILE ?? join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge', 'data', 'projects.json')),
+  settingsFile: resolve(process.env.PI_BRIDGE_SETTINGS_FILE ?? join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge', 'data', 'settings.json')),
   configHost: process.env.PI_BRIDGE_CONFIG_HOST ?? '127.0.0.1',
   configPort: Number(process.env.PI_BRIDGE_CONFIG_PORT ?? 9780),
   pollMs: Number(process.env.PI_BRIDGE_POLL_MS ?? 2000),
@@ -19,12 +21,42 @@ const config = {
   apiTimeoutMs: Number(process.env.PI_BRIDGE_API_TIMEOUT_MS ?? 10000),
   apiRetryDelayMs: Number(process.env.PI_BRIDGE_API_RETRY_DELAY_MS ?? 1000),
   heartbeatMs: Number(process.env.PI_BRIDGE_HEARTBEAT_MS ?? 30000),
+  version: process.env.PI_BRIDGE_VERSION ?? 'dev',
 }
 
 export const projectStore = new ProjectConfigStore(config.projectConfigFile)
 export const settingsStore = new BridgeSettingsStore(config.settingsFile)
+export const attachmentTokenStore = { value: '' }
+
+export function setExecutionAttachmentToken(token) {
+  attachmentTokenStore.value = typeof token === 'string' ? token : ''
+}
 
 const RETRYABLE_ERROR = Symbol('retryableBridgeError')
+
+const runtime = {
+  status: 'starting',
+  backendReachable: false,
+  startedAt: new Date().toISOString(),
+  lastConnectedAt: null,
+}
+
+function setRuntimeStatus(status, backendReachable = runtime.backendReachable) {
+  runtime.status = status
+  runtime.backendReachable = backendReachable
+  if (status === 'online') runtime.lastConnectedAt = new Date().toISOString()
+}
+
+export function getBridgeHealth() {
+  return {
+    status: runtime.status,
+    configured: runtime.status !== 'config_required',
+    backendReachable: runtime.backendReachable,
+    version: config.version,
+    startedAt: runtime.startedAt,
+    lastConnectedAt: runtime.lastConnectedAt,
+  }
+}
 
 function sleep(ms) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
@@ -45,24 +77,34 @@ function markRetryable(error) {
  */
 export function createApiClient({
   settingsStore: store = settingsStore,
+  attachmentStore = attachmentTokenStore,
   fetchImpl = globalThis.fetch,
   requestTimeoutMs = config.apiTimeoutMs,
   retryDelayMs = config.apiRetryDelayMs,
   sleepImpl = sleep,
+  onOnline = () => {},
+  onDegraded = () => {},
+  onConfigurationRequired = () => {},
 } = {}) {
   return async function api(path, options = {}) {
-    const settings = await store.read()
-    if (!settings.agentToken) throw new Error('Bridge 尚未配置 Linear Lite 连接')
     let retryAttempt = 0
     while (true) {
+      const settings = await store.read()
+      if (!attachmentStore.value) {
+        throw new Error('等待任务面板建立本机执行连接')
+      }
       const controller = new AbortController()
+      const externalSignal = options.signal
+      const abortFromExternalSignal = () => controller.abort()
+      if (externalSignal?.aborted) controller.abort()
+      else externalSignal?.addEventListener('abort', abortFromExternalSignal, { once: true })
       const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs)
       try {
         const response = await fetchImpl(`${settings.apiBaseUrl}${path}`, {
           ...options,
           headers: {
             'Content-Type': 'application/json',
-            'X-Agent-Token': settings.agentToken,
+            'X-Execution-Attachment': attachmentStore.value,
             ...(options.headers ?? {}),
           },
           signal: controller.signal,
@@ -70,26 +112,76 @@ export function createApiClient({
         const body = await response.json().catch(() => null)
         if (!response.ok || body?.code >= 400) {
           const error = new Error(body?.message ?? `Linear Lite API ${response.status}`)
+          error.status = response.status
           if (response.status >= 500) markRetryable(error)
+          if (response.status === 401 || response.status === 403) onConfigurationRequired()
           throw error
         }
+        onOnline()
         return body?.data
       } catch (error) {
+        if (externalSignal?.aborted) throw error
         if (!retryableError(error)) {
           if (error?.name === 'AbortError' || error instanceof TypeError) markRetryable(error)
           else throw error
         }
+        onDegraded()
         retryAttempt += 1
         const delay = Math.min(retryDelayMs * (2 ** Math.min(retryAttempt - 1, 5)), 30000)
         await sleepImpl(delay)
       } finally {
         clearTimeout(timeoutId)
+        externalSignal?.removeEventListener('abort', abortFromExternalSignal)
       }
     }
   }
 }
 
-export const api = createApiClient()
+export const api = createApiClient({
+  onOnline: () => setRuntimeStatus('online', true),
+  onDegraded: () => setRuntimeStatus('degraded', false),
+  onConfigurationRequired: () => {
+    // 服务端重启或执行绑定过期后，丢弃旧 token；否则轮询会永久携带失效绑定，页面也无法触发自动重连。
+    setExecutionAttachmentToken('')
+    setRuntimeStatus('config_required', false)
+  },
+})
+
+async function attachExecution(attachmentCode) {
+  const settings = await settingsStore.read()
+  const response = await fetch(`${settings.apiBaseUrl}/api/bridge/executions/attach`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ attachmentCode }),
+  })
+  const body = await response.json().catch(() => null)
+  if (!response.ok || body?.code >= 400 || !body?.data?.attachmentToken) {
+    throw new Error(body?.message ?? '本机执行连接建立失败')
+  }
+  setExecutionAttachmentToken(body.data.attachmentToken)
+  setRuntimeStatus('connecting', false)
+  return body.data
+}
+
+function waitFor(ms, signal) {
+  return new Promise((resolvePromise, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('Bridge stopping'))
+      return
+    }
+    const timer = setTimeout(done, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', onAbort)
+      reject(new Error('Bridge stopping'))
+    }
+    function done() {
+      signal?.removeEventListener('abort', onAbort)
+      resolvePromise()
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
 
 /** 串行上传队列在单批次失败后必须继续消费后续批次，避免一个断网请求永久毒化整条队列。 */
 export function createRecoveringSerialQueue() {
@@ -185,21 +277,22 @@ function readRpc(child) {
   }
 }
 
-async function reportJobFailure(job, error) {
+async function reportJobFailure(job, error, signal) {
   console.error(`[pi-bridge] ${error.message}`)
-  await api(`/api/agent/jobs/${job.jobId}/failed`, {
+    await api(`/api/bridge/jobs/${job.jobId}/failed`, {
     method: 'POST',
     body: JSON.stringify({ executionId: job.executionId, errorMessage: error.message }),
+    signal,
   }).catch(() => {})
 }
 
-export async function execute(job) {
+export async function execute(job, { signal } = {}) {
   let cwd
   try {
     cwd = await resolveTaskDirectory(job)
   } catch (error) {
     // projectId 未配置或本地目录失效时，必须把确定原因写回当前 Job。
-    await reportJobFailure(job, error)
+    if (!signal?.aborted) await reportJobFailure(job, error, signal)
     return
   }
   const child = await startPi(job, cwd)
@@ -210,9 +303,10 @@ export async function execute(job) {
     if (heartbeatInFlight || canceledByServer) return
     heartbeatInFlight = true
     try {
-      await api(`/api/agent/jobs/${job.jobId}/heartbeat`, {
+      await api(`/api/bridge/jobs/${job.jobId}/heartbeat`, {
         method: 'POST',
         body: JSON.stringify({ executionId: job.executionId }),
+        signal,
       })
     } catch (error) {
       console.error(`[pi-bridge] heartbeat failed: ${error.message}`)
@@ -240,9 +334,10 @@ export async function execute(job) {
     pendingProgress = []
     if (!batch.length) return Promise.resolve()
     // 进度批次串行发送，保证服务端收到的 sequence_no 与 Pi 事件顺序一致。
-    return progressQueue.enqueue(() => api(`/api/agent/jobs/${job.jobId}/events`, {
+    return progressQueue.enqueue(() => api(`/api/bridge/jobs/${job.jobId}/events`, {
       method: 'POST',
       body: JSON.stringify({ executionId: job.executionId, events: batch }),
+      signal,
     }))
   }
 
@@ -270,7 +365,10 @@ export async function execute(job) {
   })
   let cancelReject
   let cancelCheckInFlight = false
+  let shutdownListener
   const cancellation = new Promise((_, reject) => { cancelReject = reject })
+  // 取消轮询可能早于 RPC 初始化完成，预先挂载拒绝处理，避免 Node 将其视为未处理异常。
+  cancellation.catch(() => {})
   const stopForCancellation = () => {
     if (canceledByServer) return
     canceledByServer = true
@@ -278,11 +376,15 @@ export async function execute(job) {
     if (child.exitCode == null && child.signalCode == null) child.kill('SIGTERM')
     cancelReject(new Error('Pi 执行已取消'))
   }
+  const stopForBridgeShutdown = () => {
+    if (child.exitCode == null && child.signalCode == null) child.kill('SIGTERM')
+  }
+  signal?.addEventListener('abort', stopForBridgeShutdown, { once: true })
   const checkCancellation = async () => {
     if (cancelCheckInFlight || canceledByServer) return
     cancelCheckInFlight = true
     try {
-      const status = await api(`/api/agent/jobs/${job.jobId}/status?executionId=${encodeURIComponent(job.executionId)}`)
+      const status = await api(`/api/bridge/jobs/${job.jobId}/status?executionId=${encodeURIComponent(job.executionId)}`, { signal })
       if (status?.executionId === job.executionId && status.jobStatus === 'canceled') {
         stopForCancellation()
       }
@@ -302,28 +404,38 @@ export async function execute(job) {
     if (!state.success || !state.data?.sessionId) {
       throw new Error('Pi get_state did not return a sessionId')
     }
-    await api(`/api/agent/sessions/${encodeURIComponent(job.executionId)}/state`, {
+    await api(`/api/bridge/sessions/${encodeURIComponent(job.executionId)}/state`, {
       method: 'POST',
       body: JSON.stringify({ sessionId: state.data.sessionId }),
+      signal,
     })
     sendRpc(child, { id: 'prompt', type: 'prompt', message: job.prompt })
     const done = rpc.waitFor((message) => {
       return message.type === 'agent_end' && message.willRetry !== true
     }, 30 * 60 * 1000)
-    const finalEvent = await Promise.race([done, cancellation])
+    const shutdown = new Promise((_, reject) => {
+      if (signal?.aborted) reject(new Error('Bridge stopping'))
+      else {
+        shutdownListener = () => reject(new Error('Bridge stopping'))
+        signal?.addEventListener('abort', shutdownListener, { once: true })
+      }
+    })
+    const finalEvent = await Promise.race([done, cancellation, shutdown])
     await flushProgress()
     const finalText = extractFinalAssistantText(finalEvent)
     if (!finalText) throw new Error('Pi 未返回最终 assistant 结果')
-    await api(`/api/agent/jobs/${job.jobId}/succeeded`, {
+    await api(`/api/bridge/jobs/${job.jobId}/succeeded`, {
       method: 'POST',
       body: JSON.stringify({ executionId: job.executionId, result: finalText }),
+      signal,
     })
   } catch (error) {
     if (stderr.trim()) console.error(`[pi-bridge] Pi stderr: ${stderr.trim()}`)
-    if (!canceledByServer) {
-      await api(`/api/agent/jobs/${job.jobId}/failed`, {
+    if (!canceledByServer && !signal?.aborted) {
+      await api(`/api/bridge/jobs/${job.jobId}/failed`, {
         method: 'POST',
         body: JSON.stringify({ executionId: job.executionId, errorMessage: error.message }),
+        signal,
       }).catch(() => {})
     }
   } finally {
@@ -331,48 +443,74 @@ export async function execute(job) {
     if (progressTimer != null) clearTimeout(progressTimer)
     clearInterval(cancellationTimer)
     clearInterval(heartbeat)
+    signal?.removeEventListener('abort', stopForBridgeShutdown)
+    if (shutdownListener) signal?.removeEventListener('abort', shutdownListener)
     if (child.exitCode == null && child.signalCode == null) child.kill('SIGTERM')
   }
 }
 
-export async function main() {
-  while (true) {
+export async function main({ signal } = {}) {
+  while (!signal?.aborted) {
+    if (!attachmentTokenStore.value) {
+      setRuntimeStatus('waiting_for_browser', false)
+      await waitFor(config.pollMs, signal).catch(() => {})
+      continue
+    }
     try {
-      const job = await api('/api/agent/jobs/claim', { method: 'POST', body: '{}' })
-      if (job) await execute(job)
-      else await new Promise((resolvePromise) => setTimeout(resolvePromise, config.pollMs))
+      if (runtime.status === 'starting' || runtime.status === 'config_required' || runtime.status === 'waiting_for_browser') {
+        setRuntimeStatus('connecting', runtime.backendReachable)
+      }
+      const job = await api('/api/bridge/jobs/claim', { method: 'POST', body: '{}', signal })
+      if (job) await execute(job, { signal })
+      else await waitFor(config.pollMs, signal)
     } catch (error) {
+      if (signal?.aborted) break
       console.error(`[pi-bridge] ${error.message}`)
-      await new Promise((resolvePromise) => setTimeout(resolvePromise, config.pollMs))
+      await waitFor(config.pollMs, signal).catch(() => {})
     }
   }
 }
 
 export async function startBridge() {
+  await mkdir(config.dataRoot, { recursive: true, mode: 0o700 })
   await mkdir(config.sessionRoot, { recursive: true })
+  const stopController = new AbortController()
   let pollingStarted = false
+  let pollingPromise
   const startPolling = () => {
     if (pollingStarted) return
     pollingStarted = true
-    void main()
+    setRuntimeStatus('connecting', false)
+    pollingPromise = main({ signal: stopController.signal })
   }
   const configServer = createConfigServer({
     store: projectStore,
     settingsStore,
-    projectProvider: () => api('/api/agent/projects'),
+    projectProvider: () => api('/api/bridge/projects'),
+    onAttach: attachExecution,
     onSettingsSaved: startPolling,
+    healthProvider: getBridgeHealth,
     host: config.configHost,
     port: config.configPort,
   })
   const address = await configServer.listen()
   console.log(`[pi-bridge] 本地工作区配置页：http://${config.configHost}:${address.port}/`)
   const settings = await settingsStore.read()
-  if (!settings.agentToken) {
-    console.error('[pi-bridge] 未配置 Linear Lite 连接，任务执行轮询未启动')
-    return configServer
-  }
+  setRuntimeStatus('waiting_for_browser', false)
   startPolling()
-  return configServer
+  let stopped = false
+  const stop = async () => {
+    if (stopped) return
+    stopped = true
+    setRuntimeStatus('stopping', false)
+    stopController.abort()
+    await pollingPromise?.catch(() => {})
+    await configServer.close()
+  }
+  process.once('SIGTERM', () => { void stop() })
+  process.once('SIGINT', () => { void stop() })
+  process.once('SIGHUP', () => { void stop() })
+  return { ...configServer, stop }
 }
 
 const isMainModule = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href

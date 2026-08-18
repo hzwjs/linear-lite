@@ -8,6 +8,7 @@ type AgentEventPayload = {
   role?: string
   toolName?: string
   toolCallId?: string | null
+  isError?: boolean
 }
 
 const fieldLabels: Record<string, string> = {
@@ -116,6 +117,37 @@ export function formatAgentToolCall(event: AgentTaskEvent): string {
   )
   const metadata = formatReadableValue(remainingArgs)
   return `$ ${payload.args.command}${metadata ? `\n${metadata}` : ''}`
+}
+
+function toolActivityLabel(toolName: string, command: string): string {
+  if (toolName === 'read') return '正在读取文件…'
+  if (toolName === 'write' || toolName === 'edit' || toolName === 'apply_patch') return '正在修改文件…'
+  if (/\b(rg|grep|find|fd)\b/.test(command)) return '正在搜索文件…'
+  if (toolName === 'bash') return '正在执行命令…'
+  return `正在调用 ${toolName}…`
+}
+
+/** 将内部工具事件压缩为单条实时活动，避免把执行过程累积成页面日志。 */
+export function formatAgentEventActivity(event: AgentTaskEvent): string {
+  const payload = parsePayload(event)
+  if (!payload) return '正在处理…'
+
+  switch (event.eventType) {
+    case 'started':
+      return '正在启动 Pi…'
+    case 'progress':
+      return '正在整理结果…'
+    case 'tool_call': {
+      const toolName = payload.toolName ?? '工具'
+      const args = isRecord(payload.args) ? payload.args : {}
+      const command = typeof args.command === 'string' ? args.command : ''
+      return toolActivityLabel(toolName, command)
+    }
+    case 'tool_result':
+      return payload.isError === true ? '工具执行失败' : '工具执行完成'
+    default:
+      return ''
+  }
 }
 
 /** 按事件类型读取固定字段，避免把原始 payload JSON 直接暴露给用户。 */
