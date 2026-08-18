@@ -486,9 +486,24 @@ const priorityIcons: Record<Priority, typeof PriorityUrgentIcon> = {
   low: PriorityLowIcon
 }
 
+/**
+ * 展开分组的锚点：优先选中（上次处理）任务所在的分组，找不到（未选中/被筛选掉）才回退到排序后的首个分组。
+ * 单一规则：展开的分组跟随当前选中任务，而不是固定的排序首组。
+ */
+function preferredGroupKey(): string | null {
+  const selectedId = props.selectedTaskId
+  if (selectedId != null) {
+    for (const group of props.groups) {
+      if (group.tasks.some((t) => t.id === selectedId)) return group.key
+      if (group.rows?.some((row) => row.task.id === selectedId)) return group.key
+    }
+  }
+  return props.groups[0]?.key ?? null
+}
+
 function resetExpandedGroup() {
-  // 项目进入后只展开排序后的首个分组，避免首屏同时铺开所有分组。
-  expandedGroupKey.value = props.groups[0]?.key ?? null
+  // 项目进入后只展开一个分组（避免首屏同时铺开所有分组），但展开谁跟随上次处理的任务。
+  expandedGroupKey.value = preferredGroupKey()
 }
 
 function isGroupExpanded(groupKey: string): boolean {
@@ -510,10 +525,20 @@ watch(
   (groupKeys) => {
     // 首次任务加载通常发生在 projectId 之后；此时补上默认展开分组。
     if (expandedGroupKey.value == null || !groupKeys.includes(expandedGroupKey.value)) {
-      expandedGroupKey.value = groupKeys[0] ?? null
+      expandedGroupKey.value = preferredGroupKey()
     }
   },
   { immediate: true }
+)
+
+// 选中任务变化（打开任务/上下键导航跨组）时，展开其所在分组，保证「继续处理同组任务」时看到的是同组列表。
+watch(
+  () => props.selectedTaskId,
+  (taskId) => {
+    if (taskId == null) return
+    const key = preferredGroupKey()
+    if (key != null) expandedGroupKey.value = key
+  }
 )
 
 function assigneeName(task: Task): string {
