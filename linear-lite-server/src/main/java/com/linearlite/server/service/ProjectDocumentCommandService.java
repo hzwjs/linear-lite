@@ -88,7 +88,13 @@ public class ProjectDocumentCommandService {
         document.setTitle(title);
         // 导入场景允许原子创建首版正文，避免附件处理失败时遗留只有标题的文档。
         document.setContentJson(content);
-        document.setSortOrder(loadSiblings(projectId, parentId, false).size());
+        // 新建文档始终排在列表第一位：现有兄弟整体后移一位，新文档占据 0 号位。
+        // 项目行锁已串行化同项目创建，兄弟排序变更与插入在同一事务内生效。
+        for (ProjectDocument sibling : loadSiblings(projectId, parentId, false)) {
+            sibling.setSortOrder(sibling.getSortOrder() + 1);
+            documentMapper.updatePosition(sibling.getId(), sibling.getParentDocumentId(), sibling.getSortOrder());
+        }
+        document.setSortOrder(0);
         document.setVersion(1L);
         document.setCreatorId(userId);
         document.setLastEditorId(userId);

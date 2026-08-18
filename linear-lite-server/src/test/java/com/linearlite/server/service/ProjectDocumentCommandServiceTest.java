@@ -112,6 +112,39 @@ class ProjectDocumentCommandServiceTest {
     }
 
     @Test
+    void createPlacesNewDocumentFirstAndShiftsExistingSiblings() {
+        ProjectDocument first = document(21L, 3L, null, 1L, 0);
+        ProjectDocument second = document(22L, 3L, null, 1L, 1);
+        doAnswer(invocation -> {
+            ProjectDocument document = invocation.getArgument(0);
+            document.setId(23L);
+            return 1;
+        }).when(documentMapper).insert(any(ProjectDocument.class));
+        when(documentMapper.selectList(any())).thenReturn(List.of(first, second));
+        when(documentMapper.selectById(23L)).thenAnswer(invocation -> {
+            ProjectDocument saved = new ProjectDocument();
+            saved.setId(23L);
+            saved.setProjectId(3L);
+            saved.setTitle("新文档");
+            saved.setContentJson("[]");
+            saved.setSortOrder(0);
+            saved.setVersion(1L);
+            saved.setCreatorId(7L);
+            saved.setLastEditorId(7L);
+            return saved;
+        });
+
+        service.create(3L, new CreateProjectDocumentRequest(null, "新文档"), 7L);
+
+        ArgumentCaptor<ProjectDocument> documentCaptor = ArgumentCaptor.forClass(ProjectDocument.class);
+        verify(documentMapper).insert(documentCaptor.capture());
+        assertEquals(0, documentCaptor.getValue().getSortOrder());
+        // 现有兄弟整体后移一位，新文档占据列表第一位
+        verify(documentMapper).updatePosition(21L, null, 1);
+        verify(documentMapper).updatePosition(22L, null, 2);
+    }
+
+    @Test
     void createReusesDocumentOnlyByProjectAndExternalSourceId() {
         ProjectDocument existing = document(41L, 3L, null, 4L, 0);
         existing.setExternalSource("outline");
