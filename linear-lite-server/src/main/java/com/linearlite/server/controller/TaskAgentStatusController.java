@@ -52,7 +52,7 @@ public class TaskAgentStatusController {
             @RequestBody LocalPiTurnRequest turnRequest) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
         return ResponseEntity.ok(ApiResponse.success(orchestrationService.submitTurn(
-                userId, taskKey, turnRequest.getExecutionId(), turnRequest.getPrompt())));
+                userId, taskKey, turnRequest.getExecutionId(), turnRequest.getIdempotencyKey(), turnRequest.getPrompt())));
     }
 
     /** 人类用户只能取消自己有权限访问的任务，具体会话状态变更由编排服务统一处理。 */

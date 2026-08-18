@@ -75,13 +75,25 @@ public class AgentTaskOrchestrationService {
 
     /** 负责人提交一轮补充内容后才创建 queued Job；普通评论不会走此入口。 */
     @Transactional(rollbackFor = Exception.class)
-    public AgentTaskStatusResponse submitTurn(Long ownerUserId, String taskKey, String executionId, String prompt) {
+    public AgentTaskStatusResponse submitTurn(Long ownerUserId, String taskKey, String executionId,
+                                              String idempotencyKey, String prompt) {
         Task task = taskPermissionGuard.requireTaskAccessByKey(taskKey, ownerUserId);
         requireOwner(task, ownerUserId);
         if (prompt == null || prompt.isBlank()) {
             throw new IllegalArgumentException("本轮补充内容不能为空");
         }
-        AgentTaskSession session = requireActiveSession(task.getId(), executionId, ownerUserId);
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("幂等请求键不能为空");
+        }
+        String normalizedPrompt = prompt.trim();
+        AgentTaskSession session = lockActiveSession(task.getId(), executionId, ownerUserId);
+        AgentTaskJob existing = jobMapper.selectByIdempotencyKey(executionId, idempotencyKey.trim());
+        if (existing != null) {
+            if (!normalizedPrompt.equals(existing.getPrompt())) {
+                throw new ConflictOperationException("幂等请求键已用于另一条指令");
+            }
+            return taskStatus(session, existing);
+        }
         if (!"waiting_input".equals(session.getStatus())) {
             throw new ConflictOperationException("当前本地 Pi 正在执行，请等待本轮完成");
         }
@@ -92,7 +104,8 @@ public class AgentTaskOrchestrationService {
             throw new ConflictOperationException("当前执行上下文已有未完成轮次");
         }
         AgentTaskJob job = newJob(session, task, "turn");
-        job.setPrompt(prompt.trim());
+        job.setIdempotencyKey(idempotencyKey.trim());
+        job.setPrompt(normalizedPrompt);
         jobMapper.insert(job);
         return taskStatus(session, job);
     }
@@ -297,16 +310,11 @@ public class AgentTaskOrchestrationService {
         }
     }
 
-    private AgentTaskSession requireActiveSession(Long taskId, String executionId, Long ownerUserId) {
+    private AgentTaskSession lockActiveSession(Long taskId, String executionId, Long ownerUserId) {
         if (executionId == null || executionId.isBlank()) {
             throw new IllegalArgumentException("executionId 不能为空");
         }
-        AgentTaskSession session = sessionMapper.selectOne(new LambdaQueryWrapper<AgentTaskSession>()
-                .eq(AgentTaskSession::getTaskId, taskId)
-                .eq(AgentTaskSession::getExecutionId, executionId)
-                .eq(AgentTaskSession::getAgentUserId, ownerUserId)
-                .in(AgentTaskSession::getStatus, "waiting_input", "running")
-                .last("LIMIT 1"));
+        AgentTaskSession session = sessionMapper.selectActiveForUpdate(taskId, executionId, ownerUserId);
         if (session == null) {
             throw new ConflictOperationException("执行上下文不存在或已结束，请重新准备本地 Pi");
         }

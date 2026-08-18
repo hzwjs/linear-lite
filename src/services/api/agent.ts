@@ -91,9 +91,10 @@ export const agentApi = {
       .then(unwrap)
   },
 
-  submitTurn(taskKey: string, executionId: string, prompt: string): Promise<AgentTaskStatus> {
+  submitTurn(taskKey: string, executionId: string, idempotencyKey: string, prompt: string): Promise<AgentTaskStatus> {
     return api.post<ApiResponse<AgentTaskStatus>>(`/tasks/${encodeURIComponent(taskKey)}/local-pi/turns`, {
       executionId,
+      idempotencyKey,
       prompt
     }).then(unwrap)
   },

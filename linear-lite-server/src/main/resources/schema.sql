@@ -220,6 +220,7 @@ CREATE TABLE IF NOT EXISTS agent_task_jobs (
     task_key          VARCHAR(32) NOT NULL,
     source_type       VARCHAR(16) NOT NULL COMMENT 'assignment/comment/retry',
     source_comment_id BIGINT DEFAULT NULL,
+    idempotency_key   VARCHAR(64) DEFAULT NULL COMMENT '负责人提交请求的幂等键',
     status            VARCHAR(16) NOT NULL,
     attempt_count     INT NOT NULL DEFAULT 0,
     lease_until       DATETIME DEFAULT NULL,
@@ -230,9 +231,37 @@ CREATE TABLE IF NOT EXISTS agent_task_jobs (
     started_at        DATETIME DEFAULT NULL,
     finished_at       DATETIME DEFAULT NULL,
     UNIQUE KEY uk_agent_task_jobs_comment (source_comment_id),
+    UNIQUE KEY uk_agent_task_jobs_idempotency (execution_id, idempotency_key),
     KEY idx_agent_task_jobs_claim (status, next_run_at, lease_until, id),
     KEY idx_agent_task_jobs_task (task_id, status, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 已有库增量：负责人手工提交的 Pi Turn 使用执行上下文内幂等键，避免重复创建 Job。
+SET @agent_job_idempotency_key_exists = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agent_task_jobs' AND COLUMN_NAME = 'idempotency_key'
+);
+SET @agent_job_idempotency_key_ddl = IF(
+    @agent_job_idempotency_key_exists = 0,
+    'ALTER TABLE agent_task_jobs ADD COLUMN idempotency_key VARCHAR(64) DEFAULT NULL COMMENT ''负责人提交请求的幂等键'' AFTER source_comment_id',
+    'SELECT 1'
+);
+PREPARE agent_job_idempotency_key_stmt FROM @agent_job_idempotency_key_ddl;
+EXECUTE agent_job_idempotency_key_stmt;
+DEALLOCATE PREPARE agent_job_idempotency_key_stmt;
+
+SET @agent_job_idempotency_index_exists = (
+    SELECT COUNT(*) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agent_task_jobs' AND INDEX_NAME = 'uk_agent_task_jobs_idempotency'
+);
+SET @agent_job_idempotency_index_ddl = IF(
+    @agent_job_idempotency_index_exists = 0,
+    'ALTER TABLE agent_task_jobs ADD UNIQUE KEY uk_agent_task_jobs_idempotency (execution_id, idempotency_key)',
+    'SELECT 1'
+);
+PREPARE agent_job_idempotency_index_stmt FROM @agent_job_idempotency_index_ddl;
+EXECUTE agent_job_idempotency_index_stmt;
+DEALLOCATE PREPARE agent_job_idempotency_index_stmt;
 
 -- 项目内容统一语义索引队列：代次防止旧 Worker 覆盖新变更，租约防止多实例重复领取。
 CREATE TABLE IF NOT EXISTS project_content_semantic_index_jobs (

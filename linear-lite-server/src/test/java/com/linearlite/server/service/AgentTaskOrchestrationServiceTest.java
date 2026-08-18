@@ -97,17 +97,49 @@ class AgentTaskOrchestrationServiceTest {
         session.setExecutionId("exec-existing");
         session.setStatus("waiting_input");
         session.setAgentUserId(7L);
-        when(sessionMapper.selectOne(any())).thenReturn(session);
+        when(sessionMapper.selectActiveForUpdate(10L, "exec-existing", 7L)).thenReturn(session);
         when(jobMapper.selectCount(any())).thenReturn(0L);
 
         AgentTaskStatusResponse status = service.submitTurn(
-                7L, "LINEAR-LITE-101", "exec-existing", "继续修复验收反馈");
+                7L, "LINEAR-LITE-101", "exec-existing", "request-1", "继续修复验收反馈");
 
         assertEquals("exec-existing", status.executionId());
         assertEquals("queued", status.jobStatus());
         assertEquals("done", task.getStatus());
         verify(jobMapper).insert(any(AgentTaskJob.class));
         verifyNoInteractions(taskMapper);
+    }
+
+    @Test
+    void reusesExistingJobWhenTheSameTurnRequestIsRetried() {
+        Task task = new Task();
+        task.setId(10L);
+        task.setTaskKey("LINEAR-LITE-101");
+        task.setProjectId(6L);
+        task.setAssigneeId(7L);
+        when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-101", 7L)).thenReturn(task);
+
+        AgentTaskSession session = new AgentTaskSession();
+        session.setId(20L);
+        session.setExecutionId("exec-existing");
+        session.setStatus("waiting_input");
+        session.setAgentUserId(7L);
+        when(sessionMapper.selectActiveForUpdate(10L, "exec-existing", 7L)).thenReturn(session);
+
+        AgentTaskJob existing = new AgentTaskJob();
+        existing.setId(31L);
+        existing.setExecutionId("exec-existing");
+        existing.setIdempotencyKey("request-1");
+        existing.setPrompt("继续修复验收反馈");
+        existing.setStatus("queued");
+        when(jobMapper.selectByIdempotencyKey("exec-existing", "request-1")).thenReturn(existing);
+
+        AgentTaskStatusResponse status = service.submitTurn(
+                7L, "LINEAR-LITE-101", "exec-existing", "request-1", "继续修复验收反馈");
+
+        assertEquals(31L, status.jobId());
+        assertEquals("queued", status.jobStatus());
+        verify(jobMapper, never()).insert(any(AgentTaskJob.class));
     }
 
     @Test

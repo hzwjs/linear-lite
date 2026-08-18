@@ -21,6 +21,16 @@ public interface AgentTaskJobMapper extends BaseMapper<AgentTaskJob> {
     boolean existsTurn(@Param("sessionId") Long sessionId);
 
     @Select("""
+            SELECT * FROM agent_task_jobs
+            WHERE execution_id = #{executionId}
+              AND idempotency_key = #{idempotencyKey}
+            LIMIT 1
+            """)
+    AgentTaskJob selectByIdempotencyKey(
+            @Param("executionId") String executionId,
+            @Param("idempotencyKey") String idempotencyKey);
+
+    @Select("""
             SELECT j.*
             FROM agent_task_jobs j
             INNER JOIN agent_task_sessions s ON s.id = j.session_id

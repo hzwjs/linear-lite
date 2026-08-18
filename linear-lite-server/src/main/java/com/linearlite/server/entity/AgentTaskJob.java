@@ -16,6 +16,7 @@ public class AgentTaskJob {
     private String taskKey;
     private String sourceType;
     private Long sourceCommentId;
+    private String idempotencyKey;
     private String status;
     private Integer attemptCount;
     private LocalDateTime leaseUntil;
@@ -40,6 +41,8 @@ public class AgentTaskJob {
     public void setSourceType(String sourceType) { this.sourceType = sourceType; }
     public Long getSourceCommentId() { return sourceCommentId; }
     public void setSourceCommentId(Long sourceCommentId) { this.sourceCommentId = sourceCommentId; }
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public Integer getAttemptCount() { return attemptCount; }
