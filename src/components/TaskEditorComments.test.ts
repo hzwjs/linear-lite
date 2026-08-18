@@ -622,6 +622,12 @@ describe('TaskEditor comments adapter', () => {
       status: initialStatus,
       attachmentCode: 'attachment-code'
     })
+    vi.mocked(agentApi.openSessionStream).mockImplementation((
+      _taskKey, _executionId, _snapshot, _runtime, _readError, onOpen
+    ) => {
+      onOpen?.()
+      return { close: vi.fn() } as unknown as EventSource
+    })
 
     const view = await mountEditor(createTask({ assigneeId: 42 }), 42)
     try {
@@ -633,6 +639,63 @@ describe('TaskEditor comments adapter', () => {
 
       expect(document.body.querySelector<HTMLTextAreaElement>('.agent-turn-input')?.value)
         .toContain('任务编号：ENG-1')
+      expect(agentApi.requestSessionSnapshot).not.toHaveBeenCalled()
+    } finally {
+      view.unmount()
+    }
+  })
+
+  it('shows the submitted user turn immediately without waiting for a session snapshot', async () => {
+    const initialStatus = {
+      executionId: 'execution-1',
+      jobId: null,
+      sessionStatus: 'waiting_input',
+      jobStatus: null,
+      sourceType: null,
+      errorMessage: null,
+      updatedAt: '2026-08-18T10:23:14.000Z',
+      hasSubmittedTurn: false
+    }
+    vi.mocked(agentApi.getTaskStatus).mockResolvedValue(initialStatus)
+    vi.mocked(agentApi.prepareLocalPi).mockResolvedValue({
+      status: initialStatus,
+      attachmentCode: 'attachment-code'
+    })
+    vi.mocked(agentApi.submitTurn).mockResolvedValue({
+      ...initialStatus,
+      jobId: 9,
+      sessionStatus: 'running',
+      jobStatus: 'queued',
+      hasSubmittedTurn: true
+    })
+    vi.mocked(agentApi.openSessionStream).mockImplementation((
+      _taskKey, _executionId, _snapshot, _runtime, _readError, onOpen
+    ) => {
+      onOpen?.()
+      return { close: vi.fn() } as unknown as EventSource
+    })
+
+    const view = await mountEditor(createTask({ assigneeId: 42 }), 42)
+    try {
+      view.host.querySelector<HTMLButtonElement>('.agent-launch-button')?.click()
+      await nextTick()
+      await flushPromises()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      await nextTick()
+
+      const input = document.body.querySelector<HTMLTextAreaElement>('.agent-turn-input')
+      expect(input).not.toBeNull()
+      input!.value = '只做连通性探测'
+      input!.dispatchEvent(new Event('input', { bubbles: true }))
+      await nextTick()
+      document.body.querySelector<HTMLButtonElement>('.agent-submit-button')?.click()
+      await nextTick()
+
+      expect(document.body.querySelector('.pi-user-message')?.textContent).toContain('只做连通性探测')
+      expect(document.body.querySelector('.pi-user-message__author')).toBeNull()
+      expect(document.body.querySelector('.pi-assistant-message__author')).toBeNull()
+      await flushPromises()
+      expect(agentApi.submitTurn).toHaveBeenCalled()
     } finally {
       view.unmount()
     }

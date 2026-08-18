@@ -19,8 +19,14 @@ function updatePrompt(event: Event) {
 }
 
 function triggerPrimaryAction() {
+  if (props.submitting || props.canceling) return
   if (props.active) emit('stop')
-  else emit('submit')
+  else if (props.canSubmit && props.modelValue.trim()) emit('submit')
+}
+
+function submitTurn() {
+  if (props.submitting || props.canceling || !props.canSubmit || !props.modelValue.trim()) return
+  emit('submit')
 }
 </script>
 
@@ -34,33 +40,33 @@ function triggerPrimaryAction() {
       :placeholder="canSubmit ? '补充本轮指令…' : '当前执行完成后可提交下一轮…'"
       :disabled="submitting || canceling"
       @input="updatePrompt"
-      @keydown.meta.enter.prevent="emit('submit')"
-      @keydown.ctrl.enter.prevent="emit('submit')"
+      @keydown.meta.enter.prevent="submitTurn"
+      @keydown.ctrl.enter.prevent="submitTurn"
     />
-    <div class="pi-turn-footer">
-      <span class="pi-turn-hint">⌘↵ / Ctrl↵ 发送</span>
-      <button
-        type="button"
-        class="agent-submit-button"
-        :class="{ 'agent-submit-button--stop': active }"
-        :disabled="submitting || canceling || (!active && (!modelValue.trim() || !canSubmit))"
-        :aria-busy="submitting || canceling"
-        :aria-label="active ? '停止本地 Pi' : '发送给本地 Pi'"
-        :title="active ? '停止本地 Pi' : '发送给本地 Pi'"
-        @click="triggerPrimaryAction"
-      >
-        <Loader2 v-if="submitting || canceling" class="pi-turn-spinner" aria-hidden="true" />
-        <CircleX v-else-if="active" aria-hidden="true" />
-        <ArrowUp v-else aria-hidden="true" />
-      </button>
-    </div>
+    <span v-if="!active && !modelValue.trim()" class="pi-turn-hint" aria-hidden="true">⌘↵ / Ctrl↵ 发送</span>
+    <button
+      type="button"
+      class="agent-submit-button"
+      :class="{ 'agent-submit-button--stop': active }"
+      :disabled="submitting || canceling || (!active && (!modelValue.trim() || !canSubmit))"
+      :aria-busy="submitting || canceling"
+      :aria-label="active ? '停止本地 Pi' : '发送给本地 Pi'"
+      :title="active ? '停止本地 Pi' : '发送给本地 Pi'"
+      @click="triggerPrimaryAction"
+    >
+      <Loader2 v-if="submitting || canceling" class="pi-turn-spinner" aria-hidden="true" />
+      <CircleX v-else-if="active" aria-hidden="true" />
+      <ArrowUp v-else aria-hidden="true" />
+    </button>
   </div>
 </template>
 
 <style scoped>
 .pi-turn-composer {
+  position: relative;
   flex: 0 0 auto;
   margin-top: 12px;
+  min-height: 96px;
   padding: 12px 14px 10px;
   border: 1px solid var(--color-border);
   border-radius: 20px;
@@ -75,7 +81,7 @@ function triggerPrimaryAction() {
   height: 72px;
   min-height: 72px;
   resize: none;
-  padding: 2px 1px 8px;
+  padding: 2px 52px 30px 1px;
   border: 0;
   color: var(--color-text-primary);
   background: transparent;
@@ -86,14 +92,10 @@ function triggerPrimaryAction() {
 .agent-turn-input::placeholder { color: var(--color-text-tertiary); }
 .agent-turn-input:focus { outline: none; }
 .agent-turn-input:disabled { cursor: wait; opacity: 0.65; }
-.pi-turn-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 36px;
-}
 .pi-turn-hint {
+  position: absolute;
+  left: 15px;
+  bottom: 14px;
   color: var(--color-text-tertiary);
   font-size: var(--font-size-caption);
   white-space: nowrap;
@@ -102,6 +104,9 @@ function triggerPrimaryAction() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
   width: 40px;
   height: 40px;
   padding: 0;

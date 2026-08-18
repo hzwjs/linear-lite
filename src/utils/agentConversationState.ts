@@ -8,6 +8,7 @@ import type {
 export interface AgentConversationState {
   executionId: string | null
   sessionBlocks: SessionDisplayBlock[]
+  pendingUserBlocks: SessionDisplayBlock[]
   runtimeById: Map<string, RuntimeDisplayBlock>
   runtimeIds: string[]
 }
@@ -16,6 +17,7 @@ export function createAgentConversationState(): AgentConversationState {
   return {
     executionId: null,
     sessionBlocks: [],
+    pendingUserBlocks: [],
     runtimeById: new Map(),
     runtimeIds: []
   }
@@ -24,8 +26,39 @@ export function createAgentConversationState(): AgentConversationState {
 export function resetAgentConversationState(state: AgentConversationState, executionId: string | null): void {
   state.executionId = executionId
   state.sessionBlocks.splice(0)
+  state.pendingUserBlocks.splice(0)
   state.runtimeById.clear()
   state.runtimeIds.splice(0)
+}
+
+let pendingUserSeq = 0
+
+/** 提交成功前先写入本地用户块；快照追上后由 applySessionSnapshot 吸收，避免首轮气泡要等 Bridge 回读。 */
+export function appendPendingUserMessage(
+  state: AgentConversationState,
+  executionId: string,
+  text: string
+): string | null {
+  if (state.executionId !== executionId || !text) return null
+  pendingUserSeq += 1
+  const blockId = `local-user:${pendingUserSeq}`
+  state.pendingUserBlocks.push({
+    blockId,
+    entryId: blockId,
+    runtimeBlockId: null,
+    order: state.sessionBlocks.length + state.pendingUserBlocks.length + 1,
+    kind: 'user',
+    phase: 'final',
+    content: { text, thinking: '' },
+    tool: null,
+    createdAt: new Date().toISOString()
+  })
+  return blockId
+}
+
+export function removePendingUserMessage(state: AgentConversationState, blockId: string): void {
+  const index = state.pendingUserBlocks.findIndex((block) => block.blockId === blockId)
+  if (index >= 0) state.pendingUserBlocks.splice(index, 1)
 }
 
 /** Pi session 快照是权威基线；只吸收已由该快照表示的临时块。 */
@@ -37,6 +70,18 @@ export function applySessionSnapshot(state: AgentConversationState, snapshot: Se
       .filter((blockId): blockId is string => blockId !== null)
   )
   state.sessionBlocks.splice(0, state.sessionBlocks.length, ...snapshot.blocks)
+  const snapshotUserTexts = snapshot.blocks
+    .filter((block) => block.kind === 'user')
+    .map((block) => block.content?.text ?? '')
+  let cursor = 0
+  const remainingPending: SessionDisplayBlock[] = []
+  for (const pending of state.pendingUserBlocks) {
+    const text = pending.content?.text ?? ''
+    const matchedAt = snapshotUserTexts.indexOf(text, cursor)
+    if (matchedAt >= 0) cursor = matchedAt + 1
+    else remainingPending.push(pending)
+  }
+  state.pendingUserBlocks.splice(0, state.pendingUserBlocks.length, ...remainingPending)
   for (const blockId of absorbedRuntimeIds) state.runtimeById.delete(blockId)
   state.runtimeIds.splice(
     0,
@@ -64,6 +109,7 @@ export function upsertRuntimeDisplayBlock(
 export function conversationDisplayBlocks(state: AgentConversationState): ConversationDisplayBlock[] {
   return [
     ...state.sessionBlocks,
+    ...state.pendingUserBlocks,
     ...state.runtimeIds.map((blockId) => state.runtimeById.get(blockId)!)
   ]
 }

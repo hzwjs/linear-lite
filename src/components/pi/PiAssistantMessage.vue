@@ -12,21 +12,31 @@ const content = computed<AgentDisplayContent>(() => {
   return props.block.content
 })
 const markdownHtml = computed(() => renderMarkdown(content.value.text))
+// SSE 先推 thinking 再推正文；视口始终滚到底。正文出现后若思考仍展开，滚动会钉在思考上把回复顶出视野。
+const thinkingOpen = computed(() => props.block.phase === 'streaming' && !content.value.text)
 </script>
 
 <template>
   <article class="pi-assistant-message" :class="`pi-assistant-message--${block.phase}`">
-    <span class="pi-assistant-message__author">Pi</span>
-    <details v-if="content.thinking" class="pi-thinking" :open="block.phase === 'streaming'">
-      <summary>思考过程</summary>
-      <div>{{ content.thinking }}</div>
-    </details>
     <div
       v-if="content.text"
       class="pi-assistant-message__content markdown-body"
       v-html="markdownHtml"
     />
-    <span v-if="block.phase === 'streaming'" class="pi-assistant-message__cursor" aria-label="正在生成" />
+    <span
+      v-if="block.phase === 'streaming' && content.text"
+      class="pi-assistant-message__cursor"
+      aria-label="正在生成"
+    />
+    <details v-if="content.thinking" class="pi-thinking" :open="thinkingOpen">
+      <summary>思考过程</summary>
+      <div>{{ content.thinking }}</div>
+    </details>
+    <span
+      v-if="block.phase === 'streaming' && !content.text"
+      class="pi-assistant-message__cursor"
+      aria-label="正在生成"
+    />
   </article>
 </template>
 
@@ -36,14 +46,8 @@ const markdownHtml = computed(() => renderMarkdown(content.value.text))
   margin: 0 0 22px;
   color: var(--color-text-primary);
 }
-.pi-assistant-message__author {
-  display: block;
-  margin-bottom: 7px;
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
-}
 .pi-thinking {
-  margin: 0 0 10px;
+  margin: 10px 0 0;
   color: var(--color-text-secondary);
   font-size: var(--font-size-caption);
   font-style: italic;

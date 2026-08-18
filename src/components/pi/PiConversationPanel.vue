@@ -4,8 +4,10 @@ import { agentApi } from '../../services/api/agent'
 import { toApiError } from '../../services/api'
 import {
   applySessionSnapshot,
+  appendPendingUserMessage,
   conversationDisplayBlocks,
   createAgentConversationState,
+  removePendingUserMessage,
   resetAgentConversationState,
   upsertRuntimeDisplayBlock
 } from '../../utils/agentConversationState'
@@ -15,6 +17,7 @@ import PiTurnComposer from './PiTurnComposer.vue'
 const props = defineProps<{
   taskKey: string
   executionId: string | null
+  hasSubmittedTurn: boolean
   active: boolean
   canSubmit: boolean
   preparing: boolean
@@ -36,6 +39,7 @@ const sessionReadError = ref('')
 const snapshotLoading = ref(false)
 let source: EventSource | null = null
 let connectionSequence = 0
+let pendingSubmitBlockId: string | null = null
 
 function closeStream() {
   source?.close()
@@ -86,8 +90,8 @@ function connectStream() {
     () => {
       if (sequence !== connectionSequence) return
       streamError.value = ''
-      // EventSource 已建立后才调度 Bridge 读取，确保不会丢失一次性 SessionSnapshot。
-      void requestSnapshot(taskKey, executionId, sequence)
+      // 空会话没有历史可读；等 Bridge 回读只会让首屏卡在「正在读取 Pi session」。
+      if (props.hasSubmittedTurn) void requestSnapshot(taskKey, executionId, sequence)
     },
     () => {
       if (sequence === connectionSequence) streamError.value = '实时输出连接中断，正在重连…'
@@ -105,6 +109,24 @@ watch(
   },
   { immediate: true }
 )
+
+watch(
+  () => props.submitting,
+  (submitting, wasSubmitting) => {
+    if (wasSubmitting && !submitting && pendingSubmitBlockId) {
+      if (props.error) removePendingUserMessage(state, pendingSubmitBlockId)
+      pendingSubmitBlockId = null
+    }
+  }
+)
+
+function submitTurn() {
+  const text = props.prompt.trim()
+  if (text && props.executionId) {
+    pendingSubmitBlockId = appendPendingUserMessage(state, props.executionId, text)
+  }
+  emit('submit')
+}
 
 onBeforeUnmount(() => {
   connectionSequence += 1
@@ -128,7 +150,7 @@ onBeforeUnmount(() => {
       :submitting="submitting"
       :canceling="canceling"
       @update:model-value="emit('update:prompt', $event)"
-      @submit="emit('submit')"
+      @submit="submitTurn"
       @stop="emit('stop')"
     />
   </section>

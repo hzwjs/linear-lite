@@ -168,7 +168,9 @@ const agentCanceling = ref(false)
 const agentPreparing = ref(false)
 const agentPrompt = ref('')
 const agentSubmitting = ref(false)
+let agentSubmissionIdempotencyKey: string | null = null
 const agentPanelOpen = ref(false)
+const agentPanelMounted = ref(false)
 let agentPromptInitializedTaskKey: string | null = null
 let agentStatusLoadSequence = 0
 let agentBridgeReconnectTimer: ReturnType<typeof setInterval> | null = null
@@ -192,7 +194,7 @@ const canSubmitLocalPiTurn = computed(() =>
   agentStatus.value?.sessionStatus === 'waiting_input' && !isAgentExecutionActive.value
 )
 const shouldShowAgentPanel = computed(() =>
-  agentPanelOpen.value
+  agentPanelMounted.value
 )
 
 const activityDisplayItems = computed(() =>
@@ -688,9 +690,14 @@ function initializeAgentPrompt() {
 
 async function openAgentPanel() {
   if (!canPrepareLocalPi.value || agentPanelOpen.value) return
+  const alreadyMounted = agentPanelMounted.value
+  agentPanelMounted.value = true
   agentPanelOpen.value = true
-  await prepareLocalPi()
-  initializeAgentPrompt()
+  // 再次打开复用已挂载会话，避免每次都走 prepare + snapshot。
+  if (!alreadyMounted) {
+    await prepareLocalPi()
+    initializeAgentPrompt()
+  }
   startAgentBridgeReconnect()
   startAgentStatusRefresh()
 }
@@ -708,9 +715,12 @@ async function submitLocalPiTurn() {
   if (!taskKey || !executionId || !prompt || !canSubmitLocalPiTurn.value || agentSubmitting.value) return
   agentSubmitting.value = true
   agentEventsError.value = ''
+  agentSubmissionIdempotencyKey ??= crypto.randomUUID()
+  const requestKey = agentSubmissionIdempotencyKey
   try {
-    agentStatus.value = await agentApi.submitTurn(taskKey, executionId, prompt)
+    agentStatus.value = await agentApi.submitTurn(taskKey, executionId, requestKey, prompt)
     agentPrompt.value = ''
+    agentSubmissionIdempotencyKey = null
   } catch (error) {
     agentEventsError.value = toApiError(error).message || '本轮本地 Pi 执行提交失败'
   } finally {
@@ -953,6 +963,8 @@ watch(
       // 每个任务只能初始化一次；切换任务后清空旧任务指令，避免串用上下文。
       agentPromptInitializedTaskKey = null
       agentPrompt.value = ''
+      agentSubmissionIdempotencyKey = null
+      if (!agentPanelOpen.value) agentPanelMounted.value = false
     }
     attachmentPendingUploads.value = []
     attachmentUploadBatchActive.value = false
@@ -2333,12 +2345,14 @@ async function toggleDescriptionFullscreen() {
       <Teleport to="body">
       <aside
         v-if="shouldShowAgentPanel"
+        v-show="agentPanelOpen"
         class="editor-agent-drawer"
         aria-label="本地 Pi 执行面板"
       >
         <PiConversationPanel
           :task-key="task?.id ?? ''"
           :execution-id="agentPreparing ? null : (agentStatus?.executionId ?? null)"
+          :has-submitted-turn="Boolean(agentStatus?.hasSubmittedTurn)"
           :active="isAgentExecutionActive"
           :can-submit="canSubmitLocalPiTurn"
           :preparing="agentPreparing || agentStatusLoading"

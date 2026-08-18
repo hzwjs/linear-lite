@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { RuntimeDisplayBlock, SessionSnapshot } from '../services/api/agent'
 import {
   applySessionSnapshot,
+  appendPendingUserMessage,
   conversationDisplayBlocks,
   createAgentConversationState,
+  removePendingUserMessage,
   resetAgentConversationState,
   upsertRuntimeDisplayBlock
 } from './agentConversationState'
@@ -146,6 +148,56 @@ describe('Agent conversation baseline and runtime overlay', () => {
     resetAgentConversationState(state, 'exec-2')
 
     expect(applySessionSnapshot(state, snapshot('过期快照'))).toBe(false)
+    expect(conversationDisplayBlocks(state)).toHaveLength(0)
+  })
+
+  it('shows a submitted user message immediately and absorbs it when the snapshot catches up', () => {
+    const state = createAgentConversationState()
+    resetAgentConversationState(state, 'exec-1')
+
+    const pendingId = appendPendingUserMessage(state, 'exec-1', '只做连通性探测')
+    expect(pendingId).toBeTruthy()
+    expect(conversationDisplayBlocks(state).map((block) => block.kind)).toEqual(['user'])
+    expect(conversationDisplayBlocks(state)[0]?.content?.text).toBe('只做连通性探测')
+
+    applySessionSnapshot(state, snapshot('好', [{
+      blockId: 'user:1',
+      entryId: 'entry-user-1',
+      runtimeBlockId: null,
+      order: 1,
+      kind: 'user',
+      phase: 'final',
+      content: { text: '只做连通性探测', thinking: '' },
+      tool: null,
+      createdAt: '2026-08-18T00:00:00Z'
+    }, sessionBlock('assistant:runtime', 'assistant:runtime', '好')]))
+
+    expect(state.pendingUserBlocks).toHaveLength(0)
+    expect(conversationDisplayBlocks(state).map((block) => block.kind)).toEqual(['user', 'assistant'])
+  })
+
+  it('keeps a pending user message when a stale empty snapshot arrives after submit', () => {
+    const state = createAgentConversationState()
+    resetAgentConversationState(state, 'exec-1')
+    appendPendingUserMessage(state, 'exec-1', '首轮指令')
+
+    applySessionSnapshot(state, {
+      executionId: 'exec-1',
+      piSessionId: 'pi-session-1',
+      leafId: null,
+      blocks: []
+    })
+
+    expect(conversationDisplayBlocks(state)).toHaveLength(1)
+    expect(conversationDisplayBlocks(state)[0]?.content?.text).toBe('首轮指令')
+  })
+
+  it('rolls back a pending user message when submit fails', () => {
+    const state = createAgentConversationState()
+    resetAgentConversationState(state, 'exec-1')
+    const pendingId = appendPendingUserMessage(state, 'exec-1', '失败指令')
+    expect(pendingId).toBeTruthy()
+    removePendingUserMessage(state, pendingId!)
     expect(conversationDisplayBlocks(state)).toHaveLength(0)
   })
 })
