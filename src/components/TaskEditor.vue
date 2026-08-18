@@ -46,6 +46,7 @@ import { copyTextToClipboard } from '../utils/clipboard'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
 import { blockNoteDocHasPersistableContent, parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
+import { buildInitialAgentPrompt } from '../utils/agentPrompt'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import { getTaskDueState } from '../utils/taskDueState'
 import { captureTaskLoadContext, isTaskLoadStale } from '../utils/taskLoadContext'
@@ -168,6 +169,7 @@ const agentPreparing = ref(false)
 const agentPrompt = ref('')
 const agentSubmitting = ref(false)
 const agentPanelOpen = ref(false)
+let agentPromptInitializedTaskKey: string | null = null
 let agentStatusLoadSequence = 0
 let agentBridgeReconnectTimer: ReturnType<typeof setInterval> | null = null
 let agentBridgeReconnectInFlight = false
@@ -598,7 +600,6 @@ async function prepareLocalPi() {
     // 先完成本机 Bridge 绑定，再暴露 executionId，避免面板早于 Bridge 连接发起快照请求。
     await attachPiBridge(prepared.attachmentCode)
     agentStatus.value = prepared.status
-    agentPrompt.value = ''
   } catch (error) {
     agentEventsError.value = toApiError(error).message || '本地 Pi 上下文准备失败'
   } finally {
@@ -662,10 +663,29 @@ function stopAgentBridgeReconnect() {
   agentBridgeReconnectTimer = null
 }
 
+function initializeAgentPrompt() {
+  const taskKey = props.task?.id
+  if (!taskKey || agentPromptInitializedTaskKey === taskKey) return
+
+  // 刷新后重新打开面板时，执行状态已经由服务端恢复；执行中的任务不能再次生成首轮指令。
+  if (agentStatus.value?.sessionStatus !== 'waiting_input' || isAgentExecutionActive.value) {
+    agentPrompt.value = ''
+    return
+  }
+
+  agentPrompt.value = buildInitialAgentPrompt({
+    taskKey,
+    title: formTitle.value,
+    description: formDescription.value
+  })
+  agentPromptInitializedTaskKey = taskKey
+}
+
 async function openAgentPanel() {
   if (!canPrepareLocalPi.value || agentPanelOpen.value) return
   agentPanelOpen.value = true
   await prepareLocalPi()
+  initializeAgentPrompt()
   startAgentBridgeReconnect()
   startAgentStatusRefresh()
 }
@@ -921,7 +941,14 @@ async function deleteAttachment(att: TaskAttachment) {
 
 watch(
   [() => props.task?.id, () => props.mode],
-  () => {
+  (nextKeys, previousKeys) => {
+    const taskKey = nextKeys[0]
+    const previousTaskKey = previousKeys?.[0]
+    if (taskKey !== previousTaskKey) {
+      // 每个任务只能初始化一次；切换任务后清空旧任务指令，避免串用上下文。
+      agentPromptInitializedTaskKey = null
+      agentPrompt.value = ''
+    }
     attachmentPendingUploads.value = []
     attachmentUploadBatchActive.value = false
     loadSubIssues({ preferSnapshot: true })
