@@ -55,13 +55,31 @@ class AgentTaskOrchestrationServiceTest {
         session.setAgentUserId(7L);
         when(sessionMapper.selectOne(any())).thenReturn(session);
         when(jobMapper.selectOne(any())).thenReturn(null);
+        when(jobMapper.existsTurn(20L)).thenReturn(true);
 
         AgentTaskStatusResponse status = service.prepare(7L, "LINEAR-LITE-101");
 
         assertEquals("exec-existing", status.executionId());
         assertEquals("waiting_input", status.sessionStatus());
+        assertEquals(true, status.hasSubmittedTurn());
         assertEquals("done", task.getStatus());
         verify(sessionMapper, never()).insert(any());
+    }
+
+    @Test
+    void marksANewExecutionAsHavingNoSubmittedTurn() {
+        Task task = new Task();
+        task.setId(10L);
+        task.setTaskKey("LINEAR-LITE-101");
+        task.setProjectId(6L);
+        task.setAssigneeId(7L);
+        when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-101", 7L)).thenReturn(task);
+        when(sessionMapper.selectOne(any())).thenReturn(null);
+
+        AgentTaskStatusResponse status = service.prepare(7L, "LINEAR-LITE-101");
+
+        assertEquals(false, status.hasSubmittedTurn());
+        verify(sessionMapper).insert(any(AgentTaskSession.class));
     }
 
     @Test

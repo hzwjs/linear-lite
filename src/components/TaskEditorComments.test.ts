@@ -274,7 +274,8 @@ describe('TaskEditor comments adapter', () => {
       jobStatus: null,
       sourceType: null,
       errorMessage: null,
-      updatedAt: null
+      updatedAt: null,
+      hasSubmittedTurn: false
     })
     vi.mocked(agentApi.requestSessionSnapshot).mockResolvedValue('snapshot-request-1')
   })
@@ -353,7 +354,8 @@ describe('TaskEditor comments adapter', () => {
         jobStatus: 'succeeded',
         sourceType: 'assignment',
         errorMessage: null,
-        updatedAt: '2026-08-12T00:00:00.000Z'
+        updatedAt: '2026-08-12T00:00:00.000Z',
+        hasSubmittedTurn: false
       })
       .mockResolvedValue({
         executionId: 'execution-1',
@@ -362,7 +364,8 @@ describe('TaskEditor comments adapter', () => {
         jobStatus: 'queued',
         sourceType: 'comment',
         errorMessage: null,
-        updatedAt: '2026-08-12T00:01:00.000Z'
+        updatedAt: '2026-08-12T00:01:00.000Z',
+        hasSubmittedTurn: false
       })
     const view = await mountEditor(createTask({ assigneeId: 42 }))
     try {
@@ -424,7 +427,8 @@ describe('TaskEditor comments adapter', () => {
       jobStatus: 'running',
       sourceType: 'assignment',
       errorMessage: null,
-      updatedAt: '2026-08-12T00:00:00.000Z'
+      updatedAt: '2026-08-12T00:00:00.000Z',
+      hasSubmittedTurn: false
     })
     vi.mocked(agentApi.prepareLocalPi).mockResolvedValue({
       status: {
@@ -434,7 +438,8 @@ describe('TaskEditor comments adapter', () => {
         jobStatus: 'running',
         sourceType: 'turn',
         errorMessage: null,
-        updatedAt: '2026-08-12T00:00:00.000Z'
+        updatedAt: '2026-08-12T00:00:00.000Z',
+        hasSubmittedTurn: true
       },
       attachmentCode: 'attachment-code'
     })
@@ -570,6 +575,69 @@ describe('TaskEditor comments adapter', () => {
     }
   })
 
+  it('does not rebuild the initial prompt after the task already submitted a Pi turn', async () => {
+    const processedStatus = {
+      executionId: 'execution-1',
+      jobId: null,
+      sessionStatus: 'waiting_input',
+      jobStatus: null,
+      sourceType: null,
+      errorMessage: null,
+      updatedAt: '2026-08-18T10:23:14.000Z',
+      hasSubmittedTurn: true
+    }
+    vi.mocked(agentApi.getTaskStatus).mockResolvedValue(processedStatus)
+    vi.mocked(agentApi.prepareLocalPi).mockResolvedValue({
+      status: processedStatus,
+      attachmentCode: 'attachment-code'
+    })
+
+    const view = await mountEditor(createTask({ assigneeId: 42 }), 42)
+    try {
+      view.host.querySelector<HTMLButtonElement>('.agent-launch-button')?.click()
+      await nextTick()
+      await flushPromises()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      await nextTick()
+
+      expect(document.body.querySelector<HTMLTextAreaElement>('.agent-turn-input')?.value).toBe('')
+    } finally {
+      view.unmount()
+    }
+  })
+
+  it('builds the initial prompt when the task has never submitted a Pi turn', async () => {
+    const initialStatus = {
+      executionId: 'execution-1',
+      jobId: null,
+      sessionStatus: 'waiting_input',
+      jobStatus: null,
+      sourceType: null,
+      errorMessage: null,
+      updatedAt: '2026-08-18T10:23:14.000Z',
+      hasSubmittedTurn: false
+    }
+    vi.mocked(agentApi.getTaskStatus).mockResolvedValue(initialStatus)
+    vi.mocked(agentApi.prepareLocalPi).mockResolvedValue({
+      status: initialStatus,
+      attachmentCode: 'attachment-code'
+    })
+
+    const view = await mountEditor(createTask({ assigneeId: 42 }), 42)
+    try {
+      view.host.querySelector<HTMLButtonElement>('.agent-launch-button')?.click()
+      await nextTick()
+      await flushPromises()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      await nextTick()
+
+      expect(document.body.querySelector<HTMLTextAreaElement>('.agent-turn-input')?.value)
+        .toContain('任务编号：ENG-1')
+    } finally {
+      view.unmount()
+    }
+  })
+
   it('shows the backend business message when preparing local Pi is rejected', async () => {
     vi.mocked(agentApi.prepareLocalPi).mockRejectedValue({
       isAxiosError: true,
@@ -599,7 +667,8 @@ describe('TaskEditor comments adapter', () => {
       jobStatus: 'succeeded',
       sourceType: 'assignment',
       errorMessage: null,
-      updatedAt: '2026-08-12T00:00:00.000Z'
+      updatedAt: '2026-08-12T00:00:00.000Z',
+      hasSubmittedTurn: false
     })
 
     const view = await mountEditor(createTask())
@@ -626,7 +695,8 @@ describe('TaskEditor comments adapter', () => {
         jobStatus: null,
         sourceType: null,
         errorMessage: null,
-        updatedAt: null
+        updatedAt: null,
+        hasSubmittedTurn: false
       })
       .mockResolvedValue({
         executionId: 'execution-after-assignee-change',
@@ -635,7 +705,8 @@ describe('TaskEditor comments adapter', () => {
         jobStatus: 'queued',
         sourceType: 'assignment',
         errorMessage: null,
-        updatedAt: '2026-08-12T00:00:00.000Z'
+        updatedAt: '2026-08-12T00:00:00.000Z',
+        hasSubmittedTurn: false
       })
 
     const view = await mountEditor(createTask())

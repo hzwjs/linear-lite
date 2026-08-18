@@ -10,6 +10,7 @@ export interface AgentTaskStatus {
   sourceType: string | null
   errorMessage: string | null
   updatedAt: string | null
+  hasSubmittedTurn: boolean
 }
 
 export interface LocalPiPrepareResponse {

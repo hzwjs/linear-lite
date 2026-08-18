@@ -9,5 +9,6 @@ public record AgentTaskStatusResponse(
         String jobStatus,
         String sourceType,
         String errorMessage,
-        LocalDateTime updatedAt) {
+        LocalDateTime updatedAt,
+        boolean hasSubmittedTurn) {
 }

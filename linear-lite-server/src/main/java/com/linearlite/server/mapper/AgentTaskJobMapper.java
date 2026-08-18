@@ -10,6 +10,16 @@ import java.time.LocalDateTime;
 
 @Mapper
 public interface AgentTaskJobMapper extends BaseMapper<AgentTaskJob> {
+    /** Turn 是否已经提交必须以持久化 Job 为准，不能由当前活动 Job 或前端会话状态推断。 */
+    @Select("""
+            SELECT EXISTS(
+                SELECT 1 FROM agent_task_jobs
+                WHERE session_id = #{sessionId}
+                  AND source_type = 'turn'
+            )
+            """)
+    boolean existsTurn(@Param("sessionId") Long sessionId);
+
     @Select("""
             SELECT j.*
             FROM agent_task_jobs j

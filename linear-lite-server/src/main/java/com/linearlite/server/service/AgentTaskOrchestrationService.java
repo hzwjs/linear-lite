@@ -255,11 +255,11 @@ public class AgentTaskOrchestrationService {
                     .orderByDesc(AgentTaskSession::getCreatedAt)
                     .last("LIMIT 1"));
         }
-        if (session == null) return new AgentTaskStatusResponse(null, null, null, null, null, null, null);
+        if (session == null) return new AgentTaskStatusResponse(null, null, null, null, null, null, null, false);
         AgentTaskJob job = currentTurnJob(session.getId());
         return new AgentTaskStatusResponse(session.getExecutionId(), job == null ? null : job.getId(), session.getStatus(),
                 job == null ? null : job.getStatus(), job == null ? null : job.getSourceType(),
-                job == null ? null : job.getErrorMessage(), session.getUpdatedAt());
+                job == null ? null : job.getErrorMessage(), session.getUpdatedAt(), jobMapper.existsTurn(session.getId()));
     }
 
     /** Bridge 专用状态查询允许读取 canceled 终态，但仍必须校验 Agent、Job、会话和任务归属。 */
@@ -267,7 +267,7 @@ public class AgentTaskOrchestrationService {
         AgentTaskJob job = requireAgentJob(agentUserId, jobId, executionId);
         AgentTaskSession session = sessionMapper.selectById(job.getSessionId());
         return new AgentTaskStatusResponse(session.getExecutionId(), job.getId(), session.getStatus(), job.getStatus(),
-                job.getSourceType(), job.getErrorMessage(), session.getUpdatedAt());
+                job.getSourceType(), job.getErrorMessage(), session.getUpdatedAt(), jobMapper.existsTurn(session.getId()));
     }
 
     private AgentTaskJob newJob(AgentTaskSession session, Task task, String sourceType) {
@@ -326,7 +326,7 @@ public class AgentTaskOrchestrationService {
         return new AgentTaskStatusResponse(session.getExecutionId(), job == null ? null : job.getId(),
                 session.getStatus(), job == null ? null : job.getStatus(),
                 job == null ? null : job.getSourceType(), job == null ? null : job.getErrorMessage(),
-                session.getUpdatedAt());
+                session.getUpdatedAt(), jobMapper.existsTurn(session.getId()));
     }
 
     private void cancelSession(AgentTaskSession session) {

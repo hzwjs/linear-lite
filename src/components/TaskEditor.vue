@@ -666,9 +666,15 @@ function stopAgentBridgeReconnect() {
 function initializeAgentPrompt() {
   const taskKey = props.task?.id
   if (!taskKey || agentPromptInitializedTaskKey === taskKey) return
+  const status = agentStatus.value
 
-  // 刷新后重新打开面板时，执行状态已经由服务端恢复；执行中的任务不能再次生成首轮指令。
-  if (agentStatus.value?.sessionStatus !== 'waiting_input' || isAgentExecutionActive.value) {
+  // 首轮指令资格只读取服务端持久化 Turn 历史；终态 Job 不再被“当前无活动 Job”误判为首次处理。
+  if (status?.sessionStatus !== 'waiting_input') {
+    agentPrompt.value = ''
+    return
+  }
+  agentPromptInitializedTaskKey = taskKey
+  if (status.hasSubmittedTurn) {
     agentPrompt.value = ''
     return
   }
@@ -678,7 +684,6 @@ function initializeAgentPrompt() {
     title: formTitle.value,
     description: formDescription.value
   })
-  agentPromptInitializedTaskKey = taskKey
 }
 
 async function openAgentPanel() {
