@@ -102,7 +102,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return authHeader.substring(BEARER_PREFIX.length()).trim();
         }
         String path = request.getRequestURI();
-        if (path != null && (path.endsWith("/notifications/stream") || path.endsWith("/local-pi/events/stream"))
+        if (path != null && (path.endsWith("/notifications/stream") || path.matches(".*/local-pi/sessions/[^/]+/stream$"))
                 && "GET".equalsIgnoreCase(request.getMethod())) {
             String q = request.getParameter("access_token");
             if (q != null && !q.isBlank()) {

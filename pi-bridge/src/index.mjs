@@ -3,7 +3,11 @@ import { spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { homedir } from 'node:os'
 import { resolve, join } from 'node:path'
-import { extractFinalAssistantText, toProgressEvent } from './event-stream.mjs'
+import {
+  RuntimeDisplayBlockAssembler,
+  createSessionSnapshot,
+  finalAssistantText,
+} from './event-stream.mjs'
 import { createConfigServer } from './config-server.mjs'
 import { ProjectConfigStore } from './workspace-config.mjs'
 import { BridgeSettingsStore } from './bridge-settings.mjs'
@@ -11,7 +15,9 @@ import { BridgeSettingsStore } from './bridge-settings.mjs'
 const config = {
   piBinary: process.env.PI_BINARY ?? 'pi',
   dataRoot: resolve(process.env.PI_BRIDGE_DATA_ROOT ?? join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge', 'data')),
-  sessionRoot: resolve(process.env.PI_BRIDGE_SESSION_ROOT ?? join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge', 'sessions')),
+  // Pi 的 Resume Session 只扫描自己的 agent sessions 根目录；Bridge 必须写入同一棵目录树。
+  agentDir: resolve(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent')),
+  sessionRoot: resolve(join(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent'), 'sessions')),
   projectConfigFile: resolve(process.env.PI_BRIDGE_CONFIG_FILE ?? join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge', 'data', 'projects.json')),
   settingsFile: resolve(process.env.PI_BRIDGE_SETTINGS_FILE ?? join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge', 'data', 'settings.json')),
   configHost: process.env.PI_BRIDGE_CONFIG_HOST ?? '127.0.0.1',
@@ -211,15 +217,20 @@ export function buildPiArgs(job, sessionDir) {
   return [
     '--mode', 'rpc',
     '--session-dir', sessionDir,
-    '--session-id', safeSegment(job.executionId, 'executionId'),
+    '--session-id', safeSegment(job.piSessionId, 'piSessionId'),
   ]
 }
 
+export function getPiSessionDirectory(cwd, agentDir = config.agentDir) {
+  const resolvedCwd = resolve(cwd)
+  const projectDirectory = `--${resolvedCwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`
+  return join(resolve(agentDir), 'sessions', projectDirectory)
+}
+
 async function startPi(job, cwd) {
-  const sessionDir = join(config.sessionRoot, safeSegment(job.executionId, 'executionId'))
+  const sessionDir = getPiSessionDirectory(cwd)
   await mkdir(sessionDir, { recursive: true })
-  // 会话文件是 Bridge 的本地状态；Linear Lite 只传递不透明的 executionId。
-  // 同一 executionId 的评论续接复用同一个 session-dir，不同任务使用不同 executionId。
+  // 会话文件与交互式 Pi 共用项目目录；同一 executionId 通过 --session-id 续接。
   // 不禁用用户的 skills、extensions 与上下文文件，确保 Bridge 与用户终端启动的是同一种 Pi。
   const args = buildPiArgs(job, sessionDir)
   return spawn(config.piBinary, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] })
@@ -277,6 +288,79 @@ function readRpc(child) {
   }
 }
 
+let rpcRequestSequence = 0
+
+export async function readSessionSnapshot(rpc, executionId, piSessionId) {
+  const requestId = `entries-${++rpcRequestSequence}`
+  sendRpc(rpc.child, { id: requestId, type: 'get_entries' })
+  const response = await rpc.reader.waitFor(
+    (message) => message.id === requestId && message.type === 'response',
+  )
+  if (!response.success || !response.data) {
+    throw new Error(response.error ?? 'Pi get_entries 读取失败')
+  }
+  return createSessionSnapshot({
+    executionId,
+    piSessionId,
+    entries: response.data.entries,
+    leafId: response.data.leafId,
+  })
+}
+
+function rpcRuntime(child) {
+  return { child, reader: readRpc(child) }
+}
+
+async function verifyPiSession(rpc, piSessionId) {
+  const requestId = `state-${++rpcRequestSequence}`
+  sendRpc(rpc.child, { id: requestId, type: 'get_state' })
+  const response = await rpc.reader.waitFor(
+    (message) => message.id === requestId && message.type === 'response',
+  )
+  if (!response.success || response.data?.sessionId !== piSessionId) {
+    throw new Error(`Pi session 读取错位: ${piSessionId}`)
+  }
+  return response.data
+}
+
+async function completeSnapshotRequest(request, snapshot, signal) {
+  await api(`/api/bridge/session-snapshot-requests/${encodeURIComponent(request.requestId)}/complete`, {
+    method: 'POST',
+    body: JSON.stringify(snapshot),
+    signal,
+  })
+}
+
+async function failSnapshotRequest(request, error, signal) {
+  await api(`/api/bridge/session-snapshot-requests/${encodeURIComponent(request.requestId)}/fail`, {
+    method: 'POST',
+    body: JSON.stringify({ executionId: request.executionId, errorMessage: error.message }),
+    signal,
+  }).catch(() => {})
+}
+
+/** 空闲时启动同 session 的只读 RPC；执行中则由调用方传入当前 runtime 复用。 */
+export async function processSnapshotRequest(request, { currentRpc = null, signal } = {}) {
+  let ownedChild = null
+  try {
+    let rpc = currentRpc
+    if (!rpc) {
+      const cwd = await resolveTaskDirectory(request)
+      ownedChild = await startPi(request, cwd)
+      rpc = rpcRuntime(ownedChild)
+      await verifyPiSession(rpc, request.piSessionId)
+    }
+    const snapshot = await readSessionSnapshot(rpc, request.executionId, request.piSessionId)
+    await completeSnapshotRequest(request, snapshot, signal)
+    return snapshot
+  } catch (error) {
+    await failSnapshotRequest(request, error, signal)
+    throw error
+  } finally {
+    if (ownedChild && ownedChild.exitCode == null && ownedChild.signalCode == null) ownedChild.kill('SIGTERM')
+  }
+}
+
 async function reportJobFailure(job, error, signal) {
   console.error(`[pi-bridge] ${error.message}`)
     await api(`/api/bridge/jobs/${job.jobId}/failed`, {
@@ -296,7 +380,8 @@ export async function execute(job, { signal } = {}) {
     return
   }
   const child = await startPi(job, cwd)
-  const rpc = readRpc(child)
+  const piRuntime = rpcRuntime(child)
+  const rpc = piRuntime.reader
   let canceledByServer = false
   let heartbeatInFlight = false
   const renewLease = async () => {
@@ -320,48 +405,47 @@ export async function execute(job, { signal } = {}) {
   // 领取成功后立即续租，给初始化 Pi 和断网恢复留出完整租约窗口。
   void renewLease()
   let stderr = ''
-  let progressTimer = null
-  let progressSequence = 1
-  let pendingProgress = []
-  const progressQueue = createRecoveringSerialQueue()
+  let runtimeBlockTimer = null
+  let pendingRuntimeBlocks = []
+  const runtimeBlockQueue = createRecoveringSerialQueue()
+  const runtimeAssembler = new RuntimeDisplayBlockAssembler()
 
-  const flushProgress = () => {
-    if (progressTimer != null) {
-      clearTimeout(progressTimer)
-      progressTimer = null
+  const flushRuntimeBlocks = () => {
+    if (runtimeBlockTimer != null) {
+      clearTimeout(runtimeBlockTimer)
+      runtimeBlockTimer = null
     }
-    const batch = pendingProgress
-    pendingProgress = []
+    const batch = pendingRuntimeBlocks
+    pendingRuntimeBlocks = []
     if (!batch.length) return Promise.resolve()
-    // 进度批次串行发送，保证服务端收到的 sequence_no 与 Pi 事件顺序一致。
-    return progressQueue.enqueue(() => api(`/api/bridge/jobs/${job.jobId}/events`, {
+    // 临时块批次串行发送，保证同一 blockId 的 revision 按 Pi 产生顺序到达。
+    return runtimeBlockQueue.enqueue(() => api(`/api/bridge/jobs/${job.jobId}/runtime-display-blocks`, {
       method: 'POST',
-      body: JSON.stringify({ executionId: job.executionId, events: batch }),
+      body: JSON.stringify({ executionId: job.executionId, blocks: batch }),
       signal,
     }))
   }
 
-  const queueProgress = (event) => {
+  const queueRuntimeBlock = (block) => {
     if (canceledByServer) return
-    pendingProgress.push({ sequenceNo: progressSequence++, ...event })
-    if (pendingProgress.length >= 20) {
-      void flushProgress().catch((error) => {
-        if (!canceledByServer) console.error(`[pi-bridge] event upload failed: ${error.message}`)
+    pendingRuntimeBlocks.push(block)
+    if (pendingRuntimeBlocks.length >= 20) {
+      void flushRuntimeBlocks().catch((error) => {
+        if (!canceledByServer) console.error(`[pi-bridge] runtime block upload failed: ${error.message}`)
       })
       return
     }
-    if (progressTimer == null) {
-      progressTimer = setTimeout(() => {
-        void flushProgress().catch((error) => {
-          if (!canceledByServer) console.error(`[pi-bridge] event upload failed: ${error.message}`)
+    if (runtimeBlockTimer == null) {
+      runtimeBlockTimer = setTimeout(() => {
+        void flushRuntimeBlocks().catch((error) => {
+          if (!canceledByServer) console.error(`[pi-bridge] runtime block upload failed: ${error.message}`)
         })
       }, 500)
     }
   }
 
   const unsubscribe = rpc.subscribe((message) => {
-    const event = toProgressEvent(message)
-    if (event) queueProgress(event)
+    for (const block of runtimeAssembler.accept(message)) queueRuntimeBlock(block)
   })
   let cancelReject
   let cancelCheckInFlight = false
@@ -398,17 +482,31 @@ export async function execute(job, { signal } = {}) {
   const cancellationTimer = setInterval(() => { void checkCancellation() }, config.cancelPollMs)
   void checkCancellation()
   child.stderr.on('data', (chunk) => { stderr += chunk.toString() })
+  let snapshotPollTimer = null
+  let snapshotPollPromise = null
+  const pollSnapshotRequest = () => {
+    if (snapshotPollPromise || canceledByServer) return
+    snapshotPollPromise = (async () => {
+      const request = await api('/api/bridge/session-snapshot-requests/claim', {
+        method: 'POST', body: '{}', signal,
+      })
+      if (!request) return
+      await processSnapshotRequest(request, { currentRpc: piRuntime, signal })
+    })().catch((error) => {
+      if (!signal?.aborted && !canceledByServer) {
+        console.error(`[pi-bridge] session snapshot request failed: ${error.message}`)
+      }
+    }).finally(() => { snapshotPollPromise = null })
+  }
   try {
-    sendRpc(child, { id: 'state', type: 'get_state' })
-    const state = await rpc.waitFor((message) => message.id === 'state' && message.type === 'response')
-    if (!state.success || !state.data?.sessionId) {
-      throw new Error('Pi get_state did not return a sessionId')
-    }
+    const state = await verifyPiSession(piRuntime, job.piSessionId)
     await api(`/api/bridge/sessions/${encodeURIComponent(job.executionId)}/state`, {
       method: 'POST',
-      body: JSON.stringify({ sessionId: state.data.sessionId }),
+      body: JSON.stringify({ sessionId: state.sessionId }),
       signal,
     })
+    snapshotPollTimer = setInterval(pollSnapshotRequest, config.pollMs)
+    pollSnapshotRequest()
     sendRpc(child, { id: 'prompt', type: 'prompt', message: job.prompt })
     const done = rpc.waitFor((message) => {
       return message.type === 'agent_end' && message.willRetry !== true
@@ -420,9 +518,19 @@ export async function execute(job, { signal } = {}) {
         signal?.addEventListener('abort', shutdownListener, { once: true })
       }
     })
-    const finalEvent = await Promise.race([done, cancellation, shutdown])
-    await flushProgress()
-    const finalText = extractFinalAssistantText(finalEvent)
+    await Promise.race([done, cancellation, shutdown])
+    if (snapshotPollTimer != null) clearInterval(snapshotPollTimer)
+    snapshotPollTimer = null
+    await snapshotPollPromise
+    await flushRuntimeBlocks()
+    // agent_end 后的 get_entries 是本轮唯一权威终值，发送后前端整体替换基线并清除临时层。
+    const snapshot = await readSessionSnapshot(piRuntime, job.executionId, job.piSessionId)
+    await api(`/api/bridge/sessions/${encodeURIComponent(job.executionId)}/snapshot`, {
+      method: 'POST',
+      body: JSON.stringify(snapshot),
+      signal,
+    })
+    const finalText = finalAssistantText(snapshot)
     if (!finalText) throw new Error('Pi 未返回最终 assistant 结果')
     await api(`/api/bridge/jobs/${job.jobId}/succeeded`, {
       method: 'POST',
@@ -431,6 +539,11 @@ export async function execute(job, { signal } = {}) {
     })
   } catch (error) {
     if (stderr.trim()) console.error(`[pi-bridge] Pi stderr: ${stderr.trim()}`)
+    // 失败时只封口 runtime 临时块，不将错误伪造为 session 历史。
+    pendingRuntimeBlocks.push(...runtimeAssembler.sealOpenBlocksAsError())
+    await flushRuntimeBlocks().catch((uploadError) => {
+      if (!signal?.aborted) console.error(`[pi-bridge] terminal block upload failed: ${uploadError.message}`)
+    })
     if (!canceledByServer && !signal?.aborted) {
       await api(`/api/bridge/jobs/${job.jobId}/failed`, {
         method: 'POST',
@@ -440,7 +553,8 @@ export async function execute(job, { signal } = {}) {
     }
   } finally {
     unsubscribe()
-    if (progressTimer != null) clearTimeout(progressTimer)
+    if (runtimeBlockTimer != null) clearTimeout(runtimeBlockTimer)
+    if (snapshotPollTimer != null) clearInterval(snapshotPollTimer)
     clearInterval(cancellationTimer)
     clearInterval(heartbeat)
     signal?.removeEventListener('abort', stopForBridgeShutdown)
@@ -459,6 +573,13 @@ export async function main({ signal } = {}) {
     try {
       if (runtime.status === 'starting' || runtime.status === 'config_required' || runtime.status === 'waiting_for_browser') {
         setRuntimeStatus('connecting', runtime.backendReachable)
+      }
+      const snapshotRequest = await api('/api/bridge/session-snapshot-requests/claim', {
+        method: 'POST', body: '{}', signal,
+      })
+      if (snapshotRequest) {
+        await processSnapshotRequest(snapshotRequest, { signal })
+        continue
       }
       const job = await api('/api/bridge/jobs/claim', { method: 'POST', body: '{}', signal })
       if (job) await execute(job, { signal })

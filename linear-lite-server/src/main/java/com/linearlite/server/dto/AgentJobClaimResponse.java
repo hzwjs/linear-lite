@@ -6,6 +6,7 @@ public record AgentJobClaimResponse(
         Long jobId,
         String executionId,
         Long sessionId,
+        String piSessionId,
         Long projectId,
         String projectName,
         String taskKey,

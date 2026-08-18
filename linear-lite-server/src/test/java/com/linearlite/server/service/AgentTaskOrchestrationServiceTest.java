@@ -174,14 +174,15 @@ class AgentTaskOrchestrationServiceTest {
         project.setId(30L);
         project.setName("Linear Lite");
 
-        when(jobMapper.selectClaimableForOwner(eq(7L), any(LocalDateTime.class))).thenReturn(job);
+        when(jobMapper.selectClaimableForExecution(eq(7L), eq("exec-1"), any(LocalDateTime.class))).thenReturn(job);
         when(sessionMapper.selectById(20L)).thenReturn(session);
         when(taskMapper.selectById(10L)).thenReturn(task);
         when(projectMapper.selectById(30L)).thenReturn(project);
 
-        AgentJobClaimResponse response = service.claim(7L);
+        AgentJobClaimResponse response = service.claim(7L, "exec-1");
 
         assertEquals(20L, response.sessionId());
+        assertEquals("pi-session-opaque", response.piSessionId());
         assertEquals(30L, response.projectId());
         assertEquals("Linear Lite", response.projectName());
         assertEquals("查询广州明天的天气", response.prompt());

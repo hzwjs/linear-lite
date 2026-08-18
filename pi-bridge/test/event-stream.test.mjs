@@ -1,119 +1,119 @@
-import test from 'node:test'
 import assert from 'node:assert/strict'
-import { extractFinalAssistantText, toProgressEvent } from '../src/event-stream.mjs'
+import test from 'node:test'
+import {
+  RuntimeDisplayBlockAssembler,
+  activeSessionBranch,
+  createSessionSnapshot,
+  finalAssistantText,
+} from '../src/event-stream.mjs'
 
-test('final result only uses the last assistant message from agent_end', () => {
-  const result = extractFinalAssistantText({
-    messages: [
-      { role: 'assistant', content: [{ type: 'text', text: '中间说明，不应写入评论' }] },
-      { role: 'toolResult', content: [{ type: 'text', text: '工具输出' }] },
-      { role: 'assistant', content: [{ type: 'text', text: '最终天气结果' }] },
-    ],
+function assistant(timestamp = 1000) {
+  return { role: 'assistant', timestamp, content: [] }
+}
+
+test('assistant deltas update one runtime block and message_end remains temporary', () => {
+  const assembler = new RuntimeDisplayBlockAssembler()
+  const [started] = assembler.accept({ type: 'message_start', message: assistant() })
+  const [delta] = assembler.accept({
+    type: 'message_update',
+    assistantMessageEvent: { type: 'text_start', contentIndex: 0 },
   })
-  assert.equal(result, '最终天气结果')
-})
-
-test('tool lifecycle exposes structured input details', () => {
-  const event = toProgressEvent({
-    type: 'tool_execution_start',
-    toolCallId: 'call-1',
-    toolName: 'weather',
-    args: { command: 'curl https://example.test/weather', city: '南京' },
+  const [updated] = assembler.accept({
+    type: 'message_update',
+    assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '检查中' },
   })
-  assert.deepEqual(event, {
-    eventType: 'tool_call',
-    summary: '正在调用工具：weather · 参数：command: curl https://example.test/weather city: 南京',
-    payload: {
-      toolName: 'weather',
-      toolCallId: 'call-1',
-      args: { command: 'curl https://example.test/weather', city: '南京' },
-    },
-  })
-})
-
-test('tool updates are not retained as duplicate terminal output', () => {
-  assert.equal(toProgressEvent({
-    type: 'tool_execution_update',
-    toolCallId: 'call-1',
-    toolName: 'bash',
-    args: { command: 'pwd' },
-    partialResult: { content: [{ type: 'text', text: '/tmp/workspace' }] },
-  }), null)
-})
-
-test('assistant message end exposes the same complete text shown by Pi terminal', () => {
-  const event = toProgressEvent({
+  const [ended] = assembler.accept({
     type: 'message_end',
-    message: {
-      role: 'assistant',
-      content: [{ type: 'text', text: '我会查询长春明天的天气，并给出出行提示。' }],
-    },
+    message: { ...assistant(), content: [{ type: 'text', text: '权威内容等待 session 快照' }] },
   })
-  assert.equal(event.summary, 'Pi：我会查询长春明天的天气，并给出出行提示。')
-  assert.equal(event.payload.content, '我会查询长春明天的天气，并给出出行提示。')
+
+  assert.equal(started.blockId, 'assistant:1000')
+  assert.equal(delta.revision, 2)
+  assert.equal(updated.content.text, '检查中')
+  assert.equal(ended.phase, 'streaming')
+  assert.equal(ended.content.text, '权威内容等待 session 快照')
 })
 
-test('tool errors expose the returned error detail', () => {
-  const event = toProgressEvent({
-    type: 'tool_execution_end',
-    toolCallId: 'call-1',
-    toolName: 'bash',
-    result: { content: [{ type: 'text', text: 'permission denied' }] },
-    isError: true,
+test('tool partialResult replaces the same runtime block', () => {
+  const assembler = new RuntimeDisplayBlockAssembler()
+  assembler.accept({
+    type: 'tool_execution_start', toolCallId: 'call-1', toolName: 'bash', args: { command: 'pwd' },
   })
-  assert.equal(event.summary, '工具调用失败：bash · permission denied')
-  assert.equal(event.payload.isError, true)
-})
-
-test('agent end emits the terminal completion marker without duplicating final text', () => {
-  assert.deepEqual(toProgressEvent({
-    type: 'agent_end',
-    willRetry: false,
-    messages: [{ role: 'assistant', content: [{ type: 'text', text: '最终天气结果' }] }],
-  }), {
-    eventType: 'completed',
-    summary: 'Pi 执行完成',
-    payload: {},
+  assembler.accept({
+    type: 'tool_execution_update', toolCallId: 'call-1', toolName: 'bash',
+    partialResult: { content: [{ type: 'text', text: 'partial' }] },
   })
+  const [ended] = assembler.accept({
+    type: 'tool_execution_end', toolCallId: 'call-1', toolName: 'bash', isError: false,
+    result: { content: [{ type: 'text', text: '/tmp' }], details: { truncation: { truncated: false } } },
+  })
+
+  assert.equal(ended.blockId, 'call-1')
+  assert.equal(ended.phase, 'streaming')
+  assert.equal(ended.tool.content[0].text, '/tmp')
+  assert.deepEqual(ended.tool.truncation, { truncated: false })
 })
 
-test('turn markers are not retained as terminal output', () => {
-  assert.equal(toProgressEvent({ type: 'turn_start' }), null)
-})
-
-test('weather query keeps the same complete assistant text as Pi terminal', () => {
-  const narrative = '我会查询广州明天的天气预报，并给出温度、降雨和出行建议。'
-  const answer = '广州明天（8月13日）天气预报：\n\n- 天气：多云为主，间有阵雨\n- 气温：27～37℃'
-  const messages = [
-    { type: 'agent_start' },
-    { type: 'turn_start' },
-    { type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: narrative }] } },
-    { type: 'tool_execution_start', toolCallId: 'weather-1', toolName: 'bash', args: { command: 'curl weather' } },
-    { type: 'tool_execution_update', toolCallId: 'weather-1', toolName: 'bash', partialResult: { content: [] } },
-    { type: 'tool_execution_end', toolCallId: 'weather-1', toolName: 'bash', result: { content: [{ type: 'text', text: 'weather json' }] }, isError: false },
-    { type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: answer }] } },
-    { type: 'agent_end', willRetry: false },
+test('active branch follows leafId and excludes abandoned siblings', () => {
+  const entries = [
+    { type: 'model_change', id: 'root', parentId: null },
+    { type: 'message', id: 'user', parentId: 'root' },
+    { type: 'message', id: 'abandoned', parentId: 'user' },
+    { type: 'message', id: 'active', parentId: 'user' },
   ]
 
-  const events = messages.map(toProgressEvent).filter(Boolean)
-  assert.deepEqual(events.map((event) => event.eventType), [
-    'started', 'progress', 'tool_call', 'tool_result', 'progress', 'completed',
-  ])
-  assert.equal(events[1].payload.content, narrative)
-  assert.equal(events[4].payload.content, answer)
+  assert.deepEqual(activeSessionBranch(entries, 'active').map((entry) => entry.id), ['root', 'user', 'active'])
+  assert.throws(() => activeSessionBranch(entries, 'missing'), /missing|\u7f3a少/)
 })
 
-test('large skill output remains readable text after truncation', () => {
-  const event = toProgressEvent({
-    type: 'tool_execution_end',
-    toolCallId: 'skill-1',
-    toolName: 'read',
-    result: { content: [{ type: 'text', text: `# ego-browser\n${'browser instructions\n'.repeat(500)}` }] },
-    isError: false,
+test('session snapshot converts only terminal-visible active branch content and merges tool results', () => {
+  const entries = [
+    { type: 'model_change', id: 'root', parentId: null, timestamp: '2026-08-18T00:00:00Z' },
+    {
+      type: 'message', id: 'u1', parentId: 'root', timestamp: '2026-08-18T00:00:01Z',
+      message: { role: 'user', content: [{ type: 'text', text: '检查当前修改' }] },
+    },
+    {
+      type: 'message', id: 'a1', parentId: 'u1', timestamp: '2026-08-18T00:00:02Z',
+      message: {
+        role: 'assistant', timestamp: 1000, stopReason: 'toolUse', content: [
+          { type: 'thinking', thinking: '先看文件' },
+          { type: 'text', text: '我先检查。' },
+          { type: 'toolCall', id: 'call-1', name: 'bash', arguments: { command: 'pwd' } },
+        ],
+      },
+    },
+    {
+      type: 'message', id: 't1', parentId: 'a1', timestamp: '2026-08-18T00:00:03Z',
+      message: {
+        role: 'toolResult', toolCallId: 'call-1', toolName: 'bash', isError: false,
+        content: [{ type: 'text', text: '/workspace' }], details: { truncation: null },
+      },
+    },
+    {
+      type: 'message', id: 'a2', parentId: 't1', timestamp: '2026-08-18T00:00:04Z',
+      message: { role: 'assistant', timestamp: 2000, stopReason: 'stop', content: [{ type: 'text', text: '检查完成' }] },
+    },
+    {
+      type: 'message', id: 'old', parentId: 'u1', timestamp: '2026-08-18T00:00:05Z',
+      message: { role: 'assistant', content: [{ type: 'text', text: '废弃分支' }] },
+    },
+  ]
+  const snapshot = createSessionSnapshot({
+    executionId: 'exec-1', piSessionId: 'pi-1', entries, leafId: 'a2',
   })
 
-  assert.equal(typeof event.payload.result, 'string')
-  assert.match(event.payload.result, /^# ego-browser\nbrowser instructions/)
-  assert.equal(event.payload.result.includes('\\n'), false)
-  assert.match(event.payload.result, /…详情已截断$/)
+  assert.equal(snapshot.blocks.length, 4)
+  assert.deepEqual(snapshot.blocks.map((block) => block.order), [1, 2, 3, 4])
+  assert.equal(snapshot.blocks[0].kind, 'user')
+  assert.equal(snapshot.blocks[0].runtimeBlockId, null)
+  assert.equal(snapshot.blocks[1].content.thinking, '先看文件')
+  assert.equal(snapshot.blocks[1].runtimeBlockId, 'assistant:1000')
+  assert.equal(snapshot.blocks[2].blockId, 'call-1')
+  assert.equal(snapshot.blocks[2].runtimeBlockId, 'call-1')
+  assert.equal(snapshot.blocks[2].tool.content[0].text, '/workspace')
+  assert.equal(snapshot.blocks[3].runtimeBlockId, 'assistant:2000')
+  assert.equal(snapshot.blocks[3].content.text, '检查完成')
+  assert.equal(snapshot.blocks.some((block) => block.content?.text === '废弃分支'), false)
+  assert.equal(finalAssistantText(snapshot), '检查完成')
 })

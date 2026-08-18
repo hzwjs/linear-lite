@@ -32,8 +32,9 @@ public class BridgeExecutionAttachmentService {
             throw new UnauthorizedException("本地 Pi 执行绑定已过期，请重新打开执行面板");
         }
         String token = UUID.randomUUID().toString().replace("-", "");
+        Instant now = Instant.now();
         active.put(token, new ActiveAttachment(invitation.ownerUserId(), invitation.executionId(),
-                Instant.now().plusSeconds(ACTIVE_TTL_SECONDS)));
+                now, now.plusSeconds(ACTIVE_TTL_SECONDS)));
         return new Attachment(token, invitation.executionId());
     }
 
@@ -44,8 +45,9 @@ public class BridgeExecutionAttachmentService {
             if (attachment != null) active.remove(token);
             throw new UnauthorizedException("本地 Pi 执行绑定无效或已过期");
         }
+        Instant now = Instant.now();
         active.put(token, new ActiveAttachment(attachment.ownerUserId(), attachment.executionId(),
-                Instant.now().plusSeconds(ACTIVE_TTL_SECONDS)));
+                now, now.plusSeconds(ACTIVE_TTL_SECONDS)));
         return attachment.ownerUserId();
     }
 
@@ -55,12 +57,36 @@ public class BridgeExecutionAttachmentService {
             if (attachment != null) active.remove(token);
             throw new UnauthorizedException("本地 Pi 执行绑定无效或已过期");
         }
+        Instant now = Instant.now();
         active.put(token, new ActiveAttachment(attachment.ownerUserId(), attachment.executionId(),
-                Instant.now().plusSeconds(ACTIVE_TTL_SECONDS)));
+                now, now.plusSeconds(ACTIVE_TTL_SECONDS)));
         return attachment.ownerUserId();
+    }
+
+    public String executionId(String token) {
+        ActiveAttachment attachment = requireActive(token);
+        return attachment.executionId();
+    }
+
+    /** 快照请求不得在 Bridge 离线时返回旧内容；只认最近真实认证过的本机连接。 */
+    public boolean isOnline(String executionId) {
+        Instant threshold = Instant.now().minusSeconds(10);
+        return active.values().stream().anyMatch(attachment ->
+                attachment.executionId().equals(executionId)
+                        && attachment.expiresAt().isAfter(Instant.now())
+                        && attachment.lastSeenAt().isAfter(threshold));
+    }
+
+    private ActiveAttachment requireActive(String token) {
+        ActiveAttachment attachment = active.get(token);
+        if (attachment == null || attachment.expiresAt().isBefore(Instant.now())) {
+            if (attachment != null) active.remove(token);
+            throw new UnauthorizedException("本地 Pi 执行绑定无效或已过期");
+        }
+        return attachment;
     }
 
     public record Attachment(String token, String executionId) {}
     private record PendingAttachment(Long ownerUserId, String executionId, Instant expiresAt) {}
-    private record ActiveAttachment(Long ownerUserId, String executionId, Instant expiresAt) {}
+    private record ActiveAttachment(Long ownerUserId, String executionId, Instant lastSeenAt, Instant expiresAt) {}
 }

@@ -15,6 +15,7 @@ public interface AgentTaskJobMapper extends BaseMapper<AgentTaskJob> {
             FROM agent_task_jobs j
             INNER JOIN agent_task_sessions s ON s.id = j.session_id
             WHERE s.agent_user_id = #{ownerUserId}
+              AND s.execution_id = #{executionId}
               AND j.source_type = 'turn'
               AND j.status IN ('queued', 'leased')
               AND j.next_run_at <= #{now}
@@ -23,7 +24,8 @@ public interface AgentTaskJobMapper extends BaseMapper<AgentTaskJob> {
             LIMIT 1
             FOR UPDATE
             """)
-    AgentTaskJob selectClaimableForOwner(
+    AgentTaskJob selectClaimableForExecution(
             @Param("ownerUserId") Long ownerUserId,
+            @Param("executionId") String executionId,
             @Param("now") LocalDateTime now);
 }

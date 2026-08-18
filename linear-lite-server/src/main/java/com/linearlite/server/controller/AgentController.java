@@ -7,10 +7,13 @@ import com.linearlite.server.dto.AgentJobResultRequest;
 import com.linearlite.server.dto.AgentProjectResponse;
 import com.linearlite.server.dto.AgentSessionResponse;
 import com.linearlite.server.dto.AgentSessionStateRequest;
-import com.linearlite.server.dto.AgentTaskEventBatchRequest;
+import com.linearlite.server.dto.AgentSessionReadErrorRequest;
+import com.linearlite.server.dto.AgentSessionSnapshot;
+import com.linearlite.server.dto.AgentSessionSnapshotClaimResponse;
+import com.linearlite.server.dto.RuntimeDisplayBlockBatchRequest;
 import com.linearlite.server.dto.AgentTaskStatusResponse;
 import com.linearlite.server.dto.CreateTaskCommentRequest;
-import com.linearlite.server.service.AgentTaskEventService;
+import com.linearlite.server.service.AgentSessionStreamService;
 import com.linearlite.server.service.AgentTaskOrchestrationService;
 import com.linearlite.server.service.BridgeExecutionAttachmentService;
 import com.linearlite.server.service.TaskCommentService;
@@ -33,23 +36,24 @@ public class AgentController {
     private final BridgeExecutionAttachmentService attachmentService;
     private final AgentTaskOrchestrationService orchestrationService;
     private final TaskCommentService taskCommentService;
-    private final AgentTaskEventService eventService;
+    private final AgentSessionStreamService sessionStreamService;
 
     public AgentController(
             AgentTaskOrchestrationService orchestrationService,
             TaskCommentService taskCommentService,
-            AgentTaskEventService eventService,
+            AgentSessionStreamService sessionStreamService,
             BridgeExecutionAttachmentService attachmentService) {
         this.orchestrationService = orchestrationService;
         this.taskCommentService = taskCommentService;
-        this.eventService = eventService;
+        this.sessionStreamService = sessionStreamService;
         this.attachmentService = attachmentService;
     }
 
     @PostMapping("/jobs/claim")
     public ResponseEntity<ApiResponse<AgentJobClaimResponse>> claim(@RequestHeader("X-Execution-Attachment") String token) {
         Long ownerUserId = attachmentService.authenticate(token);
-        return ResponseEntity.ok(ApiResponse.success(orchestrationService.claim(ownerUserId)));
+        return ResponseEntity.ok(ApiResponse.success(
+                orchestrationService.claim(ownerUserId, attachmentService.executionId(token))));
     }
 
     @GetMapping("/projects")
@@ -69,13 +73,52 @@ public class AgentController {
         return ResponseEntity.ok(ApiResponse.success());
     }
 
-    @PostMapping("/jobs/{jobId}/events")
-    public ResponseEntity<ApiResponse<Void>> events(
+    @PostMapping("/jobs/{jobId}/runtime-display-blocks")
+    public ResponseEntity<ApiResponse<Void>> runtimeDisplayBlocks(
             @RequestHeader("X-Execution-Attachment") String token,
             @PathVariable Long jobId,
-            @RequestBody AgentTaskEventBatchRequest request) {
+            @RequestBody RuntimeDisplayBlockBatchRequest request) {
         Long ownerUserId = attachmentService.authenticate(token, request.getExecutionId());
-        eventService.report(ownerUserId, jobId, request);
+        sessionStreamService.reportRuntime(ownerUserId, jobId, request);
+        return ResponseEntity.ok(ApiResponse.success());
+    }
+
+    @PostMapping("/session-snapshot-requests/claim")
+    public ResponseEntity<ApiResponse<AgentSessionSnapshotClaimResponse>> claimSessionSnapshot(
+            @RequestHeader("X-Execution-Attachment") String token) {
+        Long ownerUserId = attachmentService.authenticate(token);
+        return ResponseEntity.ok(ApiResponse.success(sessionStreamService.claimSnapshot(
+                ownerUserId, attachmentService.executionId(token))));
+    }
+
+    @PostMapping("/session-snapshot-requests/{requestId}/complete")
+    public ResponseEntity<ApiResponse<Void>> completeSessionSnapshot(
+            @RequestHeader("X-Execution-Attachment") String token,
+            @PathVariable String requestId,
+            @RequestBody AgentSessionSnapshot snapshot) {
+        Long ownerUserId = attachmentService.authenticate(token, snapshot.executionId());
+        sessionStreamService.completeSnapshot(ownerUserId, requestId, snapshot);
+        return ResponseEntity.ok(ApiResponse.success());
+    }
+
+    @PostMapping("/session-snapshot-requests/{requestId}/fail")
+    public ResponseEntity<ApiResponse<Void>> failSessionSnapshot(
+            @RequestHeader("X-Execution-Attachment") String token,
+            @PathVariable String requestId,
+            @RequestBody AgentSessionReadErrorRequest request) {
+        Long ownerUserId = attachmentService.authenticate(token, request.getExecutionId());
+        sessionStreamService.failSnapshot(ownerUserId, requestId,
+                request.getExecutionId(), request.getErrorMessage());
+        return ResponseEntity.ok(ApiResponse.success());
+    }
+
+    @PostMapping("/sessions/{executionId}/snapshot")
+    public ResponseEntity<ApiResponse<Void>> publishSessionSnapshot(
+            @RequestHeader("X-Execution-Attachment") String token,
+            @PathVariable String executionId,
+            @RequestBody AgentSessionSnapshot snapshot) {
+        Long ownerUserId = attachmentService.authenticate(token, executionId);
+        sessionStreamService.publishSessionSnapshot(ownerUserId, executionId, snapshot);
         return ResponseEntity.ok(ApiResponse.success());
     }
 

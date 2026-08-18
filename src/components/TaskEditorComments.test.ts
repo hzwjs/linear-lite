@@ -10,10 +10,13 @@ import { activityApi } from '../services/api/activity'
 import { attachmentsApi } from '../services/api/attachments'
 import { taskCommentsApi } from '../services/api/taskComments'
 import { taskApi } from '../services/api/task'
-import { agentApi } from '../services/api/agent'
+import {
+  agentApi,
+  type RuntimeDisplayBlock,
+  type SessionSnapshot
+} from '../services/api/agent'
 import { useTaskStore } from '../store/taskStore'
 import { useAuthStore } from '../store/authStore'
-import { formatAgentEventDetail } from '../utils/agentEventDisplay'
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({
@@ -152,7 +155,8 @@ vi.mock('../services/api/agent', () => ({
     prepareLocalPi: vi.fn(),
     submitTurn: vi.fn(),
     getTaskStatus: vi.fn(),
-    openEventStream: vi.fn(),
+    requestSessionSnapshot: vi.fn(),
+    openSessionStream: vi.fn(),
     cancelTask: vi.fn()
   }
 }))
@@ -272,6 +276,7 @@ describe('TaskEditor comments adapter', () => {
       errorMessage: null,
       updatedAt: null
     })
+    vi.mocked(agentApi.requestSessionSnapshot).mockResolvedValue('snapshot-request-1')
   })
 
   it('passes a root comment from the extracted component to the task API', async () => {
@@ -359,9 +364,6 @@ describe('TaskEditor comments adapter', () => {
         errorMessage: null,
         updatedAt: '2026-08-12T00:01:00.000Z'
       })
-    const secondStreamClose = vi.fn()
-    vi.mocked(agentApi.openEventStream).mockReturnValue({ close: secondStreamClose } as unknown as EventSource)
-
     const view = await mountEditor(createTask({ assigneeId: 42 }))
     try {
       const editor = view.host.querySelector('.comment-compose [data-testid="tiptap-editor-stub"]') as HTMLTextAreaElement
@@ -381,7 +383,7 @@ describe('TaskEditor comments adapter', () => {
         parentId: null
       })
       expect(agentApi.getTaskStatus).toHaveBeenCalledTimes(2)
-      expect(agentApi.openEventStream).not.toHaveBeenCalled()
+      expect(agentApi.openSessionStream).not.toHaveBeenCalled()
     } finally {
       view.unmount()
     }
@@ -414,7 +416,7 @@ describe('TaskEditor comments adapter', () => {
     }
   })
 
-  it('renders one live local Pi activity for the task owner', async () => {
+  it('renders assistant and tool blocks in place for the task owner', async () => {
     vi.mocked(agentApi.getTaskStatus).mockResolvedValue({
       executionId: 'execution-1',
       jobId: 1,
@@ -436,10 +438,14 @@ describe('TaskEditor comments adapter', () => {
       },
       attachmentCode: 'attachment-code'
     })
-    let onEvent: ((event: Parameters<typeof formatAgentEventDetail>[0]) => void) | undefined
+    let onSnapshot: ((snapshot: SessionSnapshot) => void) | undefined
+    let onRuntime: ((block: RuntimeDisplayBlock) => void) | undefined
     const close = vi.fn()
-    vi.mocked(agentApi.openEventStream).mockImplementation((_taskKey, _executionId, _jobId, eventHandler, onOpen) => {
-      onEvent = eventHandler
+    vi.mocked(agentApi.openSessionStream).mockImplementation((
+      _taskKey, _executionId, snapshotHandler, runtimeHandler, _readErrorHandler, onOpen
+    ) => {
+      onSnapshot = snapshotHandler
+      onRuntime = runtimeHandler
       onOpen?.()
       return { close } as unknown as EventSource
     })
@@ -451,122 +457,116 @@ describe('TaskEditor comments adapter', () => {
       await flushPromises()
       await new Promise((resolve) => setTimeout(resolve, 0))
       await nextTick()
-        expect(agentApi.openEventStream).toHaveBeenCalledWith(
-          'ENG-1',
-          'execution-1',
-          1,
-          expect.any(Function),
-          expect.any(Function),
-          expect.any(Function),
-          expect.any(Function)
-        )
-      expect(document.body.querySelector('.agent-event-area')).not.toBeNull()
+      expect(agentApi.openSessionStream).toHaveBeenCalledWith(
+        'ENG-1', 'execution-1',
+        expect.any(Function), expect.any(Function), expect.any(Function),
+        expect.any(Function), expect.any(Function)
+      )
+      expect(agentApi.requestSessionSnapshot).toHaveBeenCalledWith('ENG-1', 'execution-1')
       expect(view.host.querySelector('.editor-props')).not.toBeNull()
       expect(view.host.querySelector('.props-card--horizontal')).toBeNull()
 
-      onEvent?.({
-        id: 0,
+      onRuntime?.({
         executionId: 'execution-1',
         jobId: 1,
-        sequenceNo: 0,
-        eventType: 'started',
-        summary: 'Pi 已开始处理任务',
-        payload: '{}',
+        blockId: 'assistant:1',
+        revision: 1,
+        kind: 'assistant',
+        phase: 'streaming',
+        content: { text: '我先检查任务入口', thinking: '' },
+        tool: null,
         createdAt: '2026-08-12T00:00:00.000Z'
       })
       await nextTick()
-      expect(document.body.querySelector('.agent-status-badge')?.textContent).toContain('running')
+      expect(document.body.querySelectorAll('.pi-assistant-message')).toHaveLength(1)
+      expect(document.body.textContent).toContain('我先检查任务入口')
+      expect(document.body.querySelector<HTMLButtonElement>('.agent-submit-button')?.ariaLabel)
+        .toBe('停止本地 Pi')
 
-      onEvent?.({
-        id: 1,
+      onRuntime?.({
         executionId: 'execution-1',
         jobId: 1,
-        sequenceNo: 1,
-        eventType: 'tool_call',
-        summary: '正在调用工具：bash',
-        payload: JSON.stringify({ toolName: 'bash', args: { command: 'pwd', path: '/tmp' } }),
+        blockId: 'tool:1',
+        revision: 1,
+        kind: 'tool',
+        phase: 'streaming',
+        content: null,
+        tool: {
+          name: 'bash',
+          arguments: { command: 'pwd' },
+          content: [{ type: 'text', text: 'partial output' }],
+          isError: false,
+          truncation: null
+        },
         createdAt: '2026-08-12T00:00:01.000Z'
       })
-      onEvent?.({
-        id: 2,
+      onRuntime?.({
         executionId: 'execution-1',
         jobId: 1,
-        sequenceNo: 2,
-        eventType: 'tool_result',
-        summary: '工具调用完成：bash',
-        payload: JSON.stringify({ toolName: 'bash', result: { content: [{ type: 'text', text: '/tmp' }] } }),
+        blockId: 'tool:1',
+        revision: 2,
+        kind: 'tool',
+        phase: 'error',
+        content: null,
+        tool: {
+          name: 'bash',
+          arguments: { command: 'pwd' },
+          content: [{ type: 'text', text: 'permission denied' }],
+          isError: true,
+          truncation: null
+        },
         createdAt: '2026-08-12T00:00:02.000Z'
       })
-      onEvent?.({
-        id: 3,
+      await nextTick()
+
+      expect(document.body.querySelectorAll('.pi-tool')).toHaveLength(1)
+      expect(document.body.textContent).toContain('$ pwd')
+      expect(document.body.textContent).toContain('permission denied')
+      expect(document.body.textContent).not.toContain('partial output')
+      expect(document.body.textContent).not.toContain('工具执行完成')
+
+      onSnapshot?.({
         executionId: 'execution-1',
-        jobId: 1,
-        sequenceNo: 3,
-        eventType: 'progress',
-        summary: 'Pi：广州明天天气',
-        payload: JSON.stringify({
-          role: 'assistant',
-          content: '广州明天：\n\n- **气温：** 27～37℃\n- **天气：** 多云有阵雨'
-        }),
-        createdAt: '2026-08-12T00:00:03.000Z'
+        piSessionId: 'pi-session-1',
+        leafId: 'entry-1',
+        blocks: [{
+          blockId: 'entry-1:0',
+          entryId: 'entry-1',
+          runtimeBlockId: 'assistant:1',
+          order: 1,
+          kind: 'assistant',
+          phase: 'final',
+          content: { text: '问题出在权限配置', thinking: '' },
+          tool: null,
+          createdAt: '2026-08-12T00:00:03.000Z'
+        }, {
+          blockId: 'tool:1',
+          entryId: 'entry-tool-1',
+          runtimeBlockId: 'tool:1',
+          order: 2,
+          kind: 'tool',
+          phase: 'error',
+          content: null,
+          tool: {
+            name: 'bash',
+            arguments: { command: 'pwd' },
+            content: [{ type: 'text', text: 'permission denied' }],
+            isError: true,
+            truncation: null
+          },
+          createdAt: '2026-08-12T00:00:02.000Z'
+        }]
       })
       await nextTick()
 
-      expect(document.body.querySelector('.agent-live-activity')?.textContent).toContain('正在整理结果')
-      expect(document.body.querySelector('.agent-tool-call')).toBeNull()
-      expect(document.body.querySelector('.agent-tool-result')).toBeNull()
-      expect(document.body.textContent).not.toContain('$ pwd')
-      expect(document.body.textContent).not.toContain('广州明天')
-
-      onEvent?.({
-        id: 31,
-        executionId: 'execution-1',
-        jobId: 1,
-        sequenceNo: 31,
-        eventType: 'tool_call',
-        summary: '正在调用工具：read',
-        payload: JSON.stringify({
-          toolCallId: 'skill-1',
-          toolName: 'read',
-          args: { path: '/Users/example/.agents/skills/ego-browser/SKILL.md' }
-        }),
-        createdAt: '2026-08-12T00:00:03.100Z'
-      })
-      onEvent?.({
-        id: 32,
-        executionId: 'execution-1',
-        jobId: 1,
-        sequenceNo: 32,
-        eventType: 'tool_result',
-        summary: '工具调用完成：read',
-        payload: JSON.stringify({
-          toolCallId: 'skill-1',
-          toolName: 'read',
-          result: '# ego-browser\nLong skill instructions'
-        }),
-        createdAt: '2026-08-12T00:00:03.200Z'
-      })
-      await nextTick()
-      expect(document.body.textContent).not.toContain('Long skill instructions')
-
-      onEvent?.({
-        id: 4,
-        executionId: 'execution-1',
-        jobId: 1,
-        sequenceNo: 4,
-        eventType: 'completed',
-        summary: 'Pi 执行完成',
-        payload: '{}',
-        createdAt: '2026-08-12T00:00:04.000Z'
-      })
-      await nextTick()
-
-      expect(close).toHaveBeenCalledOnce()
-      expect(document.body.querySelector('.agent-status-panel')).not.toBeNull()
-      expect(document.body.querySelector('.agent-event-area')).toBeNull()
-      expect(document.body.querySelector('.agent-turn-input')).not.toBeNull()
+      expect(document.body.querySelectorAll('.pi-assistant-message')).toHaveLength(1)
+      expect(document.body.querySelectorAll('.pi-tool')).toHaveLength(1)
+      expect(document.body.textContent).toContain('问题出在权限配置')
+      expect(document.body.textContent).not.toContain('我先检查任务入口')
+      expect(document.body.textContent).toContain('permission denied')
     } finally {
       view.unmount()
+      expect(close).toHaveBeenCalled()
     }
   })
 
@@ -584,7 +584,7 @@ describe('TaskEditor comments adapter', () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
       await nextTick()
 
-      expect(document.body.querySelector('.agent-events-copy--error')?.textContent)
+      expect(document.body.querySelector('.pi-conversation-notice--error')?.textContent)
         .toContain('执行上下文已结束')
     } finally {
       view.unmount()
@@ -604,61 +604,13 @@ describe('TaskEditor comments adapter', () => {
 
     const view = await mountEditor(createTask())
     try {
-      expect(view.host.querySelector('.agent-status-panel')).toBeNull()
-      expect(view.host.querySelector('.agent-event-area')).toBeNull()
+      expect(document.body.querySelector('.pi-conversation-panel')).toBeNull()
       expect(view.host.querySelector('.editor-props')).not.toBeNull()
       expect(view.host.querySelector('.props-card--horizontal')).toBeNull()
-      expect(agentApi.openEventStream).not.toHaveBeenCalled()
+      expect(agentApi.openSessionStream).not.toHaveBeenCalled()
     } finally {
       view.unmount()
     }
-  })
-
-  it('formats Pi event payloads as readable text instead of JSON', () => {
-    expect(formatAgentEventDetail({
-      id: 1,
-      executionId: 'execution-1',
-      jobId: 1,
-      sequenceNo: 1,
-      eventType: 'tool_result',
-      summary: '工具调用完成：bash',
-      payload: JSON.stringify({ result: { content: [{ type: 'text', text: 'permission denied' }] } }),
-      createdAt: '2026-08-12T00:00:00.000Z'
-    })).toContain('permission denied')
-    expect(formatAgentEventDetail({
-      id: 2,
-      executionId: 'execution-1',
-      jobId: 1,
-      sequenceNo: 2,
-      eventType: 'tool_call',
-      summary: '正在调用工具：bash',
-      payload: JSON.stringify({ args: { command: 'pwd', path: '/tmp' } }),
-      createdAt: '2026-08-12T00:00:00.000Z'
-    })).toBe('命令：pwd\n路径：/tmp')
-    expect(formatAgentEventDetail({
-      id: 3,
-      executionId: 'execution-1',
-      jobId: 1,
-      sequenceNo: 3,
-      eventType: 'tool_result',
-      summary: '工具调用完成：bash',
-      payload: JSON.stringify({
-        result: {
-          content: [{
-            type: 'text',
-            text: '{"timezone":"Asia/Shanghai","daily":{"time":["2026-08-13"],"temperature_2m_max":[34.6]}}'
-          }]
-        }
-      }),
-      createdAt: '2026-08-12T00:00:00.000Z'
-    })).toBe([
-      'timezone：Asia/Shanghai',
-      'daily：',
-      '  time：',
-      '    1. 2026-08-13',
-      '  temperature_2m_max：',
-      '    1. 34.6'
-    ].join('\n'))
   })
 
   it('does not expose local Pi execution to a non-owner after assignee changes', async () => {
@@ -695,7 +647,7 @@ describe('TaskEditor comments adapter', () => {
 
       expect(taskApi.update).toHaveBeenCalled()
       expect(agentApi.getTaskStatus).toHaveBeenCalledTimes(2)
-      expect(view.host.querySelector('.agent-status-panel')).toBeNull()
+      expect(document.body.querySelector('.pi-conversation-panel')).toBeNull()
     } finally {
       view.unmount()
     }

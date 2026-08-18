@@ -11,7 +11,8 @@ const bridgeRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const applicationRoot = join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge')
 const appRoot = join(applicationRoot, 'app')
 const dataRoot = join(applicationRoot, 'data')
-const sessionRoot = join(applicationRoot, 'sessions')
+const piAgentDir = resolve(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent'))
+const sessionRoot = join(piAgentDir, 'sessions')
 const runtimeRoot = join(applicationRoot, 'runtime')
 const logRoot = join(homedir(), 'Library', 'Logs', 'Linear Lite')
 const plistPath = join(homedir(), 'Library', 'LaunchAgents', 'com.linearlite.pi-bridge.plist')
@@ -50,10 +51,10 @@ export function makePlist(nodeBinary, piBinary) {
     PI_BRIDGE_CONFIG_PORT: '9780',
     PI_BRIDGE_CONFIG_FILE: join(dataRoot, 'projects.json'),
     PI_BRIDGE_SETTINGS_FILE: join(dataRoot, 'settings.json'),
-    PI_BRIDGE_SESSION_ROOT: sessionRoot,
     PI_BRIDGE_RUNTIME_ROOT: runtimeRoot,
     PI_BRIDGE_VERSION: process.env.PI_BRIDGE_VERSION ?? 'installed',
   }
+  if (process.env.PI_CODING_AGENT_DIR) environment.PI_CODING_AGENT_DIR = piAgentDir
   const environmentXml = Object.entries(environment)
     .map(([key, value]) => `<key>${xml(key)}</key>\n${plistValue(value)}`)
     .join('\n')

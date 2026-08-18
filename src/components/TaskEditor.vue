@@ -18,7 +18,7 @@ import { documentApi } from '../services/api/documents'
 import type { ProjectDocumentTreeNode } from '../types/document'
 import { activityApi } from '../services/api/activity'
 import { taskCommentsApi } from '../services/api/taskComments'
-import { agentApi, type AgentTaskEvent, type AgentTaskStatus } from '../services/api/agent'
+import { agentApi, type AgentTaskStatus } from '../services/api/agent'
 import { toApiError } from '../services/api'
 import { attachPiBridge, getPiBridgeHealth } from '../services/piBridge'
 import { attachmentsApi } from '../services/api/attachments'
@@ -48,10 +48,6 @@ import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../uti
 import { blockNoteDocHasPersistableContent, parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import { getTaskDueState } from '../utils/taskDueState'
-import {
-  formatAgentEventActivity,
-  formatAgentEventDetail
-} from '../utils/agentEventDisplay'
 import { captureTaskLoadContext, isTaskLoadStale } from '../utils/taskLoadContext'
 import { readTaskDetailSnapshot } from '../utils/taskDetailPreload'
 import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
@@ -74,7 +70,6 @@ import {
   CheckCircle,
   CircleX,
   Bot,
-  ArrowUp,
   Copy,
   Eye,
   Star,
@@ -92,6 +87,7 @@ import {
   Plus
 } from 'lucide-vue-next'
 import TaskRowStatusPicker from './TaskRowStatusPicker.vue'
+import PiConversationPanel from './pi/PiConversationPanel.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -166,23 +162,12 @@ const activities = ref<TaskActivity[]>([])
 const activitiesLoading = ref(false)
 const agentStatus = ref<AgentTaskStatus | null>(null)
 const agentStatusLoading = ref(false)
-const agentLiveActivity = ref('')
 const agentEventsError = ref('')
-const agentEventConnected = ref(false)
 const agentCanceling = ref(false)
 const agentPreparing = ref(false)
 const agentPrompt = ref('')
 const agentSubmitting = ref(false)
 const agentPanelOpen = ref(false)
-type AgentConversationMessage = {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  pending?: boolean
-}
-const agentConversation = ref<AgentConversationMessage[]>([])
-let agentConversationSequence = 0
-let agentEventSource: EventSource | null = null
 let agentStatusLoadSequence = 0
 let agentBridgeReconnectTimer: ReturnType<typeof setInterval> | null = null
 let agentBridgeReconnectInFlight = false
@@ -207,58 +192,6 @@ const canSubmitLocalPiTurn = computed(() =>
 const shouldShowAgentPanel = computed(() =>
   agentPanelOpen.value
 )
-
-function closeAgentEventStream() {
-  agentEventSource?.close()
-  agentEventSource = null
-  agentEventConnected.value = false
-}
-
-function appendAgentConversationMessage(message: Omit<AgentConversationMessage, 'id'>) {
-  agentConversation.value.push({
-    ...message,
-    id: `agent-message-${agentConversationSequence++}`
-  })
-}
-
-function updatePendingAgentReply(content: string) {
-  const pendingReply = [...agentConversation.value]
-    .reverse()
-    .find((message) => message.role === 'assistant' && message.pending)
-  if (pendingReply) {
-    pendingReply.content = content
-    return
-  }
-  appendAgentConversationMessage({ role: 'assistant', content, pending: true })
-}
-
-function applyAgentEvent(event: AgentTaskEvent) {
-  agentEventsError.value = ''
-  agentLiveActivity.value = formatAgentEventActivity(event)
-  if (event.eventType === 'progress') {
-    const detail = formatAgentEventDetail(event)
-    if (detail) updatePendingAgentReply(detail)
-  }
-  if (event.eventType === 'started' && agentStatus.value) {
-    agentStatus.value = { ...agentStatus.value, jobStatus: 'running' }
-  } else if (event.eventType === 'completed' && agentStatus.value) {
-    agentStatus.value = { ...agentStatus.value, sessionStatus: 'waiting_input', jobStatus: 'succeeded' }
-    agentLiveActivity.value = ''
-    const pendingReply = [...agentConversation.value]
-      .reverse()
-      .find((message) => message.role === 'assistant' && message.pending)
-    if (pendingReply) pendingReply.pending = false
-    closeAgentEventStream()
-  } else if (event.eventType === 'failed' && agentStatus.value) {
-    agentStatus.value = { ...agentStatus.value, sessionStatus: 'waiting_input', jobStatus: 'failed' }
-    agentLiveActivity.value = ''
-    const pendingReply = [...agentConversation.value]
-      .reverse()
-      .find((message) => message.role === 'assistant' && message.pending)
-    if (pendingReply) pendingReply.pending = false
-    closeAgentEventStream()
-  }
-}
 
 const activityDisplayItems = computed(() =>
   groupTaskActivitiesForDisplay(activities.value.filter(isTaskActivityTimelineEvent))
@@ -632,10 +565,8 @@ async function loadComments(options?: { silent?: boolean; preferSnapshot?: boole
 
 async function loadAgentStatus() {
   const loadSequence = ++agentStatusLoadSequence
-  closeAgentEventStream()
-  agentLiveActivity.value = ''
   agentEventsError.value = ''
-  // 状态重载期间不保留旧执行记录，避免切换任务时右侧栏短暂展示过期内容。
+  // 任务切换时先清空执行定位，显示块由 PiConversationPanel 按 executionId 隔离。
   agentStatus.value = null
   if (props.mode !== 'edit' || !props.task?.id) {
     return
@@ -646,29 +577,9 @@ async function loadAgentStatus() {
     const status = await agentApi.getTaskStatus(taskKey)
     if (loadSequence !== agentStatusLoadSequence || props.task?.id !== taskKey) return
     agentStatus.value = status
-    // 终态执行的结论已经写入评论，刷新时不得为历史 Job 重建 SSE 或恢复执行面板。
-    if (!isAgentExecutionActive.value || !canPrepareLocalPi.value || !agentPanelOpen.value) return
-    const executionId = agentStatus.value.executionId
-    const jobId = agentStatus.value.jobId
-    if (executionId && jobId != null) {
-      // SSE 建立时会先回放当前进程缓存，再推送增量事件，避免执行先于页面连接而丢失内容。
-      agentEventSource = agentApi.openEventStream(taskKey, executionId, jobId, (event) => {
-        if (event.executionId !== executionId || event.jobId !== jobId) return
-        applyAgentEvent(event)
-      }, () => {
-        if (props.task?.id === taskKey) agentEventConnected.value = true
-      }, () => {
-        if (props.task?.id === taskKey) agentEventConnected.value = false
-      }, () => {
-        if (props.task?.id === taskKey && !isAgentExecutionActive.value) {
-          closeAgentEventStream()
-        }
-      })
-    }
   } catch {
     if (loadSequence !== agentStatusLoadSequence) return
     agentStatus.value = null
-    agentLiveActivity.value = ''
     agentEventsError.value = '执行进度加载失败'
   } finally {
     if (loadSequence === agentStatusLoadSequence) {
@@ -684,9 +595,9 @@ async function prepareLocalPi() {
   agentEventsError.value = ''
   try {
     const prepared = await agentApi.prepareLocalPi(taskKey)
-    // 先展示已准备好的执行上下文，再尝试连接常驻 Bridge；Bridge 不在线时用户仍能看到明确状态。
-    agentStatus.value = prepared.status
+    // 先完成本机 Bridge 绑定，再暴露 executionId，避免面板早于 Bridge 连接发起快照请求。
     await attachPiBridge(prepared.attachmentCode)
+    agentStatus.value = prepared.status
     agentPrompt.value = ''
   } catch (error) {
     agentEventsError.value = toApiError(error).message || '本地 Pi 上下文准备失败'
@@ -703,7 +614,6 @@ async function reconnectLocalPiBridge() {
     if (health?.status !== 'waiting_for_browser' && health?.status !== 'config_required') return
     // Bridge 重启会丢失内存 attachment；面板保持打开时自动重新建立绑定，避免 queued Job 永久无人领取。
     await prepareLocalPi()
-    if (agentStatus.value?.jobStatus && isAgentExecutionActive.value) await loadAgentStatus()
   } finally {
     agentBridgeReconnectInFlight = false
   }
@@ -718,11 +628,6 @@ async function refreshLocalPiStatus() {
     const status = await agentApi.getTaskStatus(taskKey)
     if (props.task?.id !== taskKey) return
     agentStatus.value = status
-    if (!isAgentExecutionActive.value) {
-      // 服务端终止或 Bridge 失效时，页面必须立即退出 queued/running，不能依赖 SSE 事件。
-      agentLiveActivity.value = ''
-      closeAgentEventStream()
-    }
   } catch {
     // 单次状态轮询失败不覆盖当前状态，下一轮继续同步，避免瞬时网络抖动制造错误终态。
   } finally {
@@ -761,7 +666,6 @@ async function openAgentPanel() {
   if (!canPrepareLocalPi.value || agentPanelOpen.value) return
   agentPanelOpen.value = true
   await prepareLocalPi()
-  if (agentStatus.value?.jobStatus && isAgentExecutionActive.value) await loadAgentStatus()
   startAgentBridgeReconnect()
   startAgentStatusRefresh()
 }
@@ -770,7 +674,6 @@ function closeAgentPanel() {
   agentPanelOpen.value = false
   stopAgentBridgeReconnect()
   stopAgentStatusRefresh()
-  closeAgentEventStream()
 }
 
 async function submitLocalPiTurn() {
@@ -780,13 +683,9 @@ async function submitLocalPiTurn() {
   if (!taskKey || !executionId || !prompt || !canSubmitLocalPiTurn.value || agentSubmitting.value) return
   agentSubmitting.value = true
   agentEventsError.value = ''
-  // 先写入本地会话，再清空输入框，确保用户输入始终出现在对话记录中。
-  appendAgentConversationMessage({ role: 'user', content: prompt })
-  appendAgentConversationMessage({ role: 'assistant', content: '', pending: true })
   try {
     agentStatus.value = await agentApi.submitTurn(taskKey, executionId, prompt)
     agentPrompt.value = ''
-    await loadAgentStatus()
   } catch (error) {
     agentEventsError.value = toApiError(error).message || '本轮本地 Pi 执行提交失败'
   } finally {
@@ -806,8 +705,6 @@ async function cancelAgentExecution() {
     await agentApi.cancelTask(taskKey, executionId)
     if (props.task?.id === taskKey && agentStatus.value?.executionId === executionId) {
       agentStatus.value = { ...agentStatus.value, sessionStatus: 'waiting_input', jobStatus: 'canceled' }
-      agentLiveActivity.value = ''
-      closeAgentEventStream()
     }
   } catch (error) {
     agentEventsError.value = toApiError(error).message || '停止 Pi 失败'
@@ -1038,9 +935,7 @@ watch(
 watch(
   [() => props.task?.id, () => props.task?.assigneeId, () => props.mode],
   () => {
-    agentConversation.value = []
-    agentConversationSequence = 0
-    // 负责人切换会创建或关闭 Pi execution，必须立即切换实时 SSE 连接。
+    // 负责人切换会创建或关闭 Pi execution，必须立即切换面板的执行定位。
     loadAgentStatus()
   },
   { immediate: true }
@@ -1097,8 +992,6 @@ onBeforeUnmount(() => {
   agentStatusLoadSequence += 1
   stopAgentBridgeReconnect()
   stopAgentStatusRefresh()
-  agentEventSource?.close()
-  agentEventSource = null
   mentionDocumentsLoadSequence += 1
   if (dueStateNowTimer != null) {
     clearInterval(dueStateNowTimer)
@@ -2411,64 +2304,20 @@ async function toggleDescriptionFullscreen() {
         class="editor-agent-drawer"
         aria-label="本地 Pi 执行面板"
       >
-        <div
-          class="agent-status-panel"
-          :class="{ 'agent-status-panel--active': isAgentExecutionActive }"
-        >
-          <div v-if="agentEventsError && !isAgentExecutionActive" class="agent-events-copy agent-events-copy--error">
-            {{ agentEventsError }}
-          </div>
-          <div v-if="agentConversation.length" class="agent-conversation" aria-live="polite">
-            <div
-              v-for="message in agentConversation"
-              :key="message.id"
-              class="agent-message"
-              :class="`agent-message--${message.role}`"
-            >
-              <span class="agent-message__author">{{ message.role === 'user' ? '你' : 'Pi' }}</span>
-              <div v-if="message.content" class="agent-message__content">{{ message.content }}</div>
-              <div v-else-if="message.pending" class="agent-message__content agent-message__content--pending">
-                Pi 正在处理…
-              </div>
-            </div>
-          </div>
-          <div v-if="isAgentExecutionActive" class="agent-event-area" aria-live="polite">
-            <div v-if="agentEventsError" class="agent-events-copy agent-events-copy--error">{{ agentEventsError }}</div>
-            <div v-else class="agent-live-activity">
-              <Loader2 v-if="agentLiveActivity" class="icon-14 agent-live-activity__spinner" aria-hidden="true" />
-              <span>{{ agentLiveActivity || (agentEventConnected ? '等待 Pi 实时事件…' : '正在连接实时事件…') }}</span>
-            </div>
-          </div>
-          <div v-if="agentStatus?.executionId" class="agent-turn-composer">
-            <textarea
-              v-model="agentPrompt"
-              class="agent-turn-input"
-              aria-label="补充本地 Pi 指令"
-              rows="3"
-              :placeholder="canSubmitLocalPiTurn ? '补充本轮指令…' : '当前执行完成后可提交下一轮…'"
-              :disabled="agentSubmitting || agentCanceling"
-              @keydown.meta.enter.prevent="submitLocalPiTurn"
-              @keydown.ctrl.enter.prevent="submitLocalPiTurn"
-            />
-            <div class="agent-turn-footer">
-              <span class="agent-turn-hint">⌘↵ / Ctrl↵ 发送</span>
-              <button
-                type="button"
-                class="agent-submit-button"
-                :class="{ 'agent-submit-button--stop': isAgentExecutionActive }"
-                :disabled="agentSubmitting || agentCanceling || (!isAgentExecutionActive && (!agentPrompt.trim() || !canSubmitLocalPiTurn))"
-                :aria-busy="agentSubmitting || agentCanceling"
-                :aria-label="isAgentExecutionActive ? '停止本地 Pi' : '发送给本地 Pi'"
-                :title="isAgentExecutionActive ? '停止本地 Pi' : '发送给本地 Pi'"
-                @click="isAgentExecutionActive ? cancelAgentExecution() : submitLocalPiTurn()"
-              >
-                <Loader2 v-if="agentSubmitting || agentCanceling" class="icon-14 agent-stop-spinner" aria-hidden="true" />
-                <CircleX v-else-if="isAgentExecutionActive" aria-hidden="true" />
-                <ArrowUp v-else aria-hidden="true" />
-              </button>
-            </div>
-          </div>
-        </div>
+        <PiConversationPanel
+          :task-key="task?.id ?? ''"
+          :execution-id="agentPreparing ? null : (agentStatus?.executionId ?? null)"
+          :active="isAgentExecutionActive"
+          :can-submit="canSubmitLocalPiTurn"
+          :preparing="agentPreparing || agentStatusLoading"
+          :submitting="agentSubmitting"
+          :canceling="agentCanceling"
+          :prompt="agentPrompt"
+          :error="agentEventsError"
+          @update:prompt="agentPrompt = $event"
+          @submit="submitLocalPiTurn"
+          @stop="cancelAgentExecution"
+        />
       </aside>
       </Teleport>
     </div>
@@ -3106,13 +2955,6 @@ async function toggleDescriptionFullscreen() {
   background: var(--color-bg-base);
   box-shadow: var(--shadow-popover);
   animation: agent-drawer-in 180ms ease-out both;
-}
-.editor-agent-drawer .agent-status-panel {
-  width: 100%;
-  min-height: 0;
-}
-.editor-agent-drawer .agent-status-panel--active {
-  height: 100%;
 }
 @keyframes agent-drawer-in {
   from { opacity: 0; transform: translateX(12px); }
@@ -4068,199 +3910,6 @@ async function toggleDescriptionFullscreen() {
   font-weight: var(--font-weight-medium);
   text-align: right;
   font-variant-numeric: tabular-nums;
-}
-
-.agent-status-panel {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-}
-.agent-status-panel--active {
-  height: 420px;
-}
-.agent-status-panel .linear-section-head {
-  padding: 0;
-  flex: 0 0 auto;
-}
-.agent-submit-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-full);
-  color: var(--color-text-primary);
-  background: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-}
-.agent-submit-button:hover:not(:disabled) {
-  color: var(--color-bg-base);
-  background: var(--color-text-primary);
-}
-.agent-submit-button--stop {
-  color: var(--color-danger);
-  background: color-mix(in srgb, var(--color-danger) 10%, var(--color-bg-base));
-}
-.agent-submit-button--stop:hover:not(:disabled) {
-  color: var(--color-bg-base);
-  background: var(--color-danger);
-}
-.agent-submit-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-.agent-submit-button:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 3px;
-}
-.agent-submit-button svg {
-  width: 18px;
-  height: 18px;
-}
-.agent-turn-composer {
-  flex: 0 0 auto;
-  margin-top: 12px;
-  padding: 12px 14px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 20px;
-  background: var(--color-bg-base);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  transition: border-color 140ms ease, box-shadow 140ms ease;
-}
-.agent-turn-composer:focus-within {
-  border-color: var(--color-border-strong);
-}
-.agent-turn-input {
-  display: block;
-  width: 100%;
-  height: 72px;
-  min-height: 72px;
-  resize: none;
-  padding: 2px 1px 8px;
-  border: 0;
-  color: var(--color-text-primary);
-  background: transparent;
-  font: inherit;
-  font-size: var(--font-size-body);
-  line-height: 1.55;
-  box-sizing: border-box;
-}
-.agent-turn-input::placeholder {
-  color: var(--color-text-tertiary);
-}
-.agent-turn-input:focus {
-  outline: none;
-}
-.agent-turn-input:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-.agent-turn-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 36px;
-  padding-top: 0;
-}
-.agent-turn-hint {
-  display: inline-flex;
-  align-items: center;
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
-  white-space: nowrap;
-}
-/* 输入框与底部操作栏共享外层边界，发送按钮在执行中切换为停止操作。 */
-.agent-stop-spinner {
-  animation: linear-attachment-upload-spin 1s linear infinite;
-}
-.agent-conversation {
-  min-height: 0;
-  flex: 1 1 auto;
-  overflow-y: auto;
-  padding: 12px 2px 16px;
-  scrollbar-gutter: stable;
-}
-.agent-message {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-width: 88%;
-  margin-bottom: 14px;
-}
-.agent-message--user {
-  align-items: flex-end;
-  margin-left: auto;
-}
-.agent-message--assistant {
-  align-items: flex-start;
-  margin-right: auto;
-}
-.agent-message__author {
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-caption);
-}
-.agent-message__content {
-  padding: 9px 12px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  background: var(--color-bg-muted);
-  font-size: var(--font-size-body);
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.agent-message--user .agent-message__content {
-  border-color: var(--color-accent-muted);
-  color: var(--color-text-primary);
-  background: var(--color-bg-hover);
-}
-.agent-message__content--pending {
-  color: var(--color-text-secondary);
-  font-style: italic;
-}
-.agent-event-area {
-  min-height: 0;
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  margin-top: 10px;
-  overflow: hidden;
-  border-top: 1px solid var(--color-border-subtle);
-}
-.agent-events-copy {
-  padding: 8px 0 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
-}
-.agent-events-copy--error {
-  color: var(--color-danger);
-}
-.agent-live-activity {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding-top: 8px;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-caption);
-}
-.agent-live-activity__spinner {
-  flex: 0 0 auto;
-  color: var(--color-accent);
-  animation: linear-attachment-upload-spin 1s linear infinite;
 }
 
 @media (max-width: 1100px) {

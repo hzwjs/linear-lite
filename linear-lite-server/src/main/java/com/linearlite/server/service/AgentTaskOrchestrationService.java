@@ -98,10 +98,10 @@ public class AgentTaskOrchestrationService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public AgentJobClaimResponse claim(Long ownerUserId) {
+    public AgentJobClaimResponse claim(Long ownerUserId, String executionId) {
         // 领取查询在数据库层绑定负责人，避免某个 Bridge 先拿到其他负责人的 Job 再取消它。
         // Job 时间由 Java 统一写入，领取比较也使用同一时钟，避免数据库 UTC 与应用本地时区造成 8 小时漂移。
-        AgentTaskJob job = jobMapper.selectClaimableForOwner(ownerUserId, LocalDateTime.now());
+        AgentTaskJob job = jobMapper.selectClaimableForExecution(ownerUserId, executionId, LocalDateTime.now());
         if (job == null) {
             return null;
         }
@@ -135,7 +135,7 @@ public class AgentTaskOrchestrationService {
         // 领取响应只携带项目身份，Bridge 根据 projectId 在本地完成仓库映射；sessionId 不承载路径语义。
         session.setStatus("running");
         sessionMapper.updateById(session);
-        return new AgentJobClaimResponse(job.getId(), session.getExecutionId(), session.getId(),
+        return new AgentJobClaimResponse(job.getId(), session.getExecutionId(), session.getId(), session.getSessionId(),
                 project.getId(), project.getName(), task.getTaskKey(), task.getTitle(), task.getDescription(),
                 job.getSourceType(), job.getSourceCommentId(), prompt, leaseUntil);
     }

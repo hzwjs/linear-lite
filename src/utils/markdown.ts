@@ -39,8 +39,17 @@ const ALLOWED_TAGS = [
   'h1',
   'h2',
   'h3',
+  'h4',
+  'h5',
+  'h6',
   'blockquote',
   'hr',
+  'table',
+  'thead',
+  'tbody',
+  'tr',
+  'th',
+  'td',
   /** Turndown / 评论中的 `![](url)` */
   'img',
   /** ```mermaid``` 经自定义 renderer 输出，供 mermaid.run 消费 */

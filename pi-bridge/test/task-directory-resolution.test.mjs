@@ -4,17 +4,24 @@ import { mkdtemp, mkdir, rm, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ProjectConfigStore } from '../src/workspace-config.mjs'
-import { buildPiArgs, resolveTaskDirectory } from '../src/index.mjs'
+import { buildPiArgs, getPiSessionDirectory, resolveTaskDirectory } from '../src/index.mjs'
 
 test('Pi RPC keeps the same skills, extensions and context as an interactive terminal', () => {
-  const args = buildPiArgs({ executionId: 'execution-1' }, '/tmp/pi-session')
+  const args = buildPiArgs({ piSessionId: 'pi-session-1' }, '/tmp/pi-session')
 
   assert.deepEqual(args, [
     '--mode', 'rpc',
     '--session-dir', '/tmp/pi-session',
-    '--session-id', 'execution-1',
+    '--session-id', 'pi-session-1',
   ])
   assert.equal(args.some((arg) => arg.startsWith('--no-')), false)
+})
+
+test('Pi sessions use the default project directory scanned by Resume Session', () => {
+  assert.equal(
+    getPiSessionDirectory('/Users/huangzhiwen/Documents/work/02code/product/linear-lite-1', '/tmp/pi-agent'),
+    '/tmp/pi-agent/sessions/--Users-huangzhiwen-Documents-work-02code-product-linear-lite-1--',
+  )
 })
 
 test('task directory resolves directly from projectId mapping without Git', async () => {
