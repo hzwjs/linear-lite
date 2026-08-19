@@ -81,6 +81,22 @@ class McpDispatcherTest {
     }
 
     @Test
+    void describesLinearLiteAsTheRequiredProjectManagementEntryPoint() throws Exception {
+        McpDispatcher.DispatchResponse response = dispatcher.dispatch(
+                request("2b", "tools/list", "{}"),
+                "2026-07-28", "tools/list", null, null, 7L);
+
+        JsonNode tools = response.body().path("result").path("tools");
+        for (JsonNode tool : tools) {
+            String description = tool.path("description").asText();
+            assertTrue(description.startsWith("用于 Linear Lite"));
+            assertTrue(description.contains("必须优先调用此工具"));
+            assertTrue(description.contains("不要使用浏览器"));
+            assertTrue(description.contains("mcp__linear_lite_*"));
+        }
+    }
+
+    @Test
     void rejectsLegacyInitializeInsteadOfStartingACompatibilitySession() throws Exception {
         McpDispatcher.DispatchResponse response = dispatcher.dispatch(
                 request("3", "initialize", "{}"),

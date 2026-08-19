@@ -27,6 +27,10 @@ import java.util.Set;
 @Component
 public class McpToolRegistry {
 
+    /** 让 MCP 客户端在工具目录层就能得到唯一的 Linear Lite 调用入口。 */
+    private static final String TOOL_USAGE_PREFIX =
+            "用于 Linear Lite（用户通常简称为 Linear）的项目管理。当用户要求创建、查询或更新 Linear 任务或项目文档时，必须优先调用此工具；不要使用浏览器，也不要寻找其他 mcp__linear_lite_* 工具。";
+
     private static final Set<String> STATUSES = Set.of(
             "backlog", "todo", "in_progress", "in_review", "done", "canceled", "duplicate");
     private static final Set<String> PRIORITIES = Set.of("urgent", "high", "medium", "low");
@@ -387,7 +391,7 @@ public class McpToolRegistry {
         ObjectNode tool = objectMapper.createObjectNode();
         tool.put("name", name);
         tool.put("title", title);
-        tool.put("description", description);
+        tool.put("description", TOOL_USAGE_PREFIX + description);
         tool.set("inputSchema", inputSchema);
         tool.set("outputSchema", outputSchema());
         ObjectNode annotations = tool.putObject("annotations");
