@@ -23,6 +23,8 @@ const props = defineProps<{
   preparing: boolean
   submitting: boolean
   canceling: boolean
+  stalled: boolean
+  reconnecting: boolean
   prompt: string
   error: string
 }>()
@@ -30,6 +32,7 @@ const emit = defineEmits<{
   'update:prompt': [value: string]
   submit: []
   stop: []
+  reconnect: []
 }>()
 
 const state = reactive(createAgentConversationState())
@@ -136,6 +139,21 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="pi-conversation-panel">
+    <div v-if="stalled" class="pi-conversation-recovery" role="alert">
+      <div class="pi-conversation-recovery__copy">
+        <strong>本轮执行已中断</strong>
+        <span>Bridge 租约已过期，重新连接后可以再次提交指令。</span>
+      </div>
+      <button
+        type="button"
+        class="pi-conversation-recovery__button"
+        :disabled="reconnecting"
+        :aria-busy="reconnecting"
+        @click="emit('reconnect')"
+      >
+        {{ reconnecting ? '连接中…' : '重新连接 Bridge' }}
+      </button>
+    </div>
     <PiConversationViewport
       :blocks="blocks"
       :preparing="preparing || snapshotLoading"
@@ -165,4 +183,39 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow: hidden;
 }
+.pi-conversation-recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 28%, var(--color-border));
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-danger) 5%, var(--color-bg-base));
+}
+.pi-conversation-recovery__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--font-size-caption);
+  line-height: 1.45;
+}
+.pi-conversation-recovery__copy strong { color: var(--color-danger); }
+.pi-conversation-recovery__button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  background: var(--color-bg-base);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--font-size-caption);
+}
+.pi-conversation-recovery__button:hover:not(:disabled) { background: var(--color-bg-hover); }
+.pi-conversation-recovery__button:disabled { cursor: wait; opacity: 0.6; }
+.pi-conversation-recovery__button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 </style>

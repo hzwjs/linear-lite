@@ -30,6 +30,8 @@ import java.util.UUID;
 /** 任务自动化编排的唯一写入口，保证 assignment/comment 都落到同一 execution_id。 */
 @Service
 public class AgentTaskOrchestrationService {
+    private static final String STALLED_JOB_ERROR = "本地 Pi 执行连接已中断，Bridge 租约已过期，请重新连接后重试";
+
     private final TaskMapper taskMapper;
     private final ProjectMapper projectMapper;
     private final ProjectMemberMapper projectMemberMapper;
@@ -70,7 +72,7 @@ public class AgentTaskOrchestrationService {
             session.setStatus("waiting_input");
             sessionMapper.insert(session);
         }
-        return taskStatus(session, currentTurnJob(session.getId()));
+        return taskStatus(session, reconcileExpiredJob(session, currentTurnJob(session.getId())));
     }
 
     /** 负责人提交一轮补充内容后才创建 queued Job；普通评论不会走此入口。 */
@@ -94,6 +96,8 @@ public class AgentTaskOrchestrationService {
             }
             return taskStatus(session, existing);
         }
+        // Bridge 失联后租约不会再续期；提交新一轮前先收敛旧 Job，避免 session 永久卡在 running。
+        reconcileExpiredJob(session, currentTurnJob(session.getId()));
         if (!"waiting_input".equals(session.getStatus())) {
             throw new ConflictOperationException("当前本地 Pi 正在执行，请等待本轮完成");
         }
@@ -269,7 +273,7 @@ public class AgentTaskOrchestrationService {
                     .last("LIMIT 1"));
         }
         if (session == null) return new AgentTaskStatusResponse(null, null, null, null, null, null, null, false);
-        AgentTaskJob job = currentTurnJob(session.getId());
+        AgentTaskJob job = reconcileExpiredJob(session, currentTurnJob(session.getId()));
         return new AgentTaskStatusResponse(session.getExecutionId(), job == null ? null : job.getId(), session.getStatus(),
                 job == null ? null : job.getStatus(), job == null ? null : job.getSourceType(),
                 job == null ? null : job.getErrorMessage(), session.getUpdatedAt(), jobMapper.existsTurn(session.getId()));
@@ -325,9 +329,26 @@ public class AgentTaskOrchestrationService {
         return jobMapper.selectOne(new LambdaQueryWrapper<AgentTaskJob>()
                 .eq(AgentTaskJob::getSessionId, sessionId)
                 .eq(AgentTaskJob::getSourceType, "turn")
-                .in(AgentTaskJob::getStatus, "queued", "leased", "running")
+                .in(AgentTaskJob::getStatus, "queued", "leased", "running", "stalled")
                 .orderByDesc(AgentTaskJob::getCreatedAt, AgentTaskJob::getId)
                 .last("LIMIT 1"));
+    }
+
+    private AgentTaskJob reconcileExpiredJob(AgentTaskSession session, AgentTaskJob job) {
+        if (job == null || job.getLeaseUntil() == null
+                || !job.getLeaseUntil().isBefore(LocalDateTime.now())
+                || !List.of("queued", "leased", "running").contains(job.getStatus())) {
+            return job;
+        }
+        // 租约过期是 Bridge 已失去执行能力的确定信号；持久化 stalled 让前端和下一轮提交都能看到同一终态。
+        job.setStatus("stalled");
+        job.setLeaseUntil(null);
+        job.setFinishedAt(LocalDateTime.now());
+        job.setErrorMessage(STALLED_JOB_ERROR);
+        jobMapper.updateById(job);
+        session.setStatus("waiting_input");
+        sessionMapper.updateById(session);
+        return job;
     }
 
     private AgentTaskStatusResponse taskStatus(AgentTaskSession session, AgentTaskJob job) {

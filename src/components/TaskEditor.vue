@@ -178,6 +178,15 @@ let agentBridgeReconnectInFlight = false
 let agentStatusRefreshTimer: ReturnType<typeof setInterval> | null = null
 let agentStatusRefreshInFlight = false
 const cancellableAgentJobStatuses = new Set(['queued', 'leased', 'running'])
+const agentStatusError = computed(() => {
+  const status = agentStatus.value
+  if (!status?.errorMessage) return ''
+  if (status.jobStatus === 'stalled') return status.errorMessage
+  if (status.jobStatus === 'failed') return `本地 Pi 执行失败：${status.errorMessage}`
+  return ''
+})
+const agentExecutionError = computed(() => agentEventsError.value || agentStatusError.value)
+const agentExecutionStalled = computed(() => agentStatus.value?.jobStatus === 'stalled')
 const isAgentExecutionActive = computed(() => {
   const status = agentStatus.value
   return Boolean(status?.executionId && status.jobStatus && cancellableAgentJobStatuses.has(status.jobStatus))
@@ -746,6 +755,11 @@ async function cancelAgentExecution() {
   } finally {
     agentCanceling.value = false
   }
+}
+
+async function reconnectStalledAgent() {
+  if (!agentExecutionStalled.value || agentPreparing.value) return
+  await prepareLocalPi()
 }
 
 async function submitComment(payload: CommentSubmitPayload) {
@@ -2358,11 +2372,14 @@ async function toggleDescriptionFullscreen() {
           :preparing="agentPreparing || agentStatusLoading"
           :submitting="agentSubmitting"
           :canceling="agentCanceling"
+          :stalled="agentExecutionStalled"
+          :reconnecting="agentPreparing"
           :prompt="agentPrompt"
-          :error="agentEventsError"
+          :error="agentExecutionStalled ? agentEventsError : agentExecutionError"
           @update:prompt="agentPrompt = $event"
           @submit="submitLocalPiTurn"
           @stop="cancelAgentExecution"
+          @reconnect="reconnectStalledAgent"
         />
       </aside>
       </Teleport>

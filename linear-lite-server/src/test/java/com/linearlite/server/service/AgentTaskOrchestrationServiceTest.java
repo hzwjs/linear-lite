@@ -262,6 +262,38 @@ class AgentTaskOrchestrationServiceTest {
     }
 
     @Test
+    void convertsExpiredRunningJobIntoVisibleStalledState() {
+        Task task = new Task();
+        task.setId(10L);
+        task.setAssigneeId(7L);
+        when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-1026", 7L)).thenReturn(task);
+
+        AgentTaskSession session = new AgentTaskSession();
+        session.setId(20L);
+        session.setTaskId(10L);
+        session.setExecutionId("exec-stalled");
+        session.setStatus("running");
+        when(sessionMapper.selectOne(any())).thenReturn(session);
+
+        AgentTaskJob job = new AgentTaskJob();
+        job.setId(43L);
+        job.setSessionId(20L);
+        job.setStatus("running");
+        job.setSourceType("turn");
+        job.setLeaseUntil(LocalDateTime.now().minusMinutes(1));
+        when(jobMapper.selectOne(any())).thenReturn(job);
+
+        AgentTaskStatusResponse status = service.getTaskStatus("LINEAR-LITE-1026", 7L);
+
+        assertEquals(43L, status.jobId());
+        assertEquals("stalled", status.jobStatus());
+        assertEquals("waiting_input", status.sessionStatus());
+        assertEquals("本地 Pi 执行连接已中断，Bridge 租约已过期，请重新连接后重试", status.errorMessage());
+        verify(jobMapper).updateById(job);
+        verify(sessionMapper).updateById(session);
+    }
+
+    @Test
     void updatesOpaqueSessionIdWithoutAcceptingALocalPath() {
         AgentTaskSession session = new AgentTaskSession();
         session.setExecutionId("exec-1");
