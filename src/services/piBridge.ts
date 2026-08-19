@@ -34,6 +34,16 @@ export async function isPiBridgeAvailable(): Promise<boolean> {
   return body?.configured === true && ['connecting', 'online', 'degraded', 'waiting_for_browser'].includes(body.status ?? '')
 }
 
+/** Browser and Bridge must use the same backend, including the Vite proxy in development. */
+export function resolvePiBridgeApiBaseUrl(
+  configuredApiBaseUrl: string | undefined = import.meta.env.VITE_API_BASE_URL,
+  pageUrl: string = window.location.href,
+): string {
+  const configuredUrl = new URL(configuredApiBaseUrl ?? '/api', pageUrl)
+  const path = configuredUrl.pathname.replace(/\/api\/?$/, '')
+  return `${configuredUrl.origin}${path}`.replace(/\/$/, '')
+}
+
 export async function attachPiBridge(attachmentCode: string): Promise<void> {
   const controller = new AbortController()
   const timeoutId = window.setTimeout(() => controller.abort(), PI_BRIDGE_HEALTH_TIMEOUT_MS)
@@ -41,7 +51,10 @@ export async function attachPiBridge(attachmentCode: string): Promise<void> {
     const response = await fetch(PI_BRIDGE_ATTACH_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ attachmentCode }),
+      body: JSON.stringify({
+        attachmentCode,
+        apiBaseUrl: resolvePiBridgeApiBaseUrl(),
+      }),
       signal: controller.signal,
     })
     const body = await response.json().catch(() => null)

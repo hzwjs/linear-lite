@@ -71,18 +71,13 @@ const CONFIG_PAGE = `<!doctype html>
     <header>
       <div class="eyebrow">Pi Bridge / Local setup</div>
       <h1>Pi Bridge 配置</h1>
-      <p>完成两步配置：先连接 Linear Lite，再把需要本地执行的项目绑定到本地目录。</p>
+      <p>Linear Lite 地址由当前任务页面在本机执行绑定时自动确定；这里仅维护项目到本地目录的映射。</p>
     </header>
     <section class="panel">
       <div class="section-heading">
-        <div><div class="step">Step 1</div><h2>连接 Linear Lite</h2><p>Bridge 用这组连接读取任务并回报 Pi 的执行状态。</p></div>
-        <span id="connection-badge" class="status-chip">未连接</span>
+        <div><div class="step">Runtime</div><h2>页面绑定状态</h2><p>打开 Linear Lite 任务的本地 Pi 面板后，Bridge 会自动使用该页面对应的后端。</p></div>
+        <span id="connection-badge" class="status-chip">等待页面绑定</span>
       </div>
-      <form id="settings-form" class="connection-form">
-        <label>Linear Lite 地址<input name="apiBaseUrl" type="url" required placeholder="例如 http://127.0.0.1:9080"></label>
-        <button type="submit">保存连接</button>
-      </form>
-      <p class="form-hint">Bridge 通过任务详情中的本机执行面板自动建立连接，不需要配置或复制凭证。</p>
       <div id="connection-status" class="connection-status" role="status" aria-live="polite"></div>
     </section>
     <section class="panel" id="mapping-panel">
@@ -95,7 +90,7 @@ const CONFIG_PAGE = `<!doctype html>
           <p id="editor-title" class="editor-title">添加项目绑定</p>
           <p class="editor-hint">只显示当前登录用户可访问的项目。</p>
           <form id="mapping-form" class="mapping-form">
-            <label>Linear Lite 项目<select name="projectId" required><option value="">请先连接 Linear Lite</option></select></label>
+            <label>Linear Lite 项目<select name="projectId" required><option value="">等待页面绑定</option></select></label>
             <label>本地目录绝对路径<input name="directoryPath" required placeholder="例如 /Users/me/code/linear-lite"></label>
             <div class="editor-actions"><button type="submit">保存绑定</button><button id="cancel-mapping" class="text" type="button">取消</button></div>
           </form>
@@ -103,13 +98,12 @@ const CONFIG_PAGE = `<!doctype html>
         </div>
         <div class="mapping-list">
           <div class="list-heading"><span>当前绑定</span><button class="text" id="refresh" type="button">刷新</button></div>
-          <div id="mappings"><div class="empty">连接 Linear Lite 后读取项目绑定。</div></div>
+          <div id="mappings"><div class="empty">等待页面绑定后读取项目列表。</div></div>
         </div>
       </div>
     </section>
   </main>
   <script>
-    const settingsForm = document.querySelector('#settings-form')
     const form = document.querySelector('#mapping-form')
     const mappingArea = document.querySelector('#mapping-area')
     const mappingEditor = document.querySelector('#mapping-editor')
@@ -122,7 +116,7 @@ const CONFIG_PAGE = `<!doctype html>
     const connectionBadge = document.querySelector('#connection-badge')
     const connectionStatus = document.querySelector('#connection-status')
     const mappings = document.querySelector('#mappings')
-    const state = { settingsConfigured: false, availableProjects: [], mappings: [], editingProjectId: null }
+    const state = { settingsConfigured: true, availableProjects: [], mappings: [], editingProjectId: null }
     const showMessage = (text, error = false) => { message.textContent = text; message.className = error ? 'error' : ''; message.setAttribute('role', error ? 'alert' : 'status') }
     const showConnectionStatus = (text, ready = false) => { connectionStatus.textContent = text; connectionStatus.className = ready ? 'connection-status ready' : 'connection-status' }
     const healthMessage = (health) => {
@@ -130,14 +124,14 @@ const CONFIG_PAGE = `<!doctype html>
       if (health.status === 'connecting' || health.status === 'degraded') return ['Bridge 正在重连 Linear Lite…', false]
       if (health.status === 'waiting_for_browser') return ['等待任务详情建立本机执行连接。', false]
       if (health.status === 'stopping') return ['Bridge 正在停止。', false]
-      return ['请先保存 Linear Lite 连接。', false]
+      return ['等待任务详情建立本机执行连接。', false]
     }
-    const setConnectionState = (configured) => {
-      state.settingsConfigured = configured
-      connectionBadge.textContent = configured ? '已连接' : '未连接'
-      connectionBadge.className = configured ? 'status-chip ready' : 'status-chip'
-      mappingArea.setAttribute('aria-disabled', configured ? 'false' : 'true')
-      newMappingButton.disabled = !configured
+    const setConnectionState = () => {
+      state.settingsConfigured = true
+      connectionBadge.textContent = '页面自动绑定'
+      connectionBadge.className = 'status-chip ready'
+      mappingArea.setAttribute('aria-disabled', 'false')
+      newMappingButton.disabled = false
     }
     const node = (tag, text, className) => { const item = document.createElement(tag); item.textContent = text; if (className) item.className = className; return item }
     function resetEditor() {
@@ -156,11 +150,10 @@ const CONFIG_PAGE = `<!doctype html>
       projectSelect.replaceChildren(new Option(projects.length ? '请选择项目' : '没有可绑定的项目', ''))
       for (const project of projects) projectSelect.append(new Option(project.projectName, project.projectId))
       if (current && projects.some((project) => String(project.projectId) === current)) projectSelect.value = current
-      projectSelect.disabled = !state.settingsConfigured || !projects.length || state.editingProjectId != null
+      projectSelect.disabled = !projects.length || state.editingProjectId != null
     }
     function renderMappings() {
       mappings.replaceChildren()
-      if (!state.settingsConfigured) { mappings.append(node('div', '请先完成 Step 1，连接 Linear Lite。', 'empty')); return }
       if (!state.mappings.length) { mappings.append(node('div', '还没有项目绑定，点击“添加项目绑定”开始。', 'empty')); return }
       for (const item of state.mappings) {
         const row = node('div', '', 'mapping')
@@ -197,9 +190,8 @@ const CONFIG_PAGE = `<!doctype html>
       const response = await fetch('/api/settings')
       const body = await response.json()
       if (!response.ok) throw new Error(body.message || '读取连接配置失败')
-      settingsForm.elements.apiBaseUrl.value = body.apiBaseUrl
-      setConnectionState(body.configured)
-      showConnectionStatus(body.configured ? '正在检查 Bridge 连接…' : '请先保存 Linear Lite 连接。')
+      setConnectionState()
+      showConnectionStatus('正在检查页面绑定状态…')
       renderProjectOptions(); renderMappings()
     }
     async function loadBridgeHealth() {
@@ -210,7 +202,6 @@ const CONFIG_PAGE = `<!doctype html>
       showConnectionStatus(messageText, ready)
     }
     async function loadAvailableProjects() {
-      if (!state.settingsConfigured) { state.availableProjects = []; renderProjectOptions(); return }
       const response = await fetch('/api/available-projects')
       const body = await response.json()
       if (!response.ok) throw new Error(body.message || '读取 Linear Lite 项目失败')
@@ -225,7 +216,6 @@ const CONFIG_PAGE = `<!doctype html>
       renderProjectOptions(); renderMappings()
     }
     async function refreshProjectData() {
-      if (!state.settingsConfigured) return
       try { await Promise.all([loadAvailableProjects(), loadMappings()]); showMessage('') }
       catch (error) { showMessage(error.message, true); renderMappings() }
     }
@@ -240,26 +230,8 @@ const CONFIG_PAGE = `<!doctype html>
       } else resetEditor()
     })
     cancelMappingButton.addEventListener('click', resetEditor)
-    settingsForm.addEventListener('submit', async (event) => {
-      event.preventDefault()
-      const submitButton = settingsForm.querySelector('button[type="submit"]')
-      submitButton.disabled = true
-      showConnectionStatus('正在连接 Linear Lite…')
-      const data = new FormData(settingsForm)
-      try {
-        const response = await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiBaseUrl: data.get('apiBaseUrl').trim() }) })
-        const body = await response.json()
-        if (!response.ok) throw new Error(body.message || '保存连接配置失败')
-        setConnectionState(true)
-        showConnectionStatus('正在读取可绑定项目…')
-        await refreshProjectData()
-        await loadBridgeHealth()
-      } catch (error) { setConnectionState(false); showConnectionStatus(error.message); showMessage(error.message, true) }
-      finally { submitButton.disabled = false }
-    })
     form.addEventListener('submit', async (event) => {
       event.preventDefault()
-      if (!state.settingsConfigured) { showMessage('请先完成 Step 1，连接 Linear Lite。', true); return }
       const submitButton = form.querySelector('button[type="submit"]')
       submitButton.disabled = true
       showMessage('正在校验本地目录…')
@@ -286,7 +258,7 @@ const CONFIG_PAGE = `<!doctype html>
     })
     async function initialize() {
       try { await loadSettings(); await refreshProjectData(); await loadBridgeHealth() }
-      catch (error) { setConnectionState(false); showConnectionStatus(error.message); showMessage(error.message, true) }
+      catch (error) { showConnectionStatus(error.message); showMessage(error.message, true) }
     }
     initialize()
   </script>
@@ -295,16 +267,18 @@ const CONFIG_PAGE = `<!doctype html>
 
 function sendJson(response, status, body, request) {
   const origin = request?.headers.origin
+  const requestPath = new URL(request?.url ?? '/', 'http://127.0.0.1').pathname
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
   }
-  // Pi 选择器运行在 Linear Lite 页面中；只允许本机开发来源和当前部署来源访问健康检查。
+  // 健康检查和一次性 attach 需要支持当前页面来源；项目目录接口仍只允许本机或显式部署来源。
   const allowedOrigins = new Set([
     'http://124.223.84.101:9080',
     ...(process.env.PI_BRIDGE_ALLOWED_ORIGIN ? [process.env.PI_BRIDGE_ALLOWED_ORIGIN] : []),
   ])
-  if (origin && (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) || allowedOrigins.has(origin))) {
+  const publicRuntimeEndpoint = requestPath === '/healthz' || requestPath === '/api/attach'
+  if (origin && (publicRuntimeEndpoint || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) || allowedOrigins.has(origin))) {
     headers['Access-Control-Allow-Origin'] = origin
     headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
     headers['Access-Control-Allow-Headers'] = 'Content-Type'
@@ -326,7 +300,7 @@ function readBody(request) {
   })
 }
 
-export function createConfigServer({ store, settingsStore, projectProvider, onSettingsSaved = () => {}, onAttach = null, healthProvider, host = '127.0.0.1', port = 9780 } = {}) {
+export function createConfigServer({ store, settingsStore, projectProvider, onAttach = null, healthProvider, host = '127.0.0.1', port = 9780 } = {}) {
   if (!store) throw new Error('ProjectConfigStore is required')
   if (!settingsStore) throw new Error('BridgeSettingsStore is required')
   if (!projectProvider) throw new Error('projectProvider is required')
@@ -351,19 +325,11 @@ export function createConfigServer({ store, settingsStore, projectProvider, onSe
         sendJson(response, 200, await settingsStore.publicSettings())
         return
       }
-      if (request.method === 'PUT' && url.pathname === '/api/settings') {
-        let body
-        try { body = JSON.parse(await readBody(request) || '{}') } catch { throw new Error('请求体不是有效 JSON') }
-        await settingsStore.save(body.apiBaseUrl)
-        await onSettingsSaved()
-        sendJson(response, 200, await settingsStore.publicSettings())
-        return
-      }
       if (request.method === 'POST' && url.pathname === '/api/attach') {
         if (!onAttach) throw new Error('本机执行绑定暂不可用')
         let body
         try { body = JSON.parse(await readBody(request) || '{}') } catch { throw new Error('请求体不是有效 JSON') }
-        sendJson(response, 200, await onAttach(body.attachmentCode), request)
+        sendJson(response, 200, await onAttach(body), request)
         return
       }
       if (request.method === 'GET' && url.pathname === '/api/projects') {

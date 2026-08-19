@@ -99,6 +99,29 @@ test('invalid execution attachment is discarded so the next panel attach can rec
   assert.equal(attachment.value, '')
 })
 
+test('late failure from an old attachment does not discard a newer attachment', async () => {
+  const attachment = attachmentStore()
+  let configurationRequired = 0
+  const api = createApiClient({
+    settingsStore: settingsStore(),
+    attachmentStore: attachment,
+    fetchImpl: async (_url, options) => {
+      attachment.value = 'new-execution-attachment'
+      return new Response(JSON.stringify({ code: 401, message: 'old attachment expired' }), { status: 401 })
+    },
+    onConfigurationRequired: (failedToken) => {
+      configurationRequired += 1
+      if (failedToken === attachment.value) attachment.value = ''
+    },
+    retryDelayMs: 0,
+    sleepImpl: async () => {},
+  })
+
+  await assert.rejects(api('/api/bridge/jobs/claim', { method: 'POST' }), /old attachment expired/)
+  assert.equal(configurationRequired, 1)
+  assert.equal(attachment.value, 'new-execution-attachment')
+})
+
 test('recovering serial queue continues with later batches after an upload failure', async () => {
   const queue = createRecoveringSerialQueue()
   const calls = []

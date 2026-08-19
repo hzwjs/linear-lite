@@ -64,7 +64,11 @@ test('local HTTP page reads, validates, saves and removes mappings', async () =>
       startedAt: '2026-08-17T00:00:00.000Z',
       lastConnectedAt: '2026-08-17T00:00:01.000Z',
     }),
-    onAttach: async (attachmentCode) => ({ attachmentToken: `token-for-${attachmentCode}` }),
+    onAttach: async ({ attachmentCode, apiBaseUrl }) => {
+      assert.equal(attachmentCode, 'one-time-code')
+      assert.equal(apiBaseUrl, 'http://linear-lite.test')
+      return { attachmentToken: `token-for-${attachmentCode}` }
+    },
     port: 0,
   })
   const address = await configServer.listen()
@@ -75,23 +79,19 @@ test('local HTTP page reads, validates, saves and removes mappings', async () =>
     const pageText = await page.text()
     assert.match(pageText, /Pi Bridge 配置/)
     assert.doesNotMatch(pageText, /Bridge Credential/)
+    assert.match(pageText, /当前任务页面在本机执行绑定时自动确定/)
+    assert.doesNotMatch(pageText, /name="apiBaseUrl"/)
     assert.match(pageText, /Linear Lite 项目/)
     assert.match(pageText, /添加项目绑定/)
 
     const initialSettings = await fetch(`${baseUrl}/api/settings`)
-    assert.deepEqual(await initialSettings.json(), { apiBaseUrl: 'http://127.0.0.1:9080', configured: true })
+    assert.deepEqual(await initialSettings.json(), { configured: true })
 
-    const savedSettings = await fetch(`${baseUrl}/api/settings`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiBaseUrl: 'http://127.0.0.1:9080/' }),
-    })
-    assert.equal(savedSettings.status, 200)
-    assert.deepEqual(await savedSettings.json(), { apiBaseUrl: 'http://127.0.0.1:9080', configured: true })
-    assert.doesNotMatch(await readFile(join(root, 'settings.json'), 'utf8'), /credential/i)
+    const manualSettings = await fetch(`${baseUrl}/api/settings`, { method: 'PUT' })
+    assert.equal(manualSettings.status, 404)
 
     const health = await fetch(`${baseUrl}/healthz`, {
-      headers: { Origin: 'http://localhost:5173' },
+      headers: { Origin: 'https://linear.example.com' },
     })
     assert.equal(health.status, 200)
     assert.deepEqual(await health.json(), {
@@ -102,16 +102,16 @@ test('local HTTP page reads, validates, saves and removes mappings', async () =>
       startedAt: '2026-08-17T00:00:00.000Z',
       lastConnectedAt: '2026-08-17T00:00:01.000Z',
     })
-    assert.equal(health.headers.get('access-control-allow-origin'), 'http://localhost:5173')
+    assert.equal(health.headers.get('access-control-allow-origin'), 'https://linear.example.com')
 
     const attached = await fetch(`${baseUrl}/api/attach`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
-      body: JSON.stringify({ attachmentCode: 'one-time-code' }),
+      headers: { 'Content-Type': 'application/json', Origin: 'https://linear.example.com' },
+      body: JSON.stringify({ attachmentCode: 'one-time-code', apiBaseUrl: 'http://linear-lite.test' }),
     })
     assert.equal(attached.status, 200)
     assert.deepEqual(await attached.json(), { attachmentToken: 'token-for-one-time-code' })
-    assert.equal(attached.headers.get('access-control-allow-origin'), 'http://localhost:5173')
+    assert.equal(attached.headers.get('access-control-allow-origin'), 'https://linear.example.com')
 
     const preflight = await fetch(`${baseUrl}/api/attach`, {
       method: 'OPTIONS',

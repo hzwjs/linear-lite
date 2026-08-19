@@ -10,7 +10,7 @@ import {
 } from './event-stream.mjs'
 import { createConfigServer } from './config-server.mjs'
 import { ProjectConfigStore } from './workspace-config.mjs'
-import { BridgeSettingsStore } from './bridge-settings.mjs'
+import { BridgeSettingsStore, validateApiBaseUrl } from './bridge-settings.mjs'
 
 const config = {
   piBinary: process.env.PI_BINARY ?? 'pi',
@@ -96,7 +96,8 @@ export function createApiClient({
     let retryAttempt = 0
     while (true) {
       const settings = await store.read()
-      if (!attachmentStore.value) {
+      const requestAttachmentToken = attachmentStore.value
+      if (!requestAttachmentToken) {
         throw new Error('等待任务面板建立本机执行连接')
       }
       const controller = new AbortController()
@@ -110,7 +111,7 @@ export function createApiClient({
           ...options,
           headers: {
             'Content-Type': 'application/json',
-            'X-Execution-Attachment': attachmentStore.value,
+            'X-Execution-Attachment': requestAttachmentToken,
             ...(options.headers ?? {}),
           },
           signal: controller.signal,
@@ -120,7 +121,7 @@ export function createApiClient({
           const error = new Error(body?.message ?? `Linear Lite API ${response.status}`)
           error.status = response.status
           if (response.status >= 500) markRetryable(error)
-          if (response.status === 401 || response.status === 403) onConfigurationRequired()
+          if (response.status === 401 || response.status === 403) onConfigurationRequired(requestAttachmentToken)
           throw error
         }
         onOnline()
@@ -146,16 +147,20 @@ export function createApiClient({
 export const api = createApiClient({
   onOnline: () => setRuntimeStatus('online', true),
   onDegraded: () => setRuntimeStatus('degraded', false),
-  onConfigurationRequired: () => {
+  onConfigurationRequired: (failedAttachmentToken) => {
+    if (failedAttachmentToken && attachmentTokenStore.value !== failedAttachmentToken) return
     // 服务端重启或执行绑定过期后，丢弃旧 token；否则轮询会永久携带失效绑定，页面也无法触发自动重连。
     setExecutionAttachmentToken('')
     setRuntimeStatus('config_required', false)
   },
 })
 
-async function attachExecution(attachmentCode) {
-  const settings = await settingsStore.read()
-  const response = await fetch(`${settings.apiBaseUrl}/api/bridge/executions/attach`, {
+async function attachExecution({ attachmentCode, apiBaseUrl }) {
+  const targetApiBaseUrl = validateApiBaseUrl(apiBaseUrl)
+  // 页面绑定决定当前后端；旧 token 必须先失效，避免访问上一套 Linear Lite。
+  setExecutionAttachmentToken('')
+  await settingsStore.save(targetApiBaseUrl)
+  const response = await fetch(`${targetApiBaseUrl}/api/bridge/executions/attach`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ attachmentCode }),
@@ -609,14 +614,12 @@ export async function startBridge() {
     settingsStore,
     projectProvider: () => api('/api/bridge/projects'),
     onAttach: attachExecution,
-    onSettingsSaved: startPolling,
     healthProvider: getBridgeHealth,
     host: config.configHost,
     port: config.configPort,
   })
   const address = await configServer.listen()
   console.log(`[pi-bridge] 本地工作区配置页：http://${config.configHost}:${address.port}/`)
-  const settings = await settingsStore.read()
   setRuntimeStatus('waiting_for_browser', false)
   startPolling()
   let stopped = false

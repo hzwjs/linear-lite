@@ -699,14 +699,11 @@ function initializeAgentPrompt() {
 
 async function openAgentPanel() {
   if (!canPrepareLocalPi.value || agentPanelOpen.value) return
-  const alreadyMounted = agentPanelMounted.value
   agentPanelMounted.value = true
   agentPanelOpen.value = true
-  // 再次打开复用已挂载会话，避免每次都走 prepare + snapshot。
-  if (!alreadyMounted) {
-    await prepareLocalPi()
-    initializeAgentPrompt()
-  }
+  // 每次打开都重新建立一次短时绑定；Bridge 重启或服务端重启后，旧内存绑定不能继续读取 session。
+  await prepareLocalPi()
+  initializeAgentPrompt()
   startAgentBridgeReconnect()
   startAgentStatusRefresh()
 }

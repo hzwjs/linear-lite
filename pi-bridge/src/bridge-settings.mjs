@@ -2,8 +2,6 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { dirname, resolve } from 'node:path'
 
-const DEFAULT_API_BASE_URL = 'http://127.0.0.1:9080'
-
 export function validateApiBaseUrl(value) {
   if (typeof value !== 'string' || !value.trim()) throw new Error('Linear Lite 地址不能为空')
   let url
@@ -35,14 +33,13 @@ export class BridgeSettingsStore {
     try {
       return parseSettings(await readFile(this.filePath, 'utf8'), this.filePath)
     } catch (error) {
-      if (error?.code === 'ENOENT') return { apiBaseUrl: DEFAULT_API_BASE_URL }
+      if (error?.code === 'ENOENT') throw new Error(`Bridge 等待 Linear Lite 页面建立绑定：${this.filePath}`)
       throw error
     }
   }
 
   async publicSettings() {
-    const settings = await this.read()
-    return { apiBaseUrl: settings.apiBaseUrl, configured: true }
+    return { configured: true }
   }
 
   async save(apiBaseUrl) {

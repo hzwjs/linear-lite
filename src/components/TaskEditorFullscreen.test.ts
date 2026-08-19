@@ -22,4 +22,9 @@ describe('task editor description fullscreen mode', () => {
     expect(taskEditorSource).toContain(":min-height=\"isDescriptionFullscreen ? 520 : 96\"")
     expect(taskEditorSource).not.toContain("'editor-panel--fullscreen'")
   })
+
+  it('reattaches Pi Bridge whenever the execution panel is opened', () => {
+    expect(taskEditorSource).toContain('await prepareLocalPi()')
+    expect(taskEditorSource).not.toContain('if (!alreadyMounted) {\n    await prepareLocalPi()')
+  })
 })
