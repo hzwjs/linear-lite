@@ -31,7 +31,11 @@ public class TaskSequenceService {
                 throw new IllegalStateException("初始化项目任务序号失败: " + projectId);
             }
         }
-        long start = seq.getNextNumber();
+        // 任务导入或历史数据修复可能让序列表落后于 tasks，分配前以现存最大编号校正，避免重用已存在的 task_key。
+        Long maxTaskNumber = projectTaskSeqMapper.selectMaxTaskNumber(
+                projectId, identifier, identifier.length() + 2);
+        long minimumNext = (maxTaskNumber == null ? 0 : maxTaskNumber) + 1;
+        long start = Math.max(seq.getNextNumber(), minimumNext);
         projectTaskSeqMapper.updateNextNumber(projectId, start + amount);
         return start;
     }
