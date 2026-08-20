@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import type { RuntimeDisplayBlock, SessionSnapshot } from '../services/api/agent'
 import {
   applySessionSnapshot,
+  appendPendingAssistantMessage,
   appendPendingUserMessage,
+  clearRuntimeDisplayBlocks,
   conversationDisplayBlocks,
   createAgentConversationState,
   removePendingUserMessage,
@@ -140,6 +142,19 @@ describe('Agent conversation baseline and runtime overlay', () => {
     expect(conversationDisplayBlocks(state)).toHaveLength(2)
   })
 
+  it('clears unfinished runtime blocks when the execution leaves the active state', () => {
+    const state = createAgentConversationState()
+    resetAgentConversationState(state, 'exec-1')
+    upsertRuntimeDisplayBlock(state, runtime('assistant:runtime', 1, '未完成输出'))
+    upsertRuntimeDisplayBlock(state, runtimeTool('call-1', 1, '未完成工具'))
+
+    clearRuntimeDisplayBlocks(state)
+
+    expect(state.runtimeIds).toHaveLength(0)
+    expect(state.runtimeById.size).toBe(0)
+    expect(conversationDisplayBlocks(state)).toHaveLength(0)
+  })
+
   it('clears both layers only when execution changes and rejects a stale session snapshot', () => {
     const state = createAgentConversationState()
     resetAgentConversationState(state, 'exec-1')
@@ -174,6 +189,19 @@ describe('Agent conversation baseline and runtime overlay', () => {
 
     expect(state.pendingUserBlocks).toHaveLength(0)
     expect(conversationDisplayBlocks(state).map((block) => block.kind)).toEqual(['user', 'assistant'])
+  })
+
+  it('shows one assistant processing placeholder immediately and replaces it on runtime output', () => {
+    const state = createAgentConversationState()
+    resetAgentConversationState(state, 'exec-1')
+
+    expect(appendPendingAssistantMessage(state, 'exec-1')).toBe(true)
+    expect(appendPendingAssistantMessage(state, 'exec-1')).toBe(false)
+    expect(conversationDisplayBlocks(state).map((block) => block.content?.text))
+      .toEqual(['正在处理…'])
+
+    upsertRuntimeDisplayBlock(state, runtimeTool('call-1', 1, '执行中'))
+    expect(conversationDisplayBlocks(state).map((block) => block.blockId)).toEqual(['call-1'])
   })
 
   it('keeps a pending user message when a stale empty snapshot arrives after submit', () => {

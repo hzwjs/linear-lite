@@ -9,6 +9,7 @@ import PiUserMessage from './PiUserMessage.vue'
 const props = defineProps<{
   blocks: ConversationDisplayBlock[]
   preparing: boolean
+  waiting: boolean
   error: string
   streamError: string
 }>()
@@ -41,6 +42,10 @@ watch(revisionKey, async () => {
     <div v-if="preparing && !visibleBlocks.length" class="pi-conversation-preparing">
       <Loader2 aria-hidden="true" />
       <span>正在读取 Pi session…</span>
+    </div>
+    <div v-else-if="waiting" class="pi-conversation-preparing" role="status">
+      <Loader2 aria-hidden="true" />
+      <span>正在等待 Agent 响应…</span>
     </div>
     <div v-for="block in visibleBlocks" :key="block.blockId" class="pi-conversation-block">
       <PiAssistantMessage v-if="block.kind === 'assistant'" :block="block" />

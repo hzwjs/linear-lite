@@ -4,7 +4,10 @@ import { agentApi } from '../../services/api/agent'
 import { toApiError } from '../../services/api'
 import {
   applySessionSnapshot,
+  appendPendingAssistantMessage,
   appendPendingUserMessage,
+  clearPendingAssistantMessage,
+  clearRuntimeDisplayBlocks,
   conversationDisplayBlocks,
   createAgentConversationState,
   removePendingUserMessage,
@@ -37,6 +40,8 @@ const emit = defineEmits<{
 
 const state = reactive(createAgentConversationState())
 const blocks = computed(() => conversationDisplayBlocks(state))
+const waitingForResponse = computed(() => props.active && state.runtimeIds.length === 0
+  && state.pendingAssistantBlock === null)
 const streamError = ref('')
 const sessionReadError = ref('')
 const snapshotLoading = ref(false)
@@ -103,6 +108,14 @@ function connectStream() {
 }
 
 watch(
+  () => props.active,
+  (active) => {
+    if (!active) clearRuntimeDisplayBlocks(state)
+  },
+  { immediate: true }
+)
+
+watch(
   () => [props.taskKey, props.executionId] as const,
   ([taskKey, executionId], previous) => {
     if (!previous || previous[0] !== taskKey || previous[1] !== executionId) {
@@ -117,7 +130,10 @@ watch(
   () => props.submitting,
   (submitting, wasSubmitting) => {
     if (wasSubmitting && !submitting && pendingSubmitBlockId) {
-      if (props.error) removePendingUserMessage(state, pendingSubmitBlockId)
+      if (props.error) {
+        removePendingUserMessage(state, pendingSubmitBlockId)
+        clearPendingAssistantMessage(state)
+      }
       pendingSubmitBlockId = null
     }
   }
@@ -127,6 +143,7 @@ function submitTurn() {
   const text = props.prompt.trim()
   if (text && props.executionId) {
     pendingSubmitBlockId = appendPendingUserMessage(state, props.executionId, text)
+    appendPendingAssistantMessage(state, props.executionId)
   }
   emit('submit')
 }
@@ -157,6 +174,7 @@ onBeforeUnmount(() => {
     <PiConversationViewport
       :blocks="blocks"
       :preparing="preparing || snapshotLoading"
+      :waiting="waitingForResponse"
       :error="error || sessionReadError"
       :stream-error="streamError"
     />
