@@ -12,9 +12,9 @@ spring:
       request-timeout: 30m
   servlet:
     multipart:
-      # 文档迁移包含约 27MB 的 PDF；HTTP 层上限与文档附件业务上限保持一致。
-      max-file-size: ${MULTIPART_MAX_FILE_SIZE:50MB}
-      max-request-size: ${MULTIPART_MAX_REQUEST_SIZE:50MB}
+      # 文档附件单文件上限为 2GiB；请求上限同步设置，避免 HTTP 层先于业务层拒绝上传。
+      max-file-size: ${MULTIPART_MAX_FILE_SIZE:2GB}
+      max-request-size: ${MULTIPART_MAX_REQUEST_SIZE:2GB}
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:linear_lite}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&connectionTimeZone=Asia/Shanghai&forceConnectionTimeZoneToSession=true&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:root}
@@ -80,7 +80,7 @@ app:
   public-base-url: ${APP_PUBLIC_BASE_URL:}
   storage:
     max-download-bytes: ${STORAGE_MAX_DOWNLOAD_BYTES:10485760}
-    document-attachment-max-bytes: ${DOCUMENT_ATTACHMENT_MAX_BYTES:52428800}
+    document-attachment-max-bytes: ${DOCUMENT_ATTACHMENT_MAX_BYTES:2147483648}
     r2:
       enabled: ${R2_ENABLED:false}
       endpoint: ${R2_ENDPOINT:}

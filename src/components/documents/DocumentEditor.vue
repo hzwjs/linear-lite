@@ -40,9 +40,19 @@ const bodyEditorRef = ref<InstanceType<typeof StructuredDocumentEditor> | null>(
 const moreMenuRef = ref<HTMLElement | null>(null)
 const documentPageRef = ref<HTMLElement | null>(null)
 const documentBodyRef = ref<HTMLElement | null>(null)
+const documentEditorSurfaceRef = ref<HTMLElement | null>(null)
 const attachmentDownloadError = ref('')
 const attachmentDownloadPending = ref(false)
 const attachmentDeletePending = new Set<number>()
+const attachmentImageStates = new Map<HTMLImageElement, 'loading' | 'error'>()
+const attachmentOverlays = ref<Array<{
+  key: string
+  type: 'delete' | 'image'
+  href?: string
+  attachmentId?: number
+  state?: 'loading' | 'error'
+  style: Record<string, string>
+}>>([])
 const relativeTimeClock = ref(Date.now())
 const attachmentImageObjectUrls = new Map<HTMLImageElement, string>()
 const pendingAttachmentImages = new WeakSet<HTMLImageElement>()
@@ -73,49 +83,50 @@ function onMoreMenuOutsideClick(event: MouseEvent) {
   moreOpen.value = false
 }
 
-function ensureDocumentAttachmentDeleteButtons() {
+// BlockNote owns the surface DOM; controls and image states are positioned in a sibling overlay.
+function syncAttachmentOverlays() {
   const body = documentBodyRef.value
-  if (body == null) return
+  const surface = documentEditorSurfaceRef.value
+  if (body == null || surface == null) return
+  const bodyRect = body.getBoundingClientRect()
+  const overlays: typeof attachmentOverlays.value = []
 
-  for (const button of body.querySelectorAll<HTMLButtonElement>('.document-attachment-delete')) {
-    const href = button.dataset.attachmentHref
-    const anchor = href == null
-      ? null
-      : Array.from(body.querySelectorAll<HTMLAnchorElement>('a[href]'))
-        .find((candidate) => candidate.getAttribute('href') === href) ?? null
-    const match = matchDocumentAttachmentPath(href ?? null)
-    if (anchor == null || match == null || Number(match[1]) !== props.document.id) {
-      button.remove()
-      button.parentElement?.classList.remove('document-attachment-host')
-    }
-  }
-
-  if (props.saveState === 'conflict') return
-  for (const anchor of body.querySelectorAll<HTMLAnchorElement>('a[href]')) {
+  if (props.saveState !== 'conflict') for (const anchor of surface.querySelectorAll<HTMLAnchorElement>('a[href]')) {
     const href = anchor.getAttribute('href')
     const match = matchDocumentAttachmentPath(href)
     if (match == null || Number(match[1]) !== props.document.id) continue
-    const host = anchor.parentElement
-    if (host == null) continue
-    host.classList.add('document-attachment-host')
-    let button = host.querySelector<HTMLButtonElement>(':scope > .document-attachment-delete')
-    if (button == null) {
-      button = window.document.createElement('button')
-      button.type = 'button'
-      button.className = 'document-attachment-delete'
-      button.contentEditable = 'false'
-      host.appendChild(button)
-    }
-    const attachmentHref = href ?? ''
-    const attachmentId = match[2]
-    const deleteLabel = t('documents.deleteAttachment')
-    if (button.dataset.attachmentHref !== attachmentHref) button.dataset.attachmentHref = attachmentHref
-    if (button.dataset.attachmentId !== attachmentId) button.dataset.attachmentId = attachmentId
-    const pending = attachmentDeletePending.has(Number(attachmentId))
-    if (button.disabled !== pending) button.disabled = pending
-    if (button.getAttribute('aria-label') !== deleteLabel) button.setAttribute('aria-label', deleteLabel)
-    if (button.title !== deleteLabel) button.title = deleteLabel
+    const rect = anchor.getBoundingClientRect()
+    overlays.push({
+      key: `delete-${href}`,
+      type: 'delete',
+      href: href ?? '',
+      attachmentId: Number(match[2]),
+      style: {
+        top: `${rect.top - bodyRect.top + (rect.height - 44) / 2}px`,
+        left: `${rect.right - bodyRect.left - 52}px`
+      }
+    })
   }
+
+  surface.querySelectorAll<HTMLImageElement>('img[src]').forEach((image, index) => {
+    const match = matchDocumentAttachmentPath(image.getAttribute('src'))
+    const state = attachmentImageStates.get(image)
+    if (match == null || Number(match[1]) !== props.document.id || state == null) return
+    const rect = image.getBoundingClientRect()
+    overlays.push({
+      key: `image-${match[2]}-${index}`,
+      type: 'image',
+      state,
+      style: {
+        top: `${rect.top - bodyRect.top}px`,
+        left: `${rect.left - bodyRect.left}px`,
+        width: `${Math.max(rect.width, 160)}px`,
+        height: `${Math.max(rect.height, 96)}px`
+      }
+    })
+  })
+
+  attachmentOverlays.value = overlays
 }
 
 function revokeAttachmentImageUrls() {
@@ -124,35 +135,17 @@ function revokeAttachmentImageUrls() {
 }
 
 function setAttachmentImageState(image: HTMLImageElement, state: 'loading' | 'loaded' | 'error') {
-  const host = image.closest<HTMLElement>('.bn-block-content') ?? image.parentElement
-  if (host == null) return
-  let status = host.querySelector<HTMLElement>(':scope > .document-attachment-image-status')
-  if (status == null) {
-    // 图片鉴权完成前由独立状态层接管展示，避免浏览器破损图片占位与加载提示叠加。
-    status = window.document.createElement('span')
-    status.className = 'document-attachment-image-status'
-    status.setAttribute('aria-live', 'polite')
-    status.innerHTML = '<span class="document-attachment-image-status__icon" aria-hidden="true"></span><span class="document-attachment-image-status__text"></span>'
-    host.appendChild(status)
-  }
-  host.classList.toggle('document-attachment-image-host--loading', state === 'loading')
-  host.classList.toggle('document-attachment-image-host--error', state === 'error')
-  status.hidden = state === 'loaded'
-  const statusText = status.querySelector<HTMLElement>('.document-attachment-image-status__text')
-  if (statusText != null) {
-    statusText.textContent = state === 'loading'
-      ? t('documents.imageLoading')
-      : t('documents.imageLoadFailed')
-  }
-  image.dataset.documentAttachmentState = state
-  image.setAttribute('aria-busy', state === 'loading' ? 'true' : 'false')
+  if (state === 'loaded') attachmentImageStates.delete(image)
+  else attachmentImageStates.set(image, state)
+  syncAttachmentOverlays()
 }
 
 async function hydrateDocumentAttachments() {
   const generation = attachmentImageGeneration
   await nextTick()
   const body = documentBodyRef.value
-  if (body == null || generation !== attachmentImageGeneration) return
+  const surface = documentEditorSurfaceRef.value
+  if (body == null || surface == null || generation !== attachmentImageGeneration) return
 
   for (const [image, objectUrl] of attachmentImageObjectUrls) {
     if (body.contains(image)) continue
@@ -160,7 +153,7 @@ async function hydrateDocumentAttachments() {
     attachmentImageObjectUrls.delete(image)
   }
 
-  for (const image of body.querySelectorAll<HTMLImageElement>('img[src]')) {
+  for (const image of surface.querySelectorAll<HTMLImageElement>('img[src]')) {
     const match = matchDocumentAttachmentPath(image.getAttribute('src'))
     if (match == null || attachmentImageObjectUrls.has(image) || pendingAttachmentImages.has(image)) continue
     const documentId = Number(match[1])
@@ -183,7 +176,7 @@ async function hydrateDocumentAttachments() {
     image.addEventListener('error', markFailed, { once: true })
     try {
       const blob = await documentApi.getAttachmentBlob(documentId, attachmentId)
-      if (generation !== attachmentImageGeneration || !body.contains(image)) continue
+      if (generation !== attachmentImageGeneration || !surface.contains(image)) continue
       // BlockNote 的原始 img 请求不会携带 JWT；只把精确附件路径替换为当前会话的 Blob URL。
       const objectUrl = URL.createObjectURL(blob)
       attachmentImageObjectUrls.set(image, objectUrl)
@@ -206,15 +199,15 @@ onMounted(async () => {
   // 页面停留期间按分钟刷新相对时间，避免“最近更新”文案逐渐失真。
   relativeTimeTimer = window.setInterval(() => { relativeTimeClock.value = Date.now() }, 60_000)
   await nextTick()
-  const body = documentBodyRef.value
-  if (body == null) return
+  const surface = documentEditorSurfaceRef.value
+  if (surface == null) return
   // BlockNote 会在父组件 mounted 后继续异步构建图片节点，监听新增节点后再执行精确路径水合。
   attachmentImageObserver = new MutationObserver(() => {
-    ensureDocumentAttachmentDeleteButtons()
+    syncAttachmentOverlays()
     void hydrateDocumentAttachments()
   })
-  attachmentImageObserver.observe(body, { childList: true, subtree: true })
-  ensureDocumentAttachmentDeleteButtons()
+  attachmentImageObserver.observe(surface, { childList: true, subtree: true })
+  syncAttachmentOverlays()
   void hydrateDocumentAttachments()
 })
 watch(
@@ -222,9 +215,11 @@ watch(
   ([documentId], previous) => {
     if (previous != null && previous[0] !== documentId) {
       attachmentImageGeneration += 1
+      attachmentImageStates.clear()
+      attachmentOverlays.value = []
       revokeAttachmentImageUrls()
     }
-    ensureDocumentAttachmentDeleteButtons()
+    syncAttachmentOverlays()
     void hydrateDocumentAttachments()
   },
   { flush: 'post' }
@@ -236,6 +231,8 @@ onBeforeUnmount(() => {
   attachmentImageObserver?.disconnect()
   attachmentImageObserver = null
   attachmentImageGeneration += 1
+  attachmentImageStates.clear()
+  attachmentOverlays.value = []
   revokeAttachmentImageUrls()
 })
 
@@ -310,17 +307,15 @@ function handleDocumentBodyMouseDown(event: MouseEvent) {
   event.stopPropagation()
 }
 
-async function handleDocumentAttachmentDelete(button: HTMLButtonElement) {
-  const href = button.dataset.attachmentHref ?? ''
+async function handleDocumentAttachmentDelete(href: string, attachmentId: number) {
   const match = matchDocumentAttachmentPath(href)
   if (match == null) return
   const documentId = Number(match[1])
-  const attachmentId = Number(match[2])
   if (documentId !== props.document.id || attachmentDeletePending.has(attachmentId)) return
 
   attachmentDownloadError.value = ''
   attachmentDeletePending.add(attachmentId)
-  ensureDocumentAttachmentDeleteButtons()
+  syncAttachmentOverlays()
   try {
     await documentApi.deleteAttachment(documentId, attachmentId)
     bodyEditorRef.value?.removeAttachmentLink(href)
@@ -328,7 +323,7 @@ async function handleDocumentAttachmentDelete(button: HTMLButtonElement) {
     attachmentDownloadError.value = t('attachments.deleteFailed')
   } finally {
     attachmentDeletePending.delete(attachmentId)
-    ensureDocumentAttachmentDeleteButtons()
+    syncAttachmentOverlays()
   }
 }
 
@@ -338,7 +333,10 @@ async function handleDocumentBodyClick(event: MouseEvent) {
     if (deleteButton != null && documentBodyRef.value?.contains(deleteButton)) {
       event.preventDefault()
       event.stopPropagation()
-      void handleDocumentAttachmentDelete(deleteButton)
+      void handleDocumentAttachmentDelete(
+        deleteButton.dataset.attachmentHref ?? '',
+        Number(deleteButton.dataset.attachmentId ?? '')
+      )
       return
     }
   }
@@ -478,20 +476,48 @@ async function handleDocumentBodyClick(event: MouseEvent) {
         @mousedown.capture="handleDocumentBodyMouseDown"
         @click.capture="handleDocumentBodyClick"
       >
-        <StructuredDocumentEditor
-          ref="bodyEditorRef"
-          :key="document.id"
-          :document-id="document.id"
-          paste-file-as-link
-          :file-uploading-text="$t('documents.attachmentUploading')"
-          :file-upload-failed-text="$t('documents.attachmentUploadFailed')"
-          :model-value="document.content"
-          :readonly="saveState === 'conflict'"
-          :placeholder="t('documents.bodyPlaceholder')"
-          :mention-members="mentionMembers"
-          :mention-documents="mentionDocuments"
-          @update:model-value="emit('updateContent', $event)"
-        />
+        <div ref="documentEditorSurfaceRef" class="document-editor__surface">
+          <StructuredDocumentEditor
+            ref="bodyEditorRef"
+            :key="document.id"
+            :document-id="document.id"
+            paste-file-as-link
+            :file-uploading-text="$t('documents.attachmentUploading')"
+            :file-upload-failed-text="$t('documents.attachmentUploadFailed')"
+            :model-value="document.content"
+            :readonly="saveState === 'conflict'"
+            :placeholder="t('documents.bodyPlaceholder')"
+            :mention-members="mentionMembers"
+            :mention-documents="mentionDocuments"
+            @update:model-value="emit('updateContent', $event)"
+          />
+        </div>
+        <div v-if="attachmentOverlays.length > 0" class="document-attachment-overlay" aria-live="polite">
+          <button
+            v-for="item in attachmentOverlays.filter((candidate) => candidate.type === 'delete')"
+            :key="item.key"
+            type="button"
+            class="document-attachment-delete"
+            :style="item.style"
+            :data-attachment-href="item.href"
+            :data-attachment-id="item.attachmentId"
+            :disabled="attachmentDeletePending.has(item.attachmentId ?? -1)"
+            :aria-label="t('documents.deleteAttachment')"
+            :title="t('documents.deleteAttachment')"
+            @click.stop.prevent="handleDocumentAttachmentDelete(item.href ?? '', item.attachmentId ?? -1)"
+          />
+          <span
+            v-for="item in attachmentOverlays.filter((candidate) => candidate.type === 'image')"
+            :key="item.key"
+            class="document-attachment-image-status"
+            :class="`document-attachment-image-status--${item.state}`"
+            :style="item.style"
+            role="status"
+          >
+            <span class="document-attachment-image-status__icon" aria-hidden="true" />
+            <span>{{ item.state === 'loading' ? t('documents.imageLoading') : t('documents.imageLoadFailed') }}</span>
+          </span>
+        </div>
       </div>
       <p v-if="attachmentDownloadError" class="document-editor__attachment-error" role="alert">
         <TriangleAlert aria-hidden="true" />{{ attachmentDownloadError }}
@@ -635,7 +661,16 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   line-height: 1.5;
 }
 
-/* BlockNote owns the editable DOM; style the fixed attachment path directly to avoid mutation feedback loops. */
+.document-editor__body { position: relative; }
+.document-editor__surface { position: relative; }
+.document-attachment-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* BlockNote owns the editable DOM; attachment styling stays CSS-only inside it. */
 .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]) {
   position: relative;
   display: block;
@@ -702,34 +737,7 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   outline-offset: 2px;
 }
 
-.document-editor__body :deep(.document-attachment-host) {
-  position: relative;
-}
-
-.document-editor__body :deep(.document-attachment-image-host--loading),
-.document-editor__body :deep(.document-attachment-image-host--error) {
-  position: relative;
-  min-height: clamp(160px, 22vw, 280px);
-  overflow: hidden;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-subtle);
-}
-
-.document-editor__body :deep(.document-attachment-image-host--loading) {
-  background:
-    linear-gradient(110deg, transparent 30%, color-mix(in srgb, var(--color-bg-hover) 72%, transparent) 48%, transparent 66%),
-    var(--color-bg-subtle);
-  background-size: 220% 100%;
-  animation: document-attachment-image-shimmer 1.6s ease-in-out infinite;
-}
-
-/* 文档阅读态不需要 BlockNote 图片块的选中轮廓，避免左侧出现突兀的蓝色竖条。 */
-.document-editor__body :deep(.bn-block-content:has(img[data-document-attachment-state]) > *) {
-  outline: none !important;
-}
-
-.document-editor__body :deep(.document-attachment-image-status) {
+.document-attachment-image-status {
   position: absolute;
   inset: 0;
   z-index: 2;
@@ -744,11 +752,20 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   user-select: none;
 }
 
-.document-editor__body :deep(.document-attachment-image-status[hidden]) {
-  display: none;
+.document-attachment-image-status--loading {
+  background:
+    linear-gradient(110deg, transparent 30%, color-mix(in srgb, var(--color-bg-hover) 72%, transparent) 48%, transparent 66%),
+    var(--color-bg-subtle);
+  background-size: 220% 100%;
+  animation: document-attachment-image-shimmer 1.6s ease-in-out infinite;
 }
 
-.document-editor__body :deep(.document-attachment-image-status__icon) {
+.document-attachment-image-status--error {
+  border: 1px solid color-mix(in srgb, var(--color-danger) 28%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-danger) 6%, var(--color-bg-base));
+}
+
+.document-attachment-image-status__icon {
   width: 16px;
   height: 16px;
   flex: 0 0 16px;
@@ -759,26 +776,8 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   animation: document-attachment-image-spin 0.8s linear infinite;
 }
 
-.document-editor__body :deep(.document-attachment-image-host--error) {
-  border-color: color-mix(in srgb, var(--color-danger) 28%, var(--color-border-subtle));
-  background: color-mix(in srgb, var(--color-danger) 6%, var(--color-bg-base));
-}
-
-.document-editor__body :deep(.document-attachment-image-host--loading img),
-.document-editor__body :deep(.document-attachment-image-host--error img) {
-  display: none !important;
-}
-
-.document-editor__body :deep(.document-attachment-image-host--loading .bn-image-preview-button),
-.document-editor__body :deep(.document-attachment-image-host--error .bn-image-preview-button) {
-  display: none;
-}
-
-.document-editor__body :deep(.document-attachment-delete) {
+.document-attachment-delete {
   position: absolute;
-  top: 50%;
-  right: 8px;
-  z-index: 1;
   display: inline-flex;
   width: 44px;
   height: 44px;
@@ -790,11 +789,11 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
-  transform: translateY(-50%);
+  pointer-events: auto;
   transition: color 120ms ease, background-color 120ms ease;
 }
 
-.document-editor__body :deep(.document-attachment-delete::before) {
+.document-attachment-delete::before {
   width: 18px;
   height: 18px;
   background: currentColor;
@@ -809,17 +808,17 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   mask-size: contain;
 }
 
-.document-editor__body :deep(.document-attachment-delete:hover) {
+.document-attachment-delete:hover {
   background: var(--color-bg-hover);
   color: var(--color-danger);
 }
 
-.document-editor__body :deep(.document-attachment-delete:focus-visible) {
+.document-attachment-delete:focus-visible {
   outline: 2px solid var(--color-border-strong);
   outline-offset: -2px;
 }
 
-.document-editor__body :deep(.document-attachment-delete:disabled) {
+.document-attachment-delete:disabled {
   cursor: wait;
   opacity: 0.55;
 }
@@ -853,8 +852,8 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 @keyframes document-attachment-image-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; }
-  .document-editor__body :deep(.document-attachment-image-host--loading) { animation: none; }
-  .document-editor__body :deep(.document-attachment-image-status__icon) { animation: none; }
+  .document-attachment-image-status--loading { animation: none; }
+  .document-attachment-image-status__icon { animation: none; }
   .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]),
   .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]::after) { transition: none; }
 }

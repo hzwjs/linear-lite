@@ -33,7 +33,7 @@ public class ProjectDocumentAttachmentService {
             ProjectDocumentAttachmentMapper attachmentMapper,
             ProjectAccessGuard accessGuard,
             ObjectStorageService objectStorageService,
-            @Value("${app.storage.document-attachment-max-bytes:52428800}") long maxBytes) {
+            @Value("${app.storage.document-attachment-max-bytes:2147483648}") long maxBytes) {
         this.documentMapper = documentMapper;
         this.attachmentMapper = attachmentMapper;
         this.accessGuard = accessGuard;

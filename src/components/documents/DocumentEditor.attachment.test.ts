@@ -128,6 +128,16 @@ describe('DocumentEditor attachment links', () => {
     view.app.unmount()
   })
 
+  it('renders attachment controls outside the BlockNote-owned editor surface', async () => {
+    const view = renderEditor()
+    await nextTick()
+    await nextTick()
+
+    expect(view.host.querySelector('[data-document-id] .document-attachment-delete')).toBeNull()
+    expect(view.host.querySelector('.document-attachment-overlay .document-attachment-delete')).not.toBeNull()
+    view.app.unmount()
+  })
+
   it('keeps the attachment available and reports a delete failure', async () => {
     vi.mocked(documentApi.deleteAttachment).mockRejectedValueOnce(new Error('network'))
     const view = renderEditor()
@@ -180,18 +190,15 @@ describe('DocumentEditor attachment links', () => {
     await nextTick()
     await nextTick()
 
-    const image = view.host.querySelector<HTMLImageElement>('#attachment-image')
-    const host = image?.closest<HTMLElement>('.document-attachment-image-host--loading')
-    expect(host).not.toBeNull()
-    expect(host?.querySelector('.document-attachment-image-status')).not.toBeNull()
-    expect(host?.querySelector('.document-attachment-image-status__text')?.textContent).toBe('documents.imageLoading')
-    expect(image?.dataset.documentAttachmentState).toBe('loading')
-    expect(image?.getAttribute('aria-busy')).toBe('true')
+    const overlay = view.host.querySelector<HTMLElement>('.document-attachment-image-status--loading')
+    expect(overlay).not.toBeNull()
+    expect(overlay?.textContent).toContain('documents.imageLoading')
+    expect(view.host.querySelector('[data-document-id] .document-attachment-image-status')).toBeNull()
 
     resolveBlob(new Blob(['image'], { type: 'image/png' }))
     await nextTick()
     await nextTick()
-    expect(image?.dataset.documentAttachmentState).toBe('loading')
+    expect(view.host.querySelector('.document-attachment-image-status--loading')).not.toBeNull()
 
     view.app.unmount()
   })
