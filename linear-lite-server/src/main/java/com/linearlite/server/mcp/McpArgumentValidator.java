@@ -3,6 +3,7 @@ package com.linearlite.server.mcp;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.linearlite.server.dto.TaskLabelItemRequest;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -111,6 +112,16 @@ final class McpArgumentValidator {
             return LocalDateTime.parse(value);
         } catch (DateTimeParseException e) {
             throw new McpInvalidParamsException(name + " 必须是 ISO-8601 LocalDateTime");
+        }
+    }
+
+    static LocalDate optionalDate(JsonNode object, String name) {
+        String value = optionalText(object, name, 10);
+        if (value == null) return null;
+        try {
+            return LocalDate.parse(value);
+        } catch (DateTimeParseException e) {
+            throw new McpInvalidParamsException(name + " 必须是 YYYY-MM-DD 日期");
         }
     }
 

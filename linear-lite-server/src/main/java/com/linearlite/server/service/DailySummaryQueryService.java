@@ -5,6 +5,7 @@ import com.linearlite.server.mapper.TaskMapper;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 
 @Service
@@ -29,7 +30,8 @@ public class DailySummaryQueryService {
                     && task.getCompletedAt() != null
                     && !task.getCompletedAt().isBefore(completedWindowStart)
                     && task.getCompletedAt().isBefore(completedWindowEnd);
-            task.setOverdue(!completedToday && task.getDueDate() != null && task.getDueDate().isBefore(startOfToday));
+            LocalDate today = startOfToday.toLocalDate();
+            task.setOverdue(!completedToday && task.getDueDate() != null && task.getDueDate().isBefore(today));
         }
         return tasks;
     }

@@ -12,6 +12,7 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import com.linearlite.server.time.BeijingTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
 import java.util.*;
@@ -62,7 +63,7 @@ public class AnalyticsService {
         requireProjectMember(projectId, userId);
         validateQuery(query);
 
-        ZoneId zone = ZoneId.systemDefault();
+        ZoneId zone = BeijingTime.ZONE_ID;
         String from = query.getFrom();
         String to = query.getTo();
 

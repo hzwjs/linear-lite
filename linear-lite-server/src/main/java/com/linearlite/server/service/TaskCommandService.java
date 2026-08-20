@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashSet;
@@ -75,8 +76,8 @@ public class TaskCommandService {
 
     @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public TaskMutationResponse create(Long projectId, Long creatorId, Long parentId, String title, String description,
-                       String status, String priority, Long assigneeId, LocalDateTime dueDate,
-                       LocalDateTime plannedStartDate, Integer progressPercent, List<TaskLabelItemRequest> labels) {
+                       String status, String priority, Long assigneeId, LocalDate dueDate,
+                       LocalDate plannedStartDate, Integer progressPercent, List<TaskLabelItemRequest> labels) {
         if (projectId == null) {
             throw new IllegalArgumentException("projectId 不能为空");
         }

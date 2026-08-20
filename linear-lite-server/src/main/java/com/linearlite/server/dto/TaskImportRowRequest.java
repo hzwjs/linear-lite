@@ -1,6 +1,6 @@
 package com.linearlite.server.dto;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 
 public class TaskImportRowRequest {
 
@@ -14,8 +14,8 @@ public class TaskImportRowRequest {
     private Long assigneeId;
     /** 未匹配系统用户时的处理人原文，可选 */
     private String assigneeDisplayName;
-    private LocalDateTime dueDate;
-    private LocalDateTime plannedStartDate;
+    private LocalDate dueDate;
+    private LocalDate plannedStartDate;
     /** 完成进度 0–100，缺省为 0 */
     private Integer progressPercent;
 
@@ -91,19 +91,19 @@ public class TaskImportRowRequest {
         this.assigneeDisplayName = assigneeDisplayName;
     }
 
-    public LocalDateTime getDueDate() {
+    public LocalDate getDueDate() {
         return dueDate;
     }
 
-    public void setDueDate(LocalDateTime dueDate) {
+    public void setDueDate(LocalDate dueDate) {
         this.dueDate = dueDate;
     }
 
-    public LocalDateTime getPlannedStartDate() {
+    public LocalDate getPlannedStartDate() {
         return plannedStartDate;
     }
 
-    public void setPlannedStartDate(LocalDateTime plannedStartDate) {
+    public void setPlannedStartDate(LocalDate plannedStartDate) {
         this.plannedStartDate = plannedStartDate;
     }
 

@@ -18,6 +18,7 @@ import type { Priority, Status, Task, User } from '../../types/domain'
 import type { CommentDto } from '../../types/comment'
 import { getInitials, getAvatarColorByUsername } from '../../utils/avatar'
 import { renderBody } from '../../utils/blockNoteHtml'
+import { formatBeijingDate, BEIJING_TIME_ZONE } from '../../utils/beijingTime'
 import { renderMarkdown } from '../../utils/markdown'
 import MobileBottomSheet from '../components/MobileBottomSheet.vue'
 import MobileEmptyState from '../components/MobileEmptyState.vue'
@@ -64,19 +65,16 @@ const descriptionHtml = computed(() => renderBody(description.value, renderMarkd
 
 function toDateInput(value?: number | null) {
   if (!value) return ''
-  const date = new Date(value)
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-  return local.toISOString().slice(0, 10)
+  return new Intl.DateTimeFormat('en-CA', { timeZone: BEIJING_TIME_ZONE }).format(new Date(value))
 }
 
 function localizedDate(value?: number | null) {
-  return value ? new Date(value).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }) : '未设置'
+  return value ? formatBeijingDate(value) : '未设置'
 }
 
 function localizedShortDate(value?: number | null) {
   if (!value) return '无日期'
-  const date = new Date(value)
-  return `${date.getMonth() + 1}月${date.getDate()}日`
+  return new Intl.DateTimeFormat('zh-CN', { timeZone: BEIJING_TIME_ZONE, month: 'numeric', day: 'numeric' }).format(new Date(value))
 }
 
 async function runAction(action: () => Promise<unknown>, fallbackMessage: string) {

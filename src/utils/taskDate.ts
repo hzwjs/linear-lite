@@ -14,7 +14,7 @@ export function parseDateInputValue(value: string): number | undefined {
   return new Date(`${value}T00:00:00`).getTime()
 }
 
-export function toApiDateTime(ms: number | undefined | null): string | undefined {
+export function toApiDate(ms: number | undefined | null): string | undefined {
   if (ms == null) return undefined
-  return `${formatDateInputValue(ms)}T00:00:00`
+  return formatDateInputValue(ms)
 }

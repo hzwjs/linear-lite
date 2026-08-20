@@ -37,6 +37,7 @@ import { useAuthStore } from '../store/authStore'
 import { projectApi } from '../services/api/project'
 import { getStatusLabel, getPriorityLabel } from '../utils/enumLabels'
 import { parseDateInputValue, formatDateInputValue, todayDateInputValue } from '../utils/taskDate'
+import { formatBeijingDate } from '../utils/beijingTime'
 import { labelListDotColor, sortedTaskLabelsForList } from '../utils/taskLabelListDisplay'
 import { filterVisibleTaskRows, type TaskGroup, type TaskRow } from '../utils/taskView'
 import type { VisibleProperty } from '../utils/viewPreference'
@@ -546,7 +547,7 @@ function assigneeName(task: Task): string {
 }
 
 function updatedText(task: Task): string {
-  return new Date(task.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return formatBeijingDate(task.updatedAt)
 }
 
 function projectDisplayLabel(task: Task): string | null {

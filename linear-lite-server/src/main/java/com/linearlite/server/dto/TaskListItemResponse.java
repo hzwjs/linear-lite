@@ -2,6 +2,7 @@ package com.linearlite.server.dto;
 
 import com.linearlite.server.entity.Task;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -16,8 +17,8 @@ public class TaskListItemResponse {
     private Long creatorId;
     private Long assigneeId;
     private String assigneeDisplayName;
-    private LocalDateTime dueDate;
-    private LocalDateTime plannedStartDate;
+    private LocalDate dueDate;
+    private LocalDate plannedStartDate;
     private Integer progressPercent;
     private LocalDateTime completedAt;
     private LocalDateTime createdAt;
@@ -132,19 +133,19 @@ public class TaskListItemResponse {
         this.assigneeDisplayName = assigneeDisplayName;
     }
 
-    public LocalDateTime getDueDate() {
+    public LocalDate getDueDate() {
         return dueDate;
     }
 
-    public void setDueDate(LocalDateTime dueDate) {
+    public void setDueDate(LocalDate dueDate) {
         this.dueDate = dueDate;
     }
 
-    public LocalDateTime getPlannedStartDate() {
+    public LocalDate getPlannedStartDate() {
         return plannedStartDate;
     }
 
-    public void setPlannedStartDate(LocalDateTime plannedStartDate) {
+    public void setPlannedStartDate(LocalDate plannedStartDate) {
         this.plannedStartDate = plannedStartDate;
     }
 

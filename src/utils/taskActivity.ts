@@ -2,6 +2,7 @@ import type { TaskActivity } from '../types/domain'
 import { translate } from './i18n'
 import { getInitials } from './avatar'
 import { getPriorityLabel, getStatusLabel } from './enumLabels'
+import { formatBeijingDate } from './beijingTime'
 
 function normalizeFieldLabel(fieldName: string | null | undefined): string {
   if (!fieldName) {
@@ -15,7 +16,7 @@ function formatFieldValue(fieldName: string | null | undefined, value: string | 
   if (!value) return translate('activity.emptyValue')
   if (fieldName === 'status') return getStatusLabel(value)
   if (fieldName === 'priority') return getPriorityLabel(value)
-  if (fieldName === 'dueDate' || fieldName === 'plannedStartDate') return new Date(value).toLocaleDateString()
+  if (fieldName === 'dueDate' || fieldName === 'plannedStartDate') return formatBeijingDate(value)
   if (fieldName === 'progressPercent') return `${value}%`
   if (fieldName === 'labels') {
     const sep = translate('activity.labelListSeparator', undefined, ', ')

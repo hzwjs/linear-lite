@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.linearlite.server.dto.TaskLabelResponse;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -27,9 +28,9 @@ public class Task {
     private Long assigneeId;
     /** 导入或外部处理人展示名；与 assignee_id 互斥，有系统负责人时应为 null */
     private String assigneeDisplayName;
-    private LocalDateTime dueDate;
+    private LocalDate dueDate;
     /** 计划开始日期 */
-    private LocalDateTime plannedStartDate;
+    private LocalDate plannedStartDate;
     /** 完成进度 0–100 */
     private Integer progressPercent;
     private LocalDateTime completedAt;
@@ -137,19 +138,19 @@ public class Task {
         this.assigneeDisplayName = assigneeDisplayName;
     }
 
-    public LocalDateTime getDueDate() {
+    public LocalDate getDueDate() {
         return dueDate;
     }
 
-    public void setDueDate(LocalDateTime dueDate) {
+    public void setDueDate(LocalDate dueDate) {
         this.dueDate = dueDate;
     }
 
-    public LocalDateTime getPlannedStartDate() {
+    public LocalDate getPlannedStartDate() {
         return plannedStartDate;
     }
 
-    public void setPlannedStartDate(LocalDateTime plannedStartDate) {
+    public void setPlannedStartDate(LocalDate plannedStartDate) {
         this.plannedStartDate = plannedStartDate;
     }
 

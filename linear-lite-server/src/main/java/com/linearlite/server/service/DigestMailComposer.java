@@ -15,7 +15,6 @@ import java.util.Map;
 public class DigestMailComposer {
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-    private static final DateTimeFormatter DATETIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     private static final Map<String, String> STATUS_LABELS = Map.of(
             "backlog", "待规划",
             "todo", "待处理",
@@ -218,8 +217,8 @@ public class DigestMailComposer {
         return progressPercent == null ? "--" : progressPercent + "%";
     }
 
-    private String formatDate(LocalDateTime date) {
-        return date == null ? "—" : date.format(DATETIME_FMT);
+    private String formatDate(LocalDate date) {
+        return date == null ? "—" : date.format(DATE_FMT);
     }
 
     private String nullSafe(String value) {

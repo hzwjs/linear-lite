@@ -1,6 +1,7 @@
 import { api, unwrap } from './index'
 import type { ApiResponse } from './types'
 import type { Task } from '../../types/domain'
+import { parseDateInputValue } from '../../utils/taskDate'
 import type {
   ApiTask,
   ApiTaskMutationResponse,
@@ -37,8 +38,8 @@ function toTask(t: ApiTask): Task {
     creatorId: t.creatorId ?? undefined,
     assigneeId: t.assigneeId ?? undefined,
     assigneeDisplayName: t.assigneeDisplayName ?? undefined,
-    dueDate: t.dueDate ? new Date(t.dueDate).getTime() : undefined,
-    plannedStartDate: t.plannedStartDate ? new Date(t.plannedStartDate).getTime() : undefined,
+    dueDate: t.dueDate ? parseDateInputValue(t.dueDate) : undefined,
+    plannedStartDate: t.plannedStartDate ? parseDateInputValue(t.plannedStartDate) : undefined,
     progressPercent: t.progressPercent != null ? t.progressPercent : 0,
     completedAt: t.completedAt ? new Date(t.completedAt).getTime() : undefined,
     createdAt: t.createdAt ? new Date(t.createdAt).getTime() : 0,

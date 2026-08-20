@@ -1,5 +1,6 @@
 package com.linearlite.server.dto;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 public class DailySummaryTaskDto {
@@ -14,7 +15,7 @@ public class DailySummaryTaskDto {
     private String assigneeUsername;
     private String assigneeEmail;
     private Integer progressPercent;
-    private LocalDateTime dueDate;
+    private LocalDate dueDate;
     private LocalDateTime completedAt;
     private Boolean overdue;
 
@@ -40,8 +41,8 @@ public class DailySummaryTaskDto {
     public void setAssigneeEmail(String assigneeEmail) { this.assigneeEmail = assigneeEmail; }
     public Integer getProgressPercent() { return progressPercent; }
     public void setProgressPercent(Integer progressPercent) { this.progressPercent = progressPercent; }
-    public LocalDateTime getDueDate() { return dueDate; }
-    public void setDueDate(LocalDateTime dueDate) { this.dueDate = dueDate; }
+    public LocalDate getDueDate() { return dueDate; }
+    public void setDueDate(LocalDate dueDate) { this.dueDate = dueDate; }
     public LocalDateTime getCompletedAt() { return completedAt; }
     public void setCompletedAt(LocalDateTime completedAt) { this.completedAt = completedAt; }
     public Boolean getOverdue() { return overdue; }

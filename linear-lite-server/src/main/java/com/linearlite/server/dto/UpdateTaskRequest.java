@@ -1,6 +1,6 @@
 package com.linearlite.server.dto;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -20,10 +20,10 @@ public class UpdateTaskRequest {
     private Long assigneeId;
     /** 为 true 时清空指派人（将 assignee_id 置为 null） */
     private Boolean clearAssignee;
-    private LocalDateTime dueDate;
+    private LocalDate dueDate;
     /** 为 true 时清空截止日期 */
     private Boolean clearDueDate;
-    private LocalDateTime plannedStartDate;
+    private LocalDate plannedStartDate;
     /** 为 true 时清空计划开始日期 */
     private Boolean clearPlannedStart;
     /** 完成进度 0–100 */
@@ -95,11 +95,11 @@ public class UpdateTaskRequest {
         this.clearAssignee = clearAssignee;
     }
 
-    public LocalDateTime getDueDate() {
+    public LocalDate getDueDate() {
         return dueDate;
     }
 
-    public void setDueDate(LocalDateTime dueDate) {
+    public void setDueDate(LocalDate dueDate) {
         this.dueDate = dueDate;
     }
 
@@ -111,11 +111,11 @@ public class UpdateTaskRequest {
         this.clearDueDate = clearDueDate;
     }
 
-    public LocalDateTime getPlannedStartDate() {
+    public LocalDate getPlannedStartDate() {
         return plannedStartDate;
     }
 
-    public void setPlannedStartDate(LocalDateTime plannedStartDate) {
+    public void setPlannedStartDate(LocalDate plannedStartDate) {
         this.plannedStartDate = plannedStartDate;
     }
 

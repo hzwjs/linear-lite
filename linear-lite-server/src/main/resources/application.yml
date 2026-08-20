@@ -4,6 +4,8 @@ spring:
     import: optional:file:.env,optional:file:../.env
   application:
     name: linear-lite-server
+  jackson:
+    time-zone: Asia/Shanghai
   # 与 SseEmitter 寿命一致；过小会导致 AsyncRequestTimeoutException，且易触发 SSE + JSON 全局异常处理的协商失败
   mvc:
     async:
@@ -14,7 +16,7 @@ spring:
       max-file-size: ${MULTIPART_MAX_FILE_SIZE:50MB}
       max-request-size: ${MULTIPART_MAX_REQUEST_SIZE:50MB}
   datasource:
-    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:linear_lite}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:linear_lite}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&connectionTimeZone=Asia/Shanghai&forceConnectionTimeZoneToSession=true&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:root}
     password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -66,6 +68,7 @@ mcp:
   tool-list-ttl-ms: ${MCP_TOOL_LIST_TTL_MS:300000}
 
 app:
+  timezone: ${APP_TIMEZONE:Asia/Shanghai}
   mail:
     from: ${MAIL_FROM:${MAIL_USERNAME:}}
     from-name: ${MAIL_FROM_NAME:Linear Lite}

@@ -186,7 +186,7 @@ describe('taskStore', () => {
     })
 
     expect(taskApi.update).toHaveBeenCalledWith('ENG-3', expect.objectContaining({
-      dueDate: '2026-03-10T00:00:00'
+      dueDate: '2026-03-10'
     }))
   })
 

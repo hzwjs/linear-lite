@@ -6,6 +6,7 @@ import type { User } from '../types/domain'
 import type { VisibleProperty } from '../utils/viewPreference'
 import { getInitials, getAvatarColorByUsername } from '../utils/avatar'
 import { assigneeDisplayLabel, resolveAssigneeUser } from '../utils/taskAssigneeDisplay'
+import { formatBeijingDate } from '../utils/beijingTime'
 
 const props = defineProps<{
   task: Task
@@ -44,13 +45,13 @@ const assigneeAvatarStyle = computed(() =>
 
 const dueDateText = computed(() => {
   if (props.task.dueDate == null) return null
-  return new Date(props.task.dueDate).toLocaleDateString()
+  return formatBeijingDate(props.task.dueDate)
 })
 const plannedStartText = computed(() => {
   if (props.task.plannedStartDate == null) return null
-  return new Date(props.task.plannedStartDate).toLocaleDateString()
+  return formatBeijingDate(props.task.plannedStartDate)
 })
-const updatedText = computed(() => new Date(props.task.updatedAt).toLocaleDateString())
+const updatedText = computed(() => formatBeijingDate(props.task.updatedAt))
 const projectText = computed(() => {
   if (props.task.projectId == null) return null
   return `Project ${props.task.projectId}`

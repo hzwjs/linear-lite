@@ -32,7 +32,7 @@ class DigestMailComposerTest {
         task.setProjectId(10L);
         task.setProjectName("Engineering");
         task.setProgressPercent(65);
-        task.setDueDate(LocalDateTime.of(2026, 7, 24, 18, 0));
+        task.setDueDate(LocalDate.of(2026, 7, 24));
         task.setOverdue(false);
 
         DigestMailContent content = composer.compose("alice", LocalDate.of(2026, 7, 24),
@@ -66,7 +66,7 @@ class DigestMailComposerTest {
         task.setProjectId(10L);
         task.setProjectName("Engineering");
         task.setProgressPercent(null);
-        task.setDueDate(LocalDateTime.of(2026, 7, 24, 18, 0));
+        task.setDueDate(LocalDate.of(2026, 7, 24));
         task.setOverdue(false);
 
         DigestMailContent content = blankBaseUrlComposer.compose("alice", LocalDate.of(2026, 7, 24),
@@ -88,7 +88,7 @@ class DigestMailComposerTest {
         task.setProjectId(10L);
         task.setProjectName("Engineering");
         task.setProgressPercent(20);
-        task.setDueDate(LocalDateTime.of(2026, 7, 24, 18, 0));
+        task.setDueDate(LocalDate.of(2026, 7, 24));
         task.setOverdue(false);
 
         DigestMailContent content = composer.compose("alice", LocalDate.of(2026, 7, 24),

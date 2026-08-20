@@ -9,7 +9,7 @@ import type { TaskAncestorStateChange } from '../services/api/task'
 import type { TaskLabelWriteItem, UpdateTaskRequest } from '../services/api/types'
 import { useProjectStore } from './projectStore'
 import { useFavoriteStore } from './favoriteStore'
-import { toApiDateTime } from '../utils/taskDate'
+import { toApiDate } from '../utils/taskDate'
 import { translate } from '../utils/i18n'
 import { invalidateTaskDetailSnapshot } from '../utils/taskDetailPreload'
 
@@ -290,10 +290,10 @@ export const useTaskStore = defineStore('taskStore', () => {
       priority: patch.priority,
       assigneeId: patch.assigneeId,
       clearAssignee: patch.clearAssignee,
-      dueDate: toApiDateTime(patch.dueDate),
+      dueDate: toApiDate(patch.dueDate),
       clearDueDate: patch.clearDueDate,
       clearParent: patch.clearParent,
-      plannedStartDate: toApiDateTime(patch.plannedStartDate),
+      plannedStartDate: toApiDate(patch.plannedStartDate),
       clearPlannedStart: patch.clearPlannedStart,
       progressPercent: patch.progressPercent,
       ...(patch.labels !== undefined ? { labels: patch.labels } : {})
@@ -561,8 +561,8 @@ export const useTaskStore = defineStore('taskStore', () => {
         status: data.status,
         priority: data.priority,
         assigneeId: data.assigneeId ?? null,
-        dueDate: toApiDateTime(data.dueDate),
-        plannedStartDate: toApiDateTime(data.plannedStartDate),
+        dueDate: toApiDate(data.dueDate),
+        plannedStartDate: toApiDate(data.plannedStartDate),
         parentId: data.parentId ?? undefined,
         progressPercent: data.progressPercent ?? 0
       })

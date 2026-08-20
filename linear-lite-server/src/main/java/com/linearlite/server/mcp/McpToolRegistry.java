@@ -18,6 +18,7 @@ import com.linearlite.server.service.TaskQueryService;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -130,8 +131,8 @@ public class McpToolRegistry {
         String status = optionalEnum(arguments, "status", STATUSES);
         String priority = optionalEnum(arguments, "priority", PRIORITIES);
         Long assigneeId = McpArgumentValidator.optionalLong(arguments, "assigneeId");
-        LocalDateTime dueDate = McpArgumentValidator.optionalDateTime(arguments, "dueDate");
-        LocalDateTime plannedStartDate = McpArgumentValidator.optionalDateTime(arguments, "plannedStartDate");
+        LocalDate dueDate = McpArgumentValidator.optionalDate(arguments, "dueDate");
+        LocalDate plannedStartDate = McpArgumentValidator.optionalDate(arguments, "plannedStartDate");
         Integer progress = McpArgumentValidator.optionalInteger(arguments, "progressPercent", 0, 100);
         List<TaskLabelItemRequest> labels = McpArgumentValidator.optionalLabels(arguments, "labels");
         return taskCommandService.create(
@@ -159,9 +160,9 @@ public class McpToolRegistry {
         request.setPriority(optionalEnum(arguments, "priority", PRIORITIES));
         request.setAssigneeId(McpArgumentValidator.optionalLong(arguments, "assigneeId"));
         request.setClearAssignee(McpArgumentValidator.optionalBoolean(arguments, "clearAssignee"));
-        request.setDueDate(McpArgumentValidator.optionalDateTime(arguments, "dueDate"));
+        request.setDueDate(McpArgumentValidator.optionalDate(arguments, "dueDate"));
         request.setClearDueDate(McpArgumentValidator.optionalBoolean(arguments, "clearDueDate"));
-        request.setPlannedStartDate(McpArgumentValidator.optionalDateTime(arguments, "plannedStartDate"));
+        request.setPlannedStartDate(McpArgumentValidator.optionalDate(arguments, "plannedStartDate"));
         request.setClearPlannedStart(McpArgumentValidator.optionalBoolean(arguments, "clearPlannedStart"));
         request.setProgressPercent(McpArgumentValidator.optionalInteger(arguments, "progressPercent", 0, 100));
         request.setLabels(McpArgumentValidator.optionalLabels(arguments, "labels"));

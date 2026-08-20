@@ -3,13 +3,14 @@ import { Bell, CheckCheck, ChevronRight } from 'lucide-vue-next'
 import { onMounted } from 'vue'
 import { useNotificationStore } from '../../store/notificationStore'
 import MobileEmptyState from '../components/MobileEmptyState.vue'
+import { BEIJING_TIME_ZONE } from '../../utils/beijingTime'
 
 const emit = defineEmits<{ open: [taskKey: string] }>()
 const store = useNotificationStore()
 
 function dateLabel(value: string) {
   const date = new Date(value)
-  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
+  return new Intl.DateTimeFormat('zh-CN', { timeZone: BEIJING_TIME_ZONE, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
 }
 
 async function openNotification(id: number, taskKey: string, readAt: string | null) {

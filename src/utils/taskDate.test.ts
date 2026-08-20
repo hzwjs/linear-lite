@@ -3,7 +3,7 @@ import {
   formatDateInputValue,
   parseDateInputValue,
   todayDateInputValue,
-  toApiDateTime
+  toApiDate
 } from './taskDate'
 
 describe('taskDate helpers', () => {
@@ -22,7 +22,7 @@ describe('taskDate helpers', () => {
   it('serializes local-midnight timestamp without converting to UTC date', () => {
     const ms = parseDateInputValue('2026-03-10')
 
-    expect(toApiDateTime(ms)).toBe('2026-03-10T00:00:00')
+    expect(toApiDate(ms)).toBe('2026-03-10')
   })
 
   it('todayDateInputValue is local calendar today in YYYY-MM-DD', () => {

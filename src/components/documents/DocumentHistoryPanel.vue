@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { documentApi } from '../../services/api/documents'
 import { useDocumentStore } from '../../store/documentStore'
 import type { ProjectDocument, ProjectDocumentRevisionSummary } from '../../types/document'
+import { formatBeijingDateTime } from '../../utils/beijingTime'
 import StructuredDocumentEditor from '../StructuredDocumentEditor.vue'
 
 const props = defineProps<{
@@ -13,7 +14,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ close: []; restored: [] }>()
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const store = useDocumentStore()
 const revisions = ref<ProjectDocumentRevisionSummary[]>([])
 const loading = ref(false)
@@ -57,10 +58,7 @@ async function restoreSelected() {
 }
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat(locale.value === 'en' ? 'en-US' : 'zh-CN', {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(new Date(value))
+  return formatBeijingDateTime(value)
 }
 </script>
 

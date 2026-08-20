@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import com.linearlite.server.time.BeijingTime;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -97,7 +98,7 @@ public class R2ObjectStorageService implements ObjectStorageService {
 
     String buildObjectKey(String originalFilename) {
         String normalizedFilename = sanitizeFilename(originalFilename, "image.bin");
-        String datePrefix = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM"));
+        String datePrefix = BeijingTime.today().format(DateTimeFormatter.ofPattern("yyyy/MM"));
         return "task-images/" + datePrefix + "/" + UUID.randomUUID() + "-" + normalizedFilename;
     }
 

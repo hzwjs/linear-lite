@@ -44,6 +44,7 @@ import type { CommentDto, CommentSubmitPayload } from '../types/comment'
 import { randomClientId } from '../utils/clientId'
 import { copyTextToClipboard } from '../utils/clipboard'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
+import { formatBeijingDateTime } from '../utils/beijingTime'
 import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
 import { blockNoteDocHasPersistableContent, parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
 import { buildInitialAgentPrompt } from '../utils/agentPrompt'
@@ -940,7 +941,7 @@ function formatAttachmentDate(iso: string): string {
     if (diff < 60 * 1000) return t('taskEditor.justNow')
     if (diff < 60 * 60 * 1000) return t('taskEditor.minutesAgo', { count: Math.floor(diff / 60000) })
     if (diff < 24 * 60 * 60 * 1000) return t('taskEditor.hoursAgo', { count: Math.floor(diff / 3600000) })
-    return d.toLocaleDateString()
+    return formatBeijingDateTime(iso).slice(0, 16)
   } catch {
     return iso
   }
@@ -1914,7 +1915,7 @@ async function toggleDescriptionFullscreen() {
             <section v-if="mode === 'edit' && task?.completedAt" class="prop-group prop-group--completed">
               <div class="prop-completed-value">
                 <CalendarDays class="icon-14" aria-hidden="true" />
-                <span>{{ props.task?.completedAt ? new Date(props.task?.completedAt ?? 0).toLocaleString() : '' }}</span>
+                <span>{{ props.task?.completedAt != null ? formatBeijingDateTime(props.task?.completedAt ?? 0) : '' }}</span>
               </div>
             </section>
           </div>
@@ -2347,7 +2348,7 @@ async function toggleDescriptionFullscreen() {
           <section v-if="mode === 'edit' && task?.completedAt" class="prop-group prop-group--completed">
             <div class="prop-completed-value">
               <CalendarDays class="icon-14" aria-hidden="true" />
-              <span>{{ new Date(task.completedAt).toLocaleString() }}</span>
+              <span>{{ formatBeijingDateTime(task.completedAt) }}</span>
             </div>
           </section>
         </div>

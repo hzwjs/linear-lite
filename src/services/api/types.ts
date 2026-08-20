@@ -96,10 +96,10 @@ export interface CreateTaskRequest {
   status: string
   priority: string
   assigneeId?: number | null
-  dueDate?: string | null // ISO 8601
+  dueDate?: string | null // YYYY-MM-DD
   /** 父任务数据库 id（Long），非 task_key */
   parentId?: number | null
-  plannedStartDate?: string | null // ISO 8601
+  plannedStartDate?: string | null // YYYY-MM-DD
   /** 完成进度 0–100 */
   progressPercent?: number | null
   /** 创建时整包设置标签 */
@@ -114,13 +114,13 @@ export interface UpdateTaskRequest {
   assigneeId?: number | null
   /** true 时清空指派人 */
   clearAssignee?: boolean
-  dueDate?: string | null // ISO 8601
+  dueDate?: string | null // YYYY-MM-DD
   /** true 时清空截止日期 */
   clearDueDate?: boolean
   parentId?: number | string | null
   /** true 时解绑父任务 */
   clearParent?: boolean
-  plannedStartDate?: string | null // ISO 8601
+  plannedStartDate?: string | null // YYYY-MM-DD
   /** true 时清空计划开始日期 */
   clearPlannedStart?: boolean
   /** 完成进度 0–100 */

@@ -1,6 +1,6 @@
 package com.linearlite.server.dto;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -16,8 +16,8 @@ public class CreateTaskRequest {
     private String status;
     private String priority;
     private Long assigneeId;
-    private LocalDateTime dueDate;
-    private LocalDateTime plannedStartDate;
+    private LocalDate dueDate;
+    private LocalDate plannedStartDate;
     /** 完成进度 0–100，缺省为 0 */
     private Integer progressPercent;
     /** 可选；有值时整包替换任务标签（创建后写入） */
@@ -79,19 +79,19 @@ public class CreateTaskRequest {
         this.assigneeId = assigneeId;
     }
 
-    public LocalDateTime getDueDate() {
+    public LocalDate getDueDate() {
         return dueDate;
     }
 
-    public void setDueDate(LocalDateTime dueDate) {
+    public void setDueDate(LocalDate dueDate) {
         this.dueDate = dueDate;
     }
 
-    public LocalDateTime getPlannedStartDate() {
+    public LocalDate getPlannedStartDate() {
         return plannedStartDate;
     }
 
-    public void setPlannedStartDate(LocalDateTime plannedStartDate) {
+    public void setPlannedStartDate(LocalDate plannedStartDate) {
         this.plannedStartDate = plannedStartDate;
     }
 

@@ -7,7 +7,7 @@ import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Task;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
 
@@ -38,8 +38,8 @@ public class TaskService {
     }
 
     public Task create(Long projectId, Long creatorId, Long parentId, String title, String description,
-                       String status, String priority, Long assigneeId, LocalDateTime dueDate,
-                       LocalDateTime plannedStartDate, Integer progressPercent, List<TaskLabelItemRequest> labels) {
+                       String status, String priority, Long assigneeId, LocalDate dueDate,
+                       LocalDate plannedStartDate, Integer progressPercent, List<TaskLabelItemRequest> labels) {
         return taskCommandService.create(projectId, creatorId, parentId, title, description, status, priority,
                 assigneeId, dueDate, plannedStartDate, progressPercent, labels).task();
     }

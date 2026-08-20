@@ -45,7 +45,7 @@ class DailySummaryQueryServiceTest {
         today.setProjectId(10L);
         today.setAssigneeId(7L);
         today.setAssigneeEmail("a@example.com");
-        today.setDueDate(LocalDateTime.of(2026, 7, 24, 18, 0));
+        today.setDueDate(LocalDate.of(2026, 7, 24));
         today.setProgressPercent(65);
 
         DailySummaryTaskDto overdue = new DailySummaryTaskDto();
@@ -55,7 +55,7 @@ class DailySummaryQueryServiceTest {
         overdue.setProjectId(10L);
         overdue.setAssigneeId(7L);
         overdue.setAssigneeEmail("a@example.com");
-        overdue.setDueDate(LocalDateTime.of(2026, 7, 20, 12, 0));
+        overdue.setDueDate(LocalDate.of(2026, 7, 20));
         overdue.setProgressPercent(null);
 
         DailySummaryTaskDto completed = new DailySummaryTaskDto();
