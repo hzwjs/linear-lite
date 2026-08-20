@@ -408,6 +408,8 @@ onBeforeUnmount(() => {
 .documents-sidebar__search button svg { width: 14px; height: 14px; }
 .documents-sidebar__search > svg { margin-left: 8px; color: var(--color-text-muted); }
 .documents-sidebar__search input { width: 100%; }
+/* 保留统一的自定义清除按钮，避免浏览器原生控件重复显示。 */
+.documents-sidebar__search input::-webkit-search-cancel-button { display: none; }
 .documents-sidebar__search button { display: inline-flex; align-items: center; justify-content: center; padding: 0 7px; }
 .documents-sidebar__tree-scroll { min-height: 0; flex: 1; padding: 0 6px; overflow: auto; }
 .documents-sidebar__state,
