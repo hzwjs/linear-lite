@@ -6,6 +6,7 @@ import '../styles/frappe-gantt.css'
 import { useTaskStore } from '../store/taskStore'
 import { useViewModeStore } from '../store/viewModeStore'
 import { dateRangeToTaskPatch, getGanttRows } from '../utils/ganttChart'
+import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 
 const UPDATE_DEBOUNCE_MS = 320
 
@@ -41,6 +42,8 @@ let pendingDateUpdate:
 
 const displayRows = shallowRef<any[]>([])
 let frozenIds: string[] | null = null
+const TODAY_ANCHOR_ID = '__gantt_today_anchor__'
+const GANTT_DAY_PADDING_MS = 7 * 24 * 60 * 60 * 1000
 
 // Unlock sorting when user actively changes view configurations or filters
 watch(
@@ -61,6 +64,58 @@ watch(
 function refreshChart(nextRows = displayRows.value) {
   if (!ganttRef.value) return
   ganttRef.value.refresh(nextRows)
+  bindTodayButton()
+}
+
+function bindTodayButton() {
+  const button = chartHostRef.value?.querySelector<HTMLButtonElement>('.today-button')
+  if (button) button.onclick = scrollToToday
+}
+
+function scrollToToday() {
+  const chart = ganttRef.value
+  if (!chart || displayRows.value.length === 0) return
+
+  const today = parseDateInputValue(todayDateInputValue())!
+  const taskStartDates = displayRows.value.map((row) =>
+    parseDateInputValue(formatDateInputValue(new Date(row.start).getTime()))!
+  )
+  const taskEndDates = displayRows.value.map((row) =>
+    parseDateInputValue(formatDateInputValue(new Date(row.end).getTime()))!
+  )
+  const firstDate = Math.min(...taskStartDates)
+  const lastDate = Math.max(...taskEndDates)
+  const todayIsOutsideRange =
+    today < firstDate - GANTT_DAY_PADDING_MS || today > lastDate + GANTT_DAY_PADDING_MS
+
+  if (todayIsOutsideRange) {
+    // Frappe Gantt refuses to scroll when today is outside its task range; add a
+    // hidden anchor so its normal date lookup can locate today's column.
+    const anchor = {
+      id: TODAY_ANCHOR_ID,
+      name: '',
+      start: todayDateInputValue(),
+      end: todayDateInputValue(),
+      progress: 0,
+      custom_class: 'today-anchor'
+    }
+    displayRows.value = [...displayRows.value, anchor]
+    chart.refresh(displayRows.value)
+  }
+
+  chart.scroll_current()
+  scrollCanvasToToday()
+}
+
+function scrollCanvasToToday() {
+  const canvas = chartHostRef.value
+  const todayCell = canvas?.querySelector<HTMLElement>(`.date_${todayDateInputValue()}`)
+  if (!canvas || !todayCell) return
+
+  // The project keeps the outer canvas as the scroll container so the Gantt
+  // header can remain sticky; Frappe's internal container cannot be scrolled.
+  const left = todayCell.offsetLeft - (canvas.clientWidth - todayCell.offsetWidth) / 2
+  canvas.scrollTo({ left: Math.max(0, left), behavior: 'smooth' })
 }
 
 async function flushPendingDateUpdate() {
@@ -110,6 +165,7 @@ onMounted(() => {
       scheduleDateUpdate(String(task.id), start, end)
     }
   })
+  bindTodayButton()
   // 任务常在 fetch 完成后才写入 store，首帧可能为空，需与当前 rows 对齐
   refreshChart(displayRows.value)
 })
@@ -251,6 +307,15 @@ onUnmounted(() => {
   stroke: #e0e0e0 !important;
   rx: 4px; /* rounded corners */
   ry: 4px;
+}
+
+.gantt-chart :deep(.gantt .today-anchor) {
+  pointer-events: none;
+}
+.gantt-chart :deep(.gantt .today-anchor .bar),
+.gantt-chart :deep(.gantt .today-anchor .bar-label),
+.gantt-chart :deep(.gantt .today-anchor .handle-group) {
+  display: none;
 }
 
 /* 2. 缺了 Today 标记: Ensure "Today" is styled prominently like official */

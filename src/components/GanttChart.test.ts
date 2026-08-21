@@ -11,6 +11,7 @@ type MockGanttInstance = {
   tasks: unknown[]
   options: Record<string, (...args: unknown[]) => unknown>
   refresh: ReturnType<typeof vi.fn>
+  scroll_current: ReturnType<typeof vi.fn>
   clear: ReturnType<typeof vi.fn>
 }
 
@@ -25,6 +26,7 @@ vi.mock('frappe-gantt', () => ({
       this.tasks = tasks
     })
     clear = vi.fn()
+    scroll_current = vi.fn()
 
     constructor(
       selector: string,
@@ -34,6 +36,17 @@ vi.mock('frappe-gantt', () => ({
       this.selector = selector
       this.tasks = tasks
       this.options = options
+      const host = document.querySelector(selector)
+      if (host) {
+        const button = document.createElement('button')
+        button.className = 'today-button'
+        host.appendChild(button)
+        const todayCell = document.createElement('div')
+        todayCell.className = 'lower-text date_2026-08-21'
+        Object.defineProperty(todayCell, 'offsetLeft', { value: 600 })
+        Object.defineProperty(todayCell, 'offsetWidth', { value: 36 })
+        host.appendChild(todayCell)
+      }
       ganttInstances.push(this)
     }
   }
@@ -63,6 +76,7 @@ async function mountChart(pinia: Pinia) {
 describe('GanttChart', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
+    HTMLElement.prototype.scrollTo = vi.fn()
     ganttInstances.length = 0
     vi.clearAllMocks()
     vi.useRealTimers()
@@ -205,6 +219,47 @@ describe('GanttChart', () => {
           progress: 0
         }
       ])
+    } finally {
+      view.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it('scrolls to today even when today is outside the task date range', async () => {
+    vi.setSystemTime(new Date('2026-08-21T12:00:00'))
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useTaskStore()
+    store.tasks = [
+      {
+        id: 'ENG-1',
+        title: 'January task',
+        status: 'todo',
+        priority: 'medium',
+        plannedStartDate: parseDateInputValue('2026-01-01'),
+        dueDate: parseDateInputValue('2026-01-03'),
+        createdAt: 1,
+        updatedAt: 3
+      }
+    ]
+
+    const view = await mountChart(pinia)
+    try {
+      const instance = ganttInstances[0]!
+      document.querySelector<HTMLButtonElement>('.today-button')!.click()
+
+      expect(instance.refresh).toHaveBeenLastCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: '__gantt_today_anchor__',
+            start: '2026-08-21',
+            end: '2026-08-21',
+            custom_class: 'today-anchor'
+          })
+        ])
+      )
+      expect(instance.scroll_current).toHaveBeenCalledTimes(1)
+      expect(HTMLElement.prototype.scrollTo).toHaveBeenCalledTimes(1)
     } finally {
       view.unmount()
       vi.useRealTimers()
