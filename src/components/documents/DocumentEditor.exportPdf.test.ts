@@ -76,4 +76,9 @@ describe('DocumentEditor PDF export', () => {
     const printBlock = documentEditorSource.match(/@media print \{([\s\S]*?)\n\}/)?.[1] ?? ''
     expect(printBlock).toMatch(/^\s*\.document-editor__updated \{ display: none !important; \}$/m)
   })
+
+  it('hides BlockNote placeholder pseudo-content from the PDF', () => {
+    const printBlock = documentEditorSource.match(/@media print \{([\s\S]*?)\n\}/)?.[1] ?? ''
+    expect(printBlock).toMatch(/\.document-editor__body :deep\(\.bn-block-content\)::after \{ content: none !important; display: none !important; \}/)
+  })
 })

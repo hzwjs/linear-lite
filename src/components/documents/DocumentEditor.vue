@@ -871,6 +871,8 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   /* PDF 导出只输出文档内容，不导出“更新人 已更新 X前”这类编辑元信息 */
   .document-editor__updated { display: none !important; }
   .document-editor__body :deep(.bn-editor) { min-height: auto !important; padding: 0 !important; font-size: 11pt; line-height: 1.6; }
+  /* BlockNote renders the editor hint as a generated ::after node; it is UI chrome, not document content. */
+  .document-editor__body :deep(.bn-block-content)::after { content: none !important; display: none !important; }
   .document-editor__body :deep(.bn-image-preview-button),
   .document-editor__body :deep(.document-attachment-delete),
   .document-editor__body :deep(.document-attachment-image-status) { display: none !important; }
