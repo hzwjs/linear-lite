@@ -224,7 +224,7 @@ const en = {
     archive: 'Archive', archiveConfirm: 'Archive “{title}” and all of its child documents?',
     favorites: 'Favorites', addFavorite: 'Add to favorites', removeFavorite: 'Remove from favorites',
     archived: 'Archived', archivedDescription: 'Archived document subtrees retain their original structure.', noArchived: 'No archived documents.', restore: 'Restore',
-    history: 'History', version: 'Version {version}', currentVersion: 'Current version', historySavedBy: 'Saved by {editor} at {time}', historyToday: 'Today', historyYesterday: 'Yesterday', historyRestoreConfirm: 'The current content will be saved as a history entry before restoring. Continue?', backToHistory: 'Back to version history', historyLoadFailed: 'Version history could not be loaded.', noHistory: 'No versions yet.',
+    history: 'History', version: 'Version {version}', currentVersion: 'Current version', historySavedBy: 'Saved by {editor} at {time}', historyToday: 'Today', historyYesterday: 'Yesterday', historyDeletedUser: 'User deleted', historyRestoreConfirm: 'The current content will be saved as a history entry before restoring. Continue?', backToHistory: 'Back to version history', historyLoadFailed: 'Version history could not be loaded.', noHistory: 'No versions yet.',
     restoreThisVersion: 'Restore this version', restoring: 'Restoring…', documentTitle: 'Document title',
     exportPdf: 'Export PDF', exportingPdf: 'Preparing PDF…', moreActions: 'More actions',
     bodyPlaceholder: 'Start writing, or type / for more options…', breadcrumbLabel: 'Document location',

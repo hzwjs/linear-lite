@@ -11,4 +11,5 @@ public record ProjectDocumentRevisionResponse(
         Long editorId,
         String editorName,
         LocalDateTime createdAt) {
+    // editor_id 无外键约束，被删除用户对应的 editorName 可能为 null，前端需处理
 }

@@ -22,7 +22,7 @@ export interface ProjectDocumentRevisionSummary {
   sourceVersion: number
   title: string
   editorId: number
-  editorName: string
+  editorName: string | null
   createdAt: string
 }
 
@@ -33,7 +33,7 @@ export interface ProjectDocumentRevision {
   title: string
   content: string
   editorId: number
-  editorName: string
+  editorName: string | null
   createdAt: string
 }
 

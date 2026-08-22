@@ -73,6 +73,7 @@ public class ProjectDocumentQueryService {
                         .orderByDesc(ProjectDocumentRevision::getCreatedAt)
                         .orderByDesc(ProjectDocumentRevision::getId));
         if (revisions.isEmpty()) return List.of();
+        // editor_id 无外键约束，被删除用户不在 map 中，editorName 允许为 null
         Map<Long, String> editorNames = userMapper.selectBatchIds(revisions.stream()
                         .map(ProjectDocumentRevision::getEditorId)
                         .distinct()
@@ -83,7 +84,7 @@ public class ProjectDocumentQueryService {
                 .stream()
                 .map(revision -> new ProjectDocumentRevisionSummary(
                         revision.getId(), revision.getVersion(), revision.getTitle(), revision.getEditorId(),
-                        requireEditorName(editorNames, revision.getEditorId()), revision.getCreatedAt()))
+                        editorNames.get(revision.getEditorId()), revision.getCreatedAt()))
                 .toList();
     }
 
@@ -95,21 +96,13 @@ public class ProjectDocumentQueryService {
         if (revision == null) {
             throw new ResourceNotFoundException("文档修订版不存在: " + revisionId);
         }
-        String editorName = requireEditorName(
-                userMapper.selectBatchIds(List.of(revision.getEditorId())).stream()
-                        .collect(Collectors.toMap(user -> user.getId(), user -> user.getUsername())),
-                revision.getEditorId());
+        // editor_id 无外键约束，被删除用户不在 map 中，editorName 允许为 null
+        Map<Long, String> editorNameMap = userMapper.selectBatchIds(List.of(revision.getEditorId()))
+                .stream().collect(Collectors.toMap(user -> user.getId(), user -> user.getUsername()));
+        String editorName = editorNameMap.get(revision.getEditorId());
         return new ProjectDocumentRevisionResponse(
                 revision.getDocumentId(), revision.getId(), revision.getVersion(), revision.getTitle(),
                 revision.getContentJson(), revision.getEditorId(), editorName, revision.getCreatedAt());
-    }
-
-    private String requireEditorName(Map<Long, String> editorNames, Long editorId) {
-        String editorName = editorNames.get(editorId);
-        if (editorName == null || editorName.isBlank()) {
-            throw new ResourceNotFoundException("历史版本编辑人不存在: " + editorId);
-        }
-        return editorName;
     }
 
     ProjectDocument requireDocument(Long documentId, Long userId) {

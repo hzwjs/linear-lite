@@ -224,7 +224,7 @@ const zhCN = {
     archive: '归档', archiveConfirm: '归档“{title}”及其全部子文档？',
     favorites: '收藏', addFavorite: '收藏文档', removeFavorite: '取消收藏',
     archived: '已归档', archivedDescription: '归档的文档子树会保留原有结构。', noArchived: '暂无已归档文档。', restore: '恢复',
-    history: '历史版本', version: '版本 {version}', currentVersion: '当前版本', historySavedBy: '{editor} 于 {time} 保存', historyToday: '今天', historyYesterday: '昨天', historyRestoreConfirm: '恢复此版本前会先保存当前内容为历史版本，确认继续吗？', backToHistory: '返回版本历史', historyLoadFailed: '版本历史加载失败。', noHistory: '暂无历史版本。',
+    history: '历史版本', version: '版本 {version}', currentVersion: '当前版本', historySavedBy: '{editor} 于 {time} 保存', historyToday: '今天', historyYesterday: '昨天', historyDeletedUser: '用户已删除', historyRestoreConfirm: '恢复此版本前会先保存当前内容为历史版本，确认继续吗？', backToHistory: '返回版本历史', historyLoadFailed: '版本历史加载失败。', noHistory: '暂无历史版本。',
     restoreThisVersion: '恢复此版本', restoring: '正在恢复…', documentTitle: '文档标题',
     exportPdf: '导出 PDF', exportingPdf: '正在准备 PDF…', moreActions: '更多操作',
     bodyPlaceholder: '开始编写内容，输入 / 查看更多操作…', breadcrumbLabel: '文档位置',

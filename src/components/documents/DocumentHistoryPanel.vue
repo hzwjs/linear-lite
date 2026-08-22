@@ -24,7 +24,7 @@ const railRef = ref<HTMLElement | null>(null)
 
 const selectedTitle = computed(() => selectedRevision.value?.title ?? props.document.title)
 const selectedContent = computed(() => selectedRevision.value?.content ?? props.document.content)
-const selectedEditor = computed(() => selectedRevision.value?.editorName ?? t('documents.currentVersion'))
+const selectedEditor = computed(() => selectedRevision.value?.editorName ?? t('documents.historyDeletedUser'))
 const selectedTime = computed(() => selectedRevision.value?.createdAt ?? props.document.updatedAt)
 
 const groupedRevisions = computed(() => {
@@ -153,7 +153,7 @@ onBeforeUnmount(() => {
           <ol>
             <li v-for="revision in group.items" :key="revision.revisionId">
               <button type="button" class="document-history__item" :class="{ selected: selectedRevisionId === revision.revisionId }" @click="selectRevision(revision.revisionId)">
-                <strong>{{ revision.editorName }}</strong>
+                <strong>{{ revision.editorName ?? t('documents.historyDeletedUser') }}</strong>
                 <span>{{ revision.title }}</span>
                 <time :datetime="revision.createdAt">{{ formatDate(revision.createdAt) }}</time>
               </button>

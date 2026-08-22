@@ -1,6 +1,9 @@
 package com.linearlite.server.service;
 
 import com.linearlite.server.dto.ProjectDocumentTreeNode;
+import com.linearlite.server.dto.ProjectDocumentRevisionSummary;
+import com.linearlite.server.entity.ProjectDocument;
+import com.linearlite.server.entity.ProjectDocumentRevision;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
@@ -14,6 +17,7 @@ import org.apache.ibatis.annotations.Select;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -49,6 +53,38 @@ class ProjectDocumentQueryServiceTest {
         verify(documentMapper).selectTreeNodes(7L, 9L, false);
         // 通用实体查询会连同 LONGTEXT content_json 一起读取，树加载禁止走该路径。
         verify(documentMapper, never()).selectList(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void listRevisionsKeepsRevisionWithMissingEditorAndNullName() {
+        ProjectDocumentRevision revision = new ProjectDocumentRevision();
+        revision.setId(1L);
+        revision.setDocumentId(11L);
+        revision.setVersion(2L);
+        revision.setTitle("快照");
+        revision.setContentJson("[]");
+        revision.setEditorId(999L);
+        revision.setCreatedAt(LocalDateTime.of(2026, 7, 30, 14, 0));
+
+        ProjectDocument document = new ProjectDocument();
+        document.setId(11L);
+        document.setProjectId(7L);
+        document.setTitle("文档");
+        document.setSortOrder(0);
+        document.setVersion(3L);
+        document.setCreatedAt(LocalDateTime.of(2026, 7, 30, 14, 0));
+
+        when(documentMapper.selectById(11L)).thenReturn(document);
+        when(revisionMapper.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of(revision));
+        // 编辑人 999 已被删除，userMapper 不返回该用户，editorName 为 null
+        when(userMapper.selectBatchIds(List.of(999L))).thenReturn(List.of());
+
+        List<ProjectDocumentRevisionSummary> result = service.listRevisions(11L, 7L);
+
+        assertEquals(1, result.size());
+        // editorId 仍保留，editorName 按接口约定为 null，不抛异常、不丢弃该行
+        assertEquals(999L, result.get(0).editorId());
+        assertEquals(null, result.get(0).editorName());
     }
 
     @Test
