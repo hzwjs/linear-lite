@@ -90,7 +90,7 @@ _Avoid_: Page、Wiki Page、Note、Doc（代码类型名可保留 ProjectDocumen
 **Document Tree（文档树）**：通过父子关系组织项目文档的层级结构。移动文档改变其在文档树中的位置，不改变文档身份。
 _Avoid_: Folder、Directory（文档不是文件系统目录）
 
-**Document Revision（文档修订版）**：文档一次可恢复的标题和正文快照。修订版按文档版本递增，恢复修订版会产生新的当前版本。
+**Document Revision（文档修订版）**：文档一次可恢复的标题和正文快照。修订版由服务端按编辑颗粒度生成，并以 `revisionId` 标识；文档 `version` 只用于自动保存的乐观锁，恢复修订版会产生新的当前版本。
 _Avoid_: Document History、Snapshot（Snapshot 仅用于统计快照）
 
 **Archived Document（已归档文档）**：不出现在默认活动文档树中的项目文档。归档不等于删除，恢复后重新回到活动文档树。

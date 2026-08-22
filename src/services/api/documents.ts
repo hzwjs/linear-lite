@@ -123,7 +123,7 @@ export const documentApi = {
 
   update(
     documentId: number,
-    body: { expectedVersion: number; title: string; content: string; createRevision: boolean }
+    body: { expectedVersion: number; title: string; content: string }
   ): Promise<ProjectDocument> {
     return api
       .put<ApiResponse<ProjectDocument>>(`/project-documents/${documentId}`, body)
@@ -169,16 +169,16 @@ export const documentApi = {
       .then(unwrap)
   },
 
-  getRevision(documentId: number, version: number): Promise<ProjectDocumentRevision> {
+  getRevision(documentId: number, revisionId: number): Promise<ProjectDocumentRevision> {
     return api
-      .get<ApiResponse<ProjectDocumentRevision>>(`/project-documents/${documentId}/revisions/${version}`)
+      .get<ApiResponse<ProjectDocumentRevision>>(`/project-documents/${documentId}/revisions/${revisionId}`)
       .then(unwrap)
   },
 
-  restoreRevision(documentId: number, version: number, expectedVersion: number): Promise<ProjectDocument> {
+  restoreRevision(documentId: number, revisionId: number, expectedVersion: number): Promise<ProjectDocument> {
     return api
       .post<ApiResponse<ProjectDocument>>(
-        `/project-documents/${documentId}/revisions/${version}/restore`,
+        `/project-documents/${documentId}/revisions/${revisionId}/restore`,
         { expectedVersion }
       )
       .then(unwrap)

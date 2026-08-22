@@ -18,18 +18,22 @@ export interface ProjectDocument extends ProjectDocumentTreeNode {
 }
 
 export interface ProjectDocumentRevisionSummary {
-  version: number
+  revisionId: number
+  sourceVersion: number
   title: string
   editorId: number
+  editorName: string
   createdAt: string
 }
 
 export interface ProjectDocumentRevision {
   documentId: number
-  version: number
+  revisionId: number
+  sourceVersion: number
   title: string
   content: string
   editorId: number
+  editorName: string
   createdAt: string
 }
 

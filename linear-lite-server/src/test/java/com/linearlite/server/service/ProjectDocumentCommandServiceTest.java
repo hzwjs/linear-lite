@@ -7,7 +7,6 @@ import com.linearlite.server.dto.ProjectDocumentResponse;
 import com.linearlite.server.dto.UpdateProjectDocumentRequest;
 import com.linearlite.server.entity.ProjectDocument;
 import com.linearlite.server.entity.ProjectDocumentFavorite;
-import com.linearlite.server.entity.ProjectDocumentRevision;
 import com.linearlite.server.exception.DocumentVersionConflictException;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
@@ -38,6 +37,7 @@ class ProjectDocumentCommandServiceTest {
     @Mock private ProjectDocumentFavoriteMapper favoriteMapper;
     @Mock private ProjectDocumentRevisionMapper revisionMapper;
     @Mock private ProjectAccessGuard accessGuard;
+    @Mock private DocumentRevisionSnapshotService revisionSnapshotService;
     @Mock private ApplicationEventPublisher eventPublisher;
 
     private ProjectDocumentCommandService service;
@@ -45,7 +45,8 @@ class ProjectDocumentCommandServiceTest {
     @BeforeEach
     void setUp() {
         service = new ProjectDocumentCommandService(
-                documentMapper, favoriteMapper, revisionMapper, accessGuard, new ObjectMapper(), eventPublisher);
+                documentMapper, favoriteMapper, revisionMapper, accessGuard, revisionSnapshotService,
+                new ObjectMapper(), eventPublisher);
     }
 
     @Test
@@ -75,9 +76,7 @@ class ProjectDocumentCommandServiceTest {
         verify(documentMapper).insert(documentCaptor.capture());
         assertEquals("[]", documentCaptor.getValue().getContentJson());
         assertEquals("接口设计", documentCaptor.getValue().getTitle());
-        ArgumentCaptor<ProjectDocumentRevision> revisionCaptor = ArgumentCaptor.forClass(ProjectDocumentRevision.class);
-        verify(revisionMapper).insert(revisionCaptor.capture());
-        assertEquals(1L, revisionCaptor.getValue().getVersion());
+        verify(revisionSnapshotService).captureInitial(any(ProjectDocument.class), org.mockito.ArgumentMatchers.eq(7L));
         verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.DOCUMENT, 11L));
     }
@@ -176,7 +175,7 @@ class ProjectDocumentCommandServiceTest {
         when(documentMapper.selectById(11L)).thenReturn(document(11L, 3L, null, 2L, 0));
 
         assertThrows(IllegalArgumentException.class, () -> service.update(
-                11L, new UpdateProjectDocumentRequest(2L, "标题", "{}", false), 7L));
+                11L, new UpdateProjectDocumentRequest(2L, "标题", "{}"), 7L));
 
         verify(documentMapper, never()).updateContentIfVersionMatches(any(), any(), any(), any(), any());
     }
@@ -189,7 +188,7 @@ class ProjectDocumentCommandServiceTest {
         when(documentMapper.updateContentIfVersionMatches(11L, 2L, "新标题", "[]", 7L)).thenReturn(0);
 
         DocumentVersionConflictException error = assertThrows(DocumentVersionConflictException.class, () ->
-                service.update(11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]", false), 7L));
+                service.update(11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]"), 7L));
 
         assertEquals(3L, error.getCurrentVersion());
         verify(revisionMapper, never()).insert(any());
@@ -204,7 +203,7 @@ class ProjectDocumentCommandServiceTest {
         when(documentMapper.updateContentIfVersionMatches(11L, 2L, "新标题", "[]", 7L)).thenReturn(1);
 
         ProjectDocumentResponse response = service.update(
-                11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]", false), 7L);
+                11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]"), 7L);
 
         assertEquals(3L, response.version());
         verify(revisionMapper, never()).insert(any());
@@ -213,16 +212,17 @@ class ProjectDocumentCommandServiceTest {
     }
 
     @Test
-    void updateCheckpointCreatesRevision() {
+    void updateCheckpointDelegatesSnapshotDecisionToRevisionService() {
         ProjectDocument initial = document(11L, 3L, null, 2L, 0);
         ProjectDocument saved = document(11L, 3L, null, 3L, 0);
         saved.setTitle("新标题");
         when(documentMapper.selectById(11L)).thenReturn(initial, saved);
         when(documentMapper.updateContentIfVersionMatches(11L, 2L, "新标题", "[]", 7L)).thenReturn(1);
 
-        service.update(11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]", true), 7L);
+        service.update(11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]"), 7L);
 
-        verify(revisionMapper).insert(any(ProjectDocumentRevision.class));
+        verify(revisionSnapshotService).captureBeforeUpdate(any(ProjectDocument.class), org.mockito.ArgumentMatchers.eq(7L));
+        verify(revisionSnapshotService).captureAfterUpdate(any(ProjectDocument.class), org.mockito.ArgumentMatchers.eq(7L));
     }
 
     @Test
@@ -231,7 +231,7 @@ class ProjectDocumentCommandServiceTest {
         when(documentMapper.selectById(11L)).thenReturn(current);
 
         ProjectDocumentResponse response = service.update(
-                11L, new UpdateProjectDocumentRequest(2L, "标题", "[]", false), 7L);
+                11L, new UpdateProjectDocumentRequest(2L, "标题", "[]"), 7L);
 
         assertEquals(2L, response.version());
         verify(documentMapper, never()).updateContentIfVersionMatches(any(), any(), any(), any(), any());
@@ -240,14 +240,13 @@ class ProjectDocumentCommandServiceTest {
     }
 
     @Test
-    void unchangedCheckpointCreatesRevisionForAnAutosavedCurrentVersion() {
+    void unchangedContentDoesNotInvokeSnapshotService() {
         ProjectDocument current = document(11L, 3L, null, 2L, 0);
         when(documentMapper.selectById(11L)).thenReturn(current);
-        when(revisionMapper.selectOne(any())).thenReturn(null);
+        service.update(11L, new UpdateProjectDocumentRequest(2L, "标题", "[]"), 7L);
 
-        service.update(11L, new UpdateProjectDocumentRequest(2L, "标题", "[]", true), 7L);
-
-        verify(revisionMapper).insert(any(ProjectDocumentRevision.class));
+        verify(revisionSnapshotService, never()).captureBeforeUpdate(any(), any());
+        verify(revisionSnapshotService, never()).captureAfterUpdate(any(), any());
         verify(documentMapper, never()).updateContentIfVersionMatches(any(), any(), any(), any(), any());
     }
 

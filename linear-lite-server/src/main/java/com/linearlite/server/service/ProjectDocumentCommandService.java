@@ -34,6 +34,7 @@ public class ProjectDocumentCommandService {
     private final ProjectDocumentFavoriteMapper favoriteMapper;
     private final ProjectDocumentRevisionMapper revisionMapper;
     private final ProjectAccessGuard projectAccessGuard;
+    private final DocumentRevisionSnapshotService revisionSnapshotService;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -42,12 +43,14 @@ public class ProjectDocumentCommandService {
             ProjectDocumentFavoriteMapper favoriteMapper,
             ProjectDocumentRevisionMapper revisionMapper,
             ProjectAccessGuard projectAccessGuard,
+            DocumentRevisionSnapshotService revisionSnapshotService,
             ObjectMapper objectMapper,
             ApplicationEventPublisher eventPublisher) {
         this.documentMapper = documentMapper;
         this.favoriteMapper = favoriteMapper;
         this.revisionMapper = revisionMapper;
         this.projectAccessGuard = projectAccessGuard;
+        this.revisionSnapshotService = revisionSnapshotService;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
     }
@@ -99,7 +102,7 @@ public class ProjectDocumentCommandService {
         document.setCreatorId(userId);
         document.setLastEditorId(userId);
         documentMapper.insert(document);
-        insertRevision(document, userId);
+        revisionSnapshotService.captureInitial(document, userId);
         publishUpsert(document.getId());
         return toResponse(requireDocument(document.getId()), userId);
     }
@@ -116,22 +119,16 @@ public class ProjectDocumentCommandService {
             throwVersionConflict(documentId);
         }
         if (Objects.equals(current.getTitle(), title) && Objects.equals(current.getContentJson(), content)) {
-            if (request.createRevision() && revisionMapper.selectOne(new LambdaQueryWrapper<ProjectDocumentRevision>()
-                    .eq(ProjectDocumentRevision::getDocumentId, documentId)
-                    .eq(ProjectDocumentRevision::getVersion, current.getVersion())) == null) {
-                insertRevision(current, userId);
-            }
             return toResponse(current, userId);
         }
+        revisionSnapshotService.captureBeforeUpdate(current, userId);
         int updated = documentMapper.updateContentIfVersionMatches(
                 documentId, request.expectedVersion(), title, content, userId);
         if (updated != 1) {
             throwVersionConflict(documentId);
         }
         ProjectDocument saved = requireDocument(documentId);
-        if (request.createRevision()) {
-            insertRevision(saved, userId);
-        }
+        revisionSnapshotService.captureAfterUpdate(saved, userId);
         publishUpsert(saved.getId());
         return toResponse(saved, userId);
     }
@@ -226,24 +223,25 @@ public class ProjectDocumentCommandService {
 
     @Transactional(rollbackFor = Exception.class)
     public ProjectDocumentResponse restoreRevision(
-            Long documentId, Long version, Long expectedVersion, Long userId) {
-        requireAccessibleActiveDocument(documentId, userId);
+            Long documentId, Long revisionId, Long expectedVersion, Long userId) {
+        ProjectDocument current = requireAccessibleActiveDocument(documentId, userId);
         if (expectedVersion == null) {
             throw new IllegalArgumentException("expectedVersion 不能为空");
         }
         ProjectDocumentRevision revision = revisionMapper.selectOne(new LambdaQueryWrapper<ProjectDocumentRevision>()
                 .eq(ProjectDocumentRevision::getDocumentId, documentId)
-                .eq(ProjectDocumentRevision::getVersion, version));
+                .eq(ProjectDocumentRevision::getId, revisionId));
         if (revision == null) {
-            throw new ResourceNotFoundException("文档版本不存在: " + version);
+            throw new ResourceNotFoundException("文档修订版不存在: " + revisionId);
         }
+        revisionSnapshotService.captureBeforeRestore(current);
         int updated = documentMapper.updateContentIfVersionMatches(
                 documentId, expectedVersion, revision.getTitle(), revision.getContentJson(), userId);
         if (updated != 1) {
             throwVersionConflict(documentId);
         }
         ProjectDocument saved = requireDocument(documentId);
-        insertRevision(saved, userId);
+        revisionSnapshotService.captureRestored(saved, userId);
         publishUpsert(saved.getId());
         return toResponse(saved, userId);
     }
@@ -396,16 +394,6 @@ public class ProjectDocumentCommandService {
             sibling.setSortOrder(index);
             documentMapper.updatePosition(sibling.getId(), sibling.getParentDocumentId(), sibling.getSortOrder());
         }
-    }
-
-    private void insertRevision(ProjectDocument document, Long editorId) {
-        ProjectDocumentRevision revision = new ProjectDocumentRevision();
-        revision.setDocumentId(document.getId());
-        revision.setVersion(document.getVersion());
-        revision.setTitle(document.getTitle());
-        revision.setContentJson(document.getContentJson());
-        revision.setEditorId(editorId);
-        revisionMapper.insert(revision);
     }
 
     private void throwVersionConflict(Long documentId) {

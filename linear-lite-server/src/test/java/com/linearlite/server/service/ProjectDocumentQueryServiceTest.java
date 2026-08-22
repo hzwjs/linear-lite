@@ -4,6 +4,7 @@ import com.linearlite.server.dto.ProjectDocumentTreeNode;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
+import com.linearlite.server.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,13 +26,14 @@ class ProjectDocumentQueryServiceTest {
     @Mock private ProjectDocumentMapper documentMapper;
     @Mock private ProjectDocumentFavoriteMapper favoriteMapper;
     @Mock private ProjectDocumentRevisionMapper revisionMapper;
+    @Mock private UserMapper userMapper;
     @Mock private ProjectAccessGuard accessGuard;
 
     private ProjectDocumentQueryService service;
 
     @BeforeEach
     void setUp() {
-        service = new ProjectDocumentQueryService(documentMapper, favoriteMapper, revisionMapper, accessGuard);
+        service = new ProjectDocumentQueryService(documentMapper, favoriteMapper, revisionMapper, userMapper, accessGuard);
     }
 
     @Test

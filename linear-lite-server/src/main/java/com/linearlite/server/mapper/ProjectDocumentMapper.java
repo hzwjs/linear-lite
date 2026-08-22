@@ -139,4 +139,8 @@ public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
     /** 项目行是文档树写入的固定互斥点，即使项目尚无文档也能串行化首次创建。 */
     @Select("SELECT id FROM projects WHERE id = #{projectId} FOR UPDATE")
     Long lockProjectDocumentMutations(@Param("projectId") Long projectId);
+
+    /** 历史快照与恢复共用文档行锁，避免定时任务和编辑请求并发写入重复快照。 */
+    @Select("SELECT * FROM project_documents WHERE id = #{documentId} FOR UPDATE")
+    ProjectDocument selectByIdForUpdate(@Param("documentId") Long documentId);
 }

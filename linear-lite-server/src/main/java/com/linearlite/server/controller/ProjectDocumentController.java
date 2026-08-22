@@ -131,20 +131,20 @@ public class ProjectDocumentController {
         return ResponseEntity.ok(ApiResponse.success(queryService.listRevisions(documentId, userId(request))));
     }
 
-    @GetMapping("/project-documents/{documentId}/revisions/{version}")
+    @GetMapping("/project-documents/{documentId}/revisions/{revisionId}")
     public ResponseEntity<ApiResponse<ProjectDocumentRevisionResponse>> revision(
-            HttpServletRequest request, @PathVariable Long documentId, @PathVariable Long version) {
-        return ResponseEntity.ok(ApiResponse.success(queryService.getRevision(documentId, version, userId(request))));
+            HttpServletRequest request, @PathVariable Long documentId, @PathVariable Long revisionId) {
+        return ResponseEntity.ok(ApiResponse.success(queryService.getRevision(documentId, revisionId, userId(request))));
     }
 
-    @PostMapping("/project-documents/{documentId}/revisions/{version}/restore")
+    @PostMapping("/project-documents/{documentId}/revisions/{revisionId}/restore")
     public ResponseEntity<ApiResponse<ProjectDocumentResponse>> restoreRevision(
             HttpServletRequest request,
             @PathVariable Long documentId,
-            @PathVariable Long version,
+            @PathVariable Long revisionId,
             @RequestBody RestoreProjectDocumentRevisionRequest body) {
         return ResponseEntity.ok(ApiResponse.success(commandService.restoreRevision(
-                documentId, version, body == null ? null : body.expectedVersion(), userId(request))));
+                documentId, revisionId, body == null ? null : body.expectedVersion(), userId(request))));
     }
 
     private Long userId(HttpServletRequest request) {

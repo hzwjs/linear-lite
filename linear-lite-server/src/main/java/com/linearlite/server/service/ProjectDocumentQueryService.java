@@ -13,25 +13,31 @@ import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
+import com.linearlite.server.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class ProjectDocumentQueryService {
     private final ProjectDocumentMapper documentMapper;
     private final ProjectDocumentFavoriteMapper favoriteMapper;
     private final ProjectDocumentRevisionMapper revisionMapper;
+    private final UserMapper userMapper;
     private final ProjectAccessGuard projectAccessGuard;
 
     public ProjectDocumentQueryService(
             ProjectDocumentMapper documentMapper,
             ProjectDocumentFavoriteMapper favoriteMapper,
             ProjectDocumentRevisionMapper revisionMapper,
+            UserMapper userMapper,
             ProjectAccessGuard projectAccessGuard) {
         this.documentMapper = documentMapper;
         this.favoriteMapper = favoriteMapper;
         this.revisionMapper = revisionMapper;
+        this.userMapper = userMapper;
         this.projectAccessGuard = projectAccessGuard;
     }
 
@@ -62,26 +68,48 @@ public class ProjectDocumentQueryService {
 
     public List<ProjectDocumentRevisionSummary> listRevisions(Long documentId, Long userId) {
         requireDocument(documentId, userId);
-        return revisionMapper.selectList(new LambdaQueryWrapper<ProjectDocumentRevision>()
+        List<ProjectDocumentRevision> revisions = revisionMapper.selectList(new LambdaQueryWrapper<ProjectDocumentRevision>()
                         .eq(ProjectDocumentRevision::getDocumentId, documentId)
-                        .orderByDesc(ProjectDocumentRevision::getVersion))
+                        .orderByDesc(ProjectDocumentRevision::getCreatedAt)
+                        .orderByDesc(ProjectDocumentRevision::getId));
+        if (revisions.isEmpty()) return List.of();
+        Map<Long, String> editorNames = userMapper.selectBatchIds(revisions.stream()
+                        .map(ProjectDocumentRevision::getEditorId)
+                        .distinct()
+                        .toList())
+                .stream()
+                .collect(Collectors.toMap(user -> user.getId(), user -> user.getUsername()));
+        return revisions
                 .stream()
                 .map(revision -> new ProjectDocumentRevisionSummary(
-                        revision.getVersion(), revision.getTitle(), revision.getEditorId(), revision.getCreatedAt()))
+                        revision.getId(), revision.getVersion(), revision.getTitle(), revision.getEditorId(),
+                        requireEditorName(editorNames, revision.getEditorId()), revision.getCreatedAt()))
                 .toList();
     }
 
-    public ProjectDocumentRevisionResponse getRevision(Long documentId, Long version, Long userId) {
+    public ProjectDocumentRevisionResponse getRevision(Long documentId, Long revisionId, Long userId) {
         requireDocument(documentId, userId);
         ProjectDocumentRevision revision = revisionMapper.selectOne(new LambdaQueryWrapper<ProjectDocumentRevision>()
                 .eq(ProjectDocumentRevision::getDocumentId, documentId)
-                .eq(ProjectDocumentRevision::getVersion, version));
+                .eq(ProjectDocumentRevision::getId, revisionId));
         if (revision == null) {
-            throw new ResourceNotFoundException("文档版本不存在: " + version);
+            throw new ResourceNotFoundException("文档修订版不存在: " + revisionId);
         }
+        String editorName = requireEditorName(
+                userMapper.selectBatchIds(List.of(revision.getEditorId())).stream()
+                        .collect(Collectors.toMap(user -> user.getId(), user -> user.getUsername())),
+                revision.getEditorId());
         return new ProjectDocumentRevisionResponse(
-                revision.getDocumentId(), revision.getVersion(), revision.getTitle(), revision.getContentJson(),
-                revision.getEditorId(), revision.getCreatedAt());
+                revision.getDocumentId(), revision.getId(), revision.getVersion(), revision.getTitle(),
+                revision.getContentJson(), revision.getEditorId(), editorName, revision.getCreatedAt());
+    }
+
+    private String requireEditorName(Map<Long, String> editorNames, Long editorId) {
+        String editorName = editorNames.get(editorId);
+        if (editorName == null || editorName.isBlank()) {
+            throw new ResourceNotFoundException("历史版本编辑人不存在: " + editorId);
+        }
+        return editorName;
     }
 
     ProjectDocument requireDocument(Long documentId, Long userId) {

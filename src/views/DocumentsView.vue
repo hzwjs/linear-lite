@@ -215,6 +215,11 @@ async function openArchive() {
   await store.loadArchive(projectId.value)
 }
 
+async function openHistory() {
+  await store.flushSaves()
+  historyOpen.value = true
+}
+
 async function restoreArchived(id: number) {
   await store.restoreDocument(id, projectId.value)
   archiveOpen.value = false
@@ -342,6 +347,13 @@ onBeforeUnmount(() => {
           </ul>
           <div v-else class="documents-content__state">{{ t('documents.noArchived') }}</div>
         </div>
+        <DocumentHistoryPanel
+          v-if="store.activeDocument && historyOpen"
+          :open="historyOpen"
+          :document="store.activeDocument"
+          @close="historyOpen = false"
+          @restored="historyOpen = false"
+        />
         <DocumentEditor
           v-else-if="store.activeDocument"
           :document="store.activeDocument"
@@ -354,7 +366,7 @@ onBeforeUnmount(() => {
           @update-title="store.updateDraft({ title: $event })"
           @update-content="store.updateDraft({ content: $event })"
           @archive="archiveDocument(store.activeDocument.id)"
-          @history="historyOpen = true"
+          @history="openHistory"
           @reload="store.reloadAfterConflict"
           @retry="store.saveNow"
           @toggle-favorite="store.toggleFavorite(store.activeDocument)"
@@ -364,13 +376,6 @@ onBeforeUnmount(() => {
           <span>{{ t('documents.selectDocument') }}</span>
         </div>
 
-        <DocumentHistoryPanel
-          v-if="store.activeDocument"
-          :open="historyOpen"
-          :document="store.activeDocument"
-          @close="historyOpen = false"
-          @restored="historyOpen = false"
-        />
       </main>
     </div>
   </div>

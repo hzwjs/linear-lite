@@ -4,9 +4,11 @@ import java.time.LocalDateTime;
 
 public record ProjectDocumentRevisionResponse(
         Long documentId,
-        Long version,
+        Long revisionId,
+        Long sourceVersion,
         String title,
         String content,
         Long editorId,
+        String editorName,
         LocalDateTime createdAt) {
 }

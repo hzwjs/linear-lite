@@ -5,7 +5,6 @@ import { useDocumentFavoriteStore } from './documentFavoriteStore'
 import type {
   DocumentSaveState,
   ProjectDocument,
-  ProjectDocumentRevision,
   ProjectDocumentTreeNode
 } from '../types/document'
 
@@ -15,7 +14,6 @@ export const useDocumentStore = defineStore('documentStore', () => {
   const treeNodes = ref<ProjectDocumentTreeNode[]>([])
   const archivedTreeNodes = ref<ProjectDocumentTreeNode[]>([])
   const activeDocument = ref<ProjectDocument | null>(null)
-  const activeRevision = ref<ProjectDocumentRevision | null>(null)
   const saveState = ref<DocumentSaveState>('idle')
   const loadingTree = ref(false)
   const treeSnapshotVersion = ref(0)
@@ -27,7 +25,6 @@ export const useDocumentStore = defineStore('documentStore', () => {
 
   let saveTimer: ReturnType<typeof setTimeout> | null = null
   let editSequence = 0
-  let pendingRevision = false
   let activeSavePromise: Promise<void> | null = null
   let treeLoadSequence = 0
   let visibleTreeLoadSequence = 0
@@ -41,10 +38,8 @@ export const useDocumentStore = defineStore('documentStore', () => {
   function resetEditorState() {
     cancelScheduledSave()
     editSequence = 0
-    pendingRevision = false
     saveState.value = 'idle'
     conflictVersion.value = null
-    activeRevision.value = null
   }
 
   function syncTreeNode(document: ProjectDocument) {
@@ -187,18 +182,15 @@ export const useDocumentStore = defineStore('documentStore', () => {
 
   async function performSave(): Promise<void> {
     const document = activeDocument.value
-    const createRevision = pendingRevision
     if (!document || saveState.value === 'conflict' || saveState.value === 'invalid' ||
-      saveState.value === 'idle' || (saveState.value === 'saved' && !createRevision)) return
-    pendingRevision = false
+      saveState.value === 'idle' || saveState.value === 'saved') return
     cancelScheduledSave()
     const submittedId = document.id
     const submittedSequence = editSequence
     const submitted = {
       expectedVersion: document.version,
       title: document.title,
-      content: document.content,
-      createRevision
+      content: document.content
     }
     saveState.value = 'saving'
     try {
@@ -244,13 +236,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
   async function flushSaves() {
     cancelScheduledSave()
     if (saveState.value !== 'dirty' && saveState.value !== 'saving' && saveState.value !== 'failed') return
-    pendingRevision = true
     await saveNow()
-    if (saveState.value === 'dirty') {
-      pendingRevision = true
-      await saveNow()
-    }
-    if (pendingRevision) await saveNow()
   }
 
   async function reloadAfterConflict() {
@@ -329,16 +315,11 @@ export const useDocumentStore = defineStore('documentStore', () => {
     }
   }
 
-  async function loadRevision(documentId: number, version: number) {
-    activeRevision.value = await documentApi.getRevision(documentId, version)
-  }
-
-  async function restoreRevision(version: number) {
+  async function restoreRevision(revisionId: number) {
     const document = activeDocument.value
     if (!document) return
-    const restored = await documentApi.restoreRevision(document.id, version, document.version)
+    const restored = await documentApi.restoreRevision(document.id, revisionId, document.version)
     activeDocument.value = restored
-    activeRevision.value = null
     conflictVersion.value = null
     saveState.value = 'saved'
     syncTreeNode(restored)
@@ -360,7 +341,6 @@ export const useDocumentStore = defineStore('documentStore', () => {
     treeNodes,
     archivedTreeNodes,
     activeDocument,
-    activeRevision,
     saveState,
     loadingTree,
     treeSnapshotVersion,
@@ -381,7 +361,6 @@ export const useDocumentStore = defineStore('documentStore', () => {
     archiveDocument,
     restoreDocument,
     toggleFavorite,
-    loadRevision,
     restoreRevision,
     clear
   }

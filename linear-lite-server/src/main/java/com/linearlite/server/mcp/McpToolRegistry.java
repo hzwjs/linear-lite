@@ -243,7 +243,7 @@ public class McpToolRegistry {
         return projectDocumentCommandService.update(
                 documentId,
                 new UpdateProjectDocumentRequest(
-                        expectedVersion, title, markdownToBlockNoteConverter.convert(markdown), true), userId);
+                        expectedVersion, title, markdownToBlockNoteConverter.convert(markdown)), userId);
     }
 
     private static Long requiredLong(JsonNode object, String name) {
