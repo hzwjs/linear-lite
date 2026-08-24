@@ -9,6 +9,7 @@ import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskAttachment;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.TaskAttachmentMapper;
+import com.linearlite.server.time.BeijingTime;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -47,6 +48,8 @@ public class TaskAttachmentService {
         attachment.setFileName(file.getOriginalFilename() != null ? file.getOriginalFilename() : "file");
         attachment.setFileSize(file.getSize());
         attachment.setContentType(file.getContentType());
+        // 附件时间由应用明确写入北京时间，不依赖数据库服务器或连接会话的默认时区。
+        attachment.setCreatedAt(BeijingTime.now());
         taskAttachmentMapper.insert(attachment);
         TaskAttachment inserted = taskAttachmentMapper.selectById(attachment.getId());
 
@@ -58,7 +61,7 @@ public class TaskAttachmentService {
         response.setFileSize(inserted.getFileSize());
         response.setContentType(inserted.getContentType());
         response.setUrl(uploaded.getUrl());
-        response.setCreatedAt(inserted.getCreatedAt());
+        response.setCreatedAt(BeijingTime.atOffset(inserted.getCreatedAt()));
         return response;
     }
 
@@ -120,7 +123,7 @@ public class TaskAttachmentService {
         response.setFileSize(att.getFileSize());
         response.setContentType(att.getContentType());
         response.setUrl(buildPublicUrl(att.getObjectKey()));
-        response.setCreatedAt(att.getCreatedAt());
+        response.setCreatedAt(BeijingTime.atOffset(att.getCreatedAt()));
         return response;
     }
 

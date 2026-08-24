@@ -230,6 +230,26 @@ describe('TaskEditor attachments', () => {
     }
   })
 
+  it('interprets attachment timestamps with an explicit Beijing offset', async () => {
+    vi.setSystemTime(new Date('2026-08-24T18:22:12+08:00'))
+    vi.mocked(attachmentsApi.list).mockResolvedValue([
+      {
+        id: 8,
+        fileName: 'recent.pdf',
+        fileSize: 1024,
+        url: 'https://example.test/attachments/8',
+        createdAt: '2026-08-24T16:22:12+08:00'
+      }
+    ])
+
+    const view = await mountEditor(createTask())
+    try {
+      expect(view.container.textContent).toContain('2 小时前')
+    } finally {
+      view.unmount()
+    }
+  })
+
   it('shows uploading row and disables paperclip until upload finishes', async () => {
     vi.mocked(attachmentsApi.list).mockResolvedValue([])
     let resolveUpload!: (value: TaskAttachment) => void

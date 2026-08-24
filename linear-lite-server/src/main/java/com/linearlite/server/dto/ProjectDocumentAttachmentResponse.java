@@ -1,6 +1,6 @@
 package com.linearlite.server.dto;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 public record ProjectDocumentAttachmentResponse(
         Long id,
@@ -12,5 +12,5 @@ public record ProjectDocumentAttachmentResponse(
         String contentType,
         String sha256,
         String url,
-        LocalDateTime createdAt) {
+        OffsetDateTime createdAt) {
 }

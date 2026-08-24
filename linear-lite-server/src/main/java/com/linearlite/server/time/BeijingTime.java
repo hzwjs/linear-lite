@@ -3,6 +3,7 @@ package com.linearlite.server.time;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 
 /**
@@ -17,6 +18,10 @@ public final class BeijingTime {
 
     public static LocalDateTime now() {
         return LocalDateTime.now(CLOCK);
+    }
+
+    public static OffsetDateTime atOffset(LocalDateTime value) {
+        return value.atZone(ZONE_ID).toOffsetDateTime();
     }
 
     public static LocalDate today() {

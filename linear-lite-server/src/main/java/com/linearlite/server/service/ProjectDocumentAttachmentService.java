@@ -9,6 +9,7 @@ import com.linearlite.server.entity.ProjectDocumentAttachment;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.ProjectDocumentAttachmentMapper;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
+import com.linearlite.server.time.BeijingTime;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -72,6 +73,8 @@ public class ProjectDocumentAttachmentService {
         attachment.setFileSize(file.getSize());
         attachment.setContentType(file.getContentType());
         attachment.setSha256(sha256);
+        // 附件时间由应用明确写入北京时间，不依赖数据库服务器或连接会话的默认时区。
+        attachment.setCreatedAt(BeijingTime.now());
         try {
             attachmentMapper.insert(attachment);
             return toResponse(requireAttachment(documentId, attachment.getId()));
@@ -168,7 +171,7 @@ public class ProjectDocumentAttachmentService {
                 attachment.getContentType(),
                 attachment.getSha256(),
                 url,
-                attachment.getCreatedAt());
+                BeijingTime.atOffset(attachment.getCreatedAt()));
     }
 
     private void requireValidFile(MultipartFile file) {

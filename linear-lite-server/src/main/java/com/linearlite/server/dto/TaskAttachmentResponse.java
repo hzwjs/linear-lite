@@ -1,6 +1,6 @@
 package com.linearlite.server.dto;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 public class TaskAttachmentResponse {
 
@@ -11,7 +11,7 @@ public class TaskAttachmentResponse {
     private Long fileSize;
     private String contentType;
     private String url;
-    private LocalDateTime createdAt;
+    private OffsetDateTime createdAt;
 
     public Long getId() {
         return id;
@@ -69,11 +69,11 @@ public class TaskAttachmentResponse {
         this.url = url;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public OffsetDateTime getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(OffsetDateTime createdAt) {
         this.createdAt = createdAt;
     }
 }
