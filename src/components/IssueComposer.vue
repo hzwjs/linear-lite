@@ -15,6 +15,7 @@ import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import CustomDatePicker from './ui/CustomDatePicker.vue'
 import AssigneeSelect from './ui/AssigneeSelect.vue'
+import TaskLabelCombobox from './TaskLabelCombobox.vue'
 import type { CustomSelectOption } from './ui/CustomSelect.vue'
 import {
   PriorityUrgentIcon,
@@ -58,6 +59,9 @@ const priority = ref<Priority>('medium')
 const assigneeId = ref<string | number>('')
 const plannedStartDate = ref('')
 const dueDate = ref('')
+type ComposerLabel = { id?: number; name: string }
+const labels = ref<ComposerLabel[]>([])
+const labelInput = ref('')
 const createMore = ref(false)
 const isSaving = ref(false)
 const userList = ref<User[]>([])
@@ -81,6 +85,21 @@ function focusDescription() {
 
 function onDescriptionUploadStateChange(state: { hasPending: boolean; hasFailed: boolean }) {
   descriptionUploadState.value = state
+}
+
+function pickLabel(label: { id: number; name: string }) {
+  if (labels.value.some((selected) => selected.id === label.id)) return
+  labels.value = [...labels.value, label]
+}
+
+function createLabel(name: string) {
+  const normalizedName = name.trim()
+  if (!normalizedName || labels.value.some((label) => label.name.toLowerCase() === normalizedName.toLowerCase())) return
+  labels.value = [...labels.value, { name: normalizedName }]
+}
+
+function removeLabel(index: number) {
+  labels.value = labels.value.filter((_, currentIndex) => currentIndex !== index)
 }
 
 const statusOptions = computed<CustomSelectOption[]>(() => [
@@ -119,6 +138,8 @@ function resetForm() {
   assigneeId.value = ''
   plannedStartDate.value = todayDateInputValue()
   dueDate.value = ''
+  labels.value = []
+  labelInput.value = ''
   composerAttachmentQueue.value = []
   composerAttachmentPickError.value = ''
 }
@@ -251,6 +272,7 @@ async function handleCreate() {
       assigneeId: assigneeIdForApi,
       plannedStartDate: plannedStartMs,
       dueDate: dueDateMs,
+      labels: labels.value.map((label) => (label.id != null ? { id: label.id } : { name: label.name })),
       parentId: props.parentNumericId ?? undefined
     })
 
@@ -413,6 +435,23 @@ async function handleCreate() {
               :placeholder="t('common.dueDate')"
               :aria-label="t('common.dueDate')"
               trigger-class="composer-trigger"
+            />
+            <TaskLabelCombobox
+              class="composer-property composer-property--labels"
+              v-model="labelInput"
+              :labels="labels"
+              :project-id="projectStore.activeProjectId"
+              :disabled="isSaving"
+              task-id="new-task"
+              :placeholder="t('taskEditor.addLabel')"
+              :aria-label="t('taskEditor.addLabel')"
+              :remove-label-aria-label="t('taskEditor.removeLabel')"
+              :delete-definition-aria-label="t('taskEditor.deleteProjectLabelDefinition')"
+              :no-matches-text="t('boardView.noLabelsMatch')"
+              popover-placement="top"
+              @pick="pickLabel"
+              @create="createLabel"
+              @remove="removeLabel"
             />
           </div>
         </div>
@@ -696,6 +735,17 @@ async function handleCreate() {
 :deep(.composer-property--planned-start .custom-date-picker-trigger),
 :deep(.composer-property--due-date .custom-date-picker-trigger) {
   width: auto;
+}
+
+:deep(.composer-property--labels) {
+  flex: 1 0 100%;
+  width: 100%;
+  margin-top: 2px;
+}
+
+:deep(.composer-property--labels .label-trigger) {
+  min-height: var(--composer-control-height);
+  padding-inline: 8px;
 }
 
 .composer-footer {

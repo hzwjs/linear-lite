@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Check, Plus, Tag, X } from 'lucide-vue-next'
 import { projectApi } from '../services/api/project'
 import { getTaskLabelTone } from '../utils/taskLabelTone'
@@ -18,6 +18,7 @@ const props = defineProps<{
   removeLabelAriaLabel: string
   deleteDefinitionAriaLabel: string
   noMatchesText: string
+  popoverPlacement?: 'top' | 'bottom'
 }>()
 
 const emit = defineEmits<{
@@ -35,6 +36,9 @@ const suggestions = ref<LabelOption[]>([])
 const activeIndex = ref(-1)
 const inputRef = ref<HTMLInputElement | null>(null)
 const rootRef = ref<HTMLElement | null>(null)
+const triggerRef = ref<HTMLElement | null>(null)
+const panelRef = ref<HTMLElement | null>(null)
+const panelStyle = ref<Record<string, string>>({})
 let suggestTimer: ReturnType<typeof setTimeout> | null = null
 let typingEpoch = 0
 
@@ -117,12 +121,39 @@ function focusInput() {
   nextTick(() => inputRef.value?.focus())
 }
 
+function updatePanelPosition() {
+  if (props.popoverPlacement !== 'top' || !triggerRef.value || !panelRef.value || !open.value) return
+  const triggerRect = triggerRef.value.getBoundingClientRect()
+  const panelRect = panelRef.value.getBoundingClientRect()
+  const panelWidth = panelRect.width || 284
+  const panelHeight = panelRect.height || 280
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+  let left = triggerRect.left
+  let top = triggerRect.top - panelHeight - 4
+
+  if (left + panelWidth > viewportWidth) left = triggerRect.right - panelWidth
+  if (top < 0) top = triggerRect.bottom + 4
+  panelStyle.value = {
+    top: `${Math.max(0, Math.min(top, viewportHeight - panelHeight))}px`,
+    left: `${Math.max(0, Math.min(left, viewportWidth - panelWidth))}px`
+  }
+}
+
+function onFloatingPanelUpdate() {
+  updatePanelPosition()
+}
+
 function openPicker() {
   if (props.disabled) return
   open.value = true
   emit('openChange', true)
   activeIndex.value = -1
   void fetchSuggestions()
+  nextTick(() => {
+    updatePanelPosition()
+    requestAnimationFrame(updatePanelPosition)
+  })
   focusInput()
 }
 
@@ -195,11 +226,11 @@ function isWithinCombobox(target: EventTarget | null): boolean {
 }
 
 function handleDocumentFocusIn(event: FocusEvent) {
-  if (!isWithinCombobox(event.target)) closePicker()
+  if (!isWithinCombobox(event.target) && !(event.target instanceof Node && !!panelRef.value?.contains(event.target))) closePicker()
 }
 
 function handleDocumentMouseDown(event: MouseEvent) {
-  if (!isWithinCombobox(event.target)) closePicker()
+  if (!isWithinCombobox(event.target) && !(event.target instanceof Node && !!panelRef.value?.contains(event.target))) closePicker()
 }
 
 watch(
@@ -232,12 +263,19 @@ watch(
 onMounted(() => {
   document.addEventListener('focusin', handleDocumentFocusIn)
   document.addEventListener('mousedown', handleDocumentMouseDown)
+  window.addEventListener('resize', onFloatingPanelUpdate)
+  window.addEventListener('scroll', onFloatingPanelUpdate, true)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('focusin', handleDocumentFocusIn)
   document.removeEventListener('mousedown', handleDocumentMouseDown)
   clearSuggestTimer()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', onFloatingPanelUpdate)
+  window.removeEventListener('scroll', onFloatingPanelUpdate, true)
 })
 
 function removeFromSuggestions(labelId: number) {
@@ -254,6 +292,7 @@ defineExpose({ removeFromSuggestions })
 <template>
   <div ref="rootRef" class="task-label-combobox">
     <button
+      ref="triggerRef"
       type="button"
       class="label-trigger"
       :class="{ 'label-trigger--open': open }"
@@ -283,8 +322,15 @@ defineExpose({ removeFromSuggestions })
       </span>
     </button>
 
-    <div v-if="open" class="label-popover">
-      <div class="label-search-row">
+    <Teleport to="body" :disabled="popoverPlacement !== 'top'">
+      <div
+        v-if="open"
+        ref="panelRef"
+        class="label-popover"
+        :class="`label-popover--${popoverPlacement ?? 'bottom'}`"
+        :style="panelStyle"
+      >
+        <div class="label-search-row">
         <input
           ref="inputRef"
           :value="modelValue"
@@ -302,10 +348,10 @@ defineExpose({ removeFromSuggestions })
           @keydown.escape.prevent.stop="closePicker"
         />
         <kbd class="label-shortcut" aria-hidden="true">L</kbd>
-      </div>
+        </div>
 
-      <div v-if="loading && visibleSuggestions.length === 0" class="label-empty" role="status">…</div>
-      <ul v-else class="label-option-list" role="listbox" :aria-label="ariaLabel">
+        <div v-if="loading && visibleSuggestions.length === 0" class="label-empty" role="status">…</div>
+        <ul v-else class="label-option-list" role="listbox" :aria-label="ariaLabel">
         <li
           v-for="(suggestion, index) in visibleSuggestions"
           :key="suggestion.id ?? `temporary-${suggestion.name}`"
@@ -346,8 +392,9 @@ defineExpose({ removeFromSuggestions })
         <li v-if="visibleSuggestions.length === 0 && !canCreate" class="label-empty">
           {{ noMatchesText }}
         </li>
-      </ul>
-    </div>
+        </ul>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -473,6 +520,12 @@ defineExpose({ removeFromSuggestions })
   border-radius: var(--radius-lg);
   background: var(--color-bg-base);
   box-shadow: var(--shadow-popover);
+}
+
+.label-popover--top {
+  position: fixed;
+  z-index: 1000;
+  bottom: auto;
 }
 
 .label-search-row {

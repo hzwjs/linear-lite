@@ -73,6 +73,7 @@ export const useTaskStore = defineStore('taskStore', () => {
     clearParent?: boolean
     labels?: TaskLabelWriteItem[]
   }
+  type TaskCreateLabel = { id?: number; name: string }
 
   type DrainResult =
     | { ok: true; task: Task }
@@ -520,7 +521,10 @@ export const useTaskStore = defineStore('taskStore', () => {
 
   /** parentId 为父任务数据库 id（number），非 task_key */
   async function createTask(
-    data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'parentId'> & { parentId?: number | null }
+    data: Omit<Task, 'id' | 'createdAt' | 'updatedAt' | 'parentId' | 'labels'> & {
+      parentId?: number | null
+      labels?: TaskCreateLabel[]
+    }
   ) {
     const projectStore = useProjectStore()
     const projectId = projectStore.activeProjectId
@@ -548,7 +552,8 @@ export const useTaskStore = defineStore('taskStore', () => {
       createdAt,
       updatedAt: createdAt,
       favorited: false,
-      labels: data.labels?.map((l) => ({ ...l }))
+      // 使用标签名称生成临时 id，让创建请求完成前的乐观行也能立即展示标签。
+      labels: data.labels?.map((l) => ({ id: l.id ?? toOptimisticLabelId(l.name), name: l.name }))
     }
     tasks.value = [optimisticTask, ...tasks.value]
     cacheTask(optimisticTask)
@@ -564,7 +569,8 @@ export const useTaskStore = defineStore('taskStore', () => {
         dueDate: toApiDate(data.dueDate),
         plannedStartDate: toApiDate(data.plannedStartDate),
         parentId: data.parentId ?? undefined,
-        progressPercent: data.progressPercent ?? 0
+        progressPercent: data.progressPercent ?? 0,
+        labels: data.labels?.map((label) => (label.id != null ? { id: label.id } : { name: label.name }))
       })
       const newTask = mutation.task
       const optimisticIndex = tasks.value.findIndex((task) => task.id === optimisticTask.id)
