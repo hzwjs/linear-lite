@@ -86,7 +86,15 @@ import {
   Pencil,
   ChevronDown,
   ChevronRight,
-  Plus
+  Plus,
+  File,
+  FileText,
+  FileImage,
+  FileVideo,
+  FileAudio,
+  FileSpreadsheet,
+  Archive,
+  Code2
 } from 'lucide-vue-next'
 import TaskRowStatusPicker from './TaskRowStatusPicker.vue'
 import PiConversationPanel from './pi/PiConversationPanel.vue'
@@ -925,6 +933,58 @@ function onAttachmentInputChange(event: Event) {
       input.value = ''
     }
   })()
+}
+
+/** 文件名扩展名是附件列表可直接确定的类型来源，映射到已注册的图标组件。 */
+function attachmentIcon(att: TaskAttachment): Component {
+  const ext = (att.fileName.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase()
+  const iconByExtension: Record<string, Component> = {
+    pdf: FileText,
+    doc: FileText,
+    docx: FileText,
+    txt: File,
+    md: File,
+    xls: FileSpreadsheet,
+    xlsx: FileSpreadsheet,
+    csv: FileSpreadsheet,
+    ppt: FileText,
+    pptx: FileText,
+    zip: Archive,
+    rar: Archive,
+    '7z': Archive,
+    png: FileImage,
+    jpg: FileImage,
+    jpeg: FileImage,
+    gif: FileImage,
+    webp: FileImage,
+    svg: FileImage,
+    mp4: FileVideo,
+    mov: FileVideo,
+    avi: FileVideo,
+    mp3: FileAudio,
+    wav: FileAudio,
+    tsx: Code2,
+    ts: Code2,
+    js: Code2,
+    jsx: Code2,
+    java: Code2,
+    py: Code2,
+    go: Code2
+  }
+  return iconByExtension[ext] ?? File
+}
+
+function attachmentIconTone(att: TaskAttachment): string {
+  const ext = (att.fileName.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase()
+  if (['xls', 'xlsx', 'csv'].includes(ext)) return 'spreadsheet'
+  if (['doc', 'docx', 'txt', 'md'].includes(ext)) return 'document'
+  if (ext === 'pdf') return 'pdf'
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) return 'image'
+  if (['mp4', 'mov', 'avi'].includes(ext)) return 'video'
+  if (['mp3', 'wav'].includes(ext)) return 'audio'
+  if (['zip', 'rar', '7z'].includes(ext)) return 'archive'
+  if (['tsx', 'ts', 'js', 'jsx', 'java', 'py', 'go'].includes(ext)) return 'code'
+  return 'generic'
 }
 
 function formatAttachmentSize(bytes: number): string {
@@ -1978,6 +2038,13 @@ async function toggleDescriptionFullscreen() {
               </ul>
               <ul v-if="attachments.length" class="linear-sub-list">
                 <li v-for="att in attachments" :key="att.id" class="linear-sub-item linear-attachment-row">
+                  <span
+                    class="linear-attachment-icon-wrap"
+                    :class="`linear-attachment-icon-wrap--${attachmentIconTone(att)}`"
+                    aria-hidden="true"
+                  >
+                    <Component :is="attachmentIcon(att)" class="linear-attachment-icon" />
+                  </span>
                   <button type="button" class="linear-sub-link linear-sub-link--btn" @click="downloadAttachment(att)">{{ att.fileName }}</button>
                   <span class="linear-sub-meta">{{ formatAttachmentSize(att.fileSize) }} · {{ formatAttachmentDate(att.createdAt) }}</span>
                   <button
@@ -3358,7 +3425,54 @@ async function toggleDescriptionFullscreen() {
 .linear-attachment-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+}
+.linear-attachment-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 7px;
+}
+.linear-attachment-icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.1;
+}
+.linear-attachment-icon-wrap--spreadsheet {
+  color: #16803c;
+  background: #e6f6eb;
+}
+.linear-attachment-icon-wrap--document {
+  color: #2563a8;
+  background: #e8f1fc;
+}
+.linear-attachment-icon-wrap--pdf {
+  color: #c43d3d;
+  background: #fdebea;
+}
+.linear-attachment-icon-wrap--image {
+  color: #7c4db3;
+  background: #f1eafd;
+}
+.linear-attachment-icon-wrap--video {
+  color: #b76519;
+  background: #fff1df;
+}
+.linear-attachment-icon-wrap--audio {
+  color: #b33b73;
+  background: #fce8f1;
+}
+.linear-attachment-icon-wrap--archive {
+  color: #946b12;
+  background: #fff6d9;
+}
+.linear-attachment-icon-wrap--code,
+.linear-attachment-icon-wrap--generic {
+  color: var(--color-text-secondary);
+  background: var(--color-background-secondary);
 }
 .linear-attachment-row .linear-sub-link {
   flex: 1;
