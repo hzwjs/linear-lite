@@ -12,11 +12,15 @@ import com.linearlite.server.dto.AgentSessionSnapshot;
 import com.linearlite.server.dto.AgentSessionSnapshotClaimResponse;
 import com.linearlite.server.dto.RuntimeDisplayBlockBatchRequest;
 import com.linearlite.server.dto.AgentTaskStatusResponse;
+import com.linearlite.server.dto.PiSettingsErrorRequest;
+import com.linearlite.server.dto.PiSettingsRequestClaimResponse;
+import com.linearlite.server.dto.PiSettingsState;
 import com.linearlite.server.dto.CreateTaskCommentRequest;
 import com.linearlite.server.service.AgentSessionStreamService;
 import com.linearlite.server.service.AgentTaskOrchestrationService;
 import com.linearlite.server.service.BridgeExecutionAttachmentService;
 import com.linearlite.server.service.TaskCommentService;
+import com.linearlite.server.service.PiSettingsRequestService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -37,15 +41,18 @@ public class AgentController {
     private final AgentTaskOrchestrationService orchestrationService;
     private final TaskCommentService taskCommentService;
     private final AgentSessionStreamService sessionStreamService;
+    private final PiSettingsRequestService settingsRequestService;
 
     public AgentController(
             AgentTaskOrchestrationService orchestrationService,
             TaskCommentService taskCommentService,
             AgentSessionStreamService sessionStreamService,
+            PiSettingsRequestService settingsRequestService,
             BridgeExecutionAttachmentService attachmentService) {
         this.orchestrationService = orchestrationService;
         this.taskCommentService = taskCommentService;
         this.sessionStreamService = sessionStreamService;
+        this.settingsRequestService = settingsRequestService;
         this.attachmentService = attachmentService;
     }
 
@@ -109,6 +116,34 @@ public class AgentController {
         Long ownerUserId = attachmentService.authenticate(token, request.getExecutionId());
         sessionStreamService.failSnapshot(ownerUserId, requestId,
                 request.getExecutionId(), request.getErrorMessage());
+        return ResponseEntity.ok(ApiResponse.success());
+    }
+
+    @PostMapping("/settings-requests/claim")
+    public ResponseEntity<ApiResponse<PiSettingsRequestClaimResponse>> claimSettings(
+            @RequestHeader("X-Execution-Attachment") String token) {
+        Long ownerUserId = attachmentService.authenticate(token);
+        return ResponseEntity.ok(ApiResponse.success(settingsRequestService.claim(
+                ownerUserId, attachmentService.executionId(token))));
+    }
+
+    @PostMapping("/settings-requests/{requestId}/complete")
+    public ResponseEntity<ApiResponse<Void>> completeSettings(
+            @RequestHeader("X-Execution-Attachment") String token,
+            @PathVariable String requestId,
+            @RequestBody PiSettingsState state) {
+        Long ownerUserId = attachmentService.authenticate(token, state.executionId());
+        settingsRequestService.complete(ownerUserId, requestId, state);
+        return ResponseEntity.ok(ApiResponse.success());
+    }
+
+    @PostMapping("/settings-requests/{requestId}/fail")
+    public ResponseEntity<ApiResponse<Void>> failSettings(
+            @RequestHeader("X-Execution-Attachment") String token,
+            @PathVariable String requestId,
+            @RequestBody PiSettingsErrorRequest request) {
+        Long ownerUserId = attachmentService.authenticate(token, request.getExecutionId());
+        settingsRequestService.fail(ownerUserId, requestId, request.getExecutionId(), request.getErrorMessage());
         return ResponseEntity.ok(ApiResponse.success());
     }
 

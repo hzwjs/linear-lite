@@ -218,12 +218,17 @@ export async function resolveTaskDirectory(job, { configStore = projectStore } =
   return configStore.resolveDirectory(job.projectId)
 }
 
-export function buildPiArgs(job, sessionDir) {
-  return [
+export function buildPiArgs(job, sessionDir, { settingsOnly = false } = {}) {
+  const args = [
     '--mode', 'rpc',
     '--session-dir', sessionDir,
     '--session-id', safeSegment(job.piSessionId, 'piSessionId'),
   ]
+  if (settingsOnly) {
+    // 设置读取只需要 Pi RPC 的模型/状态能力，不需要加载任务执行工具和上下文扩展。
+    args.push('--no-tools', '--no-extensions', '--no-skills', '--no-context-files')
+  }
+  return args
 }
 
 export function getPiSessionDirectory(cwd, agentDir = config.agentDir) {
@@ -232,12 +237,12 @@ export function getPiSessionDirectory(cwd, agentDir = config.agentDir) {
   return join(resolve(agentDir), 'sessions', projectDirectory)
 }
 
-async function startPi(job, cwd) {
+async function startPi(job, cwd, { settingsOnly = false } = {}) {
   const sessionDir = getPiSessionDirectory(cwd)
   await mkdir(sessionDir, { recursive: true })
   // 会话文件与交互式 Pi 共用项目目录；同一 executionId 通过 --session-id 续接。
   // 不禁用用户的 skills、extensions 与上下文文件，确保 Bridge 与用户终端启动的是同一种 Pi。
-  const args = buildPiArgs(job, sessionDir)
+  const args = buildPiArgs(job, sessionDir, { settingsOnly })
   return spawn(config.piBinary, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] })
 }
 
@@ -326,6 +331,108 @@ async function verifyPiSession(rpc, piSessionId) {
     throw new Error(`Pi session 读取错位: ${piSessionId}`)
   }
   return response.data
+}
+
+/** Pi 的模型目录与当前设置都在同一 RPC runtime 内读取，Bridge 不保留任何副本。 */
+async function callPiRpc(rpc, type, payload = {}) {
+  const requestId = `settings-${++rpcRequestSequence}`
+  sendRpc(rpc.child, { id: requestId, type, ...payload })
+  const response = await rpc.reader.waitFor(
+    (message) => message.id === requestId && message.type === 'response',
+  )
+  if (!response.success) throw new Error(response.error ?? `Pi ${type} 失败`)
+  return response.data
+}
+
+function toPiSettingsState(request, models, thinkingLevels, state) {
+  const currentModel = state?.model
+  if (!currentModel?.provider || !currentModel?.id || typeof state?.thinkingLevel !== 'string') {
+    throw new Error('Pi 当前模型设置不完整')
+  }
+  return {
+    executionId: request.executionId,
+    current: {
+      model: {
+        provider: currentModel.provider,
+        modelId: currentModel.id,
+        // 仅在 Bridge 边界使用 Pi 模型对象的显示名；前端不猜测模型名称。
+        label: currentModel.name ?? currentModel.id,
+      },
+      thinkingLevel: state.thinkingLevel,
+    },
+    models: models.map((model) => ({
+      provider: model.provider,
+      modelId: model.id,
+      label: model.name ?? model.id,
+    })),
+    thinkingLevels,
+  }
+}
+
+export async function readPiSettings(rpc, request) {
+  // 三项都是只读 RPC；并行发送避免模型目录请求被推理强度和状态读取串行拖慢。
+  const [modelsResponse, thinkingLevelsResponse, state] = await Promise.all([
+    callPiRpc(rpc, 'get_available_models'),
+    callPiRpc(rpc, 'get_available_thinking_levels'),
+    callPiRpc(rpc, 'get_state'),
+  ])
+  const models = modelsResponse?.models
+  const thinkingLevels = thinkingLevelsResponse?.levels
+  if (!Array.isArray(models) || !Array.isArray(thinkingLevels)) {
+    throw new Error('Pi 设置目录读取失败')
+  }
+  return { models, thinkingLevels, state }
+}
+
+async function completeSettingsRequest(request, settings, signal, apiClient = api) {
+  await apiClient(`/api/bridge/settings-requests/${encodeURIComponent(request.requestId)}/complete`, {
+    method: 'POST', body: JSON.stringify(settings), signal,
+  })
+}
+
+async function failSettingsRequest(request, error, signal, apiClient = api) {
+  await apiClient(`/api/bridge/settings-requests/${encodeURIComponent(request.requestId)}/fail`, {
+    method: 'POST',
+    body: JSON.stringify({ executionId: request.executionId, errorMessage: error.message }),
+    signal,
+  }).catch(() => {})
+}
+
+/** 设置请求只在空闲 session 启动独占 Pi runtime，避免与 prompt 的 RPC 路径并发。 */
+export async function processSettingsRequest(request, {
+  signal,
+  apiClient = api,
+  resolveTaskDirectoryFn = resolveTaskDirectory,
+  startPiFn = startPi,
+  rpcRuntimeFn = rpcRuntime,
+} = {}) {
+  let child = null
+  try {
+    const cwd = await resolveTaskDirectoryFn(request)
+    child = await startPiFn(request, cwd, { settingsOnly: true })
+    const rpc = rpcRuntimeFn(child)
+    await verifyPiSession(rpc, request.piSessionId)
+    const before = await readPiSettings(rpc, request)
+    if (request.action === 'set_model') {
+      const matched = before.models.find((model) => model.provider === request.provider && model.id === request.modelId)
+      if (!matched) throw new Error(`Pi 中不存在模型: ${request.provider}/${request.modelId}`)
+      await callPiRpc(rpc, 'set_model', { provider: matched.provider, modelId: matched.id })
+    } else if (request.action === 'set_thinking_level') {
+      if (!before.thinkingLevels.includes(request.level)) throw new Error(`Pi 不支持推理强度: ${request.level}`)
+      await callPiRpc(rpc, 'set_thinking_level', { level: request.level })
+    } else if (request.action !== 'read') {
+      throw new Error(`不支持的 Pi 设置操作: ${request.action}`)
+    }
+    const after = await readPiSettings(rpc, request)
+    const settings = toPiSettingsState(request, after.models, after.thinkingLevels, after.state)
+    await completeSettingsRequest(request, settings, signal, apiClient)
+    return settings
+  } catch (error) {
+    await failSettingsRequest(request, error, signal, apiClient)
+    throw error
+  } finally {
+    if (child && child.exitCode == null && child.signalCode == null) child.kill('SIGTERM')
+  }
 }
 
 async function completeSnapshotRequest(request, snapshot, signal) {
@@ -578,6 +685,13 @@ export async function main({ signal } = {}) {
     try {
       if (runtime.status === 'starting' || runtime.status === 'config_required' || runtime.status === 'waiting_for_browser') {
         setRuntimeStatus('connecting', runtime.backendReachable)
+      }
+      const settingsRequest = await api('/api/bridge/settings-requests/claim', {
+        method: 'POST', body: '{}', signal,
+      })
+      if (settingsRequest) {
+        await processSettingsRequest(settingsRequest, { signal })
+        continue
       }
       const snapshotRequest = await api('/api/bridge/session-snapshot-requests/claim', {
         method: 'POST', body: '{}', signal,

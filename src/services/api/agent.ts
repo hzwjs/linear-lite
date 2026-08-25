@@ -66,6 +66,27 @@ export interface RuntimeDisplayBlock {
   createdAt: string
 }
 
+export interface PiSettingsModel {
+  provider: string
+  modelId: string
+  label: string
+}
+
+export interface PiSettingsState {
+  executionId: string
+  current: {
+    model: PiSettingsModel
+    thinkingLevel: string
+  }
+  models: PiSettingsModel[]
+  thinkingLevels: string[]
+}
+
+export type PiSettingsRequest =
+  | { action: 'read' }
+  | { action: 'set_model'; provider: string; modelId: string }
+  | { action: 'set_thinking_level'; level: string }
+
 export type ConversationDisplayBlock = SessionDisplayBlock | RuntimeDisplayBlock
 
 function sessionStreamUrl(taskKey: string, executionId: string): string {
@@ -111,6 +132,13 @@ export const agentApi = {
     ).then(unwrap)
   },
 
+  requestPiSettings(taskKey: string, executionId: string, request: PiSettingsRequest): Promise<string> {
+    return api.post<ApiResponse<string>>(
+      `/tasks/${encodeURIComponent(taskKey)}/local-pi/sessions/${encodeURIComponent(executionId)}/settings-requests`,
+      request
+    ).then(unwrap)
+  },
+
   openSessionStream(
     taskKey: string,
     executionId: string,
@@ -118,7 +146,9 @@ export const agentApi = {
     onRuntimeBlock: (block: RuntimeDisplayBlock) => void,
     onSessionReadError: (message: string) => void,
     onOpen?: () => void,
-    onError?: () => void
+    onError?: () => void,
+    onPiSettingsState?: (settings: PiSettingsState) => void,
+    onPiSettingsError?: (message: string) => void
   ): EventSource {
     const source = new EventSource(sessionStreamUrl(taskKey, executionId))
     source.addEventListener('session-snapshot', (event) => {
@@ -141,6 +171,21 @@ export const agentApi = {
         onSessionReadError(payload.message)
       } catch {
         onSessionReadError('Pi session 读取失败')
+      }
+    })
+    source.addEventListener('pi-settings-state', (event) => {
+      try {
+        onPiSettingsState?.(JSON.parse((event as MessageEvent).data) as PiSettingsState)
+      } catch {
+        // 设置状态必须是 Bridge 返回的完整结构，损坏事件不能覆盖当前显示。
+      }
+    })
+    source.addEventListener('pi-settings-error', (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as { executionId: string; message: string }
+        onPiSettingsError?.(payload.message)
+      } catch {
+        onPiSettingsError?.('Pi 设置读取失败')
       }
     })
     if (onOpen) source.addEventListener('open', onOpen)

@@ -156,6 +156,7 @@ vi.mock('../services/api/agent', () => ({
     submitTurn: vi.fn(),
     getTaskStatus: vi.fn(),
     requestSessionSnapshot: vi.fn(),
+    requestPiSettings: vi.fn(),
     openSessionStream: vi.fn(),
     cancelTask: vi.fn()
   }
@@ -278,6 +279,7 @@ describe('TaskEditor comments adapter', () => {
       hasSubmittedTurn: false
     })
     vi.mocked(agentApi.requestSessionSnapshot).mockResolvedValue('snapshot-request-1')
+    vi.mocked(agentApi.requestPiSettings).mockResolvedValue('settings-request-1')
   })
 
   it('passes a root comment from the extracted component to the task API', async () => {
@@ -465,7 +467,7 @@ describe('TaskEditor comments adapter', () => {
       expect(agentApi.openSessionStream).toHaveBeenCalledWith(
         'ENG-1', 'execution-1',
         expect.any(Function), expect.any(Function), expect.any(Function),
-        expect.any(Function), expect.any(Function)
+        expect.any(Function), expect.any(Function), expect.any(Function), expect.any(Function)
       )
       expect(agentApi.requestSessionSnapshot).toHaveBeenCalledWith('ENG-1', 'execution-1')
       expect(view.host.querySelector('.editor-props')).not.toBeNull()
@@ -640,6 +642,7 @@ describe('TaskEditor comments adapter', () => {
       expect(document.body.querySelector<HTMLTextAreaElement>('.agent-turn-input')?.value)
         .toContain('任务编号：ENG-1')
       expect(agentApi.requestSessionSnapshot).not.toHaveBeenCalled()
+      expect(agentApi.requestPiSettings).toHaveBeenCalledWith('ENG-1', 'execution-1', { action: 'read' })
     } finally {
       view.unmount()
     }

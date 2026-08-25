@@ -3,6 +3,8 @@ package com.linearlite.server.controller;
 import com.linearlite.server.common.ApiResponse;
 import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.service.AgentSessionStreamService;
+import com.linearlite.server.dto.PiSettingsRequest;
+import com.linearlite.server.service.PiSettingsRequestService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -17,9 +19,13 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/api/tasks")
 public class TaskAgentSessionController {
     private final AgentSessionStreamService sessionStreamService;
+    private final PiSettingsRequestService settingsRequestService;
 
-    public TaskAgentSessionController(AgentSessionStreamService sessionStreamService) {
+    public TaskAgentSessionController(
+            AgentSessionStreamService sessionStreamService,
+            PiSettingsRequestService settingsRequestService) {
         this.sessionStreamService = sessionStreamService;
+        this.settingsRequestService = settingsRequestService;
     }
 
     @GetMapping(path = "/{taskKey}/local-pi/sessions/{executionId}/stream",
@@ -46,5 +52,16 @@ public class TaskAgentSessionController {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
         return ResponseEntity.ok(ApiResponse.success(
                 sessionStreamService.requestSnapshot(taskKey, userId, executionId)));
+    }
+
+    @PostMapping("/{taskKey}/local-pi/sessions/{executionId}/settings-requests")
+    public ResponseEntity<ApiResponse<String>> requestSettings(
+            HttpServletRequest request,
+            @PathVariable String taskKey,
+            @PathVariable String executionId,
+            @org.springframework.web.bind.annotation.RequestBody PiSettingsRequest body) {
+        Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        return ResponseEntity.ok(ApiResponse.success(
+                settingsRequestService.request(taskKey, userId, executionId, body)));
     }
 }

@@ -2,6 +2,7 @@ package com.linearlite.server.service;
 
 import com.linearlite.server.dto.AgentSessionSnapshot;
 import com.linearlite.server.dto.RuntimeDisplayBlockResponse;
+import com.linearlite.server.dto.PiSettingsState;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -50,6 +51,14 @@ public class AgentSessionSseBroadcaster {
 
     public void sendReadError(String executionId, String message) {
         send(executionId, "session-read-error", Map.of("executionId", executionId, "message", message));
+    }
+
+    public void sendSettingsState(PiSettingsState state) {
+        send(state.executionId(), "pi-settings-state", state);
+    }
+
+    public void sendSettingsError(String executionId, String message) {
+        send(executionId, "pi-settings-error", Map.of("executionId", executionId, "message", message));
     }
 
     private void send(String executionId, String eventName, Object payload) {

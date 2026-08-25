@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { agentApi } from '../../services/api/agent'
+import { agentApi, type PiSettingsRequest, type PiSettingsState } from '../../services/api/agent'
 import { toApiError } from '../../services/api'
 import {
   applySessionSnapshot,
@@ -45,6 +45,9 @@ const waitingForResponse = computed(() => props.active && state.runtimeIds.lengt
 const streamError = ref('')
 const sessionReadError = ref('')
 const snapshotLoading = ref(false)
+const piSettings = ref<PiSettingsState | null>(null)
+const settingsLoading = ref(false)
+const settingsError = ref('')
 let source: EventSource | null = null
 let connectionSequence = 0
 let pendingSubmitBlockId: string | null = null
@@ -98,13 +101,43 @@ function connectStream() {
     () => {
       if (sequence !== connectionSequence) return
       streamError.value = ''
+      // SSE 已就绪后立即读取，保证 Bridge 的回传不会早于订阅而丢失。
+      void requestPiSettings({ action: 'read' })
       // 空会话没有历史可读；等 Bridge 回读只会让首屏卡在「正在读取 Pi session」。
       if (props.hasSubmittedTurn) void requestSnapshot(taskKey, executionId, sequence)
     },
     () => {
       if (sequence === connectionSequence) streamError.value = '实时输出连接中断，正在重连…'
+    },
+    (settings) => {
+      if (sequence !== connectionSequence || settings.executionId !== executionId) return
+      piSettings.value = settings
+      settingsLoading.value = false
+      settingsError.value = ''
+    },
+    (message) => {
+      if (sequence === connectionSequence) {
+        settingsLoading.value = false
+        settingsError.value = message
+      }
     }
   )
+}
+
+const canChangeSettings = computed(() => Boolean(
+  props.executionId && props.canSubmit && !props.active && !props.submitting && !props.canceling && !props.reconnecting
+))
+
+async function requestPiSettings(request: PiSettingsRequest) {
+  if (!props.executionId || !canChangeSettings.value || settingsLoading.value) return
+  settingsLoading.value = true
+  settingsError.value = ''
+  try {
+    await agentApi.requestPiSettings(props.taskKey, props.executionId, request)
+  } catch (error) {
+    settingsLoading.value = false
+    settingsError.value = toApiError(error).message || 'Pi 设置请求失败'
+  }
 }
 
 watch(
@@ -120,6 +153,9 @@ watch(
   ([taskKey, executionId], previous) => {
     if (!previous || previous[0] !== taskKey || previous[1] !== executionId) {
       resetAgentConversationState(state, executionId)
+      piSettings.value = null
+      settingsLoading.value = false
+      settingsError.value = ''
       connectStream()
     }
   },
@@ -175,7 +211,7 @@ onBeforeUnmount(() => {
       :blocks="blocks"
       :preparing="preparing || snapshotLoading"
       :waiting="waitingForResponse"
-      :error="error || sessionReadError"
+      :error="error || sessionReadError || settingsError"
       :stream-error="streamError"
     />
     <PiTurnComposer
@@ -185,7 +221,13 @@ onBeforeUnmount(() => {
       :can-submit="canSubmit"
       :submitting="submitting"
       :canceling="canceling"
+      :settings="piSettings"
+      :settings-loading="settingsLoading"
+      :settings-enabled="canChangeSettings"
       @update:model-value="emit('update:prompt', $event)"
+      @read-settings="requestPiSettings({ action: 'read' })"
+      @set-model="requestPiSettings({ action: 'set_model', provider: $event.provider, modelId: $event.modelId })"
+      @set-thinking-level="requestPiSettings({ action: 'set_thinking_level', level: $event })"
       @submit="submitTurn"
       @stop="emit('stop')"
     />
