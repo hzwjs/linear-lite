@@ -50,13 +50,13 @@ describe('SidebarNavigation', () => {
     i18n.global.locale.value = 'en'
   })
 
-  it('renders a reopen affordance while hidden and emits show-sidebar', async () => {
-    const onShowSidebar = vi.fn()
+  it('renders compact navigation and emits expansion', async () => {
+    const onSetMode = vi.fn()
     const host = document.createElement('div')
     document.body.appendChild(host)
 
     const app = createApp(SidebarNavigation, {
-      hidden: true,
+      mode: 'compact',
       userName: 'Alice',
       userInitial: 'A',
       locale: 'en',
@@ -68,17 +68,17 @@ describe('SidebarNavigation', () => {
       routePath: '/',
       routeTaskId: null,
       activeProjectId: null,
-      onShowSidebar
+      onSetMode
     })
     app.use(i18n)
     app.mount(host)
     await nextTick()
 
-    const reopen = host.querySelector('.sidebar-nav__reopen') as HTMLButtonElement
-    expect(reopen).toBeTruthy()
+    const expand = host.querySelector('.sidebar-nav__icon-button') as HTMLButtonElement
+    expect(host.querySelector('[data-testid="sidebar-rail-search"]')).toBeTruthy()
 
-    reopen.click()
-    expect(onShowSidebar).toHaveBeenCalledTimes(1)
+    expand.click()
+    expect(onSetMode).toHaveBeenCalledWith('expanded')
 
     app.unmount()
     host.remove()
@@ -90,7 +90,7 @@ describe('SidebarNavigation', () => {
     document.body.appendChild(host)
 
     const app = createApp(SidebarNavigation, {
-      hidden: false,
+      mode: 'expanded',
       userName: 'Alice',
       userInitial: 'A',
       locale: 'en',
@@ -135,7 +135,7 @@ describe('SidebarNavigation', () => {
     document.body.appendChild(host)
 
     const app = createApp(SidebarNavigation, {
-      hidden: false,
+      mode: 'expanded',
       userName: 'Alice',
       userInitial: 'A',
       locale: 'en',
@@ -178,7 +178,7 @@ describe('SidebarNavigation', () => {
     document.body.appendChild(host)
 
     const app = createApp(SidebarNavigation, {
-      hidden: false,
+      mode: 'expanded',
       userName: 'Alice',
       userInitial: 'A',
       locale: 'en',
@@ -272,7 +272,7 @@ describe('SidebarNavigation', () => {
     document.body.appendChild(host)
 
     const app = createApp(SidebarNavigation, {
-      hidden: false,
+      mode: 'expanded',
       userName: 'Alice',
       userInitial: 'A',
       locale: 'en',
@@ -317,7 +317,7 @@ describe('SidebarNavigation', () => {
     document.body.appendChild(host)
 
     const app = createApp(SidebarNavigation, {
-      hidden: false,
+      mode: 'expanded',
       userName: 'Alice',
       userInitial: 'A',
       locale: 'en',

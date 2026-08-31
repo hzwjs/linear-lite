@@ -108,10 +108,14 @@ const en = {
     projectSettings: 'Project settings',
     analytics: 'Analytics',
     signOut: 'Sign out',
-    hideSidebar: 'Hide sidebar',
-    showSidebar: 'Show sidebar',
+    workspaceNavigation: 'Workspace navigation',
+    compactNavigation: 'Compact workspace navigation',
+    compactSidebar: 'Use compact sidebar',
+    expandSidebar: 'Expand sidebar',
     globalSearch: 'Global search',
-    globalSearchTitle: 'Global search (⌘K)'
+    globalSearchTitle: 'Global search (⌘K)',
+    projectTasksTitle: '{project} tasks',
+    projectDocumentsTitle: '{project} documents'
   },
   projectModal: {
     title: 'New project',

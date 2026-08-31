@@ -21,6 +21,7 @@ target/
 .pi-bridge/
 .pi-workspaces/
 .pi-sessions/
+.linear-lite-local/
 
 # Playwright 报告输出
 test-results/

@@ -9,7 +9,7 @@ import { useDocumentFavoriteStore } from './store/documentFavoriteStore'
 import { useOverlayStore } from './store/overlayStore'
 import { useViewModeStore } from './store/viewModeStore'
 import NotificationCenter from './components/NotificationCenter.vue'
-import SidebarNavigation from './components/SidebarNavigation.vue'
+import SidebarNavigation, { type SidebarMode } from './components/SidebarNavigation.vue'
 import CreateProjectModal from './components/CreateProjectModal.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import GlobalSearchModal from './components/GlobalSearchModal.vue'
@@ -30,8 +30,18 @@ import {
   PanelLeft
 } from 'lucide-vue-next'
 
-const SIDEBAR_HIDDEN_KEY = 'linear-lite.sidebarHidden'
+const SIDEBAR_MODE_KEY = 'linear-lite.sidebarMode'
 const SIDEBAR_COLLAPSED_KEY = 'linear-lite.sidebarCollapsed'
+
+function readSidebarMode(): SidebarMode {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return 'expanded'
+  return window.localStorage.getItem(SIDEBAR_MODE_KEY) === 'compact' ? 'compact' : 'expanded'
+}
+
+function persistSidebarMode(mode: SidebarMode) {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return
+  window.localStorage.setItem(SIDEBAR_MODE_KEY, mode)
+}
 
 function readSidebarCollapsed(): { favorites: boolean; projects: boolean } {
   if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
@@ -49,16 +59,6 @@ function readSidebarCollapsed(): { favorites: boolean; projects: boolean } {
 function persistSidebarCollapsed(collapsed: { favorites: boolean; projects: boolean }) {
   if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return
   window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, JSON.stringify(collapsed))
-}
-
-function readSidebarHidden(): boolean {
-  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return false
-  return window.localStorage.getItem(SIDEBAR_HIDDEN_KEY) === '1'
-}
-
-function persistSidebarHidden(hidden: boolean) {
-  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return
-  window.localStorage.setItem(SIDEBAR_HIDDEN_KEY, hidden ? '1' : '0')
 }
 
 const route = useRoute()
@@ -83,7 +83,7 @@ const { t } = useI18n()
 const createProjectOpen = ref(false)
 const commandPaletteOpen = ref(false)
 const globalSearchOpen = ref(false)
-const sidebarHidden = ref(false)
+const sidebarMode = ref<SidebarMode>(readSidebarMode())
 const sidebarCollapsed = ref(readSidebarCollapsed())
 
 const userInitial = computed(() => {
@@ -92,8 +92,12 @@ const userInitial = computed(() => {
   return name.charAt(0).toUpperCase()
 })
 
-function toggleSidebarHidden() {
-  sidebarHidden.value = !sidebarHidden.value
+function setSidebarMode(mode: SidebarMode) {
+  sidebarMode.value = mode
+}
+
+function toggleSidebarMode() {
+  setSidebarMode(sidebarMode.value === 'expanded' ? 'compact' : 'expanded')
 }
 
 function toggleFavoritesCollapsed() {
@@ -187,11 +191,11 @@ const paletteCommands = computed<CommandItem[]>(() => [
   {
     id: 'toggle-sidebar',
     label: t('command.toggleSidebar'),
-    keywords: ['sidebar', 'hide', 'show', 'panel', 'navigation'],
+    keywords: ['sidebar', 'compact', 'expand', 'panel', 'navigation'],
     icon: PanelLeft,
     run: () => {
       commandPaletteOpen.value = false
-      toggleSidebarHidden()
+      toggleSidebarMode()
     }
   }
 ])
@@ -332,11 +336,10 @@ function onGlobalKeydown(e: KeyboardEvent) {
 }
 
 onMounted(() => {
-  sidebarHidden.value = readSidebarHidden()
   document.addEventListener('keydown', onGlobalKeydown)
   window.addEventListener('global-search:open', triggerFocusSearch)
 })
-watch(sidebarHidden, persistSidebarHidden)
+watch(sidebarMode, persistSidebarMode)
 onUnmounted(() => {
   document.removeEventListener('keydown', onGlobalKeydown)
   window.removeEventListener('global-search:open', triggerFocusSearch)
@@ -349,7 +352,7 @@ onUnmounted(() => {
   </template>
   <div v-else class="app-layout" :class="{ 'app-layout--task-workspace': isTaskWorkspaceRoute }">
     <SidebarNavigation
-      :hidden="sidebarHidden"
+      :mode="sidebarMode"
       :user-name="authStore.currentUser?.username"
       :user-initial="userInitial"
       :locale="localeStore.locale"
@@ -361,8 +364,7 @@ onUnmounted(() => {
       :route-path="route.path"
       :route-task-id="routeTaskId"
       :active-project-id="projectStore.activeProjectId"
-      @show-sidebar="sidebarHidden = false"
-      @hide-sidebar="sidebarHidden = true"
+      @set-mode="setSidebarMode"
       @focus-search="triggerFocusSearch"
       @set-locale="localeStore.setLocale"
       @logout="onLogout"

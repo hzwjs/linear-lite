@@ -108,10 +108,14 @@ const zhCN = {
     projectSettings: '项目设置',
     analytics: '统计',
     signOut: '登出',
-    hideSidebar: '隐藏侧边栏',
-    showSidebar: '显示侧边栏',
+    workspaceNavigation: '工作区导航',
+    compactNavigation: '紧凑工作区导航',
+    compactSidebar: '切换为紧凑侧边栏',
+    expandSidebar: '展开侧边栏',
     globalSearch: '全局搜索',
-    globalSearchTitle: '全局搜索（⌘K）'
+    globalSearchTitle: '全局搜索（⌘K）',
+    projectTasksTitle: '{project} 任务',
+    projectDocumentsTitle: '{project} 文档'
   },
   projectModal: {
     title: '新建项目',

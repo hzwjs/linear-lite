@@ -4,6 +4,26 @@
 
 ## 快速开始
 
+### 一键启动本地项目
+
+前后端均已准备好后，在仓库根目录执行：
+
+```bash
+./scripts/start-local.sh
+```
+
+启动命令会持续托管前后端进程，验证完成后在该终端按 `Ctrl-C` 同时停止服务。
+
+脚本默认启动前端 `5173` 和后端 `9080`，也支持：
+
+```bash
+./scripts/start-local.sh status
+./scripts/start-local.sh stop
+./scripts/start-local.sh restart
+```
+
+运行日志保存在 `.linear-lite-local/`，该目录已加入 Git 忽略。
+
 ### 环境要求
 
 - **后端**：JDK 17+、Maven、MySQL 8.x
