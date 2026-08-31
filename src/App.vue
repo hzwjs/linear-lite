@@ -414,7 +414,8 @@ onUnmounted(() => {
 .app-layout {
   display: flex;
   height: 100vh;
-  overflow: hidden;
+  /* 紧凑侧栏的项目/收藏浮层需要越过 48px 导航栏显示到主列上方。 */
+  overflow: visible;
 }
 /* 与 main--task-workspace 配套：深链任务页允许主列内块编辑器 chrome 溢出到根壳外缘 */
 .app-layout--task-workspace {

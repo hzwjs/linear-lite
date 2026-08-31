@@ -84,6 +84,61 @@ describe('SidebarNavigation', () => {
     host.remove()
   })
 
+  it('keeps the compact rail stable while opening favorites and project popovers', async () => {
+    const onSetMode = vi.fn()
+    const onOpenFavoriteTask = vi.fn()
+    const onSelectProject = vi.fn()
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+
+    const app = createApp(SidebarNavigation, {
+      mode: 'compact',
+      userName: 'Alice',
+      userInitial: 'A',
+      locale: 'en',
+      favoritesCollapsed: false,
+      projectsCollapsed: false,
+      favorites: [buildFavorite()],
+      favoriteDocuments: [],
+      projects: [buildProject()],
+      routePath: '/',
+      routeTaskId: null,
+      activeProjectId: 1,
+      onSetMode,
+      onOpenFavoriteTask,
+      onSelectProject
+    })
+    app.use(i18n)
+    app.mount(host)
+    await nextTick()
+
+    const railFavorites = host.querySelector('[data-testid="sidebar-rail-favorites"]') as HTMLButtonElement
+    railFavorites.click()
+    await nextTick()
+    expect(host.querySelector('.sidebar-nav__rail-popover')).toBeTruthy()
+    expect(onSetMode).not.toHaveBeenCalled()
+
+    ;(host.querySelector('[data-testid="sidebar-rail-analytics"]') as HTMLButtonElement).click()
+    await nextTick()
+    expect(host.querySelector('.sidebar-nav__rail-popover')).toBeNull()
+    expect(onSetMode).not.toHaveBeenCalled()
+
+    host.querySelector('[data-testid="sidebar-rail-projects"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+    expect(host.querySelector('.sidebar-nav__rail-popover--projects')).toBeTruthy()
+    expect(onSetMode).not.toHaveBeenCalled()
+
+    const project = host.querySelector('.sidebar-nav__rail-popover--projects .sidebar-nav__compact-item') as HTMLButtonElement
+    project.click()
+    await nextTick()
+    expect(onSelectProject).toHaveBeenCalledWith(1)
+    expect(onOpenFavoriteTask).not.toHaveBeenCalled()
+    expect(host.querySelector('[data-testid="sidebar-rail-projects"]')?.getAttribute('aria-expanded')).toBe('false')
+
+    app.unmount()
+    host.remove()
+  })
+
   it('renders a full-width global search row and preserves the focus-search event', async () => {
     const onFocusSearch = vi.fn()
     const host = document.createElement('div')

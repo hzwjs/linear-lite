@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Project, Task } from '../types/domain'
 import type { ProjectDocumentTreeNode } from '../types/document'
@@ -64,7 +64,7 @@ const { t } = useI18n()
 const userMenuOpen = ref(false)
 const userMenuRef = ref<HTMLElement | null>(null)
 const sidebarRef = ref<HTMLElement | null>(null)
-const revealTarget = ref<'favorites' | 'projects' | null>(null)
+const compactPopover = ref<'favorites' | 'projects' | null>(null)
 const openingFavoriteId = ref<string | null>(null)
 
 const hasFavorites = computed(() => props.favorites.length > 0 || props.favoriteDocuments.length > 0)
@@ -112,6 +112,7 @@ watch(
 )
 
 function toggleUserMenu() {
+  compactPopover.value = null
   userMenuOpen.value = !userMenuOpen.value
 }
 
@@ -119,34 +120,63 @@ function closeUserMenu() {
   userMenuOpen.value = false
 }
 
-function revealSection(section: 'favorites' | 'projects') {
-  revealTarget.value = section
-  emit('set-mode', 'expanded')
+function toggleCompactPopover(target: 'favorites' | 'projects') {
+  closeUserMenu()
+  compactPopover.value = compactPopover.value === target ? null : target
+}
+
+function closeCompactPopover() {
+  compactPopover.value = null
+}
+
+function openCompactSearch() {
+  closeCompactPopover()
+  emit('focus-search')
+}
+
+function openCompactTasks(projectId: number) {
+  closeCompactPopover()
+  emit('select-project', projectId)
+}
+
+function openCompactDocuments(projectId: number) {
+  closeCompactPopover()
+  emit('open-project-documents', projectId)
+}
+
+function openCompactAnalytics() {
+  closeCompactPopover()
+  emit('open-analytics')
 }
 
 watch(
   () => props.mode,
   (mode) => {
-    if (mode !== 'expanded' || revealTarget.value == null) return
-    const target = revealTarget.value
-    revealTarget.value = null
-    void nextTick(() => {
-      const section = sidebarRef.value?.querySelector<HTMLElement>(`[data-sidebar-section="${target}"]`)
-      section?.scrollIntoView({ block: 'nearest' })
-      section?.querySelector<HTMLElement>('.sidebar-nav__section-trigger')?.focus()
-    })
+    if (mode === 'expanded') compactPopover.value = null
   }
 )
 
 function onClickOutsideUserMenu(event: MouseEvent) {
   const el = userMenuRef.value
-  if (!el || el.contains(event.target as Node)) return
-  closeUserMenu()
+  const target = event.target as Node
+  if (el && !el.contains(target)) closeUserMenu()
+  if (sidebarRef.value && !sidebarRef.value.contains(target)) compactPopover.value = null
 }
 
 function handleOpenProjectSettings(event: Event, projectId: number) {
   event.stopPropagation()
+  compactPopover.value = null
   emit('open-project-settings', projectId)
+}
+
+function openCompactFavoriteDocument(document: ProjectDocumentTreeNode) {
+  compactPopover.value = null
+  emit('open-favorite-document', document.id, document.projectId)
+}
+
+function selectCompactProject(projectId: number) {
+  compactPopover.value = null
+  emit('select-project', projectId)
 }
 
 function isProjectDocumentsRoute(projectId: number): boolean {
@@ -232,7 +262,7 @@ onUnmounted(() => {
         </span>
       </button>
 
-      <div class="sidebar-nav__header-actions">
+      <div class="sidebar-nav__header-actions" @click="closeCompactPopover">
         <slot name="notification" />
         <button
           type="button"
@@ -283,12 +313,12 @@ onUnmounted(() => {
     <div v-if="mode === 'compact'" class="sidebar-nav__rail" :aria-label="t('sidebar.compactNavigation')">
       <button
         type="button"
-        class="sidebar-nav__rail-item"
+        class="sidebar-nav__rail-item sidebar-nav__rail-item--global-search"
         :title="t('sidebar.globalSearchTitle')"
         :aria-label="t('sidebar.globalSearchTitle')"
         :data-tooltip="t('sidebar.globalSearch')"
         data-testid="sidebar-rail-search"
-        @click="emit('focus-search')"
+        @click="openCompactSearch"
       >
         <Search class="sidebar-nav__rail-icon" aria-hidden="true" />
       </button>
@@ -296,13 +326,13 @@ onUnmounted(() => {
       <button
         v-if="activeProject != null"
         type="button"
-        class="sidebar-nav__rail-item"
+        class="sidebar-nav__rail-item sidebar-nav__rail-item--project-tasks"
         :class="{ 'sidebar-nav__rail-item--active': isProjectTasksRoute(activeProject.id) }"
         :title="t('sidebar.projectTasksTitle', { project: activeProject.name })"
         :aria-label="t('sidebar.projectTasksTitle', { project: activeProject.name })"
         :data-tooltip="t('sidebar.tasks')"
         data-testid="sidebar-rail-tasks"
-        @click="emit('select-project', activeProject.id)"
+        @click="openCompactTasks(activeProject.id)"
       >
         <ListTodo class="sidebar-nav__rail-icon" aria-hidden="true" />
       </button>
@@ -310,56 +340,144 @@ onUnmounted(() => {
       <button
         v-if="activeProject != null"
         type="button"
-        class="sidebar-nav__rail-item"
+        class="sidebar-nav__rail-item sidebar-nav__rail-item--project-documents"
         :class="{ 'sidebar-nav__rail-item--active': isProjectDocumentsRoute(activeProject.id) }"
         :title="t('sidebar.projectDocumentsTitle', { project: activeProject.name })"
         :aria-label="t('sidebar.projectDocumentsTitle', { project: activeProject.name })"
         :data-tooltip="t('sidebar.documents')"
         data-testid="sidebar-rail-documents"
-        @click="emit('open-project-documents', activeProject.id)"
+        @click="openCompactDocuments(activeProject.id)"
       >
         <FileText class="sidebar-nav__rail-icon" aria-hidden="true" />
       </button>
 
       <button
         type="button"
-        class="sidebar-nav__rail-item"
+        class="sidebar-nav__rail-item sidebar-nav__rail-item--project-analytics"
         :class="{ 'sidebar-nav__rail-item--active': routePath === '/analytics' }"
         :title="t('sidebar.analytics')"
         :aria-label="t('sidebar.analytics')"
         :data-tooltip="t('sidebar.analytics')"
         data-testid="sidebar-rail-analytics"
-        @click="emit('open-analytics')"
+        @click="openCompactAnalytics"
       >
         <BarChart3 class="sidebar-nav__rail-icon" aria-hidden="true" />
       </button>
 
-      <div class="sidebar-nav__rail-divider" aria-hidden="true" />
+      <div class="sidebar-nav__rail-divider sidebar-nav__rail-divider--project" aria-hidden="true" />
 
-      <button
-        v-if="hasFavorites"
-        type="button"
-        class="sidebar-nav__rail-item"
-        :title="t('sidebar.favorites')"
-        :aria-label="t('sidebar.favorites')"
-        :data-tooltip="t('sidebar.favorites')"
-        data-testid="sidebar-rail-favorites"
-        @click="revealSection('favorites')"
-      >
-        <Star class="sidebar-nav__rail-icon" aria-hidden="true" />
-      </button>
+      <div v-if="hasFavorites" class="sidebar-nav__rail-group sidebar-nav__rail-group--favorites">
+        <button
+          type="button"
+          class="sidebar-nav__rail-item"
+          :class="{ 'sidebar-nav__rail-item--active': compactPopover === 'favorites' }"
+          :aria-expanded="compactPopover === 'favorites'"
+          :title="t('sidebar.favorites')"
+          :aria-label="t('sidebar.favorites')"
+          :data-tooltip="t('sidebar.favorites')"
+          data-testid="sidebar-rail-favorites"
+          @click="toggleCompactPopover('favorites')"
+        >
+          <Star class="sidebar-nav__rail-icon" aria-hidden="true" />
+        </button>
 
-      <button
-        type="button"
-        class="sidebar-nav__rail-item"
-        :title="t('sidebar.projects')"
-        :aria-label="t('sidebar.projects')"
-        :data-tooltip="t('sidebar.projects')"
-        data-testid="sidebar-rail-projects"
-        @click="revealSection('projects')"
-      >
-        <Folder class="sidebar-nav__rail-icon" aria-hidden="true" />
-      </button>
+        <div
+          v-if="compactPopover === 'favorites'"
+          class="sidebar-nav__rail-popover sidebar-nav__rail-popover--favorites"
+          role="dialog"
+          :aria-label="t('sidebar.favorites')"
+        >
+          <div class="sidebar-nav__rail-popover-header">{{ t('sidebar.favorites') }}</div>
+          <nav class="sidebar-nav__rail-popover-list">
+            <button
+              v-for="task in favorites"
+              :key="task.id"
+              type="button"
+              class="sidebar-nav__compact-item"
+              :class="{ 'sidebar-nav__compact-item--active': routeTaskId === task.id }"
+              @click="compactPopover = null; openFavoriteTask(task)"
+            >
+              <component
+                :is="statusIcons[task.status]"
+                class="sidebar-nav__icon sidebar-nav__item-icon sidebar-nav__item-icon--favorite"
+                :class="`sidebar-nav__item-icon--status-${task.status}`"
+                aria-hidden="true"
+              />
+              <span class="sidebar-nav__compact-item-label">{{ task.title }}</span>
+            </button>
+            <button
+              v-for="document in favoriteDocuments"
+              :key="`document-${document.id}`"
+              type="button"
+              class="sidebar-nav__compact-item"
+              :class="{ 'sidebar-nav__compact-item--active': isFavoriteDocumentActive(document) }"
+              @click="openCompactFavoriteDocument(document)"
+            >
+              <FileText class="sidebar-nav__icon sidebar-nav__item-icon sidebar-nav__item-icon--favorite-document" aria-hidden="true" />
+              <span class="sidebar-nav__compact-item-label">{{ document.title }}</span>
+            </button>
+          </nav>
+        </div>
+      </div>
+
+      <div class="sidebar-nav__rail-group sidebar-nav__rail-group--projects">
+        <button
+          type="button"
+          class="sidebar-nav__rail-item"
+          :class="{ 'sidebar-nav__rail-item--active': compactPopover === 'projects' }"
+          :aria-expanded="compactPopover === 'projects'"
+          :title="t('sidebar.projects')"
+          :aria-label="t('sidebar.projects')"
+          :data-tooltip="t('sidebar.projects')"
+          data-testid="sidebar-rail-projects"
+          @click="toggleCompactPopover('projects')"
+        >
+          <Folder class="sidebar-nav__rail-icon" aria-hidden="true" />
+        </button>
+
+        <div
+          v-if="compactPopover === 'projects'"
+          class="sidebar-nav__rail-popover sidebar-nav__rail-popover--projects"
+          role="dialog"
+          :aria-label="t('sidebar.projects')"
+        >
+          <div class="sidebar-nav__rail-popover-header">
+            <span>{{ t('sidebar.projects') }}</span>
+            <button
+              type="button"
+              class="sidebar-nav__icon-button sidebar-nav__icon-button--ghost"
+              :title="t('sidebar.newProjectTitle')"
+              :aria-label="t('sidebar.newProjectTitle')"
+              @click="compactPopover = null; emit('create-project')"
+            >
+              <Plus class="sidebar-nav__icon sidebar-nav__icon--xs" />
+            </button>
+          </div>
+          <nav v-if="projects.length" class="sidebar-nav__rail-popover-list">
+            <div v-for="project in projects" :key="project.id" class="sidebar-nav__compact-project">
+              <button
+                type="button"
+                class="sidebar-nav__compact-item"
+                :class="{ 'sidebar-nav__compact-item--active': activeProjectId === project.id }"
+                @click="selectCompactProject(project.id)"
+              >
+                <Folder class="sidebar-nav__icon sidebar-nav__item-icon" aria-hidden="true" />
+                <span class="sidebar-nav__compact-item-label">{{ project.name }}</span>
+              </button>
+              <button
+                type="button"
+                class="sidebar-nav__compact-project-action"
+                :title="t('sidebar.projectSettings')"
+                :aria-label="t('sidebar.projectSettings')"
+                @click="handleOpenProjectSettings($event, project.id)"
+              >
+                <MoreVertical class="sidebar-nav__icon sidebar-nav__icon--xs" />
+              </button>
+            </div>
+          </nav>
+          <p v-else class="sidebar-nav__rail-empty">{{ t('emptyState.noProjects') }}</p>
+        </div>
+      </div>
     </div>
 
     <div v-else class="sidebar-nav__content">
@@ -592,6 +710,8 @@ onUnmounted(() => {
 <style scoped>
 .sidebar-nav {
   --sidebar-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  position: relative;
+  z-index: 120;
   width: 240px;
   flex-shrink: 0;
   display: flex;
@@ -863,6 +983,14 @@ onUnmounted(() => {
   transition: color var(--transition-fast), background var(--transition-fast), transform 120ms var(--sidebar-ease-out);
 }
 
+.sidebar-nav__rail-item--global-search { order: 0; }
+.sidebar-nav__rail-group--favorites { order: 1; }
+.sidebar-nav__rail-item--project-tasks { order: 2; }
+.sidebar-nav__rail-item--project-documents { order: 3; }
+.sidebar-nav__rail-item--project-analytics { order: 4; }
+.sidebar-nav__rail-divider--project { order: 5; }
+.sidebar-nav__rail-group--projects { order: 6; }
+
 .sidebar-nav__rail-item:hover,
 .sidebar-nav__rail-item:focus-visible,
 .sidebar-nav__rail-item--active {
@@ -914,6 +1042,122 @@ onUnmounted(() => {
   flex-shrink: 0;
   margin: 4px 0;
   background: var(--sidebar-border-muted);
+}
+
+.sidebar-nav__rail-group {
+  position: relative;
+  width: 40px;
+  flex-shrink: 0;
+}
+
+.sidebar-nav__rail-popover {
+  position: fixed;
+  top: 8px;
+  left: 48px;
+  z-index: 110;
+  width: 272px;
+  max-height: min(480px, calc(100vh - 16px));
+  overflow: auto;
+  padding: 8px;
+  background: var(--sidebar-popover-bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-popover);
+}
+
+.sidebar-nav__rail-popover--projects {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.sidebar-nav__rail-popover--favorites {
+  top: 56px;
+  max-height: min(520px, calc(100vh - 64px));
+}
+
+.sidebar-nav__rail-popover-header {
+  min-height: 28px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--sidebar-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sidebar-nav__rail-popover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-nav__compact-item {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--sidebar-subtle-text);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.sidebar-nav__compact-item:hover,
+.sidebar-nav__compact-item:focus-visible,
+.sidebar-nav__compact-item--active {
+  color: var(--sidebar-text);
+  background: var(--sidebar-item-active-bg);
+}
+
+.sidebar-nav__compact-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.sidebar-nav__compact-project {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sidebar-nav__compact-project .sidebar-nav__compact-item {
+  min-width: 0;
+  flex: 1;
+}
+
+.sidebar-nav__compact-project-action {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--sidebar-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+}
+
+.sidebar-nav__compact-project-action:hover,
+.sidebar-nav__compact-project-action:focus-visible {
+  color: var(--sidebar-text);
+  background: var(--sidebar-item-hover);
+}
+
+.sidebar-nav__rail-empty {
+  margin: 0;
+  padding: 12px 8px;
+  color: var(--sidebar-muted);
+  font-size: 13px;
 }
 
 .sidebar-nav__content:hover {
@@ -1225,7 +1469,9 @@ onUnmounted(() => {
 .sidebar-nav__item:focus-visible,
 .sidebar-nav__item-main:focus-visible,
 .sidebar-nav__item-action:focus-visible,
-.sidebar-nav__rail-item:focus-visible {
+.sidebar-nav__rail-item:focus-visible,
+.sidebar-nav__compact-item:focus-visible,
+.sidebar-nav__compact-project-action:focus-visible {
   outline: 2px solid var(--sidebar-accent-border);
   outline-offset: 1px;
 }
@@ -1268,6 +1514,7 @@ onUnmounted(() => {
   .sidebar-nav__item-action,
   .sidebar-nav__rail-item,
   .sidebar-nav__rail-item::after,
+  .sidebar-nav__compact-project-action,
   :deep(.notification-bell) {
     transition-duration: 0ms;
   }
