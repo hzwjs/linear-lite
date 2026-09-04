@@ -27,9 +27,9 @@ class DocumentRevisionSnapshotServiceTest {
     @Test
     void activeEditingCreatesOneSnapshotAfterTenMinutes() {
         DocumentRevisionSnapshotService service = new DocumentRevisionSnapshotService(documentMapper, revisionMapper);
-        ProjectDocumentRevision latest = revision(10L, 1L, LocalDateTime.now().minusMinutes(11));
         ProjectDocument saved = document(10L, 2L, "第二版", 7L);
-        when(revisionMapper.selectOne(any())).thenReturn(latest, null);
+        when(revisionMapper.isActiveSnapshotDue(10L)).thenReturn(true);
+        when(revisionMapper.selectOne(any())).thenReturn(null);
 
         service.captureAfterUpdate(saved, 7L);
 
@@ -40,11 +40,22 @@ class DocumentRevisionSnapshotServiceTest {
     }
 
     @Test
+    void activeEditingDoesNotCreateSnapshotBeforeTenMinutes() {
+        DocumentRevisionSnapshotService service = new DocumentRevisionSnapshotService(documentMapper, revisionMapper);
+        ProjectDocument saved = document(10L, 2L, "第二版", 7L);
+        when(revisionMapper.isActiveSnapshotDue(10L)).thenReturn(false);
+
+        service.captureAfterUpdate(saved, 7L);
+
+        verify(revisionMapper, never()).insert(any(ProjectDocumentRevision.class));
+    }
+
+    @Test
     void idleWorkerCapturesOnlyDocumentsWithoutCurrentVersionSnapshot() {
         DocumentRevisionSnapshotService service = new DocumentRevisionSnapshotService(documentMapper, revisionMapper);
         ProjectDocument candidate = document(10L, 4L, "空闲后", 7L);
         candidate.setUpdatedAt(LocalDateTime.now().minusMinutes(3));
-        when(revisionMapper.selectDocumentsNeedingIdleRevision(any())).thenReturn(List.of(candidate));
+        when(revisionMapper.selectDocumentsNeedingIdleRevision()).thenReturn(List.of(candidate));
         when(documentMapper.selectByIdForUpdate(10L)).thenReturn(candidate);
         when(revisionMapper.selectOne(any())).thenReturn(null);
 

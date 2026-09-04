@@ -143,4 +143,12 @@ public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
     /** 历史快照与恢复共用文档行锁，避免定时任务和编辑请求并发写入重复快照。 */
     @Select("SELECT * FROM project_documents WHERE id = #{documentId} FOR UPDATE")
     ProjectDocument selectByIdForUpdate(@Param("documentId") Long documentId);
+
+    /** 空闲阈值使用数据库时钟，避免 JVM 与数据库时区不同造成每次编辑都被判定为空闲。 */
+    @Select("""
+            SELECT updated_at <= CURRENT_TIMESTAMP - INTERVAL 2 MINUTE
+            FROM project_documents
+            WHERE id = #{documentId}
+            """)
+    Boolean selectUpdatedBeforeIdle(@Param("documentId") Long documentId);
 }

@@ -9,16 +9,11 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.List;
 
 /** 服务端唯一的文档历史快照入口，避免把留档可靠性绑定到浏览器生命周期。 */
 @Service
 public class DocumentRevisionSnapshotService {
-    private static final Duration ACTIVE_SNAPSHOT_INTERVAL = Duration.ofMinutes(10);
-    private static final Duration IDLE_SNAPSHOT_DELAY = Duration.ofMinutes(2);
-
     private final ProjectDocumentMapper documentMapper;
     private final ProjectDocumentRevisionMapper revisionMapper;
 
@@ -38,8 +33,7 @@ public class DocumentRevisionSnapshotService {
     public void captureBeforeUpdate(ProjectDocument current, Long editorId) {
         ProjectDocumentRevision latest = latest(current.getId());
         boolean editorChanged = !editorId.equals(current.getLastEditorId());
-        boolean idleBoundary = current.getUpdatedAt() != null
-                && current.getUpdatedAt().plus(IDLE_SNAPSHOT_DELAY).isBefore(LocalDateTime.now());
+        boolean idleBoundary = Boolean.TRUE.equals(documentMapper.selectUpdatedBeforeIdle(current.getId()));
         if (latest == null || (latest.getVersion() < current.getVersion() && (editorChanged || idleBoundary))) {
             captureIfMissing(current, current.getLastEditorId());
         }
@@ -47,9 +41,7 @@ public class DocumentRevisionSnapshotService {
 
     @Transactional(rollbackFor = Exception.class)
     public void captureAfterUpdate(ProjectDocument saved, Long editorId) {
-        ProjectDocumentRevision latest = latest(saved.getId());
-        if (latest == null || Duration.between(latest.getCreatedAt(), LocalDateTime.now())
-                .compareTo(ACTIVE_SNAPSHOT_INTERVAL) >= 0) {
+        if (revisionMapper.isActiveSnapshotDue(saved.getId())) {
             captureIfMissing(saved, editorId);
         }
     }
@@ -67,12 +59,10 @@ public class DocumentRevisionSnapshotService {
     @Scheduled(fixedDelayString = "${app.document-revision.idle-worker-delay-millis:60000}")
     @Transactional(rollbackFor = Exception.class)
     public void captureIdleRevisions() {
-        LocalDateTime cutoff = LocalDateTime.now().minus(IDLE_SNAPSHOT_DELAY);
-        List<ProjectDocument> candidates = revisionMapper.selectDocumentsNeedingIdleRevision(cutoff);
+        List<ProjectDocument> candidates = revisionMapper.selectDocumentsNeedingIdleRevision();
         for (ProjectDocument candidate : candidates) {
             ProjectDocument locked = documentMapper.selectByIdForUpdate(candidate.getId());
-            if (locked == null || locked.getArchivedAt() != null || locked.getUpdatedAt() == null
-                    || locked.getUpdatedAt().isAfter(cutoff)) {
+            if (locked == null || locked.getArchivedAt() != null || locked.getUpdatedAt() == null) {
                 continue;
             }
             captureIfMissing(locked, locked.getLastEditorId());
@@ -99,7 +89,6 @@ public class DocumentRevisionSnapshotService {
         revision.setTitle(document.getTitle());
         revision.setContentJson(document.getContentJson());
         revision.setEditorId(editorId);
-        revision.setCreatedAt(LocalDateTime.now());
         revisionMapper.insert(revision);
     }
 }
