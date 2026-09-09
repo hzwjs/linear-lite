@@ -6,6 +6,7 @@ import StructuredDocumentEditor from '../StructuredDocumentEditor.vue'
 import DocumentMinimap from './DocumentMinimap.vue'
 import { documentApi } from '../../services/api/documents'
 import type { DocumentSaveState, ProjectDocument, ProjectDocumentTreeNode } from '../../types/document'
+import { formatRelativeTime } from '../../utils/beijingTime'
 import { startDocumentPdfExport } from '../../utils/documentPdfExport'
 
 const DOCUMENT_ATTACHMENT_PATH = /^\/api\/project-documents\/(\d+)\/attachments\/(\d+)\/download$/
@@ -251,15 +252,7 @@ const saveLabel = computed(() => t(`documents.saveState.${props.saveState}`))
 const lastEditor = computed(() => props.mentionMembers.find((member) => member.id === props.document.lastEditorId))
 
 function relativeUpdatedTime(updatedAt: string) {
-  const elapsedSeconds = Math.max(0, Math.floor((relativeTimeClock.value - Date.parse(updatedAt)) / 1000))
-  if (elapsedSeconds < 60) return t('documents.updatedTime.justNow')
-  const elapsedMinutes = Math.floor(elapsedSeconds / 60)
-  if (elapsedMinutes < 60) return t('documents.updatedTime.minutesAgo', { count: elapsedMinutes })
-  const elapsedHours = Math.floor(elapsedMinutes / 60)
-  if (elapsedHours < 24) return t('documents.updatedTime.hoursAgo', { count: elapsedHours })
-  const elapsedDays = Math.floor(elapsedHours / 24)
-  if (elapsedDays < 30) return t('documents.updatedTime.daysAgo', { count: elapsedDays })
-  return t('documents.updatedTime.monthsAgo', { count: Math.floor(elapsedDays / 30) })
+  return formatRelativeTime(updatedAt, t, 'documents.updatedTime', relativeTimeClock.value)
 }
 
 const updatedMetadata = computed(() => {

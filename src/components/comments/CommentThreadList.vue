@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatRelativeTime } from '../../utils/beijingTime'
 import { ArrowUp, Reply, Trash2 } from 'lucide-vue-next'
 import type { CommentDto, CommentSubmitPayload } from '../../types/comment'
 import { toApiError } from '../../services/api/index'
@@ -55,14 +56,7 @@ async function hydrateCommentsMermaid() {
 }
 
 function commentTimeFromIso(iso: string): string {
-  const timestamp = Date.parse(iso)
-  if (Number.isNaN(timestamp)) return ''
-  const diff = Date.now() - timestamp
-  if (diff < 60 * 1000) return t('taskEditor.justNow')
-  if (diff < 60 * 60 * 1000) return t('taskEditor.minutesAgo', { count: Math.floor(diff / 60000) })
-  if (diff < 24 * 60 * 60 * 1000) return t('taskEditor.hoursAgo', { count: Math.floor(diff / 3600000) })
-  if (diff < 30 * 24 * 60 * 60 * 1000) return t('taskEditor.daysAgo', { count: Math.floor(diff / 86400000) })
-  return t('taskEditor.monthsAgo', { count: Math.floor(diff / (30 * 86400000)) })
+  return formatRelativeTime(iso, t)
 }
 
 function openInlineReply(rootId: number, parentId = rootId) {

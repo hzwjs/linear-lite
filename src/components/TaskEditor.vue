@@ -44,7 +44,7 @@ import type { CommentDto, CommentSubmitPayload } from '../types/comment'
 import { randomClientId } from '../utils/clientId'
 import { copyTextToClipboard } from '../utils/clipboard'
 import { formatDateInputValue, parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
-import { formatBeijingDateTime } from '../utils/beijingTime'
+import { formatBeijingDateTime, formatRelativeTime } from '../utils/beijingTime'
 import { saveTaskEditDraft, clearTaskEditDraft, readTaskEditDraft } from '../utils/taskEditDraft'
 import { blockNoteDocHasPersistableContent, parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
 import { buildInitialAgentPrompt } from '../utils/agentPrompt'
@@ -395,16 +395,7 @@ const creatorName = computed(() => {
 })
 
 function relativeTimeFromNow(timestamp: number) {
-  const sec = Math.floor((Date.now() - timestamp) / 1000)
-  if (sec < 60) return t('taskEditor.justNow')
-  const min = Math.floor(sec / 60)
-  if (min < 60) return t('taskEditor.minutesAgo', { count: min })
-  const h = Math.floor(min / 60)
-  if (h < 24) return t('taskEditor.hoursAgo', { count: h })
-  const d = Math.floor(h / 24)
-  if (d < 30) return t('taskEditor.daysAgo', { count: d })
-  const mo = Math.floor(d / 30)
-  return t('taskEditor.monthsAgo', { count: mo })
+  return formatRelativeTime(timestamp, t)
 }
 
 const createdAgoText = computed(() => {
@@ -995,12 +986,11 @@ function formatAttachmentSize(bytes: number): string {
 
 function formatAttachmentDate(iso: string): string {
   try {
-    const d = new Date(iso)
-    const now = new Date()
-    const diff = now.getTime() - d.getTime()
-    if (diff < 60 * 1000) return t('taskEditor.justNow')
-    if (diff < 60 * 60 * 1000) return t('taskEditor.minutesAgo', { count: Math.floor(diff / 60000) })
-    if (diff < 24 * 60 * 60 * 1000) return t('taskEditor.hoursAgo', { count: Math.floor(diff / 3600000) })
+    const relative = formatRelativeTime(iso, t)
+    if (relative !== '') {
+      const timestamp = Date.parse(iso)
+      if (Date.now() - timestamp < 24 * 60 * 60 * 1000) return relative
+    }
     return formatBeijingDateTime(iso).slice(0, 16)
   } catch {
     return iso

@@ -27,3 +27,25 @@ export function formatBeijingDateTime(value: string | number): string {
 export function formatBeijingDate(value: string | number): string {
   return BEIJING_DATE_FORMATTER.format(new Date(value))
 }
+
+type RelativeTimeTranslator = (key: string, params?: { count: number }) => string
+
+/** 所有绝对时间的相对时间文案统一从这里计算。输入必须是带时区的 ISO 时间或毫秒时间戳。 */
+export function formatRelativeTime(
+  value: string | number,
+  t: RelativeTimeTranslator,
+  prefix: 'documents.updatedTime' | 'taskEditor' = 'taskEditor',
+  now = Date.now()
+): string {
+  const timestamp = typeof value === 'number' ? value : Date.parse(value)
+  if (Number.isNaN(timestamp)) return ''
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000))
+  if (seconds < 60) return t(`${prefix}.justNow`)
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return t(`${prefix}.minutesAgo`, { count: minutes })
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return t(`${prefix}.hoursAgo`, { count: hours })
+  const days = Math.floor(hours / 24)
+  if (days < 30) return t(`${prefix}.daysAgo`, { count: days })
+  return t(`${prefix}.monthsAgo`, { count: Math.floor(days / 30) })
+}

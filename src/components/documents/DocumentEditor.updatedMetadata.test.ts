@@ -18,7 +18,7 @@ describe('DocumentEditor updated metadata', () => {
 
   it('shows the last editor and relative update time below the title', async () => {
     vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-07-30T08:00:00'))
+    vi.setSystemTime(new Date('2026-07-30T08:00:00+08:00'))
     const host = document.createElement('div')
     document.body.appendChild(host)
     const documentFixture = {
@@ -30,10 +30,10 @@ describe('DocumentEditor updated metadata', () => {
       creatorId: 1,
       lastEditorId: 9,
       archivedAt: null,
-      createdAt: '2026-07-20T08:00:00',
+      createdAt: '2026-07-20T08:00:00+08:00',
       sortOrder: 0,
       version: 3,
-      updatedAt: '2026-07-28T08:00:00'
+      updatedAt: '2026-07-28T08:00:00+08:00'
     }
     const app = createApp(DocumentEditor, {
       document: documentFixture,
