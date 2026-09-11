@@ -1,10 +1,11 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import '@blocknote/mantine/style.css'
 import PhotoSwipe from 'photoswipe'
 import { BlockNoteView } from '@blocknote/mantine'
 import {
   SuggestionMenuController,
+  createReactBlockSpec,
   createReactInlineContentSpec,
   useCreateBlockNote,
   type DefaultReactSuggestionItem,
@@ -22,6 +23,7 @@ import type { HighlighterGeneric, LanguageInput } from '@shikijs/types'
 import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
 import { asciiTableToMarkdown, shouldPasteClipboardAsMarkdown } from '../utils/markdownClipboard'
 import { normalizeMermaidRenderError, renderMermaidSvg } from '../utils/mermaidRenderer'
+import type { DocumentImageAsset } from '../types/document'
 import { MentionMemberSuggestionMenu } from './MentionMemberSuggestionMenu'
 import {
   StructuredMentionSuggestionMenu,
@@ -612,12 +614,111 @@ const mentionSpec = createReactInlineContentSpec(
   }
 )
 
+// ─── Document image block ──────────────────────────────────────────────────────
+
+/** 旧式图片块的下载地址：/api/project-documents/{documentId}/attachments/{attachmentId}/download */
+const DOCUMENT_ATTACHMENT_URL_PATTERN =
+  /^\/api\/project-documents\/(\d+)\/attachments\/(\d+)\/download$/
+
+export function parseDocumentAttachmentUrl(url: unknown): { documentId: number; attachmentId: number } | null {
+  if (typeof url !== 'string' || url.length === 0) return null
+  try {
+    const parsed = new URL(url, window.location.origin)
+    if (parsed.origin !== window.location.origin || parsed.search !== '' || parsed.hash !== '') return null
+    const match = parsed.pathname.match(DOCUMENT_ATTACHMENT_URL_PATTERN)
+    if (match == null) return null
+    return { documentId: Number(match[1]), attachmentId: Number(match[2]) }
+  } catch {
+    return null
+  }
+}
+
+type DocumentImageContextValue = {
+  resolve: (assetId: number) => DocumentImageAsset | undefined
+  onOpenOriginal: (asset: DocumentImageAsset, element: HTMLImageElement) => void
+}
+
+const DocumentImageContext = createContext<DocumentImageContextValue>({
+  resolve: () => undefined,
+  onOpenOriginal: () => {},
+})
+
+type DocumentImageBlockProps = { props: { imageAssetId?: unknown; caption?: unknown } }
+
+function DocumentImageBlock({ block }: { block: DocumentImageBlockProps }) {
+  const context = useContext(DocumentImageContext)
+  const assetId = Number(block.props.imageAssetId ?? 0)
+  const asset = assetId > 0 ? context.resolve(assetId) : undefined
+  const caption = typeof block.props.caption === 'string' ? block.props.caption : ''
+  if (!asset) {
+    // 资源清单尚未到达或跨文档资源正在重绑定；不渲染临时展示地址，保持正文只存 assetId。
+    return (
+      <div
+        className="bn-document-image bn-document-image--missing"
+        contentEditable={false}
+        role="img"
+        aria-label={caption}
+      />
+    )
+  }
+  return (
+    <div className="bn-document-image" contentEditable={false}>
+      <img
+        src={asset.thumbnailUrl ?? asset.originalUrl}
+        data-image-asset-id={String(asset.assetId)}
+        data-original-url={asset.originalUrl}
+        width={asset.width ?? undefined}
+        height={asset.height ?? undefined}
+        loading="lazy"
+        decoding="async"
+        alt={caption}
+        onClick={(event) => context.onOpenOriginal(asset, event.currentTarget)}
+      />
+      {caption ? <span className="bn-document-image__caption">{caption}</span> : null}
+    </div>
+  )
+}
+
+/** 正文图片块只持久化 assetId；地址、尺寸与缩略图由文档图片资源清单解析。 */
+const documentImageSpec = createReactBlockSpec(
+  {
+    type: 'documentImage' as const,
+    propSchema: {
+      imageAssetId: { default: 0 },
+      caption: { default: '' },
+    },
+    content: 'none' as const,
+  },
+  {
+    render: ({ block }) => (
+      <DocumentImageBlock block={block as unknown as DocumentImageBlockProps} />
+    ),
+    parse: (element) => {
+      const raw = element.getAttribute('data-image-asset-id')
+      if (raw == null) return undefined
+      const imageAssetId = Number(raw)
+      if (!Number.isFinite(imageAssetId) || imageAssetId <= 0) return undefined
+      return { imageAssetId, caption: element.getAttribute('data-caption') ?? '' }
+    },
+    toExternalHTML: ({ block }) => {
+      const props = block.props as unknown as { imageAssetId?: unknown; caption?: unknown }
+      return (
+        <img
+          data-image-asset-id={String(props.imageAssetId ?? 0)}
+          data-caption={typeof props.caption === 'string' ? props.caption : ''}
+        />
+      )
+    },
+  }
+)()
+
 // Schema shared across all editor instances (includes default text/link + mention,
 // and a code block with a language selector)
 const schema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
     codeBlock: codeBlockWithLanguages,
+    documentImage: documentImageSpec,
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
@@ -704,6 +805,15 @@ export type BlockNoteEditorReactProps = {
   /** Should resolve the uploaded file URL */
   uploadFile?: (file: File) => Promise<string>
   'upload-file'?: (file: File) => Promise<string>
+  /** 当前文档 ID，用于把旧式图片块归一化为文档图片资源。 */
+  documentId?: number
+  'document-id'?: number
+  /** 文档图片资源清单：正文图片身份的唯一解析来源。 */
+  imageAssets?: DocumentImageAsset[]
+  'image-assets'?: DocumentImageAsset[]
+  /** 跨文档粘贴图片时把资源复制到当前文档。 */
+  cloneImageAsset?: (assetId: number) => Promise<DocumentImageAsset>
+  'clone-image-asset'?: (assetId: number) => Promise<DocumentImageAsset>
   /** 文档中的普通附件粘贴后写入链接块，图片粘贴后写入可预览的图片块。 */
   pasteFileAsLink?: boolean
   'paste-file-as-link'?: boolean
@@ -749,6 +859,9 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     mentionMembers,
     mentionDocuments,
     uploadFile,
+    documentId,
+    imageAssets,
+    cloneImageAsset,
     onChange,
     onBlur,
     onInit,
@@ -774,11 +887,41 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
 
   const uploadFileResolved =
     uploadFile ?? props['upload-file']
+  const documentIdResolved = documentId ?? props['document-id']
+  const imageAssetsResolved = imageAssets ?? props['image-assets']
+  const cloneImageAssetResolved = cloneImageAsset ?? props['clone-image-asset']
 
   const editorRootRef = useRef<HTMLDivElement | null>(null)
   const mermaidLayerRef = useRef<HTMLDivElement | null>(null)
   const uploadFileRef = useRef(uploadFileResolved)
   uploadFileRef.current = uploadFileResolved
+
+  // 正文图片只存 assetId：注册表由文档清单 + 本次会话新上传/复制的资源合并而成。
+  const [assetOverrides, setAssetOverrides] = useState<Map<number, DocumentImageAsset>>(new Map())
+  const propAssetMap = useMemo(() => {
+    const map = new Map<number, DocumentImageAsset>()
+    for (const asset of imageAssetsResolved ?? []) map.set(asset.assetId, asset)
+    return map
+  }, [imageAssetsResolved])
+  const resolveAsset = useCallback(
+    (assetId: number) => assetOverrides.get(assetId) ?? propAssetMap.get(assetId),
+    [assetOverrides, propAssetMap],
+  )
+  const resolveAssetRef = useRef(resolveAsset)
+  resolveAssetRef.current = resolveAsset
+  const cloneImageAssetRef = useRef(cloneImageAssetResolved)
+  cloneImageAssetRef.current = cloneImageAssetResolved
+  const documentIdRef = useRef(documentIdResolved)
+  documentIdRef.current = documentIdResolved
+  const registerAsset = useCallback((asset: DocumentImageAsset) => {
+    setAssetOverrides((previous) => {
+      if (previous.has(asset.assetId)) return previous
+      const next = new Map(previous)
+      next.set(asset.assetId, asset)
+      return next
+    })
+  }, [])
+  const scheduleNormalizeRef = useRef<() => void>(() => {})
 
   /** BlockNote 只在创建 editor 时读 options；用稳定函数 + ref 承接 Vue 侧晚到或 `upload-file` 命名的回调 */
   const blockNoteUploadFile = useCallback((file: File) => {
@@ -786,7 +929,11 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     if (!fn) {
       return Promise.reject(new Error('uploadFile not configured'))
     }
-    return fn(file)
+    // 上传返回的是下载 URL；上传完成后归一化会把它替换为 documentImage + assetId。
+    return fn(file).then((url) => {
+      scheduleNormalizeRef.current()
+      return url
+    })
   }, [])
 
   const pasteFileAsLinkResolved = pasteFileAsLink || props['paste-file-as-link'] === true
@@ -927,6 +1074,114 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     [] // no deps – editor is stable for the component lifetime
   )
 
+  /**
+   * 正文图片归一化：把旧式 image 块（下载 URL）转为 documentImage（assetId），
+   * 并把跨文档粘贴来的外部 assetId 复制到当前文档后重写。只在客户端改内存块，写盘仍由自动保存完成。
+   */
+  const normalizeDocumentImages = useCallback(async () => {
+    const legacy: Array<{ id: string; attachmentId: number; caption: string }> = []
+    editor.forEachBlock((block: any) => {
+      if (block.type !== 'image') return true
+      const parsed = parseDocumentAttachmentUrl(block.props?.url)
+      if (parsed == null) return true
+      const currentDocumentId = documentIdRef.current
+      if (currentDocumentId != null && parsed.documentId !== currentDocumentId) return true
+      legacy.push({
+        id: block.id,
+        attachmentId: parsed.attachmentId,
+        caption: typeof block.props?.caption === 'string' ? block.props.caption : '',
+      })
+      return true
+    })
+    for (const item of legacy) {
+      if (editor.getBlock(item.id) == null) continue
+      editor.updateBlock(item.id, {
+        type: 'documentImage',
+        props: { imageAssetId: item.attachmentId, caption: item.caption },
+      } as any)
+    }
+
+    const clone = cloneImageAssetRef.current
+    if (clone == null) return
+    const foreignAssetIds = new Set<number>()
+    editor.forEachBlock((block: any) => {
+      if (block.type !== 'documentImage') return true
+      const assetId = Number(block.props?.imageAssetId ?? 0)
+      if (assetId > 0 && resolveAssetRef.current(assetId) == null) foreignAssetIds.add(assetId)
+      return true
+    })
+    for (const foreignAssetId of foreignAssetIds) {
+      let cloned: DocumentImageAsset
+      try {
+        cloned = await clone(foreignAssetId)
+      } catch {
+        // 无权访问源文档或复制失败时保留占位，不写回退地址。
+        continue
+      }
+      if (cloned == null) continue
+      registerAsset(cloned)
+      const blockIds: string[] = []
+      editor.forEachBlock((block: any) => {
+        if (block.type === 'documentImage' && Number(block.props?.imageAssetId ?? 0) === foreignAssetId) {
+          blockIds.push(block.id)
+        }
+        return true
+      })
+      for (const blockId of blockIds) {
+        if (editor.getBlock(blockId) == null) continue
+        editor.updateBlock(blockId, { props: { imageAssetId: cloned.assetId } } as any)
+      }
+    }
+  }, [editor, registerAsset])
+
+  const normalizeTimerRef = useRef<ReturnType<typeof window.setTimeout> | undefined>(undefined)
+  const normalizeInFlightRef = useRef(false)
+
+  const runNormalize = useCallback(() => {
+    if (normalizeInFlightRef.current) return
+    normalizeInFlightRef.current = true
+    void normalizeDocumentImages().finally(() => {
+      normalizeInFlightRef.current = false
+    })
+  }, [normalizeDocumentImages])
+
+  const scheduleNormalize = useCallback(() => {
+    if (normalizeTimerRef.current != null) return
+    normalizeTimerRef.current = window.setTimeout(() => {
+      normalizeTimerRef.current = undefined
+      runNormalize()
+    }, 150)
+  }, [runNormalize])
+
+  scheduleNormalizeRef.current = scheduleNormalize
+
+  useEffect(() => {
+    scheduleNormalize()
+    return () => {
+      if (normalizeTimerRef.current != null) {
+        window.clearTimeout(normalizeTimerRef.current)
+        normalizeTimerRef.current = undefined
+      }
+    }
+  }, [scheduleNormalize, imageAssetsResolved, documentIdResolved])
+
+  const openOriginal = useCallback((asset: DocumentImageAsset, element: HTMLImageElement) => {
+    const pswp = new PhotoSwipe({
+      dataSource: [{ src: asset.originalUrl, width: asset.width ?? 1600, height: asset.height ?? 1000, element }],
+      index: 0,
+      bgOpacity: 0.92,
+      wheelToZoom: true,
+      maxZoomLevel: 8,
+      showHideAnimationType: 'fade',
+    })
+    pswp.init()
+  }, [])
+
+  const documentImageContext = useMemo(
+    () => ({ resolve: resolveAsset, onOpenOriginal: openOriginal }),
+    [resolveAsset, openOriginal],
+  )
+
   // 非 BlockNote JSON 的整段内容（含 `[` 开头的 Markdown）在 mount 后解析
   useEffect(() => {
     const raw = (initialContent ?? '').trim()
@@ -991,6 +1246,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     const jsonString = JSON.stringify(editor.document)
     const mentionedIds = extractMentionIdsFromBlocks(editor.document as unknown as AnyBlock[])
     onChangeRef.current?.(jsonString, mentionedIds)
+    scheduleNormalizeRef.current()
   }, [editor])
 
   useEffect(() => {
@@ -1235,7 +1491,8 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   }, [mentionDocumentsGroup, mentionMembersGroup])
 
   return (
-    <div ref={editorRootRef} className="bn-mermaid-editor-root">
+    <DocumentImageContext.Provider value={documentImageContext}>
+      <div ref={editorRootRef} className="bn-mermaid-editor-root">
       <BlockNoteView
         editor={editor}
         editable={editable}
@@ -1278,7 +1535,8 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
           />
         )}
       </BlockNoteView>
-      <div ref={mermaidLayerRef} className="bn-mermaid-preview-layer" aria-hidden="false" />
-    </div>
+        <div ref={mermaidLayerRef} className="bn-mermaid-preview-layer" aria-hidden="false" />
+      </div>
+    </DocumentImageContext.Provider>
   )
 }

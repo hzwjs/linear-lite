@@ -135,6 +135,7 @@ describe('DocumentsView navigation', () => {
     // 带文档 ID 的路由必须立即请求正文，不能被文档树的慢查询串行阻塞。
     expect(documentApi.get).toHaveBeenCalledWith(1)
     expect(host.querySelector('.documents-content .spin')).not.toBeNull()
+    expect(host.textContent).not.toContain('选择一篇文档或创建新文档。')
 
     resolveDocument(projectDocument(1))
     resolveTree(treeNodes)

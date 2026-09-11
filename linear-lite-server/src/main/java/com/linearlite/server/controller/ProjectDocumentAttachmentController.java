@@ -82,6 +82,19 @@ public class ProjectDocumentAttachmentController {
                 .body(body);
     }
 
+    @PostMapping("/{attachmentId}/clone")
+    public ResponseEntity<ApiResponse<ProjectDocumentAttachmentResponse>> clone(
+            HttpServletRequest request,
+            @PathVariable Long documentId,
+            @PathVariable Long attachmentId) {
+        if (!storageProperties.isEnabled()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(ApiResponse.fail(503, "存储服务不可用"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(
+                attachmentService.cloneToDocument(documentId, attachmentId, userId(request))));
+    }
+
     @DeleteMapping("/{attachmentId}")
     public ResponseEntity<Void> delete(
             HttpServletRequest request,

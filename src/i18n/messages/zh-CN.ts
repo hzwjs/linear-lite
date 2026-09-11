@@ -244,7 +244,6 @@ const zhCN = {
     mentionMembersGroup: '成员', mentionDocumentsGroup: '文档', mentionNoMatches: '没有匹配的成员或文档。',
     attachmentUploading: '正在上传附件 {name}…', attachmentUploadFailed: '附件 {name} 上传失败', deleteAttachment: '删除附件',
     attachmentDocumentMismatch: '该附件不属于当前文档，已阻止下载。',
-    imageLoading: '图片加载中…', imageLoadFailed: '图片加载失败',
     mobile: { title: '项目文档', readonly: '只读', back: '返回', loading: '加载文档…', loadFailed: '文档加载失败', projectMismatch: '该文档不属于当前项目。', bodyLabel: '文档正文' },
     saveState: { idle: '尚未编辑', dirty: '有未保存修改', saving: '正在保存…', saved: '已保存', conflict: '保存冲突', invalid: '需要补充标题', failed: '保存失败' }
   },

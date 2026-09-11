@@ -139,6 +139,11 @@ CREATE TABLE IF NOT EXISTS project_document_attachments (
     file_size    BIGINT       NOT NULL,
     content_type VARCHAR(128) DEFAULT NULL,
     sha256       CHAR(64)     NOT NULL,
+    width                 INT          DEFAULT NULL COMMENT '图片像素宽；非图片为 NULL',
+    height                INT          DEFAULT NULL COMMENT '图片像素高；非图片为 NULL',
+    thumbnail_object_key  VARCHAR(512) DEFAULT NULL COMMENT '缩略图对象键；无法解码的图片为 NULL',
+    thumbnail_file_size   BIGINT       DEFAULT NULL COMMENT '缩略图字节数',
+    thumbnail_content_type VARCHAR(128) DEFAULT NULL COMMENT '缩略图 MIME 类型',
     created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_project_document_attachments_source (document_id, source_id),
     INDEX idx_project_document_attachments_project (project_id, id),
@@ -506,3 +511,18 @@ SET @task_comments_source_ref_index_ddl = IF(
 PREPARE task_comments_source_ref_index_stmt FROM @task_comments_source_ref_index_ddl;
 EXECUTE task_comments_source_ref_index_stmt;
 DEALLOCATE PREPARE task_comments_source_ref_index_stmt;
+
+-- ========== 归档：文档图片资源身份化（幂等增量）==========
+-- 已有库增量：project_document_attachments 增加图片尺寸与缩略图元数据。
+SET @doc_attachment_image_meta_exists = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'project_document_attachments' AND COLUMN_NAME = 'width'
+);
+SET @doc_attachment_image_meta_ddl = IF(
+    @doc_attachment_image_meta_exists = 0,
+    'ALTER TABLE project_document_attachments ADD COLUMN width INT DEFAULT NULL COMMENT ''图片像素宽；非图片为 NULL'' AFTER sha256, ADD COLUMN height INT DEFAULT NULL COMMENT ''图片像素高；非图片为 NULL'' AFTER width, ADD COLUMN thumbnail_object_key VARCHAR(512) DEFAULT NULL COMMENT ''缩略图对象键；无法解码的图片为 NULL'' AFTER height, ADD COLUMN thumbnail_file_size BIGINT DEFAULT NULL COMMENT ''缩略图字节数'' AFTER thumbnail_object_key, ADD COLUMN thumbnail_content_type VARCHAR(128) DEFAULT NULL COMMENT ''缩略图 MIME 类型'' AFTER thumbnail_file_size',
+    'SELECT 1'
+);
+PREPARE doc_attachment_image_meta_stmt FROM @doc_attachment_image_meta_ddl;
+EXECUTE doc_attachment_image_meta_stmt;
+DEALLOCATE PREPARE doc_attachment_image_meta_stmt;

@@ -67,23 +67,43 @@ public class R2ObjectStorageService implements ObjectStorageService {
 
     @Override
     public ImageUploadResponse uploadProjectDocumentAttachment(
-            MultipartFile file, long projectId, long documentId, long maxBytes) {
-        if (file == null || file.isEmpty()) {
+            InputStream content, long contentLength, String fileName, String contentType,
+            long projectId, long documentId, long maxBytes) {
+        if (content == null || contentLength <= 0) {
             throw new IllegalArgumentException("文档附件不能为空");
         }
-        if (maxBytes <= 0 || file.getSize() > maxBytes) {
+        if (maxBytes <= 0 || contentLength > maxBytes) {
             throw new IllegalArgumentException("文档附件超过大小限制");
         }
-        String contentType = normalizeContentType(file.getContentType());
-        if (contentType.isBlank()) {
-            contentType = "application/octet-stream";
+        String normalizedContentType = normalizeContentType(contentType);
+        if (normalizedContentType.isBlank()) {
+            normalizedContentType = "application/octet-stream";
         }
         // 文档附件使用独立命名空间，后续项目清理不会与任务附件相互影响。
         String key = "document-attachments/" + projectId + "/" + documentId + "/"
-                + UUID.randomUUID() + "-" + sanitizeFilename(file.getOriginalFilename(), "file.bin");
-        byte[] bytes = readBytes(file);
-        storageClient.putObject(properties.getBucket(), key, contentType, bytes);
+                + UUID.randomUUID() + "-" + sanitizeFilename(fileName, "file.bin");
+        storageClient.putObject(properties.getBucket(), key, normalizedContentType, content, contentLength);
         return new ImageUploadResponse(buildPublicUrl(key), key);
+    }
+
+    @Override
+    public String uploadProjectDocumentThumbnail(byte[] content, String contentType, long projectId, long documentId) {
+        if (content == null || content.length == 0) {
+            throw new IllegalArgumentException("缩略图内容不能为空");
+        }
+        String extension = "image/png".equals(contentType) ? ".png" : ".jpg";
+        String key = "document-attachments/" + projectId + "/" + documentId + "/thumbnails/"
+                + UUID.randomUUID() + extension;
+        storageClient.putObject(properties.getBucket(), key, contentType, content);
+        return key;
+    }
+
+    @Override
+    public String copyProjectDocumentAttachmentObject(String sourceKey, String fileName, long projectId, long documentId) {
+        String key = "document-attachments/" + projectId + "/" + documentId + "/"
+                + UUID.randomUUID() + "-" + sanitizeFilename(fileName, "file.bin");
+        storageClient.copyObject(properties.getBucket(), sourceKey, key);
+        return key;
     }
 
     @Override

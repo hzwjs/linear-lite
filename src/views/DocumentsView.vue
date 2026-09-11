@@ -348,7 +348,7 @@ onBeforeUnmount(() => {
           <div v-else class="documents-content__state">{{ t('documents.noArchived') }}</div>
         </div>
         <DocumentHistoryPanel
-          v-if="store.activeDocument && historyOpen"
+          v-else-if="store.activeDocument && historyOpen"
           :open="historyOpen"
           :document="store.activeDocument"
           @close="historyOpen = false"

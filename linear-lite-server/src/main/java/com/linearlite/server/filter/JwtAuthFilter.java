@@ -2,6 +2,7 @@ package com.linearlite.server.filter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.common.ApiResponse;
+import com.linearlite.server.util.DocumentAssetCookie;
 import com.linearlite.server.util.JwtUtil;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
@@ -27,6 +28,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private static final String AUTH_REGISTER_SEND_CODE_PATH = "/api/auth/register/send-code";
     private static final String AUTH_PASSWORD_RESET_PATH = "/api/auth/password-reset";
     private static final String AUTH_PASSWORD_RESET_SEND_CODE_PATH = "/api/auth/password-reset/send-code";
+    private static final String AUTH_LOGOUT_PATH = "/api/auth/logout";
+    private static final String DOCUMENT_ASSET_PREFIX = "/api/document-assets/";
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
     public static final String REQUEST_ATTR_USER_ID = "userId";
@@ -62,6 +65,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 || AUTH_REGISTER_PATH.equals(path)
                 || AUTH_REGISTER_SEND_CODE_PATH.equals(path)
                 || AUTH_PASSWORD_RESET_PATH.equals(path)
+                || AUTH_LOGOUT_PATH.equals(path)
                 || AUTH_PASSWORD_RESET_SEND_CODE_PATH.equals(path)) {
             return true;
         }
@@ -102,6 +106,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return authHeader.substring(BEARER_PREFIX.length()).trim();
         }
         String path = request.getRequestURI();
+        // 图片端点由原生 <img> 访问，无法携带 Bearer 头，改用路径级 HttpOnly Cookie。
+        if (path != null && path.startsWith(DOCUMENT_ASSET_PREFIX)) {
+            String cookieToken = DocumentAssetCookie.read(request);
+            if (cookieToken != null && !cookieToken.isBlank()) {
+                return cookieToken.trim();
+            }
+        }
         if (path != null && (path.endsWith("/notifications/stream") || path.matches(".*/local-pi/sessions/[^/]+/stream$"))
                 && "GET".equalsIgnoreCase(request.getMethod())) {
             String q = request.getParameter("access_token");

@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockMultipartFile;
 
+import java.io.ByteArrayInputStream;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -100,14 +102,16 @@ class R2ObjectStorageServiceTest {
                 "file", "扫描报告.pdf", "application/pdf", "pdf".getBytes());
 
         ImageUploadResponse response = storageService.uploadProjectDocumentAttachment(
-                file, 7L, 11L, 50L * 1024 * 1024);
+                new ByteArrayInputStream("pdf".getBytes()), 3L,
+                "扫描报告.pdf", "application/pdf", 7L, 11L, 50L * 1024 * 1024);
 
         ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
         verify(storageClient).putObject(
                 org.mockito.ArgumentMatchers.eq("linear-lite-assets"),
                 keyCaptor.capture(),
                 org.mockito.ArgumentMatchers.eq("application/pdf"),
-                org.mockito.ArgumentMatchers.any(byte[].class));
+                org.mockito.ArgumentMatchers.any(java.io.InputStream.class),
+                org.mockito.ArgumentMatchers.eq(3L));
         assertTrue(keyCaptor.getValue().matches(
                 "document-attachments/7/11/[0-9a-f\\-]+-[A-Za-z0-9._-]+\\.pdf"));
         assertEquals(keyCaptor.getValue(), response.getKey());
@@ -119,7 +123,9 @@ class R2ObjectStorageServiceTest {
                 "file", "large.pdf", "application/pdf", new byte[5]);
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> storageService.uploadProjectDocumentAttachment(file, 7L, 11L, 4L));
+                () -> storageService.uploadProjectDocumentAttachment(
+                        new ByteArrayInputStream(new byte[5]), 5L,
+                        "large.pdf", "application/pdf", 7L, 11L, 4L));
 
         assertEquals("文档附件超过大小限制", error.getMessage());
     }

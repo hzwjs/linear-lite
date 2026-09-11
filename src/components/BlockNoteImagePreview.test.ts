@@ -26,4 +26,11 @@ describe('BlockNote image preview', () => {
     expect(blockNoteReactSource).toContain("background.setAttribute('fill', '#fff')")
     expect(blockNoteWrapperSource).toContain('.bn-mermaid-preview-zoom')
   })
+
+  it('constrains document images inside the editor content width', () => {
+    expect(blockNoteWrapperSource).toMatch(
+      /\.blocknote-editor-wrap \.bn-document-image img\s*\{[^}]*max-width:\s*100%;[^}]*height:\s*auto;/s
+    )
+    expect(blockNoteWrapperSource).not.toContain(':deep(.bn-document-image')
+  })
 })

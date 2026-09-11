@@ -11,6 +11,9 @@ public record ProjectDocumentAttachmentResponse(
         Long fileSize,
         String contentType,
         String sha256,
+        Integer width,
+        Integer height,
+        String thumbnailUrl,
         String url,
         OffsetDateTime createdAt) {
 }

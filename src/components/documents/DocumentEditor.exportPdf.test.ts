@@ -59,7 +59,8 @@ describe('DocumentEditor PDF export', () => {
 
     ;(host.querySelector('button[title="Export PDF"]') as HTMLButtonElement).click()
     await nextTick()
-    vi.advanceTimersByTime(0)
+    // 导出前会等待正文图片切到原图并解码，打印在微任务后触发。
+    await vi.advanceTimersByTimeAsync(0)
 
     expect(print).toHaveBeenCalledOnce()
     expect(document.body.classList.contains('document-pdf-export')).toBe(true)

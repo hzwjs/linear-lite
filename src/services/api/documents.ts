@@ -3,6 +3,7 @@ import { api, unwrap } from './index'
 import type { ApiResponse } from './types'
 import type {
   ProjectDocument,
+  ProjectDocumentAttachment,
   ProjectDocumentRevision,
   ProjectDocumentRevisionSummary,
   ProjectDocumentTreeNode
@@ -52,13 +53,22 @@ export function getDocumentConflict(error: unknown): DocumentConflict | null {
 }
 
 export const documentApi = {
-  uploadAttachment(documentId: number, file: File): Promise<{ url: string }> {
+  uploadAttachment(documentId: number, file: File): Promise<ProjectDocumentAttachment> {
     const formData = new FormData()
     formData.append('file', file)
     return api
-      .post<ApiResponse<{ url: string }>>(`/project-documents/${documentId}/attachments`, formData, {
+      .post<ApiResponse<ProjectDocumentAttachment>>(`/project-documents/${documentId}/attachments`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
+      .then(unwrap)
+  },
+
+  /** 把其它文档的图片附件复制到当前文档，保证正文图片身份与文档归属一致。 */
+  cloneAttachment(documentId: number, attachmentId: number): Promise<ProjectDocumentAttachment> {
+    return api
+      .post<ApiResponse<ProjectDocumentAttachment>>(
+        `/project-documents/${documentId}/attachments/${attachmentId}/clone`
+      )
       .then(unwrap)
   },
 
@@ -97,10 +107,6 @@ export const documentApi = {
 
   get(documentId: number): Promise<ProjectDocument> {
     return api.get<ApiResponse<ProjectDocument>>(`/project-documents/${documentId}`).then(unwrap)
-  },
-
-  async getAttachmentBlob(documentId: number, attachmentId: number): Promise<Blob> {
-    return (await requestDocumentAttachment(documentId, attachmentId)).blob
   },
 
   async deleteAttachment(documentId: number, attachmentId: number): Promise<void> {

@@ -53,7 +53,20 @@ public class R2StorageConfig {
 
             @Override
             public ImageUploadResponse uploadProjectDocumentAttachment(
-                    MultipartFile file, long projectId, long documentId, long maxBytes) {
+                    java.io.InputStream content, long contentLength, String fileName, String contentType,
+                    long projectId, long documentId, long maxBytes) {
+                throwDisabled();
+                return null;
+            }
+
+            @Override
+            public String uploadProjectDocumentThumbnail(byte[] content, String contentType, long projectId, long documentId) {
+                throwDisabled();
+                return null;
+            }
+
+            @Override
+            public String copyProjectDocumentAttachmentObject(String sourceKey, String fileName, long projectId, long documentId) {
                 throwDisabled();
                 return null;
             }

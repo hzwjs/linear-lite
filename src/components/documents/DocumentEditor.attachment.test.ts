@@ -5,7 +5,7 @@ import DocumentEditor from './DocumentEditor.vue'
 import { documentApi } from '../../services/api/documents'
 
 vi.mock('../../services/api/documents', () => ({
-  documentApi: { deleteAttachment: vi.fn(), downloadAttachment: vi.fn(), getAttachmentBlob: vi.fn(), uploadAttachment: vi.fn() }
+  documentApi: { deleteAttachment: vi.fn(), downloadAttachment: vi.fn(), uploadAttachment: vi.fn() }
 }))
 
 const removeAttachmentLink = vi.fn()
@@ -45,6 +45,7 @@ const documentFixture = {
   parentDocumentId: null,
   title: 'Migration guide',
   content: '[]',
+  imageAssets: [],
   creatorId: 1,
   lastEditorId: 1,
   archivedAt: null,
@@ -89,23 +90,13 @@ function renderEditor() {
 
 beforeEach(() => {
   vi.mocked(documentApi.deleteAttachment).mockResolvedValue()
-  vi.mocked(documentApi.getAttachmentBlob).mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
   vi.mocked(documentApi.uploadAttachment).mockResolvedValue({ url: '/api/project-documents/12/attachments/37/download' })
   removeAttachmentLink.mockReturnValue(true)
-  Object.defineProperty(URL, 'createObjectURL', {
-    configurable: true,
-    value: vi.fn(() => 'blob:authenticated-image')
-  })
-  Object.defineProperty(URL, 'revokeObjectURL', {
-    configurable: true,
-    value: vi.fn()
-  })
 })
 
 afterEach(() => {
   vi.mocked(documentApi.deleteAttachment).mockReset()
   vi.mocked(documentApi.downloadAttachment).mockReset()
-  vi.mocked(documentApi.getAttachmentBlob).mockReset()
   removeAttachmentLink.mockReset()
   vi.restoreAllMocks()
   document.body.replaceChildren()
@@ -163,43 +154,6 @@ describe('DocumentEditor attachment links', () => {
     expect(view.host.querySelector('#other-document')?.classList.contains('document-attachment-link')).toBe(false)
     expect(view.host.querySelector('#ordinary')?.classList.contains('document-attachment-link')).toBe(false)
     expect(view.host.querySelector('#attachment-with-query')?.classList.contains('document-attachment-link')).toBe(false)
-    view.app.unmount()
-  })
-
-  it('hydrates a protected attachment image through the authenticated api client', async () => {
-    const view = renderEditor()
-    await nextTick()
-    await nextTick()
-    await nextTick()
-
-    expect(documentApi.getAttachmentBlob).toHaveBeenCalledWith(12, 36)
-    expect(view.host.querySelector<HTMLImageElement>('#attachment-image')?.src)
-      .toBe('blob:authenticated-image')
-
-    view.app.unmount()
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:authenticated-image')
-  })
-
-  it('shows a friendly loading state while a protected attachment image is fetched', async () => {
-    let resolveBlob!: (blob: Blob) => void
-    vi.mocked(documentApi.getAttachmentBlob).mockReturnValueOnce(new Promise((resolve) => {
-      resolveBlob = resolve
-    }))
-    const view = renderEditor()
-    await nextTick()
-    await nextTick()
-    await nextTick()
-
-    const overlay = view.host.querySelector<HTMLElement>('.document-attachment-image-status--loading')
-    expect(overlay).not.toBeNull()
-    expect(overlay?.textContent).toContain('documents.imageLoading')
-    expect(view.host.querySelector('[data-document-id] .document-attachment-image-status')).toBeNull()
-
-    resolveBlob(new Blob(['image'], { type: 'image/png' }))
-    await nextTick()
-    await nextTick()
-    expect(view.host.querySelector('.document-attachment-image-status--loading')).not.toBeNull()
-
     view.app.unmount()
   })
 

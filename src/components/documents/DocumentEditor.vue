@@ -45,20 +45,14 @@ const documentEditorSurfaceRef = ref<HTMLElement | null>(null)
 const attachmentDownloadError = ref('')
 const attachmentDownloadPending = ref(false)
 const attachmentDeletePending = new Set<number>()
-const attachmentImageStates = new Map<HTMLImageElement, 'loading' | 'error'>()
 const attachmentOverlays = ref<Array<{
   key: string
-  type: 'delete' | 'image'
-  href?: string
-  attachmentId?: number
-  state?: 'loading' | 'error'
+  href: string
+  attachmentId: number
   style: Record<string, string>
 }>>([])
 const relativeTimeClock = ref(Date.now())
-const attachmentImageObjectUrls = new Map<HTMLImageElement, string>()
-const pendingAttachmentImages = new WeakSet<HTMLImageElement>()
-let attachmentImageObserver: MutationObserver | null = null
-let attachmentImageGeneration = 0
+let attachmentOverlayObserver: MutationObserver | null = null
 let relativeTimeTimer: ReturnType<typeof setInterval> | null = null
 let restorePdfExportState: (() => void) | null = null
 
@@ -84,7 +78,7 @@ function onMoreMenuOutsideClick(event: MouseEvent) {
   moreOpen.value = false
 }
 
-// BlockNote owns the surface DOM; controls and image states are positioned in a sibling overlay.
+// BlockNote owns the surface DOM; 附件删除控件定位在兄弟 overlay 中。
 function syncAttachmentOverlays() {
   const body = documentBodyRef.value
   const surface = documentEditorSurfaceRef.value
@@ -99,7 +93,6 @@ function syncAttachmentOverlays() {
     const rect = anchor.getBoundingClientRect()
     overlays.push({
       key: `delete-${href}`,
-      type: 'delete',
       href: href ?? '',
       attachmentId: Number(match[2]),
       style: {
@@ -109,90 +102,7 @@ function syncAttachmentOverlays() {
     })
   }
 
-  surface.querySelectorAll<HTMLImageElement>('img[src]').forEach((image, index) => {
-    const match = matchDocumentAttachmentPath(image.getAttribute('src'))
-    const state = attachmentImageStates.get(image)
-    if (match == null || Number(match[1]) !== props.document.id || state == null) return
-    const rect = image.getBoundingClientRect()
-    overlays.push({
-      key: `image-${match[2]}-${index}`,
-      type: 'image',
-      state,
-      style: {
-        top: `${rect.top - bodyRect.top}px`,
-        left: `${rect.left - bodyRect.left}px`,
-        width: `${Math.max(rect.width, 160)}px`,
-        height: `${Math.max(rect.height, 96)}px`
-      }
-    })
-  })
-
   attachmentOverlays.value = overlays
-}
-
-function revokeAttachmentImageUrls() {
-  for (const objectUrl of attachmentImageObjectUrls.values()) URL.revokeObjectURL(objectUrl)
-  attachmentImageObjectUrls.clear()
-}
-
-function setAttachmentImageState(image: HTMLImageElement, state: 'loading' | 'loaded' | 'error') {
-  if (state === 'loaded') attachmentImageStates.delete(image)
-  else attachmentImageStates.set(image, state)
-  syncAttachmentOverlays()
-}
-
-async function hydrateDocumentAttachments() {
-  const generation = attachmentImageGeneration
-  await nextTick()
-  const body = documentBodyRef.value
-  const surface = documentEditorSurfaceRef.value
-  if (body == null || surface == null || generation !== attachmentImageGeneration) return
-
-  for (const [image, objectUrl] of attachmentImageObjectUrls) {
-    if (body.contains(image)) continue
-    URL.revokeObjectURL(objectUrl)
-    attachmentImageObjectUrls.delete(image)
-  }
-
-  for (const image of surface.querySelectorAll<HTMLImageElement>('img[src]')) {
-    const match = matchDocumentAttachmentPath(image.getAttribute('src'))
-    if (match == null || attachmentImageObjectUrls.has(image) || pendingAttachmentImages.has(image)) continue
-    const documentId = Number(match[1])
-    const attachmentId = Number(match[2])
-    if (documentId !== props.document.id) {
-      attachmentDownloadError.value = t('documents.attachmentDocumentMismatch')
-      continue
-    }
-
-    pendingAttachmentImages.add(image)
-    setAttachmentImageState(image, 'loading')
-    let blobAssigned = false
-    const markLoaded = () => {
-      if (blobAssigned) setAttachmentImageState(image, 'loaded')
-    }
-    const markFailed = () => {
-      if (blobAssigned) setAttachmentImageState(image, 'error')
-    }
-    image.addEventListener('load', markLoaded, { once: true })
-    image.addEventListener('error', markFailed, { once: true })
-    try {
-      const blob = await documentApi.getAttachmentBlob(documentId, attachmentId)
-      if (generation !== attachmentImageGeneration || !surface.contains(image)) continue
-      // BlockNote 的原始 img 请求不会携带 JWT；只把精确附件路径替换为当前会话的 Blob URL。
-      const objectUrl = URL.createObjectURL(blob)
-      attachmentImageObjectUrls.set(image, objectUrl)
-      image.src = objectUrl
-      blobAssigned = true
-      if (image.complete && image.naturalWidth > 0) markLoaded()
-    } catch {
-      if (generation === attachmentImageGeneration) {
-        setAttachmentImageState(image, 'error')
-        attachmentDownloadError.value = t('attachments.downloadFailed')
-      }
-    } finally {
-      pendingAttachmentImages.delete(image)
-    }
-  }
 }
 
 onMounted(async () => {
@@ -202,26 +112,20 @@ onMounted(async () => {
   await nextTick()
   const surface = documentEditorSurfaceRef.value
   if (surface == null) return
-  // BlockNote 会在父组件 mounted 后继续异步构建图片节点，监听新增节点后再执行精确路径水合。
-  attachmentImageObserver = new MutationObserver(() => {
+  // BlockNote 会在父组件 mounted 后继续异步构建块节点，监听新增后再同步删除控件位置。
+  attachmentOverlayObserver = new MutationObserver(() => {
     syncAttachmentOverlays()
-    void hydrateDocumentAttachments()
   })
-  attachmentImageObserver.observe(surface, { childList: true, subtree: true })
+  attachmentOverlayObserver.observe(surface, { childList: true, subtree: true })
   syncAttachmentOverlays()
-  void hydrateDocumentAttachments()
 })
 watch(
   () => [props.document.id, props.document.content] as const,
   ([documentId], previous) => {
     if (previous != null && previous[0] !== documentId) {
-      attachmentImageGeneration += 1
-      attachmentImageStates.clear()
       attachmentOverlays.value = []
-      revokeAttachmentImageUrls()
     }
     syncAttachmentOverlays()
-    void hydrateDocumentAttachments()
   },
   { flush: 'post' }
 )
@@ -229,12 +133,9 @@ onBeforeUnmount(() => {
   if (relativeTimeTimer != null) clearInterval(relativeTimeTimer)
   window.document.removeEventListener('click', onMoreMenuOutsideClick, true)
   restorePdfExportState?.()
-  attachmentImageObserver?.disconnect()
-  attachmentImageObserver = null
-  attachmentImageGeneration += 1
-  attachmentImageStates.clear()
+  attachmentOverlayObserver?.disconnect()
+  attachmentOverlayObserver = null
   attachmentOverlays.value = []
-  revokeAttachmentImageUrls()
 })
 
 const breadcrumbs = computed(() => {
@@ -474,6 +375,7 @@ async function handleDocumentBodyClick(event: MouseEvent) {
             ref="bodyEditorRef"
             :key="document.id"
             :document-id="document.id"
+            :image-assets="document.imageAssets"
             paste-file-as-link
             :file-uploading-text="$t('documents.attachmentUploading')"
             :file-upload-failed-text="$t('documents.attachmentUploadFailed')"
@@ -487,29 +389,18 @@ async function handleDocumentBodyClick(event: MouseEvent) {
         </div>
         <div v-if="attachmentOverlays.length > 0" class="document-attachment-overlay" aria-live="polite">
           <button
-            v-for="item in attachmentOverlays.filter((candidate) => candidate.type === 'delete')"
+            v-for="item in attachmentOverlays"
             :key="item.key"
             type="button"
             class="document-attachment-delete"
             :style="item.style"
             :data-attachment-href="item.href"
             :data-attachment-id="item.attachmentId"
-            :disabled="attachmentDeletePending.has(item.attachmentId ?? -1)"
+            :disabled="attachmentDeletePending.has(item.attachmentId)"
             :aria-label="t('documents.deleteAttachment')"
             :title="t('documents.deleteAttachment')"
-            @click.stop.prevent="handleDocumentAttachmentDelete(item.href ?? '', item.attachmentId ?? -1)"
+            @click.stop.prevent="handleDocumentAttachmentDelete(item.href, item.attachmentId)"
           />
-          <span
-            v-for="item in attachmentOverlays.filter((candidate) => candidate.type === 'image')"
-            :key="item.key"
-            class="document-attachment-image-status"
-            :class="`document-attachment-image-status--${item.state}`"
-            :style="item.style"
-            role="status"
-          >
-            <span class="document-attachment-image-status__icon" aria-hidden="true" />
-            <span>{{ item.state === 'loading' ? t('documents.imageLoading') : t('documents.imageLoadFailed') }}</span>
-          </span>
         </div>
       </div>
       <p v-if="attachmentDownloadError" class="document-editor__attachment-error" role="alert">

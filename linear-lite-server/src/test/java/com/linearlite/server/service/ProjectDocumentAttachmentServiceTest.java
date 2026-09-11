@@ -15,9 +15,11 @@ import org.springframework.mock.web.MockMultipartFile;
 import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -28,13 +30,14 @@ class ProjectDocumentAttachmentServiceTest {
     @Mock private ProjectDocumentAttachmentMapper attachmentMapper;
     @Mock private ProjectAccessGuard accessGuard;
     @Mock private ObjectStorageService objectStorageService;
+    @Mock private DocumentImageProcessor imageProcessor;
 
     private ProjectDocumentAttachmentService service;
 
     @BeforeEach
     void setUp() {
         service = new ProjectDocumentAttachmentService(
-                documentMapper, attachmentMapper, accessGuard, objectStorageService, 50L * 1024 * 1024);
+                documentMapper, attachmentMapper, accessGuard, objectStorageService, imageProcessor, 50L * 1024 * 1024);
     }
 
     @Test
@@ -44,7 +47,7 @@ class ProjectDocumentAttachmentServiceTest {
                 "file", "report.pdf", "application/pdf", "pdf-content".getBytes());
         when(documentMapper.selectById(11L)).thenReturn(document);
         when(attachmentMapper.selectOne(any())).thenReturn(null, attachment(31L, 7L, 11L, "outline:doc:file"));
-        when(objectStorageService.uploadProjectDocumentAttachment(file, 7L, 11L, 50L * 1024 * 1024))
+        when(objectStorageService.uploadProjectDocumentAttachment(any(java.io.InputStream.class), eq((long) "pdf-content".getBytes().length), any(), any(), eq(7L), eq(11L), eq(50L * 1024 * 1024)))
                 .thenReturn(new ImageUploadResponse("https://unused.example/report.pdf", "document-attachments/7/11/report.pdf"));
         when(attachmentMapper.insert(any(ProjectDocumentAttachment.class))).thenAnswer(invocation -> {
             ProjectDocumentAttachment value = invocation.getArgument(0);
@@ -74,7 +77,7 @@ class ProjectDocumentAttachmentServiceTest {
         var response = service.upload(11L, file, existing.getSourceId(), 5L);
 
         assertEquals(31L, response.id());
-        verify(objectStorageService, never()).uploadProjectDocumentAttachment(any(), anyLong(), anyLong(), anyLong());
+        verify(objectStorageService, never()).uploadProjectDocumentAttachment(any(java.io.InputStream.class), anyLong(), any(), any(), anyLong(), anyLong(), anyLong());
         verify(attachmentMapper, never()).insert(any());
     }
 
@@ -83,7 +86,7 @@ class ProjectDocumentAttachmentServiceTest {
         ProjectDocument document = document(11L, 7L);
         MockMultipartFile file = new MockMultipartFile("file", "large.pdf", "application/pdf", new byte[8]);
         service = new ProjectDocumentAttachmentService(
-                documentMapper, attachmentMapper, accessGuard, objectStorageService, 4L);
+                documentMapper, attachmentMapper, accessGuard, objectStorageService, imageProcessor, 4L);
         when(documentMapper.selectById(11L)).thenReturn(document);
 
         IllegalArgumentException error = assertThrows(
@@ -91,7 +94,7 @@ class ProjectDocumentAttachmentServiceTest {
                 () -> service.upload(11L, file, "outline:large", 5L));
 
         assertEquals("文档附件超过大小限制", error.getMessage());
-        verify(objectStorageService, never()).uploadProjectDocumentAttachment(any(), anyLong(), anyLong(), anyLong());
+        verify(objectStorageService, never()).uploadProjectDocumentAttachment(any(java.io.InputStream.class), anyLong(), any(), any(), anyLong(), anyLong(), anyLong());
     }
 
     @Test
@@ -102,7 +105,7 @@ class ProjectDocumentAttachmentServiceTest {
         String objectKey = "document-attachments/7/11/report.pdf";
         when(documentMapper.selectById(11L)).thenReturn(document);
         when(attachmentMapper.selectOne(any())).thenReturn(null);
-        when(objectStorageService.uploadProjectDocumentAttachment(file, 7L, 11L, 50L * 1024 * 1024))
+        when(objectStorageService.uploadProjectDocumentAttachment(any(java.io.InputStream.class), eq(3L), any(), any(), eq(7L), eq(11L), eq(50L * 1024 * 1024)))
                 .thenReturn(new ImageUploadResponse("https://unused.example/report.pdf", objectKey));
         IllegalStateException persistenceFailure = new IllegalStateException("insert failed");
         when(attachmentMapper.insert(any(ProjectDocumentAttachment.class))).thenThrow(persistenceFailure);
@@ -122,7 +125,7 @@ class ProjectDocumentAttachmentServiceTest {
         String objectKey = "document-attachments/7/11/report.pdf";
         when(documentMapper.selectById(11L)).thenReturn(document);
         when(attachmentMapper.selectOne(any())).thenReturn(null);
-        when(objectStorageService.uploadProjectDocumentAttachment(file, 7L, 11L, 50L * 1024 * 1024))
+        when(objectStorageService.uploadProjectDocumentAttachment(any(java.io.InputStream.class), eq(3L), any(), any(), eq(7L), eq(11L), eq(50L * 1024 * 1024)))
                 .thenReturn(new ImageUploadResponse("https://unused.example/report.pdf", objectKey));
         IllegalStateException persistenceFailure = new IllegalStateException("insert failed");
         IllegalStateException compensationFailure = new IllegalStateException("delete failed");
@@ -136,6 +139,26 @@ class ProjectDocumentAttachmentServiceTest {
         assertEquals("insert failed", thrown.getMessage());
         assertEquals(1, thrown.getSuppressed().length);
         assertEquals("delete failed", thrown.getSuppressed()[0].getMessage());
+    }
+
+    @Test
+    void thumbnailEtagChangesWhenThumbnailObjectChanges() {
+        ProjectDocument document = document(11L, 7L);
+        ProjectDocumentAttachment first = attachment(31L, 7L, 11L, null);
+        first.setThumbnailObjectKey("document-attachments/7/11/thumbnails/first.jpg");
+        first.setThumbnailContentType("image/jpeg");
+        first.setThumbnailFileSize(12L);
+        ProjectDocumentAttachment second = attachment(31L, 7L, 11L, null);
+        second.setThumbnailObjectKey("document-attachments/7/11/thumbnails/second.jpg");
+        second.setThumbnailContentType("image/jpeg");
+        second.setThumbnailFileSize(12L);
+        when(documentMapper.selectById(11L)).thenReturn(document);
+        when(attachmentMapper.selectOne(any())).thenReturn(first, second);
+
+        String firstEtag = service.resolveAsset(11L, 31L, first.getSha256(), "thumbnail", 5L).etag();
+        String secondEtag = service.resolveAsset(11L, 31L, second.getSha256(), "thumbnail", 5L).etag();
+
+        assertNotEquals(firstEtag, secondEtag);
     }
 
     private ProjectDocument document(Long id, Long projectId) {

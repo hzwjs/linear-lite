@@ -24,5 +24,13 @@ export const authApi = {
   },
   resetPassword(body: ResetPasswordRequest) {
     return api.post<ApiResponse<void>>('/auth/password-reset', body).then(unwrap)
+  },
+  /** 清理文档图片资源的路径级 Cookie；失败不阻塞本地登出。 */
+  logout() {
+    return api.post<ApiResponse<void>>('/auth/logout').then(unwrap)
+  },
+  /** 为已登录会话补发文档图片资源 Cookie。 */
+  startDocumentAssetSession() {
+    return api.post<ApiResponse<void>>('/auth/document-asset-session').then(unwrap)
   }
 }

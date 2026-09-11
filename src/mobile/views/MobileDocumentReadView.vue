@@ -137,7 +137,7 @@ onBeforeUnmount(() => restorePdfExportState?.())
         <h1>{{ document.title }}</h1>
       </div>
       <section class="mobile-document-body" :aria-label="t('documents.mobile.bodyLabel')">
-        <StructuredDocumentEditor :model-value="document.content" :document-id="document.id" readonly />
+        <StructuredDocumentEditor :model-value="document.content" :document-id="document.id" :image-assets="document.imageAssets" readonly />
       </section>
     </article>
   </main>

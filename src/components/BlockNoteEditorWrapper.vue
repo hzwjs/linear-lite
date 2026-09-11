@@ -6,6 +6,7 @@ import 'photoswipe/style.css'
 import BlockNoteEditorReact from './BlockNoteEditorReact'
 import type { EditorApi } from './BlockNoteEditorReact'
 import { uploadApi } from '../services/api/upload'
+import type { DocumentImageAsset } from '../types/document'
 
 // 编辑器只在任务/文档编辑器真正打开时加载；将 veaury 初始化放到这里，避免首屏入口提前拉取 React 编辑器依赖。
 setVeauryOptions({ react: { createRoot } })
@@ -37,6 +38,10 @@ const props = withDefaults(
     /** 文件粘贴/拖拽的上传地址由使用场景决定。 */
     uploadFile?: (file: File) => Promise<string>
     pasteFileAsLink?: boolean
+    /** 当前文档 ID 与非图片附件的区分：只有文档编辑器启用 documentImage 资源链路。 */
+    documentId?: number
+    imageAssets?: DocumentImageAsset[]
+    cloneImageAsset?: (assetId: number) => Promise<DocumentImageAsset>
     /** 附件上传中的占位文本模板，`{name}` 替换为文件名（由 Vue i18n 传入）。 */
     fileUploadingText?: string
     /** 附件上传失败的占位文本模板，`{name}` 替换为文件名（由 Vue i18n 传入）。 */
@@ -164,6 +169,9 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmen
       :checkPiBridgeOnMention="checkPiBridgeOnMention"
       :editable="!readonly"
       :uploadFile="handleUploadFile"
+      :documentId="documentId"
+      :imageAssets="imageAssets"
+      :cloneImageAsset="cloneImageAsset"
       :pasteFileAsLink="pasteFileAsLink"
       :fileUploadingText="fileUploadingText"
       :fileUploadFailedText="fileUploadFailedText"
@@ -628,5 +636,36 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmen
   padding: 0 5px !important;
   height: 18px !important;
   line-height: 18px !important;
+}
+
+/* 文档图片资源块：地址由 imageAssets 清单解析，正文只存 assetId。 */
+.blocknote-editor-wrap .bn-document-image {
+  margin: 8px 0;
+}
+
+.blocknote-editor-wrap .bn-document-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  cursor: zoom-in;
+}
+
+.blocknote-editor-wrap .bn-document-image--missing {
+  display: grid;
+  min-height: 96px;
+  place-items: center;
+  border: 1px dashed var(--color-border-subtle);
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+}
+
+.blocknote-editor-wrap .bn-document-image__caption {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  text-align: center;
 }
 </style>

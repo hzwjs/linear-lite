@@ -176,7 +176,7 @@ class McpDispatcherTest {
     @Test
     void invokesGetDocumentWithAuthenticatedUser() throws Exception {
         ProjectDocumentResponse document = new ProjectDocumentResponse(
-                68L, 7L, null, null, null, "安全扫描", "正文", 0, 3L,
+                68L, 7L, null, null, null, "安全扫描", "正文", java.util.List.of(), 0, 3L,
                 9L, 9L, false, null, null, null);
         when(projectDocumentQueryService.getDocument(68L, 9L)).thenReturn(document);
 
@@ -194,7 +194,7 @@ class McpDispatcherTest {
     @Test
     void invokesGetDocumentByTitleWhenTitleIsTheOnlyCondition() throws Exception {
         ProjectDocumentResponse document = new ProjectDocumentResponse(
-                68L, 7L, null, null, null, "安全扫描", "正文", 0, 3L,
+                68L, 7L, null, null, null, "安全扫描", "正文", java.util.List.of(), 0, 3L,
                 9L, 9L, false, null, null, null);
         when(projectDocumentQueryService.getDocumentByTitle("安全扫描", 9L)).thenReturn(document);
 

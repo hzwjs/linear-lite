@@ -27,18 +27,21 @@ public class ProjectDocumentQueryService {
     private final ProjectDocumentRevisionMapper revisionMapper;
     private final UserMapper userMapper;
     private final ProjectAccessGuard projectAccessGuard;
+    private final ProjectDocumentAttachmentService attachmentService;
 
     public ProjectDocumentQueryService(
             ProjectDocumentMapper documentMapper,
             ProjectDocumentFavoriteMapper favoriteMapper,
             ProjectDocumentRevisionMapper revisionMapper,
             UserMapper userMapper,
-            ProjectAccessGuard projectAccessGuard) {
+            ProjectAccessGuard projectAccessGuard,
+            ProjectDocumentAttachmentService attachmentService) {
         this.documentMapper = documentMapper;
         this.favoriteMapper = favoriteMapper;
         this.revisionMapper = revisionMapper;
         this.userMapper = userMapper;
         this.projectAccessGuard = projectAccessGuard;
+        this.attachmentService = attachmentService;
     }
 
     public List<ProjectDocumentTreeNode> listTree(Long projectId, Long userId, boolean archived) {
@@ -102,7 +105,8 @@ public class ProjectDocumentQueryService {
         String editorName = editorNameMap.get(revision.getEditorId());
         return new ProjectDocumentRevisionResponse(
                 revision.getDocumentId(), revision.getId(), revision.getVersion(), revision.getTitle(),
-                revision.getContentJson(), revision.getEditorId(), editorName, revision.getCreatedAt());
+                revision.getContentJson(), attachmentService.listImageAssets(documentId),
+                revision.getEditorId(), editorName, revision.getCreatedAt());
     }
 
     ProjectDocument requireDocument(Long documentId, Long userId) {
@@ -120,11 +124,12 @@ public class ProjectDocumentQueryService {
                 .eq(ProjectDocumentFavorite::getDocumentId, documentId)) > 0;
     }
 
-    static ProjectDocumentResponse toResponse(ProjectDocument document, boolean favorited) {
+    ProjectDocumentResponse toResponse(ProjectDocument document, boolean favorited) {
         return new ProjectDocumentResponse(
                 document.getId(), document.getProjectId(), document.getParentDocumentId(),
                 document.getExternalSource(), document.getExternalSourceId(), document.getTitle(),
-                document.getContentJson(), document.getSortOrder(), document.getVersion(), document.getCreatorId(),
+                document.getContentJson(), attachmentService.listImageAssets(document.getId()),
+                document.getSortOrder(), document.getVersion(), document.getCreatorId(),
                 document.getLastEditorId(), favorited, document.getArchivedAt(), document.getCreatedAt(), document.getUpdatedAt());
     }
 

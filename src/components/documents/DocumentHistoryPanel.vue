@@ -24,6 +24,7 @@ const railRef = ref<HTMLElement | null>(null)
 
 const selectedTitle = computed(() => selectedRevision.value?.title ?? props.document.title)
 const selectedContent = computed(() => selectedRevision.value?.content ?? props.document.content)
+const selectedImageAssets = computed(() => selectedRevision.value?.imageAssets ?? props.document.imageAssets)
 const selectedEditor = computed(() => selectedRevision.value?.editorName ?? t('documents.historyDeletedUser'))
 const selectedTime = computed(() => selectedRevision.value?.createdAt ?? props.document.updatedAt)
 
@@ -130,7 +131,7 @@ onBeforeUnmount(() => {
         <span>{{ t('documents.historyLoadFailed') }}</span>
         <button type="button" @click="selectRevision(selectedRevisionId)">{{ t('common.retry') }}</button>
       </div>
-      <StructuredDocumentEditor v-else :model-value="selectedContent" :document-id="document.id" readonly />
+      <StructuredDocumentEditor v-else :model-value="selectedContent" :document-id="document.id" :image-assets="selectedImageAssets" readonly />
     </div>
 
     <aside ref="railRef" class="document-history__rail" :aria-label="t('documents.history')">

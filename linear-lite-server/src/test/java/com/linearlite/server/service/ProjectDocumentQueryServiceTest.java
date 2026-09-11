@@ -32,12 +32,14 @@ class ProjectDocumentQueryServiceTest {
     @Mock private ProjectDocumentRevisionMapper revisionMapper;
     @Mock private UserMapper userMapper;
     @Mock private ProjectAccessGuard accessGuard;
+    @Mock private ProjectDocumentAttachmentService attachmentService;
 
     private ProjectDocumentQueryService service;
 
     @BeforeEach
     void setUp() {
-        service = new ProjectDocumentQueryService(documentMapper, favoriteMapper, revisionMapper, userMapper, accessGuard);
+        service = new ProjectDocumentQueryService(
+                documentMapper, favoriteMapper, revisionMapper, userMapper, accessGuard, attachmentService);
     }
 
     @Test

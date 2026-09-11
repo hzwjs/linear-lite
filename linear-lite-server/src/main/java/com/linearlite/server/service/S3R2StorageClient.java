@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -32,6 +33,17 @@ public class S3R2StorageClient implements R2StorageClient {
     }
 
     @Override
+    public void putObject(String bucket, String key, String contentType, InputStream content, long contentLength) {
+        PutObjectRequest request = PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .contentType(contentType)
+                .contentLength(contentLength)
+                .build();
+        s3Client.putObject(request, RequestBody.fromInputStream(content, contentLength));
+    }
+
+    @Override
     public InputStream openObjectStream(String bucket, String key) {
         ResponseInputStream<?> stream = s3Client.getObject(
                 GetObjectRequest.builder().bucket(bucket).key(key).build());
@@ -41,5 +53,15 @@ public class S3R2StorageClient implements R2StorageClient {
     @Override
     public void deleteObject(String bucket, String key) {
         s3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(key).build());
+    }
+
+    @Override
+    public void copyObject(String bucket, String sourceKey, String targetKey) {
+        s3Client.copyObject(CopyObjectRequest.builder()
+                .sourceBucket(bucket)
+                .sourceKey(sourceKey)
+                .destinationBucket(bucket)
+                .destinationKey(targetKey)
+                .build());
     }
 }

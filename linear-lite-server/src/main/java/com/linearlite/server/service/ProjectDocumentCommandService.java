@@ -35,6 +35,7 @@ public class ProjectDocumentCommandService {
     private final ProjectDocumentRevisionMapper revisionMapper;
     private final ProjectAccessGuard projectAccessGuard;
     private final DocumentRevisionSnapshotService revisionSnapshotService;
+    private final ProjectDocumentQueryService queryService;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -44,6 +45,7 @@ public class ProjectDocumentCommandService {
             ProjectDocumentRevisionMapper revisionMapper,
             ProjectAccessGuard projectAccessGuard,
             DocumentRevisionSnapshotService revisionSnapshotService,
+            ProjectDocumentQueryService queryService,
             ObjectMapper objectMapper,
             ApplicationEventPublisher eventPublisher) {
         this.documentMapper = documentMapper;
@@ -51,6 +53,7 @@ public class ProjectDocumentCommandService {
         this.revisionMapper = revisionMapper;
         this.projectAccessGuard = projectAccessGuard;
         this.revisionSnapshotService = revisionSnapshotService;
+        this.queryService = queryService;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
     }
@@ -258,7 +261,7 @@ public class ProjectDocumentCommandService {
             favorite.setDocumentId(documentId);
             favoriteMapper.insert(favorite);
         }
-        return ProjectDocumentQueryService.toResponse(document, true);
+        return queryService.toResponse(document, true);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -267,14 +270,14 @@ public class ProjectDocumentCommandService {
         favoriteMapper.delete(new LambdaQueryWrapper<ProjectDocumentFavorite>()
                 .eq(ProjectDocumentFavorite::getUserId, userId)
                 .eq(ProjectDocumentFavorite::getDocumentId, documentId));
-        return ProjectDocumentQueryService.toResponse(document, false);
+        return queryService.toResponse(document, false);
     }
 
     private ProjectDocumentResponse toResponse(ProjectDocument document, Long userId) {
         boolean favorited = favoriteMapper.selectCount(new LambdaQueryWrapper<ProjectDocumentFavorite>()
                 .eq(ProjectDocumentFavorite::getUserId, userId)
                 .eq(ProjectDocumentFavorite::getDocumentId, document.getId())) > 0;
-        return ProjectDocumentQueryService.toResponse(document, favorited);
+        return queryService.toResponse(document, favorited);
     }
 
     private ProjectDocument requireAccessibleActiveDocument(Long documentId, Long userId) {

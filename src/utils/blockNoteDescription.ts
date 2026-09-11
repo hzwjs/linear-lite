@@ -35,6 +35,12 @@ function blockHasPersistableContent(block: RawBlock): boolean {
     return typeof url === 'string' && url.trim().length > 0
   }
 
+  if (type === 'documentImage') {
+    // 正文图片块只存 assetId，没有 url；必须按 assetId 判定为可持久化内容。
+    const props = block.props as Record<string, unknown> | undefined
+    return typeof props?.imageAssetId === 'number' && props.imageAssetId > 0
+  }
+
   if (type === 'horizontalRule') return true
 
   if (!isBlockEmpty(block)) return true

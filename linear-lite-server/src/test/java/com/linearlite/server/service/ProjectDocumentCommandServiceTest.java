@@ -11,6 +11,7 @@ import com.linearlite.server.exception.DocumentVersionConflictException;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
+import com.linearlite.server.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,15 +39,19 @@ class ProjectDocumentCommandServiceTest {
     @Mock private ProjectDocumentRevisionMapper revisionMapper;
     @Mock private ProjectAccessGuard accessGuard;
     @Mock private DocumentRevisionSnapshotService revisionSnapshotService;
+    @Mock private UserMapper userMapper;
+    @Mock private ProjectDocumentAttachmentService attachmentService;
     @Mock private ApplicationEventPublisher eventPublisher;
 
     private ProjectDocumentCommandService service;
 
     @BeforeEach
     void setUp() {
+        ProjectDocumentQueryService queryService = new ProjectDocumentQueryService(
+                documentMapper, favoriteMapper, revisionMapper, userMapper, accessGuard, attachmentService);
         service = new ProjectDocumentCommandService(
                 documentMapper, favoriteMapper, revisionMapper, accessGuard, revisionSnapshotService,
-                new ObjectMapper(), eventPublisher);
+                queryService, new ObjectMapper(), eventPublisher);
     }
 
     @Test

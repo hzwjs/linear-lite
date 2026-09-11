@@ -1,6 +1,7 @@
 package com.linearlite.server.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public record ProjectDocumentRevisionResponse(
         Long documentId,
@@ -8,6 +9,7 @@ public record ProjectDocumentRevisionResponse(
         Long sourceVersion,
         String title,
         String content,
+        List<DocumentImageAsset> imageAssets,
         Long editorId,
         String editorName,
         LocalDateTime createdAt) {

@@ -1,6 +1,7 @@
 package com.linearlite.server.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public record ProjectDocumentResponse(
         Long id,
@@ -10,6 +11,7 @@ public record ProjectDocumentResponse(
         String externalSourceId,
         String title,
         String content,
+        List<DocumentImageAsset> imageAssets,
         Integer sortOrder,
         Long version,
         Long creatorId,

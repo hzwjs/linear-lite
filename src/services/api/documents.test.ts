@@ -60,16 +60,6 @@ describe('document attachment download', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:document')
   })
 
-  it('returns an attachment blob for authenticated inline rendering', async () => {
-    const blob = new Blob(['image'], { type: 'image/png' })
-    vi.mocked(api.get).mockResolvedValue({ data: blob, headers: {} } as any)
-
-    await expect(documentApi.getAttachmentBlob(12, 36)).resolves.toBe(blob)
-    expect(api.get).toHaveBeenCalledWith('/project-documents/12/attachments/36/download', {
-      responseType: 'blob'
-    })
-  })
-
   it('deletes an attachment through the current document resource', async () => {
     vi.mocked(api.delete).mockResolvedValue({} as any)
 

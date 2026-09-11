@@ -27,6 +27,19 @@ export const useAuthStore = defineStore('authStore', () => {
     currentUser.value = { id: userId, username }
     localStorage.setItem(JWT_STORAGE_KEY, token)
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify({ id: userId, username }))
+    void ensureDocumentAssetSession()
+  }
+
+  let documentAssetSessionRequested = false
+  /** 为已登录会话补发图片资源 Cookie；失败时允许下次重试。 */
+  async function ensureDocumentAssetSession() {
+    if (documentAssetSessionRequested || !jwtToken.value) return
+    documentAssetSessionRequested = true
+    try {
+      await authApi.startDocumentAssetSession()
+    } catch {
+      documentAssetSessionRequested = false
+    }
   }
 
   function clearSession() {
@@ -62,6 +75,9 @@ export const useAuthStore = defineStore('authStore', () => {
 
   function logout() {
     clearSession()
+    documentAssetSessionRequested = false
+    // 图片资源端点使用路径级 Cookie；本地登出后同步清理，避免下一用户复用旧会话。
+    void authApi.logout().catch(() => undefined)
   }
 
   return {
@@ -75,6 +91,7 @@ export const useAuthStore = defineStore('authStore', () => {
     resetPassword,
     logout,
     setSession,
-    clearSession
+    clearSession,
+    ensureDocumentAssetSession
   }
 })

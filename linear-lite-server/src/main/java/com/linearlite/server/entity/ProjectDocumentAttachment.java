@@ -18,6 +18,11 @@ public class ProjectDocumentAttachment {
     private Long fileSize;
     private String contentType;
     private String sha256;
+    private Integer width;
+    private Integer height;
+    private String thumbnailObjectKey;
+    private Long thumbnailFileSize;
+    private String thumbnailContentType;
     private LocalDateTime createdAt;
 
     public Long getId() { return id; }
@@ -38,6 +43,16 @@ public class ProjectDocumentAttachment {
     public void setContentType(String contentType) { this.contentType = contentType; }
     public String getSha256() { return sha256; }
     public void setSha256(String sha256) { this.sha256 = sha256; }
+    public Integer getWidth() { return width; }
+    public void setWidth(Integer width) { this.width = width; }
+    public Integer getHeight() { return height; }
+    public void setHeight(Integer height) { this.height = height; }
+    public String getThumbnailObjectKey() { return thumbnailObjectKey; }
+    public void setThumbnailObjectKey(String thumbnailObjectKey) { this.thumbnailObjectKey = thumbnailObjectKey; }
+    public Long getThumbnailFileSize() { return thumbnailFileSize; }
+    public void setThumbnailFileSize(Long thumbnailFileSize) { this.thumbnailFileSize = thumbnailFileSize; }
+    public String getThumbnailContentType() { return thumbnailContentType; }
+    public void setThumbnailContentType(String thumbnailContentType) { this.thumbnailContentType = thumbnailContentType; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 }
