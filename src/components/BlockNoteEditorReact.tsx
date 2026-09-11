@@ -661,10 +661,15 @@ function DocumentImageBlock({ block }: { block: DocumentImageBlockProps }) {
       />
     )
   }
+  const imageSrcSet = asset.thumbnailUrl
+    ? `${asset.thumbnailUrl} 512w, ${asset.originalUrl} ${asset.width ?? 1600}w`
+    : undefined
   return (
     <div className="bn-document-image" contentEditable={false}>
       <img
-        src={asset.thumbnailUrl ?? asset.originalUrl}
+        src={asset.originalUrl}
+        srcSet={imageSrcSet}
+        sizes="(max-width: 768px) 100vw, 1000px"
         data-image-asset-id={String(asset.assetId)}
         data-original-url={asset.originalUrl}
         width={asset.width ?? undefined}

@@ -33,4 +33,10 @@ describe('BlockNote image preview', () => {
     )
     expect(blockNoteWrapperSource).not.toContain(':deep(.bn-document-image')
   })
+
+  it('selects the original image for document-width rendering', () => {
+    expect(blockNoteReactSource).toContain('src={asset.originalUrl}')
+    expect(blockNoteReactSource).toContain('srcSet={')
+    expect(blockNoteReactSource).toContain('512w')
+  })
 })
