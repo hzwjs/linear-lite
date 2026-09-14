@@ -2,6 +2,7 @@
 import { nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { githubWebhookUrl, gitlabWebhookUrl, type GitHubRepository, type GitLabRepository } from '../services/api/project'
+import { copyTextToClipboard } from '../utils/clipboard'
 import {
   ArrowLeft,
   Bell,
@@ -135,14 +136,8 @@ function onGitHubRepositoryUrlInput(event: Event) {
 }
 
 async function copyToClipboard(value: string) {
-  try {
-    await navigator.clipboard.writeText(value)
-    copiedValue.value = value
-    copyState.value = 'success'
-  } catch {
-    copiedValue.value = value
-    copyState.value = 'error'
-  }
+  copiedValue.value = value
+  copyState.value = await copyTextToClipboard(value) ? 'success' : 'error'
   if (copyResetTimer) clearTimeout(copyResetTimer)
   copyResetTimer = setTimeout(() => {
     copiedValue.value = null
