@@ -165,7 +165,7 @@ function onNavigateKey(payload: { event: KeyboardEvent; documentId: number }) {
 </template>
 
 <style scoped>
-.document-tree { min-height: 0; }
+.document-tree { position: relative; min-height: 0; }
 .document-tree > ul { margin: 0; padding: 0; list-style: none; }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; border: 0; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 </style>
