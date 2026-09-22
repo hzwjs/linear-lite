@@ -37,6 +37,12 @@ const props = withDefaults(
     blockChrome?: boolean
     /** 文件粘贴/拖拽的上传地址由使用场景决定。 */
     uploadFile?: (file: File) => Promise<string>
+    /** 文档图片上传直接返回资源身份；BlockNote 会据此插入 documentImage 块。 */
+    uploadImageAsset?: (file: File) => Promise<DocumentImageAsset>
+    externalImagePasteRejectedText?: string
+    documentImageCloneFailedText?: string
+    documentImageMenuLabel?: string
+    imageUploadTypeUnsupportedText?: string
     pasteFileAsLink?: boolean
     /** 当前文档 ID 与非图片附件的区分：只有文档编辑器启用 documentImage 资源链路。 */
     documentId?: number
@@ -169,6 +175,11 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmen
       :checkPiBridgeOnMention="checkPiBridgeOnMention"
       :editable="!readonly"
       :uploadFile="handleUploadFile"
+      :uploadImageAsset="uploadImageAsset"
+      :externalImagePasteRejectedText="externalImagePasteRejectedText"
+      :documentImageCloneFailedText="documentImageCloneFailedText"
+      :documentImageMenuLabel="documentImageMenuLabel"
+      :imageUploadTypeUnsupportedText="imageUploadTypeUnsupportedText"
       :documentId="documentId"
       :imageAssets="imageAssets"
       :cloneImageAsset="cloneImageAsset"
@@ -194,6 +205,16 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmen
 /* 任务描述编辑器与外层 surface 融合，不使用独立的灰色编辑区背景。 */
 .blocknote-editor-wrap--chrome {
   background: transparent;
+}
+
+.blocknote-editor-wrap :deep(.bn-image-paste-notice) {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, var(--color-border-subtle));
+  border-radius: var(--radius-sm);
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 7%, var(--color-bg-base));
+  font-size: var(--font-size-sm);
 }
 
 /* Mention chip styling to match the project design */

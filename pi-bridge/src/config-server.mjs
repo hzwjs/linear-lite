@@ -70,35 +70,40 @@ const CONFIG_PAGE = `<!doctype html>
   <main>
     <header>
       <div class="eyebrow">Pi Bridge / Local setup</div>
-      <h1>Pi Bridge 配置</h1>
-      <p>Linear Lite 地址由当前任务页面在本机执行绑定时自动确定；这里仅维护项目到本地目录的映射。</p>
+      <h1>Pi Bridge 本机诊断</h1>
+      <p>连接地址与项目目录由 Linear Lite 的“项目设置 → 本地执行”写入；本页用于查看状态和排查连接。</p>
     </header>
     <section class="panel">
       <div class="section-heading">
-        <div><div class="step">Runtime</div><h2>页面绑定状态</h2><p>打开 Linear Lite 任务的本地 Pi 面板后，Bridge 会自动使用该页面对应的后端。</p></div>
-        <span id="connection-badge" class="status-chip">等待页面绑定</span>
+          <div><div class="step">Runtime</div><h2>Bridge 状态</h2><p>Bridge 负责连接 Linear Lite 页面与本机 Pi，不处理用户或项目权限。</p></div>
+          <span id="connection-badge" class="status-chip">待命</span>
       </div>
       <div id="connection-status" class="connection-status" role="status" aria-live="polite"></div>
+      <form id="connection-form" class="connection-form">
+        <label>Linear Lite 地址<input name="apiBaseUrl" required placeholder="例如 http://localhost:5173 或 https://linear.example.com"></label>
+        <button type="submit">保存连接地址</button>
+      </form>
+      <div id="connection-message" class="connection-status" role="status" aria-live="polite"></div>
     </section>
     <section class="panel" id="mapping-panel">
       <div class="section-heading">
-        <div><div class="step">Step 2</div><h2>绑定项目目录</h2><p>每个 Linear Lite 项目绑定一个本地目录，Pi 会直接在该目录中执行任务。</p></div>
-        <button class="secondary" id="new-mapping" type="button">添加项目绑定</button>
+        <div><div class="step">Advanced</div><h2>项目目录映射</h2><p>目录映射应在 Linear Lite 项目设置中维护；此处提供本机排障入口。</p></div>
+        <button class="secondary" id="new-mapping" type="button">添加目录映射</button>
       </div>
       <div id="mapping-area" class="mapping-area" aria-disabled="true">
         <div id="mapping-editor" class="mapping-editor" hidden>
-          <p id="editor-title" class="editor-title">添加项目绑定</p>
-          <p class="editor-hint">只显示当前登录用户可访问的项目。</p>
+          <p id="editor-title" class="editor-title">添加目录映射</p>
+          <p class="editor-hint">项目列表来自当前执行凭据对应的 Linear Lite 用户。</p>
           <form id="mapping-form" class="mapping-form">
-            <label>Linear Lite 项目<select name="projectId" required><option value="">等待页面绑定</option></select></label>
+            <label>Linear Lite 项目<select name="projectId" required><option value="">等待 Linear Lite 连接</option></select></label>
             <label>本地目录绝对路径<input name="directoryPath" required placeholder="例如 /Users/me/code/linear-lite"></label>
             <div class="editor-actions"><button type="submit">保存绑定</button><button id="cancel-mapping" class="text" type="button">取消</button></div>
           </form>
           <div id="message" role="status" aria-live="polite"></div>
         </div>
         <div class="mapping-list">
-          <div class="list-heading"><span>当前绑定</span><button class="text" id="refresh" type="button">刷新</button></div>
-          <div id="mappings"><div class="empty">等待页面绑定后读取项目列表。</div></div>
+          <div class="list-heading"><span>当前映射</span><button class="text" id="refresh" type="button">刷新</button></div>
+          <div id="mappings"><div class="empty">等待 Linear Lite 连接后读取项目列表。</div></div>
         </div>
       </div>
     </section>
@@ -115,6 +120,9 @@ const CONFIG_PAGE = `<!doctype html>
     const message = document.querySelector('#message')
     const connectionBadge = document.querySelector('#connection-badge')
     const connectionStatus = document.querySelector('#connection-status')
+    const connectionForm = document.querySelector('#connection-form')
+    const connectionInput = connectionForm.elements.apiBaseUrl
+    const connectionMessage = document.querySelector('#connection-message')
     const mappings = document.querySelector('#mappings')
     const state = { settingsConfigured: true, availableProjects: [], mappings: [], editingProjectId: null }
     const showMessage = (text, error = false) => { message.textContent = text; message.className = error ? 'error' : ''; message.setAttribute('role', error ? 'alert' : 'status') }
@@ -122,13 +130,13 @@ const CONFIG_PAGE = `<!doctype html>
     const healthMessage = (health) => {
       if (health.status === 'online') return ['Linear Lite 已连接。', true]
       if (health.status === 'connecting' || health.status === 'degraded') return ['Bridge 正在重连 Linear Lite…', false]
-      if (health.status === 'waiting_for_browser') return ['等待任务详情建立本机执行连接。', false]
+      if (health.status === 'idle') return ['Bridge 已启动，等待本地 Pi 执行请求。', true]
       if (health.status === 'stopping') return ['Bridge 正在停止。', false]
       return ['等待任务详情建立本机执行连接。', false]
     }
     const setConnectionState = () => {
       state.settingsConfigured = true
-      connectionBadge.textContent = '页面自动绑定'
+      connectionBadge.textContent = 'Bridge 可用'
       connectionBadge.className = 'status-chip ready'
       mappingArea.setAttribute('aria-disabled', 'false')
       newMappingButton.disabled = false
@@ -138,9 +146,9 @@ const CONFIG_PAGE = `<!doctype html>
       state.editingProjectId = null
       mappingEditor.hidden = true
       form.reset()
-      editorTitle.textContent = '添加项目绑定'
+      editorTitle.textContent = '添加目录映射'
       projectSelect.disabled = false
-      newMappingButton.textContent = '添加项目绑定'
+      newMappingButton.textContent = '添加目录映射'
       showMessage('')
     }
     function renderProjectOptions() {
@@ -154,7 +162,7 @@ const CONFIG_PAGE = `<!doctype html>
     }
     function renderMappings() {
       mappings.replaceChildren()
-      if (!state.mappings.length) { mappings.append(node('div', '还没有项目绑定，点击“添加项目绑定”开始。', 'empty')); return }
+      if (!state.mappings.length) { mappings.append(node('div', '还没有目录映射，请在 Linear Lite 项目设置中配置。', 'empty')); return }
       for (const item of state.mappings) {
         const row = node('div', '', 'mapping')
         const key = node('div', item.projectName, 'key')
@@ -167,7 +175,7 @@ const CONFIG_PAGE = `<!doctype html>
         edit.addEventListener('click', () => {
           state.editingProjectId = item.projectId
           mappingEditor.hidden = false
-          editorTitle.textContent = '编辑项目绑定'
+          editorTitle.textContent = '编辑目录映射'
           directoryInput.value = item.directoryPath
           newMappingButton.textContent = '取消编辑'
           renderProjectOptions()
@@ -176,12 +184,12 @@ const CONFIG_PAGE = `<!doctype html>
         const remove = document.createElement('button')
         remove.type = 'button'; remove.className = 'text'; remove.textContent = '移除'
         remove.addEventListener('click', async () => {
-          if (!confirm('确定移除项目「' + item.projectName + '」的本地绑定吗？')) return
+          if (!confirm('确定移除项目「' + item.projectName + '」的本地目录映射吗？')) return
           const response = await fetch('/api/projects/' + encodeURIComponent(item.projectId), { method: 'DELETE' })
           const body = await response.json()
           if (!response.ok) { showMessage(body.message || '移除绑定失败', true); return }
           if (state.editingProjectId === item.projectId) resetEditor()
-          showMessage('绑定已移除'); await loadMappings()
+          showMessage('目录映射已移除'); await loadMappings()
         })
         actions.append(edit, remove); row.append(key, details, actions); mappings.append(row)
       }
@@ -190,10 +198,34 @@ const CONFIG_PAGE = `<!doctype html>
       const response = await fetch('/api/settings')
       const body = await response.json()
       if (!response.ok) throw new Error(body.message || '读取连接配置失败')
+      connectionInput.value = body.apiBaseUrl || ''
       setConnectionState()
-      showConnectionStatus('正在检查页面绑定状态…')
+      showConnectionStatus('正在检查 Bridge 状态…')
       renderProjectOptions(); renderMappings()
     }
+    connectionForm.addEventListener('submit', async (event) => {
+      event.preventDefault()
+      const submitButton = connectionForm.querySelector('button[type="submit"]')
+      submitButton.disabled = true
+      connectionMessage.textContent = '正在保存连接地址…'
+      connectionMessage.className = 'connection-status'
+      try {
+        const response = await fetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiBaseUrl: connectionInput.value.trim() }),
+        })
+        const body = await response.json()
+        if (!response.ok) throw new Error(body.message || '保存连接地址失败')
+        connectionInput.value = body.apiBaseUrl
+        connectionMessage.textContent = '连接地址已保存。'
+        connectionMessage.className = 'connection-status ready'
+        await loadBridgeHealth()
+      } catch (error) {
+        connectionMessage.textContent = error.message
+        connectionMessage.className = 'connection-status'
+      } finally { submitButton.disabled = false }
+    })
     async function loadBridgeHealth() {
       const response = await fetch('/healthz', { cache: 'no-store' })
       const body = await response.json()
@@ -211,7 +243,7 @@ const CONFIG_PAGE = `<!doctype html>
     async function loadMappings() {
       const response = await fetch('/api/projects')
       const body = await response.json()
-      if (!response.ok) throw new Error(body.message || '读取项目绑定失败')
+      if (!response.ok) throw new Error(body.message || '读取目录映射失败')
       state.mappings = body.projects
       renderProjectOptions(); renderMappings()
     }
@@ -223,7 +255,7 @@ const CONFIG_PAGE = `<!doctype html>
       if (mappingEditor.hidden) {
         state.editingProjectId = null
         mappingEditor.hidden = false
-        editorTitle.textContent = '添加项目绑定'
+        editorTitle.textContent = '添加目录映射'
         newMappingButton.textContent = '取消添加'
         renderProjectOptions()
         projectSelect.focus()
@@ -245,10 +277,10 @@ const CONFIG_PAGE = `<!doctype html>
         if (!response.ok) throw new Error(body.message || '保存绑定失败')
         state.editingProjectId = null
         form.reset()
-        editorTitle.textContent = '添加项目绑定'
+        editorTitle.textContent = '添加目录映射'
         newMappingButton.textContent = '取消添加'
         projectSelect.disabled = false
-        await loadMappings(); showMessage('已保存项目绑定：' + body.projectName)
+        await loadMappings(); showMessage('已保存目录映射：' + body.projectName)
       } catch (error) { showMessage(error.message, true) }
       finally { submitButton.disabled = false }
     })
@@ -265,23 +297,30 @@ const CONFIG_PAGE = `<!doctype html>
 </body>
 </html>`
 
-function sendJson(response, status, body, request) {
+async function sendJson(response, status, body, request, settingsStore) {
   const origin = request?.headers.origin
   const requestPath = new URL(request?.url ?? '/', 'http://127.0.0.1').pathname
   const headers = {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
   }
-  // 健康检查和一次性 attach 需要支持当前页面来源；项目目录接口仍只允许本机或显式部署来源。
+  // 健康检查和执行连接需要支持 Linear Lite 页面来源；项目目录接口只允许本机或已配置来源。
   const allowedOrigins = new Set([
     'http://124.223.84.101:9080',
     ...(process.env.PI_BRIDGE_ALLOWED_ORIGIN ? [process.env.PI_BRIDGE_ALLOWED_ORIGIN] : []),
   ])
-  const publicRuntimeEndpoint = requestPath === '/healthz' || requestPath === '/api/attach'
-  if (origin && (publicRuntimeEndpoint || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) || allowedOrigins.has(origin))) {
+  const publicRuntimeEndpoint = requestPath === '/healthz' || requestPath === '/api/executions' || requestPath === '/api/settings'
+  let configuredOrigin = ''
+  if (settingsStore) {
+    try { configuredOrigin = new URL((await settingsStore.read()).apiBaseUrl).origin } catch {}
+  }
+  if (origin && (publicRuntimeEndpoint || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) || allowedOrigins.has(origin) || origin === configuredOrigin)) {
     headers['Access-Control-Allow-Origin'] = origin
     headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
     headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    if (request.headers['access-control-request-private-network'] === 'true') {
+      headers['Access-Control-Allow-Private-Network'] = 'true'
+    }
     headers.Vary = 'Origin'
   }
   response.writeHead(status, headers)
@@ -300,7 +339,7 @@ function readBody(request) {
   })
 }
 
-export function createConfigServer({ store, settingsStore, projectProvider, onAttach = null, healthProvider, host = '127.0.0.1', port = 9780 } = {}) {
+export function createConfigServer({ store, settingsStore, projectProvider, onConnectExecution = null, onSettingsSave = null, healthProvider, host = '127.0.0.1', port = 9780 } = {}) {
   if (!store) throw new Error('ProjectConfigStore is required')
   if (!settingsStore) throw new Error('BridgeSettingsStore is required')
   if (!projectProvider) throw new Error('projectProvider is required')
@@ -309,7 +348,7 @@ export function createConfigServer({ store, settingsStore, projectProvider, onAt
     const url = new URL(request.url ?? '/', `http://${host}`)
     try {
       if (request.method === 'OPTIONS') {
-        sendJson(response, 204, null, request)
+        await sendJson(response, 204, null, request, settingsStore)
         return
       }
       if (request.method === 'GET' && url.pathname === '/') {
@@ -318,26 +357,34 @@ export function createConfigServer({ store, settingsStore, projectProvider, onAt
         return
       }
       if (request.method === 'GET' && url.pathname === '/healthz') {
-        sendJson(response, 200, healthProvider(), request)
+        await sendJson(response, 200, healthProvider(), request, settingsStore)
         return
       }
       if (request.method === 'GET' && url.pathname === '/api/settings') {
-        sendJson(response, 200, await settingsStore.publicSettings())
+        await sendJson(response, 200, await settingsStore.publicSettings(), request, settingsStore)
         return
       }
-      if (request.method === 'POST' && url.pathname === '/api/attach') {
-        if (!onAttach) throw new Error('本机执行绑定暂不可用')
+      if (request.method === 'PUT' && url.pathname === '/api/settings') {
         let body
         try { body = JSON.parse(await readBody(request) || '{}') } catch { throw new Error('请求体不是有效 JSON') }
-        sendJson(response, 200, await onAttach(body), request)
+        const saved = await settingsStore.save(body.apiBaseUrl)
+        await onSettingsSave?.(saved)
+        await sendJson(response, 200, saved, request, settingsStore)
+        return
+      }
+      if (request.method === 'POST' && url.pathname === '/api/executions') {
+        if (!onConnectExecution) throw new Error('本机执行连接暂不可用')
+        let body
+        try { body = JSON.parse(await readBody(request) || '{}') } catch { throw new Error('请求体不是有效 JSON') }
+        await sendJson(response, 200, await onConnectExecution(body), request, settingsStore)
         return
       }
       if (request.method === 'GET' && url.pathname === '/api/projects') {
-        sendJson(response, 200, { projects: await store.list() })
+        await sendJson(response, 200, { projects: await store.list() }, request, settingsStore)
         return
       }
       if (request.method === 'GET' && url.pathname === '/api/available-projects') {
-        sendJson(response, 200, { projects: await projectProvider() })
+        await sendJson(response, 200, { projects: await projectProvider() }, request, settingsStore)
         return
       }
       const match = url.pathname.match(/^\/api\/projects\/([^/]+)$/)
@@ -346,18 +393,18 @@ export function createConfigServer({ store, settingsStore, projectProvider, onAt
         let body
         try { body = JSON.parse(await readBody(request) || '{}') } catch { throw new Error('请求体不是有效 JSON') }
         const saved = await store.save(projectId, body.projectName, body.directoryPath)
-        sendJson(response, 200, saved)
+        await sendJson(response, 200, saved, request, settingsStore)
         return
       }
       if (match && request.method === 'DELETE') {
         await store.remove(decodeURIComponent(match[1]))
-        sendJson(response, 200, { ok: true })
+        await sendJson(response, 200, { ok: true }, request, settingsStore)
         return
       }
-      sendJson(response, 404, { message: '配置接口不存在' })
+      await sendJson(response, 404, { message: '配置接口不存在' }, request, settingsStore)
     } catch (error) {
       const status = /配置文件|JSON|请求体/.test(error.message) ? 500 : 400
-        sendJson(response, status, { message: error.message }, request)
+        await sendJson(response, status, { message: error.message }, request, settingsStore)
     }
   })
   return {

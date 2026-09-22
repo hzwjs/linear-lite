@@ -3,6 +3,7 @@ import { nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { githubWebhookUrl, gitlabWebhookUrl, type GitHubRepository, type GitLabRepository } from '../services/api/project'
 import { copyTextToClipboard } from '../utils/clipboard'
+import ProjectLocalExecutionSettings from './ProjectLocalExecutionSettings.vue'
 import {
   ArrowLeft,
   Bell,
@@ -12,12 +13,14 @@ import {
   Info,
   LoaderCircle,
   MailPlus,
+  MonitorCog,
   Trash2,
   Users
 } from 'lucide-vue-next'
 
 const props = defineProps<{
   open: boolean
+  projectId: number
   name: string
   identifier: string
   inviteEmail: string
@@ -229,6 +232,7 @@ function onClose() {
         <a href="#settings-general" :class="{ 'is-active': activeSection === 'settings-general' }" :aria-current="activeSection === 'settings-general' ? 'location' : undefined" @click.prevent="navigateToSection('settings-general')"><Info aria-hidden="true" />{{ t('projectSettingsModal.basicTitle') }}</a>
         <a href="#settings-members" :class="{ 'is-active': activeSection === 'settings-members' }" :aria-current="activeSection === 'settings-members' ? 'location' : undefined" @click.prevent="navigateToSection('settings-members')"><Users aria-hidden="true" />{{ t('projectSettingsModal.membersNav') }}</a>
         <a href="#settings-import" :class="{ 'is-active': activeSection === 'settings-import' }" :aria-current="activeSection === 'settings-import' ? 'location' : undefined" @click.prevent="navigateToSection('settings-import')"><Download aria-hidden="true" />{{ t('projectSettingsModal.importTitle') }}</a>
+        <a href="#settings-local-execution" :class="{ 'is-active': activeSection === 'settings-local-execution' }" :aria-current="activeSection === 'settings-local-execution' ? 'location' : undefined" @click.prevent="navigateToSection('settings-local-execution')"><MonitorCog aria-hidden="true" />本地执行</a>
         <a v-if="canDelete" href="#settings-integrations" :class="{ 'is-active': activeSection === 'settings-integrations' }" :aria-current="activeSection === 'settings-integrations' ? 'location' : undefined" @click.prevent="navigateToSection('settings-integrations')"><Gitlab aria-hidden="true" />{{ t('projectSettingsModal.integrationsNav') }}</a>
         <a v-if="canDelete" href="#settings-notifications" :class="{ 'is-active': activeSection === 'settings-notifications' }" :aria-current="activeSection === 'settings-notifications' ? 'location' : undefined" @click.prevent="navigateToSection('settings-notifications')"><Bell aria-hidden="true" />{{ t('projectSettingsModal.emailTitle') }}</a>
         <a v-if="canDelete" class="settings-nav__danger" href="#settings-danger" :class="{ 'is-active': activeSection === 'settings-danger' }" :aria-current="activeSection === 'settings-danger' ? 'location' : undefined" @click.prevent="navigateToSection('settings-danger')"><Trash2 aria-hidden="true" />{{ t('projectSettingsModal.deleteTitle') }}</a>
@@ -306,6 +310,8 @@ function onClose() {
             {{ t('projectSettingsModal.importButton') }}
           </button>
         </section>
+
+        <ProjectLocalExecutionSettings :project-id="projectId" :project-name="name" />
 
         <div v-if="canDelete" id="settings-integrations" class="settings-cluster">
           <div class="cluster-header">

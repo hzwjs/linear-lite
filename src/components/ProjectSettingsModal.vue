@@ -353,6 +353,7 @@ onUnmounted(() => {
 <template>
   <ProjectSettingsDialog
     :open="open && project != null"
+    :project-id="project?.id ?? 0"
     :name="name"
     :identifier="identifier"
     :invite-email="inviteEmail"

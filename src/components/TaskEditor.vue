@@ -20,7 +20,7 @@ import { activityApi } from '../services/api/activity'
 import { taskCommentsApi } from '../services/api/taskComments'
 import { agentApi, type AgentTaskStatus } from '../services/api/agent'
 import { toApiError } from '../services/api'
-import { attachPiBridge, getPiBridgeHealth } from '../services/piBridge'
+import { connectPiExecution, getPiBridgeHealth } from '../services/piBridge'
 import { attachmentsApi } from '../services/api/attachments'
 import { toLabelWriteItems } from '../utils/taskLabelWrite'
 import type { TaskAttachment } from '../services/api/types'
@@ -608,8 +608,8 @@ async function prepareLocalPi() {
   agentEventsError.value = ''
   try {
     const prepared = await agentApi.prepareLocalPi(taskKey)
-    // 先完成本机 Bridge 绑定，再暴露 executionId，避免面板早于 Bridge 连接发起快照请求。
-    await attachPiBridge(prepared.attachmentCode)
+    if (!prepared.status.executionId) throw new Error('执行上下文缺少 executionId')
+    await connectPiExecution(prepared.status.executionId, prepared.executionCredential)
     agentStatus.value = prepared.status
   } catch (error) {
     agentEventsError.value = toApiError(error).message || '本地 Pi 上下文准备失败'
@@ -623,8 +623,8 @@ async function reconnectLocalPiBridge() {
   agentBridgeReconnectInFlight = true
   try {
     const health = await getPiBridgeHealth()
-    if (health?.status !== 'waiting_for_browser' && health?.status !== 'config_required') return
-    // Bridge 重启会丢失内存 attachment；面板保持打开时自动重新建立绑定，避免 queued Job 永久无人领取。
+    if (health?.status !== 'idle') return
+    // Bridge 重启会丢失执行凭据；面板保持打开时重新发送当前执行上下文。
     await prepareLocalPi()
   } finally {
     agentBridgeReconnectInFlight = false
@@ -701,7 +701,7 @@ async function openAgentPanel() {
   if (!canPrepareLocalPi.value || agentPanelOpen.value) return
   agentPanelMounted.value = true
   agentPanelOpen.value = true
-  // 每次打开都重新建立一次短时绑定；Bridge 重启或服务端重启后，旧内存绑定不能继续读取 session。
+  // 每次打开都向 Bridge 发送短期执行凭据；Bridge 不保存用户或项目权限。
   await prepareLocalPi()
   initializeAgentPrompt()
   startAgentBridgeReconnect()
@@ -721,9 +721,9 @@ async function submitLocalPiTurn() {
   if (!taskKey || !executionId || !prompt || !canSubmitLocalPiTurn.value || agentSubmitting.value) return
   agentSubmitting.value = true
   agentEventsError.value = ''
-  agentSubmissionIdempotencyKey ??= crypto.randomUUID()
-  const requestKey = agentSubmissionIdempotencyKey
   try {
+    agentSubmissionIdempotencyKey ??= randomClientId()
+    const requestKey = agentSubmissionIdempotencyKey
     agentStatus.value = await agentApi.submitTurn(taskKey, executionId, requestKey, prompt)
     agentPrompt.value = ''
     agentSubmissionIdempotencyKey = null

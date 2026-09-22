@@ -15,7 +15,7 @@ export interface AgentTaskStatus {
 
 export interface LocalPiPrepareResponse {
   status: AgentTaskStatus
-  attachmentCode: string
+  executionCredential: string
 }
 
 export interface AgentDisplayContent {
@@ -117,7 +117,7 @@ export const agentApi = {
       executionId,
       idempotencyKey,
       prompt
-    }).then(unwrap)
+    }, { timeout: 15000 }).then(unwrap)
   },
 
   cancelTask(taskKey: string, executionId: string): Promise<void> {

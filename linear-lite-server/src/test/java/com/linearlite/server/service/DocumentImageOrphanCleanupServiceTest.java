@@ -103,6 +103,60 @@ class DocumentImageOrphanCleanupServiceTest {
     }
 
     @Test
+    void legacyImageReferencePreventsCleanupInsteadOfParsingItsUrl() {
+        ProjectDocumentAttachment candidate = imageAttachment(31L, 7L, 11L);
+        ProjectDocument document = new ProjectDocument();
+        document.setId(11L);
+        document.setProjectId(7L);
+        document.setContentJson("[{\"type\":\"image\",\"props\":{\"url\":\"/api/project-documents/11/attachments/31/download\"}}]");
+        when(attachmentMapper.selectList(any())).thenReturn(List.of(candidate));
+        when(documentMapper.selectList(any())).thenReturn(List.of(document));
+
+        assertEquals(0, service.cleanup(Duration.ofHours(24)));
+
+        verify(revisionMapper, never()).selectList(any());
+        verify(objectStorageService, never()).deleteObjectByKey(any());
+        verify(attachmentMapper, never()).deleteById(any(java.io.Serializable.class));
+    }
+
+    @Test
+    void legacyImageReferenceInHistoryPreventsCleanup() {
+        ProjectDocumentAttachment candidate = imageAttachment(31L, 7L, 11L);
+        ProjectDocument document = new ProjectDocument();
+        document.setId(11L);
+        document.setProjectId(7L);
+        document.setContentJson("[]");
+        ProjectDocumentRevision revision = new ProjectDocumentRevision();
+        revision.setId(41L);
+        revision.setDocumentId(11L);
+        revision.setContentJson("[{\"type\":\"image\",\"props\":{\"url\":\"/api/project-documents/11/attachments/31/download\"}}]");
+        when(attachmentMapper.selectList(any())).thenReturn(List.of(candidate));
+        when(documentMapper.selectList(any())).thenReturn(List.of(document));
+        when(revisionMapper.selectList(any())).thenReturn(List.of(revision));
+
+        assertEquals(0, service.cleanup(Duration.ofHours(24)));
+
+        verify(objectStorageService, never()).deleteObjectByKey(any());
+        verify(attachmentMapper, never()).deleteById(any(java.io.Serializable.class));
+    }
+
+    @Test
+    void documentImageWithUrlFallbackPreventsCleanup() {
+        ProjectDocumentAttachment candidate = imageAttachment(31L, 7L, 11L);
+        ProjectDocument document = new ProjectDocument();
+        document.setId(11L);
+        document.setProjectId(7L);
+        document.setContentJson("[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":31,\"url\":\"/api/project-documents/11/attachments/32/download\"}}]");
+        when(attachmentMapper.selectList(any())).thenReturn(List.of(candidate));
+        when(documentMapper.selectList(any())).thenReturn(List.of(document));
+
+        assertEquals(0, service.cleanup(Duration.ofHours(24)));
+
+        verify(objectStorageService, never()).deleteObjectByKey(any());
+        verify(attachmentMapper, never()).deleteById(any(java.io.Serializable.class));
+    }
+
+    @Test
     void invalidRevisionJsonSkipsEveryDeletionForProject() {
         ProjectDocumentAttachment candidate = imageAttachment(31L, 7L, 11L);
         ProjectDocument document = new ProjectDocument();

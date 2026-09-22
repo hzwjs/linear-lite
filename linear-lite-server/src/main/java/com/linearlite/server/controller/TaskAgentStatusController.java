@@ -7,7 +7,7 @@ import com.linearlite.server.dto.LocalPiTurnRequest;
 import com.linearlite.server.dto.LocalPiPrepareResponse;
 import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.service.AgentTaskOrchestrationService;
-import com.linearlite.server.service.BridgeExecutionAttachmentService;
+import com.linearlite.server.service.ExecutionCredentialService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,12 +21,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/tasks")
 public class TaskAgentStatusController {
     private final AgentTaskOrchestrationService orchestrationService;
-    private final BridgeExecutionAttachmentService attachmentService;
+    private final ExecutionCredentialService credentialService;
 
     public TaskAgentStatusController(AgentTaskOrchestrationService orchestrationService,
-                                     BridgeExecutionAttachmentService attachmentService) {
+                                     ExecutionCredentialService credentialService) {
         this.orchestrationService = orchestrationService;
-        this.attachmentService = attachmentService;
+        this.credentialService = credentialService;
     }
 
     @PostMapping("/{taskKey}/local-pi/prepare")
@@ -34,8 +34,8 @@ public class TaskAgentStatusController {
             HttpServletRequest request, @PathVariable String taskKey) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
         AgentTaskStatusResponse status = orchestrationService.prepare(userId, taskKey);
-        String attachmentCode = attachmentService.issue(userId, status.executionId());
-        return ResponseEntity.ok(ApiResponse.success(new LocalPiPrepareResponse(status, attachmentCode)));
+        String executionCredential = credentialService.issue(userId, status.executionId());
+        return ResponseEntity.ok(ApiResponse.success(new LocalPiPrepareResponse(status, executionCredential)));
     }
 
     @GetMapping("/{taskKey}/local-pi/status")

@@ -51,6 +51,9 @@ export function unwrap<T>(res: { data: ApiResponse<T> }): T {
 
 /** 将 Axios 4xx/5xx 响应中的 ApiResponse.message 转为 Error，便于 alert 展示后端文案 */
 export function toApiError(e: unknown): Error {
+  if (isAxiosError(e) && e.code === 'ECONNABORTED') {
+    return new Error('请求超时，请检查网络后重试')
+  }
   if (isAxiosError(e) && e.response?.data != null && typeof e.response.data === 'object') {
     const msg = (e.response.data as { message?: string }).message
     if (typeof msg === 'string' && msg.length > 0) {

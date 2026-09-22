@@ -12,14 +12,18 @@ import { createConfigServer } from './config-server.mjs'
 import { ProjectConfigStore } from './workspace-config.mjs'
 import { BridgeSettingsStore, validateApiBaseUrl } from './bridge-settings.mjs'
 
+const defaultApplicationRoot = process.platform === 'win32'
+  ? join(process.env.LOCALAPPDATA ?? homedir(), 'Linear Lite', 'Pi Bridge')
+  : join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge')
+
 const config = {
   piBinary: process.env.PI_BINARY ?? 'pi',
-  dataRoot: resolve(process.env.PI_BRIDGE_DATA_ROOT ?? join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge', 'data')),
+  dataRoot: resolve(process.env.PI_BRIDGE_DATA_ROOT ?? join(defaultApplicationRoot, 'data')),
   // Pi 的 Resume Session 只扫描自己的 agent sessions 根目录；Bridge 必须写入同一棵目录树。
   agentDir: resolve(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent')),
   sessionRoot: resolve(join(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent'), 'sessions')),
-  projectConfigFile: resolve(process.env.PI_BRIDGE_CONFIG_FILE ?? join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge', 'data', 'projects.json')),
-  settingsFile: resolve(process.env.PI_BRIDGE_SETTINGS_FILE ?? join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge', 'data', 'settings.json')),
+  projectConfigFile: resolve(process.env.PI_BRIDGE_CONFIG_FILE ?? join(defaultApplicationRoot, 'data', 'projects.json')),
+  settingsFile: resolve(process.env.PI_BRIDGE_SETTINGS_FILE ?? join(defaultApplicationRoot, 'data', 'settings.json')),
   configHost: process.env.PI_BRIDGE_CONFIG_HOST ?? '127.0.0.1',
   configPort: Number(process.env.PI_BRIDGE_CONFIG_PORT ?? 9780),
   pollMs: Number(process.env.PI_BRIDGE_POLL_MS ?? 2000),
@@ -32,10 +36,11 @@ const config = {
 
 export const projectStore = new ProjectConfigStore(config.projectConfigFile)
 export const settingsStore = new BridgeSettingsStore(config.settingsFile)
-export const attachmentTokenStore = { value: '' }
+export const executionCredentialStore = { value: '', executionId: '' }
 
-export function setExecutionAttachmentToken(token) {
-  attachmentTokenStore.value = typeof token === 'string' ? token : ''
+export function setExecutionCredential(credential, executionId = '') {
+  executionCredentialStore.value = typeof credential === 'string' ? credential : ''
+  executionCredentialStore.executionId = executionCredentialStore.value && typeof executionId === 'string' ? executionId : ''
 }
 
 const RETRYABLE_ERROR = Symbol('retryableBridgeError')
@@ -56,9 +61,10 @@ function setRuntimeStatus(status, backendReachable = runtime.backendReachable) {
 export function getBridgeHealth() {
   return {
     status: runtime.status,
-    configured: runtime.status !== 'config_required',
+    configured: true,
     backendReachable: runtime.backendReachable,
     version: config.version,
+    platform: process.platform,
     startedAt: runtime.startedAt,
     lastConnectedAt: runtime.lastConnectedAt,
   }
@@ -83,22 +89,22 @@ function markRetryable(error) {
  */
 export function createApiClient({
   settingsStore: store = settingsStore,
-  attachmentStore = attachmentTokenStore,
+  credentialStore = executionCredentialStore,
   fetchImpl = globalThis.fetch,
   requestTimeoutMs = config.apiTimeoutMs,
   retryDelayMs = config.apiRetryDelayMs,
   sleepImpl = sleep,
   onOnline = () => {},
   onDegraded = () => {},
-  onConfigurationRequired = () => {},
+  onCredentialRejected = () => {},
 } = {}) {
   return async function api(path, options = {}) {
     let retryAttempt = 0
     while (true) {
       const settings = await store.read()
-      const requestAttachmentToken = attachmentStore.value
-      if (!requestAttachmentToken) {
-        throw new Error('等待任务面板建立本机执行连接')
+      const executionCredential = credentialStore.value
+      if (!executionCredential) {
+        throw new Error('本地 Pi 没有待处理的执行上下文')
       }
       const controller = new AbortController()
       const externalSignal = options.signal
@@ -111,7 +117,7 @@ export function createApiClient({
           ...options,
           headers: {
             'Content-Type': 'application/json',
-            'X-Execution-Attachment': requestAttachmentToken,
+            'X-Execution-Credential': executionCredential,
             ...(options.headers ?? {}),
           },
           signal: controller.signal,
@@ -121,7 +127,7 @@ export function createApiClient({
           const error = new Error(body?.message ?? `Linear Lite API ${response.status}`)
           error.status = response.status
           if (response.status >= 500) markRetryable(error)
-          if (response.status === 401 || response.status === 403) onConfigurationRequired(requestAttachmentToken)
+          if (response.status === 401 || response.status === 403) onCredentialRejected(executionCredential)
           throw error
         }
         onOnline()
@@ -147,31 +153,22 @@ export function createApiClient({
 export const api = createApiClient({
   onOnline: () => setRuntimeStatus('online', true),
   onDegraded: () => setRuntimeStatus('degraded', false),
-  onConfigurationRequired: (failedAttachmentToken) => {
-    if (failedAttachmentToken && attachmentTokenStore.value !== failedAttachmentToken) return
-    // 服务端重启或执行绑定过期后，丢弃旧 token；否则轮询会永久携带失效绑定，页面也无法触发自动重连。
-    setExecutionAttachmentToken('')
-    setRuntimeStatus('config_required', false)
+  onCredentialRejected: (failedCredential) => {
+    if (failedCredential && executionCredentialStore.value !== failedCredential) return
+    setExecutionCredential('')
+    setRuntimeStatus('idle', false)
   },
 })
 
-async function attachExecution({ attachmentCode, apiBaseUrl }) {
+async function connectExecution({ apiBaseUrl, executionId, executionCredential }) {
   const targetApiBaseUrl = validateApiBaseUrl(apiBaseUrl)
-  // 页面绑定决定当前后端；旧 token 必须先失效，避免访问上一套 Linear Lite。
-  setExecutionAttachmentToken('')
+  if (typeof executionId !== 'string' || !executionId.trim()) throw new Error('executionId 不能为空')
+  if (typeof executionCredential !== 'string' || !executionCredential.trim()) throw new Error('执行凭据不能为空')
+  setExecutionCredential('')
   await settingsStore.save(targetApiBaseUrl)
-  const response = await fetch(`${targetApiBaseUrl}/api/bridge/executions/attach`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ attachmentCode }),
-  })
-  const body = await response.json().catch(() => null)
-  if (!response.ok || body?.code >= 400 || !body?.data?.attachmentToken) {
-    throw new Error(body?.message ?? '本机执行连接建立失败')
-  }
-  setExecutionAttachmentToken(body.data.attachmentToken)
+  setExecutionCredential(executionCredential.trim(), executionId.trim())
   setRuntimeStatus('connecting', false)
-  return body.data
+  return { executionId: executionId.trim() }
 }
 
 function waitFor(ms, signal) {
@@ -677,13 +674,13 @@ export async function execute(job, { signal } = {}) {
 
 export async function main({ signal } = {}) {
   while (!signal?.aborted) {
-    if (!attachmentTokenStore.value) {
-      setRuntimeStatus('waiting_for_browser', false)
+    if (!executionCredentialStore.value) {
+      setRuntimeStatus('idle', false)
       await waitFor(config.pollMs, signal).catch(() => {})
       continue
     }
     try {
-      if (runtime.status === 'starting' || runtime.status === 'config_required' || runtime.status === 'waiting_for_browser') {
+      if (runtime.status === 'starting' || runtime.status === 'idle') {
         setRuntimeStatus('connecting', runtime.backendReachable)
       }
       const settingsRequest = await api('/api/bridge/settings-requests/claim', {
@@ -727,14 +724,14 @@ export async function startBridge() {
     store: projectStore,
     settingsStore,
     projectProvider: () => api('/api/bridge/projects'),
-    onAttach: attachExecution,
+    onConnectExecution: connectExecution,
     healthProvider: getBridgeHealth,
     host: config.configHost,
     port: config.configPort,
   })
   const address = await configServer.listen()
   console.log(`[pi-bridge] 本地工作区配置页：http://${config.configHost}:${address.port}/`)
-  setRuntimeStatus('waiting_for_browser', false)
+  setRuntimeStatus('idle', false)
   startPolling()
   let stopped = false
   const stop = async () => {

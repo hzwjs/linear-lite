@@ -8,16 +8,22 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 const execFileAsync = promisify(execFile)
 const bridgeRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const applicationRoot = join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge')
+const isWindows = process.platform === 'win32'
+const isMac = process.platform === 'darwin'
+const applicationRoot = isWindows
+  ? join(process.env.LOCALAPPDATA ?? homedir(), 'Linear Lite', 'Pi Bridge')
+  : join(homedir(), 'Library', 'Application Support', 'Linear Lite', 'Pi Bridge')
 const appRoot = join(applicationRoot, 'app')
 const dataRoot = join(applicationRoot, 'data')
 const piAgentDir = resolve(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent'))
 const sessionRoot = join(piAgentDir, 'sessions')
 const runtimeRoot = join(applicationRoot, 'runtime')
-const logRoot = join(homedir(), 'Library', 'Logs', 'Linear Lite')
+const logRoot = isWindows ? join(applicationRoot, 'logs') : join(homedir(), 'Library', 'Logs', 'Linear Lite')
 const plistPath = join(homedir(), 'Library', 'LaunchAgents', 'com.linearlite.pi-bridge.plist')
 const label = 'com.linearlite.pi-bridge'
 const domain = `gui/${userInfo().uid}`
+const windowsTaskName = 'Linear Lite Pi Bridge'
+const windowsLauncherPath = join(runtimeRoot, 'launch.cmd')
 
 function xml(value) {
   return String(value)
@@ -32,7 +38,8 @@ function resolvePiBinary() {
   const configured = process.env.PI_BINARY
   if (configured && isAbsolute(configured)) return configured
   try {
-    return execFileSync('/usr/bin/which', [configured ?? 'pi'], { encoding: 'utf8' }).trim()
+    const command = isWindows ? 'where.exe' : '/usr/bin/which'
+    return execFileSync(command, [configured ?? 'pi'], { encoding: 'utf8' }).trim().split(/\r?\n/)[0]
   } catch {
     throw new Error('找不到 pi 可执行文件，请设置 PI_BINARY 为绝对路径后重新安装 Bridge')
   }
@@ -101,11 +108,26 @@ async function launchctl(args, allowFailure = false) {
   }
 }
 
+async function schtasks(args, allowFailure = false) {
+  try {
+    return await execFileAsync('schtasks.exe', args)
+  } catch (error) {
+    if (allowFailure) return null
+    throw new Error(`Windows Task Scheduler command failed (exit code ${error.code ?? 'unknown'})`)
+  }
+}
+
 async function isLoaded() {
+  if (isWindows) return Boolean(await schtasks(['/Query', '/TN', windowsTaskName], true))
   return Boolean(await launchctl(['print', `${domain}/${label}`], true))
 }
 
 async function unloadLoadedService() {
+  if (isWindows) {
+    await schtasks(['/End', '/TN', windowsTaskName], true)
+    await schtasks(['/Delete', '/TN', windowsTaskName, '/F'], true)
+    return
+  }
   if (!await isLoaded()) return
   // launchd 偶尔在 Node 进程收到 SIGTERM 后仍保留服务记录；先按 plist 路径卸载，再确认域中已无该服务。
   await launchctl(['bootout', domain, plistPath], true)
@@ -119,6 +141,39 @@ async function unloadLoadedService() {
   if (await isLoaded()) {
     throw new Error('无法卸载旧的 Pi Bridge 服务，请先执行 npm run service:status 后重试')
   }
+}
+
+function windowsLauncher(nodeBinary, piBinary) {
+  const lines = [
+    '@echo off',
+    `set "PI_BINARY=${piBinary}"`,
+    'set "PI_BRIDGE_CONFIG_HOST=127.0.0.1"',
+    'set "PI_BRIDGE_CONFIG_PORT=9780"',
+    `set "PI_BRIDGE_CONFIG_FILE=${join(dataRoot, 'projects.json')}"`,
+    `set "PI_BRIDGE_SETTINGS_FILE=${join(dataRoot, 'settings.json')}"`,
+    `set "PI_BRIDGE_RUNTIME_ROOT=${runtimeRoot}"`,
+    `set "PI_BRIDGE_VERSION=${process.env.PI_BRIDGE_VERSION ?? 'installed'}"`,
+    `"${nodeBinary}" "${join(appRoot, 'src', 'index.mjs')}" >> "${join(logRoot, 'pi-bridge.out.log')}" 2>> "${join(logRoot, 'pi-bridge.err.log')}"`,
+  ]
+  return `${lines.join('\r\n')}\r\n`
+}
+
+export function windowsTaskCreateArgs(taskName, launcherPath) {
+  return ['/Create', '/TN', taskName, '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TR', launcherPath, '/F']
+}
+
+async function waitForBridgeHealth(timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch('http://127.0.0.1:9780/healthz')
+      if (response.ok) return
+    } catch {
+      // The scheduled task may need a short time to launch Node.
+    }
+    await delay(250)
+  }
+  throw new Error('Pi Bridge did not start on http://127.0.0.1:9780')
 }
 
 async function writeAtomic(filePath, content) {
@@ -138,6 +193,7 @@ async function assertPortAvailable() {
 }
 
 async function install() {
+  if (!isMac && !isWindows) throw new Error(`当前系统不支持 Bridge 常驻安装：${process.platform}`)
   const nodeBinary = process.execPath
   const piBinary = resolvePiBinary()
   const loadedService = await isLoaded()
@@ -159,25 +215,38 @@ async function install() {
   await rm(appRoot, { recursive: true, force: true })
   await rename(stageRoot, appRoot)
 
-  await writeAtomic(plistPath, makePlist(nodeBinary, piBinary))
-  await launchctl(['bootstrap', domain, plistPath])
-  await launchctl(['kickstart', '-k', `${domain}/${label}`])
-  console.log(`Pi Bridge 已安装并启动：${label}`)
+  if (isWindows) {
+    await writeAtomic(windowsLauncherPath, windowsLauncher(nodeBinary, piBinary))
+    await schtasks(windowsTaskCreateArgs(windowsTaskName, windowsLauncherPath))
+    await schtasks(['/Run', '/TN', windowsTaskName])
+  } else {
+    await writeAtomic(plistPath, makePlist(nodeBinary, piBinary))
+    await launchctl(['bootstrap', domain, plistPath])
+    await launchctl(['kickstart', '-k', `${domain}/${label}`])
+  }
+  await waitForBridgeHealth()
+  console.log(`Pi Bridge 已安装并启动：${isWindows ? windowsTaskName : label}`)
   console.log(`配置页：http://127.0.0.1:9780/`)
 }
 
 async function start() {
-  await launchctl(['kickstart', `${domain}/${label}`])
+  if (isWindows) await schtasks(['/Run', '/TN', windowsTaskName])
+  else await launchctl(['kickstart', `${domain}/${label}`])
   console.log('Pi Bridge 已启动')
 }
 
 async function restart() {
-  await launchctl(['kickstart', '-k', `${domain}/${label}`])
+  if (isWindows) {
+    await schtasks(['/End', '/TN', windowsTaskName], true)
+    await schtasks(['/Run', '/TN', windowsTaskName])
+  } else await launchctl(['kickstart', '-k', `${domain}/${label}`])
   console.log('Pi Bridge 已重启')
 }
 
 async function status() {
-  const result = await launchctl(['print', `${domain}/${label}`], true)
+  const result = isWindows
+    ? await schtasks(['/Query', '/TN', windowsTaskName, '/V', '/FO', 'LIST'], true)
+    : await launchctl(['print', `${domain}/${label}`], true)
   if (!result) {
     console.log('Pi Bridge 未加载')
     return
@@ -197,8 +266,13 @@ async function logs() {
 }
 
 async function uninstall() {
-  await launchctl(['bootout', domain, label], true)
-  await rm(plistPath, { force: true })
+  if (isWindows) {
+    await schtasks(['/End', '/TN', windowsTaskName], true)
+    await schtasks(['/Delete', '/TN', windowsTaskName, '/F'], true)
+  } else {
+    await launchctl(['bootout', domain, plistPath], true)
+    await rm(plistPath, { force: true })
+  }
   await rm(appRoot, { recursive: true, force: true })
   console.log('Pi Bridge 服务已卸载；配置、session 和日志数据已保留')
 }

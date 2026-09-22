@@ -22,8 +22,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 回收没有任何当前正文或历史修订引用的文档图片附件。
@@ -34,9 +32,6 @@ import java.util.regex.Pattern;
 public class DocumentImageOrphanCleanupService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentImageOrphanCleanupService.class);
-    private static final Pattern ATTACHMENT_URL =
-            Pattern.compile("^/api/project-documents/(\\d+)/attachments/(\\d+)/download$");
-
     private final ProjectDocumentMapper documentMapper;
     private final ProjectDocumentRevisionMapper revisionMapper;
     private final ProjectDocumentAttachmentMapper attachmentMapper;
@@ -96,7 +91,7 @@ public class DocumentImageOrphanCleanupService {
         List<Long> documentIds = documents.stream().map(ProjectDocument::getId).toList();
         for (ProjectDocument document : documents) {
             if (!collectAssetIds(document.getContentJson(), assetIds)) {
-                log.error("跳过文档图片回收：项目正文解析失败，projectId={}, documentId={}",
+                log.error("跳过文档图片回收：项目正文含旧 image 图片块或无法识别的结构，projectId={}, documentId={}",
                         projectId, document.getId());
                 return Optional.empty();
             }
@@ -110,7 +105,7 @@ public class DocumentImageOrphanCleanupService {
                         .select(ProjectDocumentRevision::getId, ProjectDocumentRevision::getContentJson));
         for (ProjectDocumentRevision revision : revisions) {
             if (!collectAssetIds(revision.getContentJson(), assetIds)) {
-                log.error("跳过文档图片回收：历史修订正文解析失败，projectId={}, revisionId={}",
+                log.error("跳过文档图片回收：历史修订含旧 image 图片块或无法识别的结构，projectId={}, revisionId={}",
                         projectId, revision.getId());
                 return Optional.empty();
             }
@@ -128,7 +123,9 @@ public class DocumentImageOrphanCleanupService {
                 return false;
             }
             for (JsonNode block : root) {
-                collectAssetIds(block, assetIds);
+                if (!collectAssetIds(block, assetIds)) {
+                    return false;
+                }
             }
             return true;
         } catch (Exception e) {
@@ -136,33 +133,40 @@ public class DocumentImageOrphanCleanupService {
         }
     }
 
-    private void collectAssetIds(JsonNode block, Set<Long> assetIds) {
+    private boolean collectAssetIds(JsonNode block, Set<Long> assetIds) {
         if (block == null || !block.isObject()) {
-            return;
-        }
-        JsonNode children = block.get("children");
-        if (children != null && children.isArray()) {
-            for (JsonNode child : children) {
-                collectAssetIds(child, assetIds);
-            }
+            return true;
         }
         String type = block.path("type").asText();
-        if ("documentImage".equals(type)) {
-            long assetId = block.path("props").path("imageAssetId").asLong(0);
-            if (assetId > 0) {
-                assetIds.add(assetId);
-            }
-            return;
-        }
         if ("image".equals(type)) {
-            String url = block.path("props").path("url").asText(null);
-            if (url == null) {
-                return;
+            return false;
+        }
+        if ("documentImage".equals(type)) {
+            JsonNode props = block.path("props");
+            JsonNode assetId = props.path("imageAssetId");
+            if (!assetId.isIntegralNumber() || !assetId.canConvertToLong() || assetId.longValue() <= 0) {
+                return false;
             }
-            Matcher matcher = ATTACHMENT_URL.matcher(url);
-            if (matcher.matches()) {
-                assetIds.add(Long.parseLong(matcher.group(2)));
+            if (props.has("url")) {
+                return false;
+            }
+            assetIds.add(assetId.longValue());
+        }
+        for (String field : List.of("children", "content")) {
+            JsonNode nested = block.get(field);
+            if (nested == null) {
+                continue;
+            }
+            if (nested.isArray()) {
+                for (JsonNode child : nested) {
+                    if (!collectAssetIds(child, assetIds)) {
+                        return false;
+                    }
+                }
+            } else if (nested.isObject() && !collectAssetIds(nested, assetIds)) {
+                return false;
             }
         }
+        return true;
     }
 }

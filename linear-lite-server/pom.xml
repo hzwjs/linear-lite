@@ -82,6 +82,11 @@
             <artifactId>commonmark</artifactId>
             <version>0.22.0</version>
         </dependency>
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-gfm-tables</artifactId>
+            <version>0.22.0</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -134,6 +139,28 @@
                                 <resource>
                                     <directory>../dist</directory>
                                     <filtering>false</filtering>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>copy-pi-bridge-distribution</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}/bridge-distribution</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>../pi-bridge</directory>
+                                    <filtering>false</filtering>
+                                    <includes>
+                                        <include>package.json</include>
+                                        <include>scripts/service.mjs</include>
+                                        <include>src/**</include>
+                                        <include>install/**</include>
+                                    </includes>
                                 </resource>
                             </resources>
                         </configuration>

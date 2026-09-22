@@ -36,7 +36,7 @@ public class AgentSessionStreamService {
     private final AgentTaskSessionMapper sessionMapper;
     private final AgentTaskOrchestrationService orchestrationService;
     private final TaskPermissionGuard taskPermissionGuard;
-    private final BridgeExecutionAttachmentService attachmentService;
+    private final ExecutionCredentialService credentialService;
     private final AgentSessionSseBroadcaster broadcaster;
     private final ConcurrentLinkedQueue<String> queuedRequestIds = new ConcurrentLinkedQueue<>();
     private final ConcurrentHashMap<String, SnapshotRequest> requests = new ConcurrentHashMap<>();
@@ -45,12 +45,12 @@ public class AgentSessionStreamService {
             AgentTaskSessionMapper sessionMapper,
             AgentTaskOrchestrationService orchestrationService,
             TaskPermissionGuard taskPermissionGuard,
-            BridgeExecutionAttachmentService attachmentService,
+            ExecutionCredentialService credentialService,
             AgentSessionSseBroadcaster broadcaster) {
         this.sessionMapper = sessionMapper;
         this.orchestrationService = orchestrationService;
         this.taskPermissionGuard = taskPermissionGuard;
-        this.attachmentService = attachmentService;
+        this.credentialService = credentialService;
         this.broadcaster = broadcaster;
     }
 
@@ -61,7 +61,7 @@ public class AgentSessionStreamService {
 
     public synchronized String requestSnapshot(String taskKey, Long userId, String executionId) {
         AgentTaskSession session = requireTaskSession(taskKey, userId, executionId);
-        if (!attachmentService.isOnline(executionId)) {
+        if (!credentialService.isOnline(executionId)) {
             throw new ConflictOperationException("Pi Bridge 离线，无法读取本地 session");
         }
         // 同一 execution 只保留一个待处理读取指令，避免页面重连重复启动 Pi。

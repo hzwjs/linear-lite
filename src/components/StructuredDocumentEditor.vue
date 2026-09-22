@@ -58,12 +58,25 @@ function toDocumentImageAsset(attachment: ProjectDocumentAttachment): DocumentIm
 }
 
 async function handleUploadFile(file: File): Promise<string> {
+  if (file.type.startsWith('image/')) {
+    throw new Error('Document images must be uploaded as image assets')
+  }
   // 文档附件必须走文档专属接口，普通图片上传接口不会创建附件元数据。
   const attachment = await documentApi.uploadAttachment(props.documentId, file)
   if (attachment.contentType?.startsWith('image/')) {
-    sessionAssets.value = [...sessionAssets.value, toDocumentImageAsset(attachment)]
+    throw new Error('Document images must use the image asset upload callback')
   }
   return attachment.url
+}
+
+async function handleUploadImageAsset(file: File): Promise<DocumentImageAsset> {
+  const attachment = await documentApi.uploadAttachment(props.documentId, file)
+  if (!attachment.contentType?.startsWith('image/')) {
+    throw new Error('The uploaded document attachment is not an image')
+  }
+  const asset = toDocumentImageAsset(attachment)
+  sessionAssets.value = [...sessionAssets.value, asset]
+  return asset
 }
 
 async function handleCloneImageAsset(assetId: number): Promise<DocumentImageAsset> {
@@ -95,6 +108,11 @@ defineExpose({ focus, removeAttachmentLink })
     class="structured-document-editor"
     :model-value="modelValue"
     :upload-file="handleUploadFile"
+    :upload-image-asset="handleUploadImageAsset"
+    :external-image-paste-rejected-text="$t('documents.externalImagePasteRejected')"
+    :document-image-clone-failed-text="$t('documents.imageCloneFailed')"
+    :document-image-menu-label="$t('documents.insertImage')"
+    :image-upload-type-unsupported-text="$t('documents.imageFileTypeUnsupported')"
     :document-id="documentId"
     :image-assets="mergedImageAssets"
     :clone-image-asset="handleCloneImageAsset"

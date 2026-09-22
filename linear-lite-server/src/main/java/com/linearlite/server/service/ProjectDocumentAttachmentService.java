@@ -15,8 +15,11 @@ import com.linearlite.server.time.BeijingTime;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.DigestInputStream;
@@ -27,9 +30,15 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Base64;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class ProjectDocumentAttachmentService {
+
+    private static final Logger log = LoggerFactory.getLogger(ProjectDocumentAttachmentService.class);
 
     /** 正文图片节点只保存 assetId，其余元数据由文档图片资源清单解析。 */
     public static final String THUMBNAIL_VARIANT = "thumbnail";
@@ -62,13 +71,35 @@ public class ProjectDocumentAttachmentService {
     @Transactional(rollbackFor = Exception.class)
     public ProjectDocumentAttachmentResponse upload(
             Long documentId, MultipartFile file, String sourceId, Long userId) {
+        if (file == null) {
+            throw new IllegalArgumentException("文档附件不能为空");
+        }
+        return upload(documentId, new UploadSource(
+                file.getOriginalFilename(), file.getContentType(), file.getSize(), file::getInputStream), sourceId, userId);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public ProjectDocumentAttachmentResponse uploadImage(
+            Long documentId, String fileName, String contentType, byte[] content, String sourceId, Long userId) {
+        if (contentType == null || !isImageContentType(contentType)) {
+            throw new IllegalArgumentException("MCP 文档资源必须是图片");
+        }
+        if (content == null) {
+            throw new IllegalArgumentException("文档图片不能为空");
+        }
+        return upload(documentId, new UploadSource(
+                fileName, contentType, content.length, () -> new ByteArrayInputStream(content)), sourceId, userId);
+    }
+
+    private ProjectDocumentAttachmentResponse upload(
+            Long documentId, UploadSource file, String sourceId, Long userId) {
         ProjectDocument document = requireDocument(documentId, userId);
         requireValidFile(file);
         String normalizedSourceId = normalizeSourceId(sourceId);
-        String fileName = normalizeFileName(file.getOriginalFilename());
-        String providedType = file.getContentType() == null
+        String fileName = normalizeFileName(file.fileName());
+        String providedType = file.contentType() == null
                 ? ""
-                : file.getContentType().trim().toLowerCase(Locale.ROOT);
+                : file.contentType().trim().toLowerCase(Locale.ROOT);
         DocumentImageProcessor.ImageMetadata image = null;
         String contentType;
         if (providedType.isBlank() || "application/octet-stream".equals(providedType)) {
@@ -90,7 +121,7 @@ public class ProjectDocumentAttachmentService {
         if (normalizedSourceId != null) {
             ProjectDocumentAttachment existing = findBySourceId(documentId, normalizedSourceId);
             if (existing != null) {
-                if (!sha256.equals(existing.getSha256()) || file.getSize() != existing.getFileSize()) {
+                if (!sha256.equals(existing.getSha256()) || file.size() != existing.getFileSize()) {
                     throw new IllegalArgumentException("同一来源附件的内容已变化: " + normalizedSourceId);
                 }
                 return toResponse(existing);
@@ -98,14 +129,15 @@ public class ProjectDocumentAttachmentService {
         }
 
         ImageUploadResponse uploaded;
-        try (InputStream uploadStream = file.getInputStream()) {
+        try (InputStream uploadStream = file.openStream().get()) {
             uploaded = objectStorageService.uploadProjectDocumentAttachment(
-                    uploadStream, file.getSize(), fileName, contentType,
+                    uploadStream, file.size(), fileName, contentType,
                     document.getProjectId(), documentId, maxBytes);
         } catch (IOException e) {
             throw new IllegalStateException("读取文档附件失败", e);
         }
         String thumbnailKey = null;
+        ProjectDocumentAttachmentResponse response;
         try {
             if (image != null && image.hasThumbnail()) {
                 thumbnailKey = objectStorageService.uploadProjectDocumentThumbnail(
@@ -117,7 +149,7 @@ public class ProjectDocumentAttachmentService {
             attachment.setSourceId(normalizedSourceId);
             attachment.setObjectKey(uploaded.getKey());
             attachment.setFileName(fileName);
-            attachment.setFileSize(file.getSize());
+            attachment.setFileSize(file.size());
             attachment.setContentType(contentType);
             attachment.setSha256(sha256);
             if (image != null) {
@@ -132,7 +164,7 @@ public class ProjectDocumentAttachmentService {
             // 附件时间由应用明确写入北京时间，不依赖数据库服务器或连接会话的默认时区。
             attachment.setCreatedAt(BeijingTime.now());
             attachmentMapper.insert(attachment);
-            return toResponse(requireAttachment(documentId, attachment.getId()));
+            response = toResponse(requireAttachment(documentId, attachment.getId()));
         } catch (RuntimeException | Error persistenceFailure) {
             // R2 不受数据库事务管理；元数据事务未成功返回时必须删除刚上传的对象。
             deleteObjectQuietly(uploaded.getKey(), persistenceFailure);
@@ -141,6 +173,8 @@ public class ProjectDocumentAttachmentService {
             }
             throw persistenceFailure;
         }
+        registerRollbackCleanup(uploaded.getKey(), thumbnailKey);
+        return response;
     }
 
     public List<ProjectDocumentAttachmentResponse> list(Long documentId, Long userId) {
@@ -282,7 +316,9 @@ public class ProjectDocumentAttachmentService {
             clone.setThumbnailContentType(source.getThumbnailContentType());
             clone.setCreatedAt(BeijingTime.now());
             attachmentMapper.insert(clone);
-            return toResponse(requireAttachment(documentId, clone.getId()));
+            ProjectDocumentAttachmentResponse response = toResponse(requireAttachment(documentId, clone.getId()));
+            registerRollbackCleanup(objectKey, thumbnailKey);
+            return response;
         } catch (RuntimeException | Error persistenceFailure) {
             deleteObjectQuietly(objectKey, persistenceFailure);
             if (thumbnailKey != null) {
@@ -395,11 +431,11 @@ public class ProjectDocumentAttachmentService {
         return contentType != null && contentType.toLowerCase(Locale.ROOT).startsWith("image/");
     }
 
-    private void requireValidFile(MultipartFile file) {
-        if (file == null || file.isEmpty()) {
+    private void requireValidFile(UploadSource file) {
+        if (file.size() <= 0) {
             throw new IllegalArgumentException("文档附件不能为空");
         }
-        if (maxBytes <= 0 || file.getSize() > maxBytes) {
+        if (maxBytes <= 0 || file.size() > maxBytes) {
             throw new IllegalArgumentException("文档附件超过大小限制");
         }
     }
@@ -423,18 +459,18 @@ public class ProjectDocumentAttachmentService {
         return normalized.length() <= 256 ? normalized : normalized.substring(0, 256);
     }
 
-    private DocumentImageProcessor.ImageMetadata analyzeImage(MultipartFile file) {
-        try (InputStream input = file.getInputStream()) {
+    private DocumentImageProcessor.ImageMetadata analyzeImage(UploadSource file) {
+        try (InputStream input = file.openStream().get()) {
             return imageProcessor.analyzeStream(input);
         } catch (IOException e) {
             throw new IllegalStateException("读取文档图片失败", e);
         }
     }
 
-    private String sha256(MultipartFile file) {
+    private String sha256(UploadSource file) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            try (DigestInputStream input = new DigestInputStream(file.getInputStream(), digest)) {
+            try (DigestInputStream input = new DigestInputStream(file.openStream().get(), digest)) {
                 input.transferTo(java.io.OutputStream.nullOutputStream());
             }
             return HexFormat.of().formatHex(digest.digest());
@@ -443,6 +479,39 @@ public class ProjectDocumentAttachmentService {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("运行环境不支持 SHA-256", e);
         }
+    }
+
+    private void registerRollbackCleanup(String... objectKeys) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        List<String> keys = Arrays.stream(objectKeys).filter(Objects::nonNull).toList();
+        if (keys.isEmpty()) {
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != STATUS_ROLLED_BACK) {
+                    return;
+                }
+                for (String key : keys) {
+                    try {
+                        objectStorageService.deleteObjectByKey(key);
+                    } catch (RuntimeException | Error cleanupFailure) {
+                        log.error("事务回滚后的附件对象清理失败，objectKey={}", key, cleanupFailure);
+                    }
+                }
+            }
+        });
+    }
+
+    @FunctionalInterface
+    private interface InputStreamSupplier {
+        InputStream get() throws IOException;
+    }
+
+    private record UploadSource(String fileName, String contentType, long size, InputStreamSupplier openStream) {
     }
 
     private void deleteObjectQuietly(String objectKey, Throwable primary) {

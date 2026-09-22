@@ -163,7 +163,7 @@ vi.mock('../services/api/agent', () => ({
 }))
 
 vi.mock('../services/piBridge', () => ({
-  attachPiBridge: vi.fn().mockResolvedValue(undefined),
+  connectPiExecution: vi.fn().mockResolvedValue(undefined),
   getPiBridgeHealth: vi.fn().mockResolvedValue({ configured: true, status: 'online' }),
   isPiBridgeAvailable: vi.fn().mockResolvedValue(true)
 }))
@@ -443,7 +443,7 @@ describe('TaskEditor comments adapter', () => {
         updatedAt: '2026-08-12T00:00:00.000Z',
         hasSubmittedTurn: true
       },
-      attachmentCode: 'attachment-code'
+      executionCredential: 'execution-credential'
     })
     let onSnapshot: ((snapshot: SessionSnapshot) => void) | undefined
     let onRuntime: ((block: RuntimeDisplayBlock) => void) | undefined
@@ -591,7 +591,7 @@ describe('TaskEditor comments adapter', () => {
     vi.mocked(agentApi.getTaskStatus).mockResolvedValue(processedStatus)
     vi.mocked(agentApi.prepareLocalPi).mockResolvedValue({
       status: processedStatus,
-      attachmentCode: 'attachment-code'
+      executionCredential: 'execution-credential'
     })
 
     const view = await mountEditor(createTask({ assigneeId: 42 }), 42)
@@ -622,7 +622,7 @@ describe('TaskEditor comments adapter', () => {
     vi.mocked(agentApi.getTaskStatus).mockResolvedValue(initialStatus)
     vi.mocked(agentApi.prepareLocalPi).mockResolvedValue({
       status: initialStatus,
-      attachmentCode: 'attachment-code'
+      executionCredential: 'execution-credential'
     })
     vi.mocked(agentApi.openSessionStream).mockImplementation((
       _taskKey, _executionId, _snapshot, _runtime, _readError, onOpen
@@ -662,7 +662,7 @@ describe('TaskEditor comments adapter', () => {
     vi.mocked(agentApi.getTaskStatus).mockResolvedValue(initialStatus)
     vi.mocked(agentApi.prepareLocalPi).mockResolvedValue({
       status: initialStatus,
-      attachmentCode: 'attachment-code'
+      executionCredential: 'execution-credential'
     })
     vi.mocked(agentApi.submitTurn).mockResolvedValue({
       ...initialStatus,
@@ -701,6 +701,64 @@ describe('TaskEditor comments adapter', () => {
       expect(agentApi.submitTurn).toHaveBeenCalled()
     } finally {
       view.unmount()
+    }
+  })
+
+  it('submits a Pi turn when public HTTP does not expose crypto.randomUUID', async () => {
+    const originalCrypto = globalThis.crypto
+    vi.stubGlobal('crypto', {
+      getRandomValues<T extends ArrayBufferView>(array: T): T {
+        new Uint8Array(array.buffer, array.byteOffset, array.byteLength).fill(7)
+        return array
+      }
+    })
+    const initialStatus = {
+      executionId: 'execution-http',
+      jobId: null,
+      sessionStatus: 'waiting_input',
+      jobStatus: null,
+      sourceType: null,
+      errorMessage: null,
+      updatedAt: null,
+      hasSubmittedTurn: true
+    }
+    vi.mocked(agentApi.getTaskStatus).mockResolvedValue(initialStatus)
+    vi.mocked(agentApi.prepareLocalPi).mockResolvedValue({
+      status: initialStatus,
+      executionCredential: 'execution-credential'
+    })
+    vi.mocked(agentApi.submitTurn).mockResolvedValue({
+      ...initialStatus,
+      jobId: 10,
+      sessionStatus: 'running',
+      jobStatus: 'queued'
+    })
+    vi.mocked(agentApi.openSessionStream).mockReturnValue({ close: vi.fn() } as unknown as EventSource)
+
+    const view = await mountEditor(createTask({ assigneeId: 42 }), 42)
+    try {
+      view.host.querySelector<HTMLButtonElement>('.agent-launch-button')?.click()
+      await nextTick()
+      await flushPromises()
+      await nextTick()
+      const input = document.body.querySelector<HTMLTextAreaElement>('.agent-turn-input')!
+      input.value = 'HTTP E2E'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await nextTick()
+      document.body.querySelector<HTMLButtonElement>('.agent-submit-button')?.click()
+      await flushPromises()
+      await nextTick()
+
+      expect(agentApi.submitTurn).toHaveBeenCalledWith(
+        'ENG-1',
+        'execution-http',
+        expect.stringMatching(/^[0-9a-f-]{36}$/),
+        'HTTP E2E'
+      )
+      expect(document.body.querySelector<HTMLButtonElement>('.agent-submit-button')?.disabled).toBe(false)
+    } finally {
+      view.unmount()
+      vi.stubGlobal('crypto', originalCrypto)
     }
   })
 

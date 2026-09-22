@@ -1,49 +1,78 @@
-import { describe, expect, it } from 'vitest'
-import { formatUploadFeedback, isPastedImageFile } from './BlockNoteEditorReact'
-import blockNoteReactSource from './BlockNoteEditorReact.tsx?raw'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  clonePastedDocumentImageAssets,
+  createDocumentImageUploadResult,
+  formatUploadFeedback,
+  hasDocumentImageAssetPaste,
+  hasExternalImagePaste,
+  hasMarkdownImagePaste,
+  isPastedImageFile,
+} from './documentImageEditorUtils'
 
-describe('document attachment upload feedback', () => {
-  it('routes pasted image files to image blocks instead of attachment links', () => {
+const asset = {
+  assetId: 41,
+  contentHash: 'sha256:asset',
+  width: 640,
+  height: 480,
+  thumbnailUrl: '/thumbnail/41',
+  originalUrl: '/attachment/41',
+}
+
+describe('document image resource flow', () => {
+  it('turns image upload DTOs into documentImage blocks carrying only the resource ID', async () => {
+    const file = new File(['image'], 'diagram.png', { type: 'image/png' })
+    const upload = vi.fn().mockResolvedValue(asset)
+
+    const result = await createDocumentImageUploadResult(file, upload)
+
+    expect(upload).toHaveBeenCalledWith(file)
+    expect(result.asset).toBe(asset)
+    expect(result.block).toEqual({
+      type: 'documentImage',
+      props: { imageAssetId: 41, caption: '' },
+    })
+    expect(JSON.stringify(result.block)).not.toContain('originalUrl')
+  })
+
+  it('distinguishes resource HTML from external images and rejects mixed paste content', () => {
+    const internalHtml = '<div data-content-type="documentImage" data-image-asset-id="41"><img data-image-asset-id="41" src="/rendered/41"></div>'
+    const mixedHtml = `${internalHtml}<img src="https://outside.example/image.png">`
+
+    expect(hasDocumentImageAssetPaste(internalHtml)).toBe(true)
+    expect(hasExternalImagePaste(internalHtml)).toBe(false)
+    expect(hasExternalImagePaste('<img data-image-asset-id="41" src="/rendered/41">')).toBe(false)
+    expect(hasExternalImagePaste('<img src="https://outside.example/image.png">')).toBe(true)
+    expect(hasExternalImagePaste(mixedHtml)).toBe(true)
+  })
+
+  it('uses Markdown tokens to catch inline and reference-style image syntax', () => {
+    expect(hasMarkdownImagePaste('![diagram](https://outside.example/image.png)')).toBe(true)
+    expect(hasMarkdownImagePaste('![diagram][diagram-ref]\n\n[diagram-ref]: https://outside.example/image.png')).toBe(true)
+    expect(hasMarkdownImagePaste('| image |\n| --- |\n| ![diagram](https://outside.example/image.png) |')).toBe(true)
+    expect(hasMarkdownImagePaste('![diagram]')).toBe(false)
+    expect(hasMarkdownImagePaste('![diagram](https://outside.example/image.png) inside a code fence')).toBe(true)
+    expect(hasMarkdownImagePaste('```md\n![diagram](https://outside.example/image.png)\n```')).toBe(false)
+  })
+
+  it('clones resource IDs from BlockNote HTML props, never from its rendered source URL', async () => {
+    const html = '<div class="bn-block-content" data-content-type="documentImage" data-image-asset-id="41"><img data-image-asset-id="41" src="/attachments/999/download"></div>'
+    const clone = vi.fn().mockResolvedValue({ ...asset, assetId: 92 })
+
+    const result = await clonePastedDocumentImageAssets(html, () => undefined, clone)
+    const parsed = new DOMParser().parseFromString(result.html, 'text/html')
+
+    expect(clone).toHaveBeenCalledTimes(1)
+    expect(clone).toHaveBeenCalledWith(41)
+    expect(result.clonedAssets.map((item) => item.assetId)).toEqual([92])
+    expect(parsed.querySelector('[data-content-type="documentImage"]')?.getAttribute('data-image-asset-id')).toBe('92')
+    expect(parsed.querySelector('img')?.getAttribute('data-image-asset-id')).toBe('92')
+    expect(parsed.querySelector('img')?.getAttribute('src')).toBe('/attachments/999/download')
+  })
+
+  it('keeps existing upload status formatting and MIME classification', () => {
+    expect(formatUploadFeedback('Uploading {name}…', 'guide.pdf', 'fallback')).toBe('Uploading guide.pdf…')
+    expect(formatUploadFeedback(undefined, 'guide.pdf', 'Uploading guide.pdf…')).toBe('Uploading guide.pdf…')
     expect(isPastedImageFile(new File(['png'], 'diagram.png', { type: 'image/png' }))).toBe(true)
     expect(isPastedImageFile(new File(['pdf'], 'guide.pdf', { type: 'application/pdf' }))).toBe(false)
-    expect(blockNoteReactSource).toMatch(
-      /const inserted = isPastedImageFile\(file\)\s+\?[\s\S]+type: 'image',\s+props: \{ name: file\.name, url \}/
-    )
-  })
-
-  it('replaces the {name} placeholder with the file name', () => {
-    expect(formatUploadFeedback('正在上传附件 {name}…', 'guide.pdf', 'fallback')).toBe(
-      '正在上传附件 guide.pdf…'
-    )
-    expect(formatUploadFeedback('附件 {name} 上传失败', 'guide.pdf', 'fallback')).toBe(
-      '附件 guide.pdf 上传失败'
-    )
-  })
-
-  it('falls back to plain copy when no i18n template is configured', () => {
-    expect(formatUploadFeedback(undefined, 'guide.pdf', 'Uploading guide.pdf…')).toBe(
-      'Uploading guide.pdf…'
-    )
-  })
-
-  it('shows an instant uploading placeholder, then flips to the link card or failure text', () => {
-    // 开始反馈：占位块在 await 上传之前插入，且使用灰色文本标记系统状态。
-    expect(blockNoteReactSource).toContain("text: formatUploadFeedback(fileUploadingTextResolved, file.name")
-    expect(blockNoteReactSource).toContain("styles: { textColor: 'gray' }")
-    // 完成反馈：原地 updateBlock 为附件链接卡片，复用现有附件卡片样式。
-    expect(blockNoteReactSource).toContain(
-      "content: [{ type: 'link', href: url, content: file.name }]"
-    )
-    // 失败反馈：占位块改写为可见错误文本，不再静默吞掉上传异常。
-    expect(blockNoteReactSource).toContain("text: formatUploadFeedback(fileUploadFailedTextResolved, file.name")
-    expect(blockNoteReactSource).toContain("styles: { textColor: 'red' }")
-    // 用户在上传期间删掉占位块时，不向已不存在的块写回数据。
-    expect(blockNoteReactSource).toContain('editorInstance.getBlock(placeholder.id)')
-  })
-
-  it('documents upload feedback text is wired from the document editor i18n keys', () => {
-    expect(blockNoteReactSource).toContain('fileUploadingText?: string')
-    expect(blockNoteReactSource).toContain('fileUploadFailedText?: string')
-    expect(blockNoteReactSource).toContain("props.fileUploadingText ?? props['file-uploading-text']")
   })
 })

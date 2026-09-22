@@ -26,11 +26,11 @@ class AgentSessionStreamServiceTest {
     private final AgentTaskSessionMapper sessionMapper = mock(AgentTaskSessionMapper.class);
     private final AgentTaskOrchestrationService orchestrationService = mock(AgentTaskOrchestrationService.class);
     private final TaskPermissionGuard taskPermissionGuard = mock(TaskPermissionGuard.class);
-    private final BridgeExecutionAttachmentService attachmentService = mock(BridgeExecutionAttachmentService.class);
+    private final ExecutionCredentialService credentialService = mock(ExecutionCredentialService.class);
     private final AgentSessionSseBroadcaster broadcaster = mock(AgentSessionSseBroadcaster.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final AgentSessionStreamService service = new AgentSessionStreamService(
-            sessionMapper, orchestrationService, taskPermissionGuard, attachmentService, broadcaster);
+            sessionMapper, orchestrationService, taskPermissionGuard, credentialService, broadcaster);
 
     @BeforeEach
     void setUpSession() {
@@ -42,7 +42,7 @@ class AgentSessionStreamServiceTest {
 
     @Test
     void rejectsSnapshotRequestWhenBridgeIsOfflineWithoutServingOldContent() {
-        when(attachmentService.isOnline("exec-1")).thenReturn(false);
+        when(credentialService.isOnline("exec-1")).thenReturn(false);
 
         assertThrows(ConflictOperationException.class,
                 () -> service.requestSnapshot("LINEAR-LITE-102", 7L, "exec-1"));
@@ -53,7 +53,7 @@ class AgentSessionStreamServiceTest {
 
     @Test
     void schedulesClaimAndForwardsOneSessionSnapshotWithoutPersistence() {
-        when(attachmentService.isOnline("exec-1")).thenReturn(true);
+        when(credentialService.isOnline("exec-1")).thenReturn(true);
         String requestId = service.requestSnapshot("LINEAR-LITE-102", 7L, "exec-1");
 
         AgentSessionSnapshotClaimResponse claim = service.claimSnapshot(7L, "exec-1");
@@ -92,7 +92,7 @@ class AgentSessionStreamServiceTest {
 
     @Test
     void rejectsSnapshotWhenRuntimeIdentityDoesNotMatchBlockKind() {
-        when(attachmentService.isOnline("exec-1")).thenReturn(true);
+        when(credentialService.isOnline("exec-1")).thenReturn(true);
         String requestId = service.requestSnapshot("LINEAR-LITE-102", 7L, "exec-1");
 
         AgentSessionSnapshot snapshot = new AgentSessionSnapshot(

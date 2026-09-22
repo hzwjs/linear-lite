@@ -19,10 +19,14 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /** MCP 工具目录与领域服务映射；工具顺序固定以保证 tools/list 可缓存。 */
 @Component
@@ -35,9 +39,15 @@ public class McpToolRegistry {
     private static final Set<String> STATUSES = Set.of(
             "backlog", "todo", "in_progress", "in_review", "done", "canceled", "duplicate");
     private static final Set<String> PRIORITIES = Set.of("urgent", "high", "medium", "low");
+    private static final Pattern IMAGE_REF_PATTERN = Pattern.compile("[A-Za-z0-9_-]{1,64}");
+    private static final int MAX_DOCUMENT_IMAGES = 8;
+    private static final int MAX_IMAGE_BASE64_CHARS = 8_388_608;
+    private static final int MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+    private static final int MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024;
+    private static final int MAX_TOTAL_IMAGE_BASE64_CHARS = 4 * ((MAX_TOTAL_IMAGE_BYTES + 2) / 3);
 
     private final ObjectMapper objectMapper;
-    private final MarkdownToBlockNoteConverter markdownToBlockNoteConverter;
+    private final McpDocumentImageContentService documentImageContentService;
     private final ProjectService projectService;
     private final TaskCommandService taskCommandService;
     private final TaskQueryService taskQueryService;
@@ -49,7 +59,7 @@ public class McpToolRegistry {
 
     public McpToolRegistry(
             ObjectMapper objectMapper,
-            MarkdownToBlockNoteConverter markdownToBlockNoteConverter,
+            McpDocumentImageContentService documentImageContentService,
             ProjectService projectService,
             TaskCommandService taskCommandService,
             TaskQueryService taskQueryService,
@@ -57,7 +67,7 @@ public class McpToolRegistry {
             ProjectDocumentCommandService projectDocumentCommandService,
             ProjectDocumentQueryService projectDocumentQueryService) {
         this.objectMapper = objectMapper;
-        this.markdownToBlockNoteConverter = markdownToBlockNoteConverter;
+        this.documentImageContentService = documentImageContentService;
         this.projectService = projectService;
         this.taskCommandService = taskCommandService;
         this.taskQueryService = taskQueryService;
@@ -218,32 +228,103 @@ public class McpToolRegistry {
     private Object createDocument(JsonNode rawArguments, Long userId) {
         JsonNode arguments = McpArgumentValidator.object(rawArguments);
         McpArgumentValidator.fields(arguments, "projectId", "parentDocumentId", "title", "content",
-                "externalSource", "externalSourceId");
+                "externalSource", "externalSourceId", "images");
         Long projectId = requiredLong(arguments, "projectId");
         Long parentDocumentId = McpArgumentValidator.optionalLong(arguments, "parentDocumentId");
         String title = McpArgumentValidator.requiredText(arguments, "title", 256);
         String markdown = McpArgumentValidator.optionalText(arguments, "content", 2_000_000);
         String externalSource = McpArgumentValidator.optionalText(arguments, "externalSource", 64);
         String externalSourceId = McpArgumentValidator.optionalText(arguments, "externalSourceId", 128);
-        return projectDocumentCommandService.create(
+        JsonNode imageInputs = arguments.get("images");
+        return projectDocumentCommandService.createWithContentFactory(
                 projectId,
                 new CreateProjectDocumentRequest(parentDocumentId, title,
-                        markdown == null ? null : markdownToBlockNoteConverter.convert(markdown),
+                        null,
                         externalSource, externalSourceId),
-                userId);
+                userId,
+                documentId -> documentImageContentService.convert(
+                        markdown == null ? "" : markdown, parseDocumentImages(imageInputs), documentId, userId));
     }
 
     private Object updateDocument(JsonNode rawArguments, Long userId) {
         JsonNode arguments = McpArgumentValidator.object(rawArguments);
-        McpArgumentValidator.fields(arguments, "documentId", "expectedVersion", "title", "content");
+        McpArgumentValidator.fields(arguments, "documentId", "expectedVersion", "title", "content", "images");
         Long documentId = requiredLong(arguments, "documentId");
         Long expectedVersion = requiredLong(arguments, "expectedVersion");
         String title = McpArgumentValidator.requiredText(arguments, "title", 256);
         String markdown = McpArgumentValidator.requiredText(arguments, "content", 2_000_000);
-        return projectDocumentCommandService.update(
+        JsonNode imageInputs = arguments.get("images");
+        return projectDocumentCommandService.updateWithContentFactory(
                 documentId,
-                new UpdateProjectDocumentRequest(
-                        expectedVersion, title, markdownToBlockNoteConverter.convert(markdown)), userId);
+                new UpdateProjectDocumentRequest(expectedVersion, title, null),
+                userId,
+                id -> documentImageContentService.convert(markdown, parseDocumentImages(imageInputs), id, userId));
+    }
+
+    private List<McpDocumentImageInput> parseDocumentImages(JsonNode value) {
+        if (value == null) {
+            return List.of();
+        }
+        if (!value.isArray() || value.size() > MAX_DOCUMENT_IMAGES) {
+            throw new McpInvalidParamsException("images 必须是最多 " + MAX_DOCUMENT_IMAGES + " 项的数组");
+        }
+        List<McpDocumentImageInput> images = new ArrayList<>();
+        Set<String> refs = new HashSet<>();
+        int totalBytes = 0;
+        long totalBase64Chars = 0;
+        for (JsonNode item : value) {
+            if (!item.isObject()) {
+                throw new McpInvalidParamsException("images 元素必须是对象");
+            }
+            String ref = McpArgumentValidator.requiredText(item, "ref", 64);
+            if (!IMAGE_REF_PATTERN.matcher(ref).matches() || !refs.add(ref)) {
+                throw new McpInvalidParamsException("images.ref 必须唯一且由字母、数字、下划线或短横线组成");
+            }
+            Long assetId = McpArgumentValidator.optionalLong(item, "assetId");
+            if (assetId != null) {
+                McpArgumentValidator.fields(item, "ref", "assetId");
+                if (assetId <= 0) {
+                    throw new McpInvalidParamsException("images.assetId 必须是正整数");
+                }
+                images.add(new McpDocumentImageInput(ref, null, null, null, assetId));
+                continue;
+            }
+
+            McpArgumentValidator.fields(item, "ref", "fileName", "contentType", "dataBase64");
+            String fileName = McpArgumentValidator.requiredText(item, "fileName", 256);
+            String contentType = McpArgumentValidator.requiredText(item, "contentType", 128)
+                    .toLowerCase(java.util.Locale.ROOT);
+            if (!contentType.startsWith("image/")) {
+                throw new McpInvalidParamsException("images.contentType 必须是 image/*");
+            }
+            JsonNode base64Node = item.get("dataBase64");
+            if (base64Node == null || !base64Node.isTextual()) {
+                throw new McpInvalidParamsException("images.dataBase64 必须是字符串");
+            }
+            String base64 = base64Node.textValue();
+            if (base64.length() > MAX_IMAGE_BASE64_CHARS) {
+                throw new McpInvalidParamsException("单张 MCP 图片编码不能超过 8 MiB");
+            }
+            totalBase64Chars += base64.length();
+            if (totalBase64Chars > MAX_TOTAL_IMAGE_BASE64_CHARS) {
+                throw new McpInvalidParamsException("MCP 图片编码总量不能超过 16 MiB");
+            }
+            byte[] content;
+            try {
+                content = Base64.getDecoder().decode(base64);
+            } catch (IllegalArgumentException e) {
+                throw new McpInvalidParamsException("images.dataBase64 必须是有效的 Base64");
+            }
+            if (content.length == 0 || content.length > MAX_IMAGE_BYTES) {
+                throw new McpInvalidParamsException("单张 MCP 图片大小必须在 1 字节到 6 MiB 之间");
+            }
+            totalBytes += content.length;
+            if (totalBytes > MAX_TOTAL_IMAGE_BYTES) {
+                throw new McpInvalidParamsException("MCP 图片总量不能超过 12 MiB");
+            }
+            images.add(new McpDocumentImageInput(ref, fileName, contentType, content, null));
+        }
+        return images;
     }
 
     private static Long requiredLong(JsonNode object, String name) {
@@ -328,14 +409,17 @@ public class McpToolRegistry {
     }
 
     private ObjectNode createDocumentDefinition() {
-        return tool("create_document", "创建文档", "在项目文档树中创建 Markdown 文档，服务端负责转换为 BlockNote JSON。",
-                objectSchema(Map.of(
+        Map<String, ObjectNode> properties = new LinkedHashMap<>(Map.of(
                         "projectId", integerSchema("项目 ID"),
                         "parentDocumentId", integerSchema("父文档 ID"),
                         "title", stringSchema("文档标题", 1, 256),
-                        "content", stringSchema("Markdown 正文", 0, 2_000_000),
+                        "content", stringSchema("Markdown 正文，支持 GFM 表格", 0, 2_000_000),
                         "externalSource", stringSchema("外部来源类型", 1, 64),
-                        "externalSourceId", stringSchema("外部来源文档 ID", 1, 128)), "projectId", "title"),
+                        "externalSourceId", stringSchema("外部来源文档 ID", 1, 128)));
+        properties.put("images", documentImagesSchema());
+        return tool("create_document", "创建文档",
+                "创建 Markdown 文档并转换为 BlockNote JSON；GFM 表格会转为原生 BlockNote 表格块。正文每个不同图片 ref 都要在 images 提供对应附件，且不允许未使用项。例：content=\"前文 ![流程图](mcp-image:flow) 后文\"，images=[{ref:\"flow\",fileName:\"flow.png\",contentType:\"image/png\",dataBase64:\"<Base64>\"}]；也可用 {ref:\"flow\",assetId:31} 引用有权限访问的已有附件。最多 8 个图片引用，单图不超过 6 MiB、总量不超过 12 MiB；不接受远程图片 URL。",
+                objectSchema(properties, "projectId", "title"),
                 false, false);
     }
 
@@ -364,13 +448,40 @@ public class McpToolRegistry {
     }
 
     private ObjectNode updateDocumentDefinition() {
-        return tool("update_document", "更新文档", "按文档版本号安全更新标题和 Markdown 正文，服务端负责转换为 BlockNote JSON。",
-                objectSchema(Map.of(
+        Map<String, ObjectNode> properties = new LinkedHashMap<>(Map.of(
                         "documentId", integerSchema("文档 ID"),
                         "expectedVersion", integerSchema("客户端已读版本号"),
                         "title", stringSchema("文档标题", 1, 256),
-                        "content", stringSchema("Markdown 正文", 1, 2_000_000)),
-                        "documentId", "expectedVersion", "title", "content"), false, false);
+                        "content", stringSchema("Markdown 正文，支持 GFM 表格", 1, 2_000_000)));
+        properties.put("images", documentImagesSchema());
+        return tool("update_document", "更新文档",
+                "按 expectedVersion 更新 Markdown 文档并转换为 BlockNote JSON；GFM 表格会转为原生 BlockNote 表格块。更新正文每个不同图片 ref 都要在 images 提供对应附件，且不允许未使用项。例：content=\"前文 ![流程图](mcp-image:flow) 后文\"，images=[{ref:\"flow\",fileName:\"flow.png\",contentType:\"image/png\",dataBase64:\"<Base64>\"}]；也可用 {ref:\"flow\",assetId:31} 引用有权限访问的已有附件。最多 8 个图片引用，单图不超过 6 MiB、总量不超过 12 MiB；不接受远程图片 URL。",
+                objectSchema(properties, "documentId", "expectedVersion", "title", "content"), false, false);
+    }
+
+    private ObjectNode documentImagesSchema() {
+        ObjectNode array = objectMapper.createObjectNode();
+        array.put("type", "array");
+        array.put("maxItems", MAX_DOCUMENT_IMAGES);
+        array.put("description", "Markdown mcp-image:<ref> 图片引用对应的附件资源清单");
+        array.set("items", documentImageInputSchema());
+        return array;
+    }
+
+    private ObjectNode documentImageInputSchema() {
+        ObjectNode schema = objectMapper.createObjectNode();
+        schema.put("type", "object");
+        ArrayNode choices = schema.putArray("oneOf");
+        choices.add(objectSchema(Map.of(
+                "ref", stringSchema("Markdown 中 mcp-image:<ref> 使用的唯一标识", 1, 64),
+                "fileName", stringSchema("上传文件名", 1, 256),
+                "contentType", stringSchema("图片 MIME 类型，例如 image/png", 1, 128),
+                "dataBase64", stringSchema("图片文件内容的 Base64；单图最多 8 MiB 编码", 1, MAX_IMAGE_BASE64_CHARS)),
+                "ref", "fileName", "contentType", "dataBase64"));
+        choices.add(objectSchema(Map.of(
+                "ref", stringSchema("Markdown 中 mcp-image:<ref> 使用的唯一标识", 1, 64),
+                "assetId", integerSchema("已上传的文档图片附件 ID")), "ref", "assetId"));
+        return schema;
     }
 
     private Map<String, ObjectNode> taskCommonProperties() {

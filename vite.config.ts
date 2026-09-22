@@ -28,6 +28,11 @@ function vendorChunkName(id: string): string | undefined {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue(), react()],
+  // BlockNote and Tiptap both re-export ProseMirror; force one runtime copy so
+  // Selection JSON serializers are registered once instead of throwing on mount.
+  resolve: {
+    dedupe: ['@blocknote/core', '@blocknote/react', '@tiptap/pm', 'prosemirror-state', 'prosemirror-model', 'prosemirror-view']
+  },
   build: {
     target: 'esnext',
     modulePreload: {

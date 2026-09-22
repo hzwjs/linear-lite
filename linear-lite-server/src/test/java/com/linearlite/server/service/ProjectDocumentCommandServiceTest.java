@@ -1,5 +1,6 @@
 package com.linearlite.server.service;
 
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.dto.CreateProjectDocumentRequest;
 import com.linearlite.server.dto.MoveProjectDocumentRequest;
@@ -7,6 +8,7 @@ import com.linearlite.server.dto.ProjectDocumentResponse;
 import com.linearlite.server.dto.UpdateProjectDocumentRequest;
 import com.linearlite.server.entity.ProjectDocument;
 import com.linearlite.server.entity.ProjectDocumentFavorite;
+import com.linearlite.server.entity.ProjectDocumentRevision;
 import com.linearlite.server.exception.DocumentVersionConflictException;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
@@ -21,6 +23,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -166,6 +170,63 @@ class ProjectDocumentCommandServiceTest {
     }
 
     @Test
+    void createWithContentFactoryCapturesFinalImageBodyBeforeSnapshotAndIndexing() {
+        String finalContent = "[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":31}}]";
+        AtomicReference<String> persistedContent = new AtomicReference<>("[]");
+        doAnswer(invocation -> {
+            ProjectDocument document = invocation.getArgument(0);
+            document.setId(11L);
+            return 1;
+        }).when(documentMapper).insert(any(ProjectDocument.class));
+        when(documentMapper.selectList(any())).thenReturn(List.of());
+        when(documentMapper.update(org.mockito.ArgumentMatchers.isNull(), any(UpdateWrapper.class)))
+                .thenAnswer(invocation -> {
+                    persistedContent.set(finalContent);
+                    return 1;
+                });
+        when(documentMapper.selectById(11L)).thenAnswer(invocation -> {
+            ProjectDocument saved = document(11L, 3L, null, 1L, 0);
+            saved.setTitle("插图设计");
+            saved.setContentJson(persistedContent.get());
+            return saved;
+        });
+
+        ProjectDocumentResponse response = service.createWithContentFactory(
+                3L, new CreateProjectDocumentRequest(null, "插图设计", null), 7L, id -> {
+                    assertEquals(11L, id);
+                    return finalContent;
+                });
+
+        assertEquals(finalContent, response.content());
+        org.mockito.InOrder order = inOrder(documentMapper, revisionSnapshotService, eventPublisher);
+        order.verify(documentMapper).insert(any(ProjectDocument.class));
+        order.verify(documentMapper).update(org.mockito.ArgumentMatchers.isNull(), any(UpdateWrapper.class));
+        order.verify(revisionSnapshotService).captureInitial(any(ProjectDocument.class),
+                org.mockito.ArgumentMatchers.eq(7L));
+        order.verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
+                ProjectContentType.DOCUMENT, 11L));
+    }
+
+    @Test
+    void idempotentCreateDoesNotRunImageContentFactory() {
+        ProjectDocument existing = document(41L, 3L, null, 4L, 0);
+        existing.setExternalSource("mcp");
+        existing.setExternalSourceId("request-1");
+        when(documentMapper.selectOne(any())).thenReturn(existing);
+        AtomicBoolean invoked = new AtomicBoolean();
+
+        service.createWithContentFactory(3L,
+                new CreateProjectDocumentRequest(null, "同一文档", null, "mcp", "request-1"), 7L,
+                id -> {
+                    invoked.set(true);
+                    return "[]";
+                });
+
+        org.junit.jupiter.api.Assertions.assertFalse(invoked.get());
+        verify(documentMapper, never()).insert(any());
+    }
+
+    @Test
     void createRejectsPartialExternalBinding() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
                 service.create(3L, new CreateProjectDocumentRequest(
@@ -186,6 +247,37 @@ class ProjectDocumentCommandServiceTest {
     }
 
     @Test
+    void createRejectsLegacyImageUrlBlock() {
+        String legacyContent = "[{\"type\":\"image\",\"props\":{\"url\":\"https://example.com/image.png\"}}]";
+
+        assertThrows(IllegalArgumentException.class, () -> service.create(
+                3L, new CreateProjectDocumentRequest(null, "标题", legacyContent), 7L));
+
+        verify(documentMapper, never()).insert(any(ProjectDocument.class));
+    }
+
+    @Test
+    void updateRejectsLegacyImageUrlBlock() {
+        when(documentMapper.selectById(11L)).thenReturn(document(11L, 3L, null, 2L, 0));
+        String legacyContent = "[{\"type\":\"image\",\"props\":{\"url\":\"https://example.com/image.png\"}}]";
+
+        assertThrows(IllegalArgumentException.class, () -> service.update(
+                11L, new UpdateProjectDocumentRequest(2L, "标题", legacyContent), 7L));
+
+        verify(documentMapper, never()).updateContentIfVersionMatches(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void documentImageRejectsAssetIdsOutsideLongRange() {
+        String invalidContent = "[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":9223372036854775808}}]";
+
+        assertThrows(IllegalArgumentException.class, () -> service.create(
+                3L, new CreateProjectDocumentRequest(null, "标题", invalidContent), 7L));
+
+        verify(documentMapper, never()).insert(any(ProjectDocument.class));
+    }
+
+    @Test
     void updateReturnsCurrentVersionOnOptimisticLockConflict() {
         ProjectDocument initial = document(11L, 3L, null, 2L, 0);
         ProjectDocument concurrent = document(11L, 3L, null, 3L, 0);
@@ -197,6 +289,54 @@ class ProjectDocumentCommandServiceTest {
 
         assertEquals(3L, error.getCurrentVersion());
         verify(revisionMapper, never()).insert(any());
+    }
+
+    @Test
+    void updateVersionConflictDoesNotRunImageContentFactory() {
+        when(documentMapper.selectById(11L)).thenReturn(document(11L, 3L, null, 3L, 0));
+        AtomicBoolean invoked = new AtomicBoolean();
+
+        assertThrows(DocumentVersionConflictException.class, () -> service.updateWithContentFactory(
+                11L, new UpdateProjectDocumentRequest(2L, "新标题", null), 7L, id -> {
+                    invoked.set(true);
+                    return "[]";
+                }));
+
+        org.junit.jupiter.api.Assertions.assertFalse(invoked.get());
+        verify(revisionMapper, never()).insert(any());
+    }
+
+    @Test
+    void restoreRevisionRejectsLegacyImageUrlBlock() {
+        when(documentMapper.selectById(11L)).thenReturn(document(11L, 3L, null, 2L, 0));
+        ProjectDocumentRevision revision = revision(41L, 11L,
+                "[{\"type\":\"image\",\"props\":{\"url\":\"/api/project-documents/11/attachments/31/download\"}}]");
+        when(revisionMapper.selectOne(any())).thenReturn(revision);
+
+        assertThrows(IllegalArgumentException.class, () -> service.restoreRevision(11L, 41L, 2L, 7L));
+
+        verify(revisionSnapshotService, never()).captureBeforeRestore(any());
+        verify(documentMapper, never()).updateContentIfVersionMatches(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void restoreRevisionAcceptsDocumentImageAssetId() {
+        String content = "[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":31}}]";
+        ProjectDocument current = document(11L, 3L, null, 2L, 0);
+        ProjectDocument saved = document(11L, 3L, null, 3L, 0);
+        saved.setTitle("历史标题");
+        saved.setContentJson(content);
+        ProjectDocumentRevision revision = revision(41L, 11L, content);
+        revision.setTitle("历史标题");
+        when(documentMapper.selectById(11L)).thenReturn(current, saved);
+        when(revisionMapper.selectOne(any())).thenReturn(revision);
+        when(documentMapper.updateContentIfVersionMatches(11L, 2L, "历史标题", content, 7L)).thenReturn(1);
+
+        ProjectDocumentResponse response = service.restoreRevision(11L, 41L, 2L, 7L);
+
+        assertEquals(content, response.content());
+        verify(revisionSnapshotService).captureBeforeRestore(current);
+        verify(revisionSnapshotService).captureRestored(saved, 7L);
     }
 
     @Test
@@ -347,5 +487,14 @@ class ProjectDocumentCommandServiceTest {
         document.setVersion(version);
         document.setSortOrder(sortOrder);
         return document;
+    }
+
+    private ProjectDocumentRevision revision(Long id, Long documentId, String content) {
+        ProjectDocumentRevision revision = new ProjectDocumentRevision();
+        revision.setId(id);
+        revision.setDocumentId(documentId);
+        revision.setTitle("标题");
+        revision.setContentJson(content);
+        return revision;
     }
 }

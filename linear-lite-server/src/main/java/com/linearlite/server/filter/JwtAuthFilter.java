@@ -49,7 +49,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (!protectedApiPath) {
             return true;
         }
-        // Bridge API 使用一次性 execution attachment，不能落入人类 JWT 认证链路。
+        // Bridge API 使用执行凭据认证；安装包下载也不依赖人类 JWT 认证链路。
         if (path.startsWith("/api/bridge/")) {
             return true;
         }

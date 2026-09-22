@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import MemberListDropdownPanel from './MemberListDropdownPanel.vue'
 import { i18n } from '../i18n'
 import type { User } from '../types/domain'
-import { isPiBridgeAvailable } from '../services/piBridge'
+import { downloadPiBridgeInstaller, isPiBridgeAvailable } from '../services/piBridge'
 
 const MemberListDropdownPanelReact = applyVueInReact(MemberListDropdownPanel, {
   beforeVueAppMount(app) {
@@ -145,13 +145,8 @@ export function MentionMemberSuggestionMenu({
           agentKey: mem?.agentKey,
         } as User,
       }
-    }).filter((row) =>
-      !checkPiBridgeOnMention ||
-      row.user.principalType !== 'agent' ||
-      row.user.agentKey !== 'pi' ||
-      piBridgeAvailable
-    )
-  }, [checkPiBridgeOnMention, items, piBridgeAvailable, resolveMember])
+    })
+  }, [items, resolveMember])
 
   const stagingUserIds = useMemo(() => stagingUsers.map((u) => u.id), [stagingUsers])
 
@@ -161,6 +156,12 @@ export function MentionMemberSuggestionMenu({
   }, [selectedIndex])
 
   function handleTogglePickUser(u: User) {
+    // Pi 始终作为可发现的成员展示；本机缺少 Bridge 时，点击入口直接下载安装包。
+    if (checkPiBridgeOnMention && u.principalType === 'agent' && u.agentKey === 'pi' && !piBridgeAvailable) {
+      downloadPiBridgeInstaller()
+      return
+    }
+
     setStagingUsers((prev) => {
       const exists = prev.some((x) => x.id === u.id)
       if (exists) {

@@ -25,6 +25,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.LongFunction;
 
 @Service
 public class ProjectDocumentCommandService {
@@ -60,6 +61,21 @@ public class ProjectDocumentCommandService {
 
     @Transactional(rollbackFor = Exception.class)
     public ProjectDocumentResponse create(Long projectId, CreateProjectDocumentRequest request, Long userId) {
+        return createInternal(projectId, request, userId, null);
+    }
+
+    /** Creates the row first, then resolves its final body before snapshots and indexing are published. */
+    @Transactional(rollbackFor = Exception.class)
+    public ProjectDocumentResponse createWithContentFactory(
+            Long projectId, CreateProjectDocumentRequest request, Long userId, LongFunction<String> contentFactory) {
+        if (contentFactory == null) {
+            throw new IllegalArgumentException("正文工厂不能为空");
+        }
+        return createInternal(projectId, request, userId, contentFactory);
+    }
+
+    private ProjectDocumentResponse createInternal(
+            Long projectId, CreateProjectDocumentRequest request, Long userId, LongFunction<String> contentFactory) {
         projectAccessGuard.requireMember(projectId, userId);
         documentMapper.lockProjectDocumentMutations(projectId);
         String externalSource = normalizeExternalSource(request == null ? null : request.externalSource());
@@ -76,9 +92,11 @@ public class ProjectDocumentCommandService {
             }
         }
         String title = requireTitle(request == null ? null : request.title());
-        String content = request == null || request.content() == null
-                ? EMPTY_BLOCK_NOTE_DOCUMENT
-                : requireBlockNoteJson(request.content());
+        String content = contentFactory == null
+                ? request == null || request.content() == null
+                        ? EMPTY_BLOCK_NOTE_DOCUMENT
+                        : requireBlockNoteJson(request.content())
+                : EMPTY_BLOCK_NOTE_DOCUMENT;
         Long parentId = request == null ? null : request.parentDocumentId();
         if (parentId != null) {
             ProjectDocument parent = requireDocument(parentId);
@@ -105,6 +123,16 @@ public class ProjectDocumentCommandService {
         document.setCreatorId(userId);
         document.setLastEditorId(userId);
         documentMapper.insert(document);
+        if (contentFactory != null) {
+            String resolvedContent = requireBlockNoteJson(contentFactory.apply(document.getId()));
+            int updated = documentMapper.update(null, new UpdateWrapper<ProjectDocument>()
+                    .eq("id", document.getId())
+                    .set("content_json", resolvedContent));
+            if (updated != 1) {
+                throw new IllegalStateException("新建文档正文写入失败");
+            }
+            document.setContentJson(resolvedContent);
+        }
         revisionSnapshotService.captureInitial(document, userId);
         publishUpsert(document.getId());
         return toResponse(requireDocument(document.getId()), userId);
@@ -112,14 +140,32 @@ public class ProjectDocumentCommandService {
 
     @Transactional(rollbackFor = Exception.class)
     public ProjectDocumentResponse update(Long documentId, UpdateProjectDocumentRequest request, Long userId) {
+        return updateInternal(documentId, request, userId, null);
+    }
+
+    /** Resolves attachment-backed content only after access and expectedVersion checks pass. */
+    @Transactional(rollbackFor = Exception.class)
+    public ProjectDocumentResponse updateWithContentFactory(
+            Long documentId, UpdateProjectDocumentRequest request, Long userId, LongFunction<String> contentFactory) {
+        if (contentFactory == null) {
+            throw new IllegalArgumentException("正文工厂不能为空");
+        }
+        return updateInternal(documentId, request, userId, contentFactory);
+    }
+
+    private ProjectDocumentResponse updateInternal(
+            Long documentId, UpdateProjectDocumentRequest request, Long userId, LongFunction<String> contentFactory) {
         ProjectDocument current = requireAccessibleActiveDocument(documentId, userId);
         if (request == null || request.expectedVersion() == null) {
             throw new IllegalArgumentException("expectedVersion 不能为空");
         }
         String title = requireTitle(request.title());
-        String content = requireBlockNoteJson(request.content());
+        String content = contentFactory == null ? requireBlockNoteJson(request.content()) : null;
         if (!Objects.equals(current.getVersion(), request.expectedVersion())) {
             throwVersionConflict(documentId);
+        }
+        if (contentFactory != null) {
+            content = requireBlockNoteJson(contentFactory.apply(documentId));
         }
         if (Objects.equals(current.getTitle(), title) && Objects.equals(current.getContentJson(), content)) {
             return toResponse(current, userId);
@@ -237,9 +283,10 @@ public class ProjectDocumentCommandService {
         if (revision == null) {
             throw new ResourceNotFoundException("文档修订版不存在: " + revisionId);
         }
+        String revisionContent = requireBlockNoteJson(revision.getContentJson());
         revisionSnapshotService.captureBeforeRestore(current);
         int updated = documentMapper.updateContentIfVersionMatches(
-                documentId, expectedVersion, revision.getTitle(), revision.getContentJson(), userId);
+                documentId, expectedVersion, revision.getTitle(), revisionContent, userId);
         if (updated != 1) {
             throwVersionConflict(documentId);
         }
@@ -357,9 +404,37 @@ public class ProjectDocumentCommandService {
             if (value == null || !value.isArray()) {
                 throw new IllegalArgumentException("文档正文必须是 BlockNote JSON 数组");
             }
+            validateDocumentImageBlocks(value);
             return content;
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("文档正文必须是有效的 BlockNote JSON 数组");
+        }
+    }
+
+    private void validateDocumentImageBlocks(JsonNode blocks) {
+        for (JsonNode block : blocks) {
+            if (!block.isObject()) {
+                continue;
+            }
+            String type = block.path("type").asText();
+            if ("image".equals(type)) {
+                throw new IllegalArgumentException("文档图片必须使用 documentImage.imageAssetId");
+            }
+            if ("documentImage".equals(type)) {
+                JsonNode assetId = block.path("props").path("imageAssetId");
+                if (!assetId.isIntegralNumber() || !assetId.canConvertToLong() || assetId.longValue() <= 0
+                        || block.path("props").has("url")) {
+                    throw new IllegalArgumentException("文档图片必须只通过有效 imageAssetId 引用资源");
+                }
+            }
+            JsonNode children = block.get("children");
+            if (children != null && children.isArray()) {
+                validateDocumentImageBlocks(children);
+            }
+            JsonNode content = block.get("content");
+            if (content != null && content.isArray()) {
+                validateDocumentImageBlocks(content);
+            }
         }
     }
 

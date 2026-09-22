@@ -10,15 +10,15 @@ function settingsStore() {
   }
 }
 
-function attachmentStore() {
-  return { value: 'execution-attachment' }
+function credentialStore() {
+  return { value: 'execution-credential' }
 }
 
 test('API request retries a transient network failure and preserves the response', async () => {
   let calls = 0
   const api = createApiClient({
     settingsStore: settingsStore(),
-    attachmentStore: attachmentStore(),
+    credentialStore: credentialStore(),
     fetchImpl: async (_url, options) => {
       calls += 1
       assert.ok(options.signal)
@@ -37,7 +37,7 @@ test('API request aborts a hanging network request and retries after recovery', 
   let calls = 0
   const api = createApiClient({
     settingsStore: settingsStore(),
-    attachmentStore: attachmentStore(),
+    credentialStore: credentialStore(),
     fetchImpl: (_url, options) => new Promise((resolve, reject) => {
       calls += 1
       if (calls === 1) {
@@ -60,7 +60,7 @@ test('API request reloads the latest connection settings after a transient failu
   const settings = { apiBaseUrl: 'http://old-linear-lite.test' }
   const api = createApiClient({
     settingsStore: { read: async () => ({ ...settings }) },
-    attachmentStore: attachmentStore(),
+    credentialStore: credentialStore(),
     fetchImpl: async (url, options) => {
       calls += 1
       if (calls === 1) {
@@ -68,7 +68,7 @@ test('API request reloads the latest connection settings after a transient failu
         throw new TypeError('network is offline')
       }
       assert.equal(url, 'http://new-linear-lite.test/api/bridge/jobs/claim')
-      assert.equal(options.headers['X-Execution-Attachment'], 'execution-attachment')
+      assert.equal(options.headers['X-Execution-Credential'], 'execution-credential')
       return new Response(JSON.stringify({ code: 200, data: 'recovered-with-new-settings' }), { status: 200 })
     },
     retryDelayMs: 0,
@@ -79,47 +79,47 @@ test('API request reloads the latest connection settings after a transient failu
   assert.equal(calls, 2)
 })
 
-test('invalid execution attachment is discarded so the next panel attach can recover polling', async () => {
-  const attachment = attachmentStore()
+test('invalid execution credential is discarded so the next execution can connect', async () => {
+  const credential = credentialStore()
   let configurationRequired = 0
   const api = createApiClient({
     settingsStore: settingsStore(),
-    attachmentStore: attachment,
-    fetchImpl: async () => new Response(JSON.stringify({ code: 401, message: 'attachment expired' }), { status: 401 }),
-    onConfigurationRequired: () => {
+    credentialStore: credential,
+    fetchImpl: async () => new Response(JSON.stringify({ code: 401, message: 'credential expired' }), { status: 401 }),
+    onCredentialRejected: () => {
       configurationRequired += 1
-      attachment.value = ''
+      credential.value = ''
     },
     retryDelayMs: 0,
     sleepImpl: async () => {},
   })
 
-  await assert.rejects(api('/api/bridge/jobs/claim', { method: 'POST' }), /attachment expired/)
+  await assert.rejects(api('/api/bridge/jobs/claim', { method: 'POST' }), /credential expired/)
   assert.equal(configurationRequired, 1)
-  assert.equal(attachment.value, '')
+  assert.equal(credential.value, '')
 })
 
-test('late failure from an old attachment does not discard a newer attachment', async () => {
-  const attachment = attachmentStore()
+test('late failure from an old credential does not discard a newer credential', async () => {
+  const credential = credentialStore()
   let configurationRequired = 0
   const api = createApiClient({
     settingsStore: settingsStore(),
-    attachmentStore: attachment,
+    credentialStore: credential,
     fetchImpl: async (_url, options) => {
-      attachment.value = 'new-execution-attachment'
-      return new Response(JSON.stringify({ code: 401, message: 'old attachment expired' }), { status: 401 })
+      credential.value = 'new-execution-credential'
+      return new Response(JSON.stringify({ code: 401, message: 'old credential expired' }), { status: 401 })
     },
-    onConfigurationRequired: (failedToken) => {
+    onCredentialRejected: (failedToken) => {
       configurationRequired += 1
-      if (failedToken === attachment.value) attachment.value = ''
+      if (failedToken === credential.value) credential.value = ''
     },
     retryDelayMs: 0,
     sleepImpl: async () => {},
   })
 
-  await assert.rejects(api('/api/bridge/jobs/claim', { method: 'POST' }), /old attachment expired/)
+  await assert.rejects(api('/api/bridge/jobs/claim', { method: 'POST' }), /old credential expired/)
   assert.equal(configurationRequired, 1)
-  assert.equal(attachment.value, 'new-execution-attachment')
+  assert.equal(credential.value, 'new-execution-credential')
 })
 
 test('recovering serial queue continues with later batches after an upload failure', async () => {

@@ -272,7 +272,7 @@ async function handleCreate() {
       assigneeId: assigneeIdForApi,
       plannedStartDate: plannedStartMs,
       dueDate: dueDateMs,
-      labels: labels.value.map((label) => (label.id != null ? { id: label.id } : { name: label.name })),
+      labels: labels.value.map((label) => (label.id != null ? { id: label.id, name: label.name } : { name: label.name })),
       parentId: props.parentNumericId ?? undefined
     })
 
@@ -444,7 +444,7 @@ async function handleCreate() {
               :disabled="isSaving"
               task-id="new-task"
               :placeholder="t('taskEditor.addLabel')"
-              :aria-label="t('taskEditor.addLabel')"
+              :ariaLabel="t('taskEditor.addLabel')"
               :remove-label-aria-label="t('taskEditor.removeLabel')"
               :delete-definition-aria-label="t('taskEditor.deleteProjectLabelDefinition')"
               :no-matches-text="t('boardView.noLabelsMatch')"

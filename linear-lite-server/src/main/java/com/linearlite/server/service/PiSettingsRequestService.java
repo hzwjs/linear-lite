@@ -29,7 +29,7 @@ public class PiSettingsRequestService {
 
     private final AgentTaskSessionMapper sessionMapper;
     private final TaskPermissionGuard taskPermissionGuard;
-    private final BridgeExecutionAttachmentService attachmentService;
+    private final ExecutionCredentialService credentialService;
     private final AgentSessionSseBroadcaster broadcaster;
     private final ConcurrentLinkedQueue<String> queuedRequestIds = new ConcurrentLinkedQueue<>();
     private final ConcurrentHashMap<String, SettingsRequest> requests = new ConcurrentHashMap<>();
@@ -37,11 +37,11 @@ public class PiSettingsRequestService {
     public PiSettingsRequestService(
             AgentTaskSessionMapper sessionMapper,
             TaskPermissionGuard taskPermissionGuard,
-            BridgeExecutionAttachmentService attachmentService,
+            ExecutionCredentialService credentialService,
             AgentSessionSseBroadcaster broadcaster) {
         this.sessionMapper = sessionMapper;
         this.taskPermissionGuard = taskPermissionGuard;
-        this.attachmentService = attachmentService;
+        this.credentialService = credentialService;
         this.broadcaster = broadcaster;
     }
 
@@ -50,7 +50,7 @@ public class PiSettingsRequestService {
         if (!"waiting_input".equals(session.getStatus())) {
             throw new ConflictOperationException("当前本地 Pi 正在执行，无法切换模型设置");
         }
-        if (!attachmentService.isOnline(executionId)) {
+        if (!credentialService.isOnline(executionId)) {
             throw new ConflictOperationException("Pi Bridge 离线，无法读取本地设置");
         }
         RequestValues values = validateRequest(body);

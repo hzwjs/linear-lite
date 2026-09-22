@@ -22,10 +22,10 @@ import static org.mockito.Mockito.*;
 class PiSettingsRequestServiceTest {
     private final AgentTaskSessionMapper sessionMapper = mock(AgentTaskSessionMapper.class);
     private final TaskPermissionGuard taskPermissionGuard = mock(TaskPermissionGuard.class);
-    private final BridgeExecutionAttachmentService attachmentService = mock(BridgeExecutionAttachmentService.class);
+    private final ExecutionCredentialService credentialService = mock(ExecutionCredentialService.class);
     private final AgentSessionSseBroadcaster broadcaster = mock(AgentSessionSseBroadcaster.class);
     private final PiSettingsRequestService service = new PiSettingsRequestService(
-            sessionMapper, taskPermissionGuard, attachmentService, broadcaster);
+            sessionMapper, taskPermissionGuard, credentialService, broadcaster);
 
     @BeforeEach
     void setUpSession() {
@@ -33,7 +33,7 @@ class PiSettingsRequestServiceTest {
         task.setId(10L);
         when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-102", 7L)).thenReturn(task);
         when(sessionMapper.selectOne(any())).thenReturn(session());
-        when(attachmentService.isOnline("exec-1")).thenReturn(true);
+        when(credentialService.isOnline("exec-1")).thenReturn(true);
     }
 
     @Test

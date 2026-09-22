@@ -18,7 +18,7 @@ import com.linearlite.server.dto.PiSettingsState;
 import com.linearlite.server.dto.CreateTaskCommentRequest;
 import com.linearlite.server.service.AgentSessionStreamService;
 import com.linearlite.server.service.AgentTaskOrchestrationService;
-import com.linearlite.server.service.BridgeExecutionAttachmentService;
+import com.linearlite.server.service.ExecutionCredentialService;
 import com.linearlite.server.service.TaskCommentService;
 import com.linearlite.server.service.PiSettingsRequestService;
 import org.springframework.http.ResponseEntity;
@@ -33,11 +33,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/** Bridge 专用 API；认证使用当前浏览器建立的一次性执行绑定。 */
+/** Bridge 专用接口；服务端通过执行凭据完成身份和执行上下文校验。 */
 @RestController
 @RequestMapping("/api/bridge")
 public class AgentController {
-    private final BridgeExecutionAttachmentService attachmentService;
+    private final ExecutionCredentialService credentialService;
     private final AgentTaskOrchestrationService orchestrationService;
     private final TaskCommentService taskCommentService;
     private final AgentSessionStreamService sessionStreamService;
@@ -48,72 +48,72 @@ public class AgentController {
             TaskCommentService taskCommentService,
             AgentSessionStreamService sessionStreamService,
             PiSettingsRequestService settingsRequestService,
-            BridgeExecutionAttachmentService attachmentService) {
+            ExecutionCredentialService credentialService) {
         this.orchestrationService = orchestrationService;
         this.taskCommentService = taskCommentService;
         this.sessionStreamService = sessionStreamService;
         this.settingsRequestService = settingsRequestService;
-        this.attachmentService = attachmentService;
+        this.credentialService = credentialService;
     }
 
     @PostMapping("/jobs/claim")
-    public ResponseEntity<ApiResponse<AgentJobClaimResponse>> claim(@RequestHeader("X-Execution-Attachment") String token) {
-        Long ownerUserId = attachmentService.authenticate(token);
+    public ResponseEntity<ApiResponse<AgentJobClaimResponse>> claim(@RequestHeader("X-Execution-Credential") String token) {
+        Long ownerUserId = credentialService.authenticate(token);
         return ResponseEntity.ok(ApiResponse.success(
-                orchestrationService.claim(ownerUserId, attachmentService.executionId(token))));
+                orchestrationService.claim(ownerUserId, credentialService.executionId(token))));
     }
 
     @GetMapping("/projects")
     public ResponseEntity<ApiResponse<List<AgentProjectResponse>>> projects(
-            @RequestHeader("X-Execution-Attachment") String token) {
-        Long ownerUserId = attachmentService.authenticate(token);
+            @RequestHeader("X-Execution-Credential") String token) {
+        Long ownerUserId = credentialService.authenticate(token);
         return ResponseEntity.ok(ApiResponse.success(orchestrationService.listEnabledProjects(ownerUserId)));
     }
 
     @PostMapping("/jobs/{jobId}/heartbeat")
     public ResponseEntity<ApiResponse<Void>> heartbeat(
-            @RequestHeader("X-Execution-Attachment") String token,
+            @RequestHeader("X-Execution-Credential") String token,
             @PathVariable Long jobId,
             @RequestBody AgentHeartbeatRequest request) {
-        Long ownerUserId = attachmentService.authenticate(token, request.getExecutionId());
+        Long ownerUserId = credentialService.authenticate(token, request.getExecutionId());
         orchestrationService.heartbeat(ownerUserId, jobId, request.getExecutionId());
         return ResponseEntity.ok(ApiResponse.success());
     }
 
     @PostMapping("/jobs/{jobId}/runtime-display-blocks")
     public ResponseEntity<ApiResponse<Void>> runtimeDisplayBlocks(
-            @RequestHeader("X-Execution-Attachment") String token,
+            @RequestHeader("X-Execution-Credential") String token,
             @PathVariable Long jobId,
             @RequestBody RuntimeDisplayBlockBatchRequest request) {
-        Long ownerUserId = attachmentService.authenticate(token, request.getExecutionId());
+        Long ownerUserId = credentialService.authenticate(token, request.getExecutionId());
         sessionStreamService.reportRuntime(ownerUserId, jobId, request);
         return ResponseEntity.ok(ApiResponse.success());
     }
 
     @PostMapping("/session-snapshot-requests/claim")
     public ResponseEntity<ApiResponse<AgentSessionSnapshotClaimResponse>> claimSessionSnapshot(
-            @RequestHeader("X-Execution-Attachment") String token) {
-        Long ownerUserId = attachmentService.authenticate(token);
+            @RequestHeader("X-Execution-Credential") String token) {
+        Long ownerUserId = credentialService.authenticate(token);
         return ResponseEntity.ok(ApiResponse.success(sessionStreamService.claimSnapshot(
-                ownerUserId, attachmentService.executionId(token))));
+                ownerUserId, credentialService.executionId(token))));
     }
 
     @PostMapping("/session-snapshot-requests/{requestId}/complete")
     public ResponseEntity<ApiResponse<Void>> completeSessionSnapshot(
-            @RequestHeader("X-Execution-Attachment") String token,
+            @RequestHeader("X-Execution-Credential") String token,
             @PathVariable String requestId,
             @RequestBody AgentSessionSnapshot snapshot) {
-        Long ownerUserId = attachmentService.authenticate(token, snapshot.executionId());
+        Long ownerUserId = credentialService.authenticate(token, snapshot.executionId());
         sessionStreamService.completeSnapshot(ownerUserId, requestId, snapshot);
         return ResponseEntity.ok(ApiResponse.success());
     }
 
     @PostMapping("/session-snapshot-requests/{requestId}/fail")
     public ResponseEntity<ApiResponse<Void>> failSessionSnapshot(
-            @RequestHeader("X-Execution-Attachment") String token,
+            @RequestHeader("X-Execution-Credential") String token,
             @PathVariable String requestId,
             @RequestBody AgentSessionReadErrorRequest request) {
-        Long ownerUserId = attachmentService.authenticate(token, request.getExecutionId());
+        Long ownerUserId = credentialService.authenticate(token, request.getExecutionId());
         sessionStreamService.failSnapshot(ownerUserId, requestId,
                 request.getExecutionId(), request.getErrorMessage());
         return ResponseEntity.ok(ApiResponse.success());
@@ -121,38 +121,38 @@ public class AgentController {
 
     @PostMapping("/settings-requests/claim")
     public ResponseEntity<ApiResponse<PiSettingsRequestClaimResponse>> claimSettings(
-            @RequestHeader("X-Execution-Attachment") String token) {
-        Long ownerUserId = attachmentService.authenticate(token);
+            @RequestHeader("X-Execution-Credential") String token) {
+        Long ownerUserId = credentialService.authenticate(token);
         return ResponseEntity.ok(ApiResponse.success(settingsRequestService.claim(
-                ownerUserId, attachmentService.executionId(token))));
+                ownerUserId, credentialService.executionId(token))));
     }
 
     @PostMapping("/settings-requests/{requestId}/complete")
     public ResponseEntity<ApiResponse<Void>> completeSettings(
-            @RequestHeader("X-Execution-Attachment") String token,
+            @RequestHeader("X-Execution-Credential") String token,
             @PathVariable String requestId,
             @RequestBody PiSettingsState state) {
-        Long ownerUserId = attachmentService.authenticate(token, state.executionId());
+        Long ownerUserId = credentialService.authenticate(token, state.executionId());
         settingsRequestService.complete(ownerUserId, requestId, state);
         return ResponseEntity.ok(ApiResponse.success());
     }
 
     @PostMapping("/settings-requests/{requestId}/fail")
     public ResponseEntity<ApiResponse<Void>> failSettings(
-            @RequestHeader("X-Execution-Attachment") String token,
+            @RequestHeader("X-Execution-Credential") String token,
             @PathVariable String requestId,
             @RequestBody PiSettingsErrorRequest request) {
-        Long ownerUserId = attachmentService.authenticate(token, request.getExecutionId());
+        Long ownerUserId = credentialService.authenticate(token, request.getExecutionId());
         settingsRequestService.fail(ownerUserId, requestId, request.getExecutionId(), request.getErrorMessage());
         return ResponseEntity.ok(ApiResponse.success());
     }
 
     @PostMapping("/sessions/{executionId}/snapshot")
     public ResponseEntity<ApiResponse<Void>> publishSessionSnapshot(
-            @RequestHeader("X-Execution-Attachment") String token,
+            @RequestHeader("X-Execution-Credential") String token,
             @PathVariable String executionId,
             @RequestBody AgentSessionSnapshot snapshot) {
-        Long ownerUserId = attachmentService.authenticate(token, executionId);
+        Long ownerUserId = credentialService.authenticate(token, executionId);
         sessionStreamService.publishSessionSnapshot(ownerUserId, executionId, snapshot);
         return ResponseEntity.ok(ApiResponse.success());
     }
@@ -160,20 +160,20 @@ public class AgentController {
     /** Bridge 轮询该接口即可及时发现人类用户取消了当前 Job。 */
     @GetMapping("/jobs/{jobId}/status")
     public ResponseEntity<ApiResponse<AgentTaskStatusResponse>> jobStatus(
-            @RequestHeader("X-Execution-Attachment") String token,
+            @RequestHeader("X-Execution-Credential") String token,
             @PathVariable Long jobId,
             @RequestParam String executionId) {
-        Long ownerUserId = attachmentService.authenticate(token, executionId);
+        Long ownerUserId = credentialService.authenticate(token, executionId);
         return ResponseEntity.ok(ApiResponse.success(
                 orchestrationService.getAgentJobStatus(ownerUserId, jobId, executionId)));
     }
 
     @PostMapping("/jobs/{jobId}/succeeded")
     public ResponseEntity<ApiResponse<Void>> succeeded(
-            @RequestHeader("X-Execution-Attachment") String token,
+            @RequestHeader("X-Execution-Credential") String token,
             @PathVariable Long jobId,
             @RequestBody AgentJobResultRequest request) {
-        Long ownerUserId = attachmentService.authenticate(token, request.getExecutionId());
+        Long ownerUserId = credentialService.authenticate(token, request.getExecutionId());
         orchestrationService.succeed(ownerUserId, jobId, request.getExecutionId(), request.getResult(),
                 (taskKey, authorId, body) -> {
                     CreateTaskCommentRequest comment = new CreateTaskCommentRequest();
@@ -186,10 +186,10 @@ public class AgentController {
 
     @PostMapping("/jobs/{jobId}/failed")
     public ResponseEntity<ApiResponse<Void>> failed(
-            @RequestHeader("X-Execution-Attachment") String token,
+            @RequestHeader("X-Execution-Credential") String token,
             @PathVariable Long jobId,
             @RequestBody AgentJobResultRequest request) {
-        Long ownerUserId = attachmentService.authenticate(token, request.getExecutionId());
+        Long ownerUserId = credentialService.authenticate(token, request.getExecutionId());
         orchestrationService.fail(ownerUserId, jobId, request.getExecutionId(), request.getErrorMessage(),
                 (taskKey, authorId, body) -> {
                     CreateTaskCommentRequest comment = new CreateTaskCommentRequest();
@@ -202,27 +202,27 @@ public class AgentController {
 
     @GetMapping("/sessions/{executionId}")
     public ResponseEntity<ApiResponse<AgentSessionResponse>> session(
-            @RequestHeader("X-Execution-Attachment") String token,
+            @RequestHeader("X-Execution-Credential") String token,
             @PathVariable String executionId) {
-        Long ownerUserId = attachmentService.authenticate(token, executionId);
+        Long ownerUserId = credentialService.authenticate(token, executionId);
         return ResponseEntity.ok(ApiResponse.success(orchestrationService.getSession(ownerUserId, executionId)));
     }
 
     @PostMapping("/sessions/{executionId}/state")
     public ResponseEntity<ApiResponse<Void>> state(
-            @RequestHeader("X-Execution-Attachment") String token,
+            @RequestHeader("X-Execution-Credential") String token,
             @PathVariable String executionId,
             @RequestBody AgentSessionStateRequest request) {
-        Long ownerUserId = attachmentService.authenticate(token, executionId);
+        Long ownerUserId = credentialService.authenticate(token, executionId);
         orchestrationService.updateSessionState(ownerUserId, executionId, request);
         return ResponseEntity.ok(ApiResponse.success());
     }
 
     @PostMapping("/sessions/{executionId}/cancel")
     public ResponseEntity<ApiResponse<Void>> cancel(
-            @RequestHeader("X-Execution-Attachment") String token,
+            @RequestHeader("X-Execution-Credential") String token,
             @PathVariable String executionId) {
-        Long ownerUserId = attachmentService.authenticate(token, executionId);
+        Long ownerUserId = credentialService.authenticate(token, executionId);
         orchestrationService.cancel(ownerUserId, executionId);
         return ResponseEntity.ok(ApiResponse.success());
     }

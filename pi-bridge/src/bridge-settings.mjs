@@ -33,13 +33,21 @@ export class BridgeSettingsStore {
     try {
       return parseSettings(await readFile(this.filePath, 'utf8'), this.filePath)
     } catch (error) {
-      if (error?.code === 'ENOENT') throw new Error(`Bridge 等待 Linear Lite 页面建立绑定：${this.filePath}`)
+      if (error?.code === 'ENOENT') {
+        throw Object.assign(new Error(`Bridge 尚未配置 Linear Lite 地址：${this.filePath}`), { code: 'ENOENT' })
+      }
       throw error
     }
   }
 
   async publicSettings() {
-    return { configured: true }
+    try {
+      const settings = await this.read()
+      return { configured: true, apiBaseUrl: settings.apiBaseUrl }
+    } catch (error) {
+      if (error?.code === 'ENOENT') return { configured: false, apiBaseUrl: '' }
+      throw error
+    }
   }
 
   async save(apiBaseUrl) {

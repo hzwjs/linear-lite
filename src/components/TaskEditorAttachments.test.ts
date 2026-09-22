@@ -201,7 +201,7 @@ describe('TaskEditor attachments', () => {
     vi.mocked(attachmentsApi.list).mockResolvedValue([
       {
         id: 7,
-        fileName: 'spec.md',
+        fileName: '报价单.xlsx',
         fileSize: 1024,
         url: 'https://example.test/attachments/7',
         createdAt: '2026-04-10T00:00:00.000Z'
@@ -211,8 +211,10 @@ describe('TaskEditor attachments', () => {
     const view = await mountEditor(createTask())
     try {
       const section = getAttachmentSection(view.container)
-      expect(section.textContent).toContain('spec.md')
+      expect(section.textContent).toContain('报价单.xlsx')
       expect(section.querySelector('.linear-sub-list')).toBeTruthy()
+      expect(section.querySelector('.linear-attachment-icon')).toBeTruthy()
+      expect(section.querySelector('.linear-attachment-icon')?.tagName).toBe('svg')
 
       const toggle = section.querySelector('.linear-section-head') as HTMLButtonElement
       expect(toggle).toBeTruthy()

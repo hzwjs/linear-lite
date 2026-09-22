@@ -64,10 +64,11 @@ test('local HTTP page reads, validates, saves and removes mappings', async () =>
       startedAt: '2026-08-17T00:00:00.000Z',
       lastConnectedAt: '2026-08-17T00:00:01.000Z',
     }),
-    onAttach: async ({ attachmentCode, apiBaseUrl }) => {
-      assert.equal(attachmentCode, 'one-time-code')
-      assert.equal(apiBaseUrl, 'http://linear-lite.test')
-      return { attachmentToken: `token-for-${attachmentCode}` }
+    onConnectExecution: async ({ executionId, executionCredential, apiBaseUrl }) => {
+      assert.equal(executionId, 'execution-1')
+      assert.equal(executionCredential, 'execution-credential')
+      assert.equal(apiBaseUrl, 'https://linear.example.com/linear-lite')
+      return { executionId }
     },
     port: 0,
   })
@@ -77,18 +78,23 @@ test('local HTTP page reads, validates, saves and removes mappings', async () =>
     const page = await fetch(`${baseUrl}/`)
     assert.equal(page.status, 200)
     const pageText = await page.text()
-    assert.match(pageText, /Pi Bridge 配置/)
+    assert.match(pageText, /Pi Bridge 本机诊断/)
     assert.doesNotMatch(pageText, /Bridge Credential/)
-    assert.match(pageText, /当前任务页面在本机执行绑定时自动确定/)
-    assert.doesNotMatch(pageText, /name="apiBaseUrl"/)
+    assert.match(pageText, /项目设置 → 本地执行/)
+    assert.match(pageText, /name="apiBaseUrl"/)
     assert.match(pageText, /Linear Lite 项目/)
-    assert.match(pageText, /添加项目绑定/)
+    assert.match(pageText, /添加目录映射/)
 
     const initialSettings = await fetch(`${baseUrl}/api/settings`)
-    assert.deepEqual(await initialSettings.json(), { configured: true })
+    assert.deepEqual(await initialSettings.json(), { configured: false, apiBaseUrl: '' })
 
-    const manualSettings = await fetch(`${baseUrl}/api/settings`, { method: 'PUT' })
-    assert.equal(manualSettings.status, 404)
+    const manualSettings = await fetch(`${baseUrl}/api/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiBaseUrl: 'https://linear.example.com/linear-lite' }),
+    })
+    assert.equal(manualSettings.status, 200)
+    assert.deepEqual(await manualSettings.json(), { apiBaseUrl: 'https://linear.example.com/linear-lite' })
 
     const health = await fetch(`${baseUrl}/healthz`, {
       headers: { Origin: 'https://linear.example.com' },
@@ -104,26 +110,32 @@ test('local HTTP page reads, validates, saves and removes mappings', async () =>
     })
     assert.equal(health.headers.get('access-control-allow-origin'), 'https://linear.example.com')
 
-    const attached = await fetch(`${baseUrl}/api/attach`, {
+    const connected = await fetch(`${baseUrl}/api/executions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: 'https://linear.example.com' },
-      body: JSON.stringify({ attachmentCode: 'one-time-code', apiBaseUrl: 'http://linear-lite.test' }),
+      body: JSON.stringify({
+        executionId: 'execution-1',
+        executionCredential: 'execution-credential',
+        apiBaseUrl: 'https://linear.example.com/linear-lite',
+      }),
     })
-    assert.equal(attached.status, 200)
-    assert.deepEqual(await attached.json(), { attachmentToken: 'token-for-one-time-code' })
-    assert.equal(attached.headers.get('access-control-allow-origin'), 'https://linear.example.com')
+    assert.equal(connected.status, 200)
+    assert.deepEqual(await connected.json(), { executionId: 'execution-1' })
+    assert.equal(connected.headers.get('access-control-allow-origin'), 'https://linear.example.com')
 
-    const preflight = await fetch(`${baseUrl}/api/attach`, {
+    const preflight = await fetch(`${baseUrl}/api/executions`, {
       method: 'OPTIONS',
       headers: {
         Origin: 'http://localhost:5173',
         'Access-Control-Request-Method': 'POST',
         'Access-Control-Request-Headers': 'content-type',
+        'Access-Control-Request-Private-Network': 'true',
       },
     })
     assert.equal(preflight.status, 204)
     assert.equal(preflight.headers.get('access-control-allow-methods'), 'GET,POST,PUT,DELETE,OPTIONS')
     assert.equal(preflight.headers.get('access-control-allow-headers'), 'Content-Type')
+    assert.equal(preflight.headers.get('access-control-allow-private-network'), 'true')
 
     const empty = await fetch(`${baseUrl}/api/projects`)
     assert.deepEqual(await empty.json(), { projects: [] })
