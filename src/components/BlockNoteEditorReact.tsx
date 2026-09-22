@@ -63,6 +63,10 @@ const supportedCodeBlockLanguages = {
 
 type HighlightedCodeBlockLanguage = Exclude<keyof typeof supportedCodeBlockLanguages, 'text'>
 
+// BlockNote renders suggestion menus through a body-level portal. Keep task-description
+// menus above the create-task dialog, which occupies the product modal layer.
+const taskDescriptionSuggestionMenuLayer = 1000
+
 // Keep grammar modules out of the editor's initial bundle. BlockNote requests the
 // selected grammar through this map only when a code block needs highlighting.
 const codeBlockLanguageLoaders: Record<HighlightedCodeBlockLanguage, CodeBlockLanguageLoader> = {
@@ -879,6 +883,10 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
 
   const blockChromeOn = blockChrome === true || props['block-chrome'] === true
 
+  const taskDescriptionSuggestionMenuOptions = useMemo(
+    () => ({ elementProps: { style: { zIndex: taskDescriptionSuggestionMenuLayer } } }),
+    [],
+  )
   const mentionSearchPh =
     props.mentionMenuSearchPlaceholder ?? props['mention-menu-search-placeholder'] ?? ''
   const mentionNoMatchPh =
@@ -1505,7 +1513,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
         onBlur={handleBlur}
         onFocus={handleFocus}
         theme="light"
-        slashMenu={blockChromeOn}
+        slashMenu={false}
         // Keep the slash menu and table handles, but hide BlockNote's two
         // line-start controls (add block + drag handle).
         sideMenu={false}
@@ -1516,6 +1524,12 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
         emojiPicker={false}
         comments={false}
       >
+        {documentIdResolved == null && blockChromeOn ? (
+          <SuggestionMenuController
+            triggerCharacter="/"
+            floatingUIOptions={taskDescriptionSuggestionMenuOptions}
+          />
+        ) : null}
         {mentionDocuments !== undefined ? (
           <SuggestionMenuController<typeof getStructuredMentionItems>
             triggerCharacter="@"
