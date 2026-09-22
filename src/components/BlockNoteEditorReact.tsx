@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import '@blocknote/mantine/style.css'
 import PhotoSwipe from 'photoswipe'
 import { BlockNoteView } from '@blocknote/mantine'
@@ -11,6 +11,7 @@ import {
   type DefaultReactSuggestionItem,
   type SuggestionMenuProps,
 } from '@blocknote/react'
+import { getDefaultReactSlashMenuItems } from '@blocknote/react'
 import {
   BlockNoteSchema,
   defaultBlockSpecs,
@@ -24,6 +25,16 @@ import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
 import { asciiTableToMarkdown, shouldPasteClipboardAsMarkdown } from '../utils/markdownClipboard'
 import { normalizeMermaidRenderError, renderMermaidSvg } from '../utils/mermaidRenderer'
 import type { DocumentImageAsset } from '../types/document'
+import {
+  clonePastedDocumentImageAssets,
+  createDocumentImageUploadResult,
+  formatUploadFeedback,
+  hasDocumentImageAssetPaste,
+  hasExternalImagePaste,
+  hasMarkdownImagePaste,
+  isPastedImageFile,
+  type DocumentImageUploadResult,
+} from './documentImageEditorUtils'
 import { MentionMemberSuggestionMenu } from './MentionMemberSuggestionMenu'
 import {
   StructuredMentionSuggestionMenu,
@@ -203,15 +214,6 @@ type ImagePreviewItem = {
 
 export function buildProjectDocumentMentionHref(projectId: number, documentId: number): string {
   return `/projects/${projectId}/documents/${documentId}`
-}
-
-/** 附件上传占位文本：把 i18n 模板里的 `{name}` 替换为文件名；模板未配置时退回直白文案。 */
-export function formatUploadFeedback(template: string | undefined, fileName: string, fallback: string): string {
-  return template ? template.replace(/\{name\}/g, fileName) : fallback
-}
-
-export function isPastedImageFile(file: Pick<File, 'type'>): boolean {
-  return file.type.startsWith('image/')
 }
 
 function hasNumberedListItem(blocks: readonly any[]): boolean {
@@ -620,23 +622,6 @@ const mentionSpec = createReactInlineContentSpec(
 
 // ─── Document image block ──────────────────────────────────────────────────────
 
-/** 旧式图片块的下载地址：/api/project-documents/{documentId}/attachments/{attachmentId}/download */
-const DOCUMENT_ATTACHMENT_URL_PATTERN =
-  /^\/api\/project-documents\/(\d+)\/attachments\/(\d+)\/download$/
-
-export function parseDocumentAttachmentUrl(url: unknown): { documentId: number; attachmentId: number } | null {
-  if (typeof url !== 'string' || url.length === 0) return null
-  try {
-    const parsed = new URL(url, window.location.origin)
-    if (parsed.origin !== window.location.origin || parsed.search !== '' || parsed.hash !== '') return null
-    const match = parsed.pathname.match(DOCUMENT_ATTACHMENT_URL_PATTERN)
-    if (match == null) return null
-    return { documentId: Number(match[1]), attachmentId: Number(match[2]) }
-  } catch {
-    return null
-  }
-}
-
 type DocumentImageContextValue = {
   resolve: (assetId: number) => DocumentImageAsset | undefined
   onOpenOriginal: (asset: DocumentImageAsset, element: HTMLImageElement) => void
@@ -721,11 +706,26 @@ const documentImageSpec = createReactBlockSpec(
   }
 )()
 
-// Schema shared across all editor instances (includes default text/link + mention,
-// and a code block with a language selector)
-const schema = BlockNoteSchema.create({
+const defaultDocumentBlockSpecs = Object.fromEntries(
+  Object.entries(defaultBlockSpecs).filter(([type]) => type !== 'image'),
+) as Omit<typeof defaultBlockSpecs, 'image'>
+
+// Task descriptions retain the URL-backed image block; document bodies use asset IDs only.
+const taskSchema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
+    codeBlock: codeBlockWithLanguages,
+    documentImage: documentImageSpec,
+  },
+  inlineContentSpecs: {
+    ...defaultInlineContentSpecs,
+    mention: mentionSpec,
+  },
+})
+
+const documentSchema = BlockNoteSchema.create({
+  blockSpecs: {
+    ...defaultDocumentBlockSpecs,
     codeBlock: codeBlockWithLanguages,
     documentImage: documentImageSpec,
   },
@@ -811,10 +811,16 @@ export type BlockNoteEditorReactProps = {
     agentKey?: string | null
   }>
   mentionDocuments?: Array<{ id: number; title: string; projectId: number }>
-  /** Should resolve the uploaded file URL */
+  /** Generic editor file upload. Task descriptions keep URL-backed image blocks. */
   uploadFile?: (file: File) => Promise<string>
   'upload-file'?: (file: File) => Promise<string>
-  /** 当前文档 ID，用于把旧式图片块归一化为文档图片资源。 */
+  /** Document images enter the editor through their resource identity. */
+  uploadImageAsset?: (file: File) => Promise<DocumentImageAsset>
+  externalImagePasteRejectedText?: string
+  documentImageCloneFailedText?: string
+  documentImageMenuLabel?: string
+  imageUploadTypeUnsupportedText?: string
+  /** Current document ID scopes cross-document image cloning. */
   documentId?: number
   'document-id'?: number
   /** 文档图片资源清单：正文图片身份的唯一解析来源。 */
@@ -868,6 +874,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     mentionMembers,
     mentionDocuments,
     uploadFile,
+    uploadImageAsset,
     documentId,
     imageAssets,
     cloneImageAsset,
@@ -882,11 +889,11 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     props.checkPiBridgeOnMention === true || props['check-pi-bridge-on-mention'] === true
 
   const blockChromeOn = blockChrome === true || props['block-chrome'] === true
-
   const taskDescriptionSuggestionMenuOptions = useMemo(
     () => ({ elementProps: { style: { zIndex: taskDescriptionSuggestionMenuLayer } } }),
     [],
   )
+
   const mentionSearchPh =
     props.mentionMenuSearchPlaceholder ?? props['mention-menu-search-placeholder'] ?? ''
   const mentionNoMatchPh =
@@ -903,21 +910,25 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   const documentIdResolved = documentId ?? props['document-id']
   const imageAssetsResolved = imageAssets ?? props['image-assets']
   const cloneImageAssetResolved = cloneImageAsset ?? props['clone-image-asset']
+  const editorSchema = documentIdResolved != null ? documentSchema : taskSchema
 
   const editorRootRef = useRef<HTMLDivElement | null>(null)
   const mermaidLayerRef = useRef<HTMLDivElement | null>(null)
   const uploadFileRef = useRef(uploadFileResolved)
   uploadFileRef.current = uploadFileResolved
+  const uploadImageAssetRef = useRef(uploadImageAsset)
+  uploadImageAssetRef.current = uploadImageAsset
 
   // 正文图片只存 assetId：注册表由文档清单 + 本次会话新上传/复制的资源合并而成。
   const [assetOverrides, setAssetOverrides] = useState<Map<number, DocumentImageAsset>>(new Map())
+  const assetOverridesRef = useRef(assetOverrides)
   const propAssetMap = useMemo(() => {
     const map = new Map<number, DocumentImageAsset>()
     for (const asset of imageAssetsResolved ?? []) map.set(asset.assetId, asset)
     return map
   }, [imageAssetsResolved])
   const resolveAsset = useCallback(
-    (assetId: number) => assetOverrides.get(assetId) ?? propAssetMap.get(assetId),
+    (assetId: number) => assetOverridesRef.current.get(assetId) ?? propAssetMap.get(assetId),
     [assetOverrides, propAssetMap],
   )
   const resolveAssetRef = useRef(resolveAsset)
@@ -927,31 +938,51 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   const documentIdRef = useRef(documentIdResolved)
   documentIdRef.current = documentIdResolved
   const registerAsset = useCallback((asset: DocumentImageAsset) => {
-    setAssetOverrides((previous) => {
-      if (previous.has(asset.assetId)) return previous
-      const next = new Map(previous)
-      next.set(asset.assetId, asset)
-      return next
-    })
+    if (assetOverridesRef.current.has(asset.assetId)) return
+    const next = new Map(assetOverridesRef.current)
+    next.set(asset.assetId, asset)
+    assetOverridesRef.current = next
+    setAssetOverrides(next)
   }, [])
-  const scheduleNormalizeRef = useRef<() => void>(() => {})
 
-  /** BlockNote 只在创建 editor 时读 options；用稳定函数 + ref 承接 Vue 侧晚到或 `upload-file` 命名的回调 */
-  const blockNoteUploadFile = useCallback((file: File) => {
+  /** BlockNote accepts either a URL or replacement block data from its file upload callback. */
+  const blockNoteUploadFile = useCallback(async (file: File) => {
+    if (isPastedImageFile(file)) {
+      const uploadAsset = uploadImageAssetRef.current
+      if (uploadAsset) {
+        const result = await createDocumentImageUploadResult(file, uploadAsset)
+        registerAsset(result.asset)
+        return result.block
+      }
+      if (documentIdRef.current != null) {
+        throw new Error('Document image asset upload not configured')
+      }
+    }
     const fn = uploadFileRef.current
     if (!fn) {
-      return Promise.reject(new Error('uploadFile not configured'))
+      throw new Error('uploadFile not configured')
     }
-    // 上传返回的是下载 URL；上传完成后归一化会把它替换为 documentImage + assetId。
-    return fn(file).then((url) => {
-      scheduleNormalizeRef.current()
-      return url
-    })
-  }, [])
+    return fn(file)
+  }, [registerAsset])
 
   const pasteFileAsLinkResolved = pasteFileAsLink || props['paste-file-as-link'] === true
   const fileUploadingTextResolved = props.fileUploadingText ?? props['file-uploading-text']
   const fileUploadFailedTextResolved = props.fileUploadFailedText ?? props['file-upload-failed-text']
+  const externalImagePasteRejectedTextResolved = props.externalImagePasteRejectedText ??
+    'Images pasted as external links cannot be added. Download the image, then upload it to this document.'
+  const documentImageCloneFailedTextResolved = props.documentImageCloneFailedText ??
+    'A pasted document image could not be copied. Check access to its source document.'
+  const imageUploadTypeUnsupportedTextResolved = props.imageUploadTypeUnsupportedText ??
+    'Choose an image file to insert into this document.'
+  const [imagePasteNotice, setImagePasteNotice] = useState('')
+  const editableRef = useRef(editable)
+  editableRef.current = editable
+  const pasteFileAsLinkRef = useRef(pasteFileAsLinkResolved)
+  pasteFileAsLinkRef.current = pasteFileAsLinkResolved
+  const externalImagePasteRejectedTextRef = useRef(externalImagePasteRejectedTextResolved)
+  externalImagePasteRejectedTextRef.current = externalImagePasteRejectedTextResolved
+  const documentImageCloneFailedTextRef = useRef(documentImageCloneFailedTextResolved)
+  documentImageCloneFailedTextRef.current = documentImageCloneFailedTextResolved
 
   const pasteFiles = useCallback(async (files: File[], editorInstance: any) => {
     const upload = uploadFileRef.current
@@ -973,9 +1004,18 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       ], anchorId, 'after')[0]
       if (placeholder == null) return
       anchorId = placeholder.id
-      let url: string
+      let uploaded: string | DocumentImageUploadResult
       try {
-        url = await upload(file)
+        const uploadAsset = uploadImageAssetRef.current
+        if (isPastedImageFile(file) && uploadAsset) {
+          uploaded = await createDocumentImageUploadResult(file, uploadAsset)
+          registerAsset(uploaded.asset)
+        } else {
+          if (isPastedImageFile(file) && documentIdRef.current != null) {
+            throw new Error('Document image asset upload not configured')
+          }
+          uploaded = await upload(file)
+        }
       } catch {
         // 上传失败：占位块改写为可见错误提示，不再静默吞掉异常。
         if (editorInstance.getBlock(placeholder.id) != null) {
@@ -994,19 +1034,24 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       }
       // 用户可能在上传期间删除了占位块；块已不存在时放弃原地替换，避免抛出异常。
       if (editorInstance.getBlock(placeholder.id) == null) continue
-      const inserted = isPastedImageFile(file)
-        ? editorInstance.updateBlock(placeholder.id, {
-            type: 'image',
-            props: { name: file.name, url },
-          })
+      const inserted = typeof uploaded === 'string'
+        ? isPastedImageFile(file)
+          ? editorInstance.updateBlock(placeholder.id, {
+              type: 'image',
+              props: { name: file.name, url: uploaded },
+            })
+          : editorInstance.updateBlock(placeholder.id, {
+              type: 'paragraph',
+              content: [{ type: 'link', href: uploaded, content: file.name }],
+            })
         : editorInstance.updateBlock(placeholder.id, {
-            type: 'paragraph',
-            content: [{ type: 'link', href: url, content: file.name }],
+            type: uploaded.block.type,
+            props: uploaded.block.props,
           })
       if (inserted == null) continue
       anchorId = inserted.id
     }
-  }, [fileUploadingTextResolved, fileUploadFailedTextResolved])
+  }, [fileUploadingTextResolved, fileUploadFailedTextResolved, registerAsset])
 
   const mentionMembersRef = useRef(mentionMembers)
   mentionMembersRef.current = mentionMembers
@@ -1040,12 +1085,19 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
 
   const editor = useCreateBlockNote(
     {
-      schema,
+      schema: editorSchema,
       uploadFile: blockNoteUploadFile,
       pasteHandler: ({ event, editor, defaultPasteHandler }) => {
         const clipboardData = event.clipboardData
         const clipboardTypes = clipboardData ? Array.from(clipboardData.types) : []
-        if (pasteFileAsLinkResolved && clipboardTypes.includes('Files')) {
+        const hasBlockNoteHtml = clipboardTypes.includes('blocknote/html')
+        const internalHtml = hasBlockNoteHtml ? clipboardData?.getData('blocknote/html') ?? '' : ''
+        const html = hasBlockNoteHtml
+          ? internalHtml
+          : clipboardTypes.includes('text/html')
+            ? clipboardData?.getData('text/html') ?? ''
+            : ''
+        if (pasteFileAsLinkRef.current && clipboardTypes.includes('Files')) {
           const files = clipboardData == null
             ? []
             : Array.from(clipboardData.items)
@@ -1064,6 +1116,25 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
         const isInCodeBlock = editor.transact(
           (tr) => tr.selection.$from.parent.type.spec.code && tr.selection.$to.parent.type.spec.code,
         )
+        if (editableRef.current && documentIdRef.current != null && !isInCodeBlock) {
+          if (hasExternalImagePaste(html) || hasMarkdownImagePaste(plainText)) {
+            setImagePasteNotice(externalImagePasteRejectedTextRef.current)
+            return true
+          }
+          if (hasDocumentImageAssetPaste(html)) {
+            void clonePastedDocumentImageAssets(
+              html,
+              (assetId) => resolveAssetRef.current(assetId),
+              cloneImageAssetRef.current,
+            ).then(({ html: localHtml, clonedAssets }) => {
+              clonedAssets.forEach(registerAsset)
+              editor.pasteHTML(localHtml, internalHtml.length > 0)
+            }).catch(() => {
+              setImagePasteNotice(documentImageCloneFailedTextRef.current)
+            })
+            return true
+          }
+        }
 
         // 外部文档/LLM 常把表格复制成 Unicode 框线文本；先转换成 GFM，避免按多个段落保存。
         const asciiTableMarkdown = !isInCodeBlock ? asciiTableToMarkdown(plainText) : undefined
@@ -1084,99 +1155,87 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       // Use deprecated placeholders until dictionary approach is confirmed stable
       placeholders: placeholder ? { default: placeholder } : undefined,
     },
-    [] // no deps – editor is stable for the component lifetime
+    [editorSchema]
   )
 
-  /**
-   * 正文图片归一化：把旧式 image 块（下载 URL）转为 documentImage（assetId），
-   * 并把跨文档粘贴来的外部 assetId 复制到当前文档后重写。只在客户端改内存块，写盘仍由自动保存完成。
-   */
-  const normalizeDocumentImages = useCallback(async () => {
-    const legacy: Array<{ id: string; attachmentId: number; caption: string }> = []
-    editor.forEachBlock((block: any) => {
-      if (block.type !== 'image') return true
-      const parsed = parseDocumentAttachmentUrl(block.props?.url)
-      if (parsed == null) return true
-      const currentDocumentId = documentIdRef.current
-      if (currentDocumentId != null && parsed.documentId !== currentDocumentId) return true
-      legacy.push({
-        id: block.id,
-        attachmentId: parsed.attachmentId,
-        caption: typeof block.props?.caption === 'string' ? block.props.caption : '',
-      })
-      return true
-    })
-    for (const item of legacy) {
-      if (editor.getBlock(item.id) == null) continue
-      editor.updateBlock(item.id, {
-        type: 'documentImage',
-        props: { imageAssetId: item.attachmentId, caption: item.caption },
-      } as any)
+  const documentImageMenuLabelResolved = props.documentImageMenuLabel ?? 'Image'
+  const imageInsertAnchorRef = useRef<string | null>(null)
+  const documentImageFileInputRef = useRef<HTMLInputElement | null>(null)
+  const openDocumentImagePicker = useCallback(() => {
+    if (!editableRef.current) return
+    const anchor = editor.getTextCursorPosition().block as any
+    imageInsertAnchorRef.current = anchor.id
+    const input = documentImageFileInputRef.current
+    if (!input) return
+    input.value = ''
+    input.click()
+  }, [editor])
+
+  const handleDocumentImageFileChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0]
+    event.currentTarget.value = ''
+    if (!file) return
+    if (!isPastedImageFile(file)) {
+      setImagePasteNotice(imageUploadTypeUnsupportedTextResolved)
+      return
     }
-
-    const clone = cloneImageAssetRef.current
-    if (clone == null) return
-    const foreignAssetIds = new Set<number>()
-    editor.forEachBlock((block: any) => {
-      if (block.type !== 'documentImage') return true
-      const assetId = Number(block.props?.imageAssetId ?? 0)
-      if (assetId > 0 && resolveAssetRef.current(assetId) == null) foreignAssetIds.add(assetId)
-      return true
-    })
-    for (const foreignAssetId of foreignAssetIds) {
-      let cloned: DocumentImageAsset
-      try {
-        cloned = await clone(foreignAssetId)
-      } catch {
-        // 无权访问源文档或复制失败时保留占位，不写回退地址。
-        continue
-      }
-      if (cloned == null) continue
-      registerAsset(cloned)
-      const blockIds: string[] = []
-      editor.forEachBlock((block: any) => {
-        if (block.type === 'documentImage' && Number(block.props?.imageAssetId ?? 0) === foreignAssetId) {
-          blockIds.push(block.id)
-        }
-        return true
-      })
-      for (const blockId of blockIds) {
-        if (editor.getBlock(blockId) == null) continue
-        editor.updateBlock(blockId, { props: { imageAssetId: cloned.assetId } } as any)
-      }
+    const uploadAsset = uploadImageAssetRef.current
+    if (!uploadAsset) {
+      setImagePasteNotice(formatUploadFeedback(
+        fileUploadFailedTextResolved,
+        file.name,
+        `Uploading ${file.name} failed`,
+      ))
+      return
     }
-  }, [editor, registerAsset])
-
-  const normalizeTimerRef = useRef<ReturnType<typeof window.setTimeout> | undefined>(undefined)
-  const normalizeInFlightRef = useRef(false)
-
-  const runNormalize = useCallback(() => {
-    if (normalizeInFlightRef.current) return
-    normalizeInFlightRef.current = true
-    void normalizeDocumentImages().finally(() => {
-      normalizeInFlightRef.current = false
-    })
-  }, [normalizeDocumentImages])
-
-  const scheduleNormalize = useCallback(() => {
-    if (normalizeTimerRef.current != null) return
-    normalizeTimerRef.current = window.setTimeout(() => {
-      normalizeTimerRef.current = undefined
-      runNormalize()
-    }, 150)
-  }, [runNormalize])
-
-  scheduleNormalizeRef.current = scheduleNormalize
-
-  useEffect(() => {
-    scheduleNormalize()
-    return () => {
-      if (normalizeTimerRef.current != null) {
-        window.clearTimeout(normalizeTimerRef.current)
-        normalizeTimerRef.current = undefined
+    const anchorId = imageInsertAnchorRef.current
+    if (!anchorId) return
+    try {
+      const result = await createDocumentImageUploadResult(file, uploadAsset)
+      registerAsset(result.asset)
+      const anchor = editor.getBlock(anchorId) as any
+      if (!anchor) {
+        setImagePasteNotice(formatUploadFeedback(
+          fileUploadFailedTextResolved,
+          file.name,
+          `Uploading ${file.name} failed`,
+        ))
+        return
       }
+      const content = anchor.content
+      const anchorIsEmptyParagraph = anchor.type === 'paragraph' && (
+        !Array.isArray(content) || content.length === 0 || (
+          content.length === 1 && content[0]?.type === 'text' && !content[0]?.text
+        )
+      )
+      if (anchorIsEmptyParagraph) {
+        editor.updateBlock(anchorId, {
+          type: result.block.type,
+          props: result.block.props,
+        } as any)
+      } else {
+        editor.insertBlocks([result.block] as any, anchorId, 'after')
+      }
+      setImagePasteNotice('')
+      editor.focus()
+    } catch {
+      setImagePasteNotice(formatUploadFeedback(
+        fileUploadFailedTextResolved,
+        file.name,
+        `Uploading ${file.name} failed`,
+      ))
     }
-  }, [scheduleNormalize, imageAssetsResolved, documentIdResolved])
+  }, [editor, fileUploadFailedTextResolved, imageUploadTypeUnsupportedTextResolved, registerAsset])
+
+  const getDocumentSlashItems = useCallback(async (query: string): Promise<DefaultReactSuggestionItem[]> => {
+    const imageItem: DefaultReactSuggestionItem = {
+      title: documentImageMenuLabelResolved,
+      aliases: ['image', '图片'],
+      icon: <span aria-hidden="true">▧</span>,
+      onItemClick: openDocumentImagePicker,
+    }
+    return filterSuggestionItems([...getDefaultReactSlashMenuItems(editor), imageItem], query)
+  }, [documentImageMenuLabelResolved, editor, openDocumentImagePicker])
 
   const openOriginal = useCallback((asset: DocumentImageAsset, element: HTMLImageElement) => {
     const pswp = new PhotoSwipe({
@@ -1259,7 +1318,6 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     const jsonString = JSON.stringify(editor.document)
     const mentionedIds = extractMentionIdsFromBlocks(editor.document as unknown as AnyBlock[])
     onChangeRef.current?.(jsonString, mentionedIds)
-    scheduleNormalizeRef.current()
   }, [editor])
 
   useEffect(() => {
@@ -1553,7 +1611,28 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
             }}
           />
         )}
+        {documentIdResolved != null && editable ? (
+          <SuggestionMenuController
+            triggerCharacter="/"
+            getItems={getDocumentSlashItems}
+          />
+        ) : null}
       </BlockNoteView>
+        {documentIdResolved != null && editable ? (
+          <input
+            ref={documentImageFileInputRef}
+            type="file"
+            accept="image/*"
+            aria-label={documentImageMenuLabelResolved}
+            style={{ display: 'none' }}
+            onChange={handleDocumentImageFileChange}
+          />
+        ) : null}
+        {imagePasteNotice ? (
+          <div className="bn-image-paste-notice" role="alert" aria-live="polite">
+            {imagePasteNotice}
+          </div>
+        ) : null}
         <div ref={mermaidLayerRef} className="bn-mermaid-preview-layer" aria-hidden="false" />
       </div>
     </DocumentImageContext.Provider>
