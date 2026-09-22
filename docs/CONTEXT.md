@@ -127,11 +127,14 @@ _Avoid_: Message、Prompt（Prompt 只指发送给 Pi 的文本）
 **Job（执行作业）**：一次 Turn 被提交后形成的可投递、可执行、可追踪的执行单元。
 _Avoid_: Task（Job 不是业务任务）
 
-**Bridge（本地 Bridge）**：运行在用户电脑上的本地连接进程，负责领取属于当前执行授权的 Job、启动 Pi 会话并回传执行状态。
+**Bridge（本地 Bridge）**：运行在用户电脑上的本地连接进程，负责连接 Linear Lite 与本机 Pi、启动 Pi 会话并转发执行状态。Bridge 不判断用户、项目或任务权限。
 _Avoid_: Agent、Runner、Worker（除非讨论通用后台组件）
 
-**Execution Attachment（执行授权绑定）**：当前登录用户为执行上下文建立的一次性本地授权关系，用于让 Bridge 代表该用户领取对应 Job。
-_Avoid_: Credential、Token、Agent Assignment
+**Local Execution Configuration（本地执行配置）**：用户为某个项目选择本地目录并确认 Bridge 可用后形成的设备侧配置。目录只保存在本机，不形成项目权限。
+_Avoid_: Project Binding、Execution Attachment、Workspace Mapping
+
+**Execution Credential（执行凭据）**：Linear Lite 在校验用户和任务权限后，为单个执行上下文签发的短期凭据。Bridge 只携带凭据，不解释权限。
+_Avoid_: Attachment Code、Project Credential、Bridge Permission
 
 ## 视图与呈现
 
