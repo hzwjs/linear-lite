@@ -9,6 +9,7 @@ import type {
   ProjectDocumentTreeNode
 } from '../../types/document'
 import type { ProjectContentSearchResult } from '../../types/search'
+import { uploadDocumentAttachment, type DocumentUploadOptions } from './documentAttachmentUpload'
 
 const UTF8_FILENAME_PATTERN = /(?:^|;)\s*filename\*=UTF-8''([^;]+)(?:;|$)/i
 
@@ -53,14 +54,8 @@ export function getDocumentConflict(error: unknown): DocumentConflict | null {
 }
 
 export const documentApi = {
-  uploadAttachment(documentId: number, file: File): Promise<ProjectDocumentAttachment> {
-    const formData = new FormData()
-    formData.append('file', file)
-    return api
-      .post<ApiResponse<ProjectDocumentAttachment>>(`/project-documents/${documentId}/attachments`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
-      .then(unwrap)
+  uploadAttachment(documentId: number, file: File, options?: DocumentUploadOptions): Promise<ProjectDocumentAttachment> {
+    return uploadDocumentAttachment(documentId, file, options)
   },
 
   /** 把其它文档的图片附件复制到当前文档，保证正文图片身份与文档归属一致。 */

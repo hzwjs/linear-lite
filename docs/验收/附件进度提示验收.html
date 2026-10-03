@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>附件进度提示验收</title>
+<body>
+  <main style="max-width:800px;margin:32px auto;padding:16px">
+    <h1>源码</h1>
+    <div id="app"></div>
+  </main>
+  <script type="module">
+    import { createApp, h, ref } from 'vue'
+    import StructuredDocumentEditor from '/src/components/StructuredDocumentEditor.vue'
+    import { documentApi } from '/src/services/api/documents.ts'
+    import { i18n } from '/src/i18n/index.ts'
+    import '/src/style.css'
+    const value = ref('')
+    window.acceptanceContent = value
+    // 界面验收固定传输进度，不创建服务端附件。
+    documentApi.uploadAttachment = (documentId, file, options) => new Promise(resolve => {
+      options.onProgress({stage:'uploading',loaded:Math.min(file.size,24*1024*1024)})
+      window.finishAcceptanceUpload = () => resolve({
+        id:31, documentId, fileName:file.name, contentType:file.type,
+        url:'/api/project-documents/900001/attachments/31/download',
+      })
+    })
+    createApp({ setup: () => () => h(StructuredDocumentEditor, {
+      documentId:900001, modelValue:value.value, pasteFileAsLink:true,
+      placeholder:'开始编写内容，输入 / 查看更多操作…',
+      'onUpdate:modelValue': content => { value.value = content },
+    }) }).use(i18n).mount('#app')
+  </script>
+</body>
+</html>

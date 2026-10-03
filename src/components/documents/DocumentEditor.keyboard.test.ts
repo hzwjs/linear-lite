@@ -1,9 +1,12 @@
 import { createApp, defineComponent, h, nextTick } from 'vue'
 import { createI18n } from 'vue-i18n'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import DocumentEditor from './DocumentEditor.vue'
 
 const focus = vi.fn()
+
+beforeEach(() => { vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }) })
+afterEach(() => { vi.unstubAllGlobals() })
 
 vi.mock('../StructuredDocumentEditor.vue', () => ({
   default: defineComponent({

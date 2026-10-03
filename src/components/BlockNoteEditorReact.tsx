@@ -798,7 +798,7 @@ export interface EditorApi {
   removeAttachmentLink: (href: string) => boolean
 }
 
-/** Vue/veaury 可能以 `upload-file` 传入，与 React 的 `uploadFile` 并存 */
+/** Vue 桥接层使用驼峰字段传递编辑器属性。 */
 export type BlockNoteEditorReactProps = {
   /** BlockNote 存库的 JSON（Block[]）或 Markdown 文本（含以 `[` 开头的链接等） */
   initialContent?: string
@@ -813,7 +813,6 @@ export type BlockNoteEditorReactProps = {
   mentionDocuments?: Array<{ id: number; title: string; projectId: number }>
   /** Generic editor file upload. Task descriptions keep URL-backed image blocks. */
   uploadFile?: (file: File) => Promise<string>
-  'upload-file'?: (file: File) => Promise<string>
   /** Document images enter the editor through their resource identity. */
   uploadImageAsset?: (file: File) => Promise<DocumentImageAsset>
   externalImagePasteRejectedText?: string
@@ -822,48 +821,29 @@ export type BlockNoteEditorReactProps = {
   imageUploadTypeUnsupportedText?: string
   /** Current document ID scopes cross-document image cloning. */
   documentId?: number
-  'document-id'?: number
   /** 文档图片资源清单：正文图片身份的唯一解析来源。 */
   imageAssets?: DocumentImageAsset[]
-  'image-assets'?: DocumentImageAsset[]
   /** 跨文档粘贴图片时把资源复制到当前文档。 */
   cloneImageAsset?: (assetId: number) => Promise<DocumentImageAsset>
-  'clone-image-asset'?: (assetId: number) => Promise<DocumentImageAsset>
   /** 文档中的普通附件粘贴后写入链接块，图片粘贴后写入可预览的图片块。 */
   pasteFileAsLink?: boolean
-  'paste-file-as-link'?: boolean
-  /** 附件上传中的占位文本模板，`{name}` 替换为文件名（由 Vue i18n 传入）。 */
-  fileUploadingText?: string
-  'file-uploading-text'?: string
   /** 附件上传失败的占位文本模板，`{name}` 替换为文件名（由 Vue i18n 传入）。 */
   fileUploadFailedText?: string
-  'file-upload-failed-text'?: string
   /** Called on every document change with serialized JSON and mentioned user IDs */
   onChange?: (jsonString: string, mentionedUserIds: number[]) => void
-  'on-change'?: (jsonString: string, mentionedUserIds: number[]) => void
   onBlur?: () => void
-  'on-blur'?: () => void
   onFocus?: () => void
-  'on-focus'?: () => void
   /** Called once when the editor is mounted, receives imperative API */
   onInit?: (api: EditorApi) => void
-  'on-init'?: (api: EditorApi) => void
   /** 任务描述：`/` slash 菜单与表格控制；其它场景保持关闭以减小干扰 */
   blockChrome?: boolean
-  'block-chrome'?: boolean
   /** `@` 成员菜单顶栏占位（与清单「搜索成员」一致，由 Vue i18n 传入） */
   mentionMenuSearchPlaceholder?: string
-  'mention-menu-search-placeholder'?: string
   mentionMenuNoMatchesText?: string
-  'mention-menu-no-matches-text'?: string
   mentionMenuLoadingText?: string
-  'mention-menu-loading-text'?: string
   mentionMembersGroupText?: string
-  'mention-members-group-text'?: string
   mentionDocumentsGroupText?: string
-  'mention-documents-group-text'?: string
   checkPiBridgeOnMention?: boolean
-  'check-pi-bridge-on-mention'?: boolean
 }
 
 export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
@@ -886,30 +866,30 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   } = props
 
   const checkPiBridgeOnMention =
-    props.checkPiBridgeOnMention === true || props['check-pi-bridge-on-mention'] === true
+    props.checkPiBridgeOnMention === true
 
-  const blockChromeOn = blockChrome === true || props['block-chrome'] === true
+  const blockChromeOn = blockChrome === true
   const taskDescriptionSuggestionMenuOptions = useMemo(
     () => ({ elementProps: { style: { zIndex: taskDescriptionSuggestionMenuLayer } } }),
     [],
   )
 
   const mentionSearchPh =
-    props.mentionMenuSearchPlaceholder ?? props['mention-menu-search-placeholder'] ?? ''
+    props.mentionMenuSearchPlaceholder ?? ''
   const mentionNoMatchPh =
-    props.mentionMenuNoMatchesText ?? props['mention-menu-no-matches-text'] ?? ''
+    props.mentionMenuNoMatchesText ?? ''
   const mentionLoadingPh =
-    props.mentionMenuLoadingText ?? props['mention-menu-loading-text'] ?? '…'
+    props.mentionMenuLoadingText ?? '…'
   const mentionMembersGroup =
-    props.mentionMembersGroupText ?? props['mention-members-group-text'] ?? 'Members'
+    props.mentionMembersGroupText ?? 'Members'
   const mentionDocumentsGroup =
-    props.mentionDocumentsGroupText ?? props['mention-documents-group-text'] ?? 'Documents'
+    props.mentionDocumentsGroupText ?? 'Documents'
 
   const uploadFileResolved =
-    uploadFile ?? props['upload-file']
-  const documentIdResolved = documentId ?? props['document-id']
-  const imageAssetsResolved = imageAssets ?? props['image-assets']
-  const cloneImageAssetResolved = cloneImageAsset ?? props['clone-image-asset']
+    uploadFile
+  const documentIdResolved = documentId
+  const imageAssetsResolved = imageAssets
+  const cloneImageAssetResolved = cloneImageAsset
   const editorSchema = documentIdResolved != null ? documentSchema : taskSchema
 
   const editorRootRef = useRef<HTMLDivElement | null>(null)
@@ -965,9 +945,8 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     return fn(file)
   }, [registerAsset])
 
-  const pasteFileAsLinkResolved = pasteFileAsLink || props['paste-file-as-link'] === true
-  const fileUploadingTextResolved = props.fileUploadingText ?? props['file-uploading-text']
-  const fileUploadFailedTextResolved = props.fileUploadFailedText ?? props['file-upload-failed-text']
+  const pasteFileAsLinkResolved = pasteFileAsLink
+  const fileUploadFailedTextResolved = props.fileUploadFailedText
   const externalImagePasteRejectedTextResolved = props.externalImagePasteRejectedText ??
     'Images pasted as external links cannot be added. Download the image, then upload it to this document.'
   const documentImageCloneFailedTextResolved = props.documentImageCloneFailedText ??
@@ -989,21 +968,8 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     if (!upload) throw new Error('uploadFile not configured')
     let anchorId = editorInstance.getTextCursorPosition().block.id
     for (const file of files) {
-      // 粘贴瞬间先插入“上传中”占位块，图片上传完成后原地替换为图片块，普通文件仍替换为附件链接卡片。
-      const placeholder = editorInstance.insertBlocks([
-        {
-          type: 'paragraph',
-          content: [
-            {
-              type: 'text',
-              text: formatUploadFeedback(fileUploadingTextResolved, file.name, `Uploading ${file.name}…`),
-              styles: { textColor: 'gray' },
-            },
-          ],
-        },
-      ], anchorId, 'after')[0]
-      if (placeholder == null) return
-      anchorId = placeholder.id
+      // 上传状态由进度卡片展示，正文在上传完成后插入附件。
+      if (editorInstance.getBlock(anchorId) == null) return
       let uploaded: string | DocumentImageUploadResult
       try {
         const uploadAsset = uploadImageAssetRef.current
@@ -1017,60 +983,40 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
           uploaded = await upload(file)
         }
       } catch {
-        // 上传失败：占位块改写为可见错误提示，不再静默吞掉异常。
-        if (editorInstance.getBlock(placeholder.id) != null) {
-          editorInstance.updateBlock(placeholder.id, {
-            type: 'paragraph',
-            content: [
-              {
-                type: 'text',
-                text: formatUploadFeedback(fileUploadFailedTextResolved, file.name, `Uploading ${file.name} failed`),
-                styles: { textColor: 'red' },
-              },
-            ],
-          })
-        }
+        // 上传队列负责失败、重试与取消；这些状态不写入正文。
         continue
       }
-      // 用户可能在上传期间删除了占位块；块已不存在时放弃原地替换，避免抛出异常。
-      if (editorInstance.getBlock(placeholder.id) == null) continue
-      const inserted = typeof uploaded === 'string'
+      // 用户删除插入位置后不插入附件，避免落到其它段落。
+      if (editorInstance.getBlock(anchorId) == null) return
+      const block = typeof uploaded === 'string'
         ? isPastedImageFile(file)
-          ? editorInstance.updateBlock(placeholder.id, {
-              type: 'image',
-              props: { name: file.name, url: uploaded },
-            })
-          : editorInstance.updateBlock(placeholder.id, {
-              type: 'paragraph',
-              content: [{ type: 'link', href: uploaded, content: file.name }],
-            })
-        : editorInstance.updateBlock(placeholder.id, {
-            type: uploaded.block.type,
-            props: uploaded.block.props,
-          })
-      if (inserted == null) continue
+          ? { type: 'image', props: { name: file.name, url: uploaded } }
+          : { type: 'paragraph', content: [{ type: 'link', href: uploaded, content: file.name }] }
+        : uploaded.block
+      const inserted = editorInstance.insertBlocks([block], anchorId, 'after')[0]
+      if (inserted == null) return
       anchorId = inserted.id
     }
-  }, [fileUploadingTextResolved, fileUploadFailedTextResolved, registerAsset])
+  }, [registerAsset])
 
   const mentionMembersRef = useRef(mentionMembers)
   mentionMembersRef.current = mentionMembers
   const mentionDocumentsRef = useRef(mentionDocuments)
   mentionDocumentsRef.current = mentionDocuments
 
-  const onChangeResolved = onChange ?? props['on-change']
+  const onChangeResolved = onChange
   const onChangeRef = useRef(onChangeResolved)
   onChangeRef.current = onChangeResolved
 
-  const onBlurResolved = onBlur ?? props['on-blur']
+  const onBlurResolved = onBlur
   const onBlurRef = useRef(onBlurResolved)
   onBlurRef.current = onBlurResolved
 
-  const onFocusResolved = props.onFocus ?? props['on-focus']
+  const onFocusResolved = props.onFocus
   const onFocusRef = useRef(onFocusResolved)
   onFocusRef.current = onFocusResolved
 
-  const onInitResolved = onInit ?? props['on-init']
+  const onInitResolved = onInit
   const onInitRef = useRef(onInitResolved)
   onInitRef.current = onInitResolved
 

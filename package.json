@@ -20,6 +20,7 @@
     "@shikijs/engine-javascript": "^4.3.1",
     "@shikijs/langs": "^4.3.1",
     "@shikijs/themes": "^4.3.1",
+    "@tiptap/pm": "3.22.3",
     "axios": "^1.13.6",
     "dompurify": "^3.4.0",
     "frappe-gantt": "^1.2.2",

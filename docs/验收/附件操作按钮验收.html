@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>附件操作按钮验收</title>
+<body>
+  <div id="app" style="height:100vh"></div>
+  <script type="module">
+    import { createApp, h, reactive, ref } from 'vue'
+    import DocumentEditor from '/src/components/documents/DocumentEditor.vue'
+    import { documentApi } from '/src/services/api/documents.ts'
+    import { i18n } from '/src/i18n/index.ts'
+    import '/src/style.css'
+    const link = (id, name) => ({id:`attachment-${id}`,type:'paragraph',content:[{type:'link',href:`/api/project-documents/12/attachments/${id}/download`,content:name}],children:[]})
+    const doc = reactive({id:12,projectId:7,parentDocumentId:null,title:'源码',content:JSON.stringify([link(34,'easygo.zip'),link(35,'长文件名用于验证省略与按钮位置的源码归档文件.zip')]),imageAssets:[],creatorId:1,lastEditorId:1,archivedAt:null,createdAt:'2026-09-30T14:00:00+08:00',updatedAt:'2026-09-30T14:00:00+08:00',version:1,sortOrder:0})
+    const saveState = ref('idle')
+    window.setAcceptanceReadOnly = value => { saveState.value = value ? 'conflict' : 'idle' }
+    window.acceptanceCalls = {download:[],delete:[]}
+    // 使用产品组件和事件链路；请求替身保留等待状态供界面验收。
+    documentApi.downloadAttachment = (docId,id) => new Promise(resolve => {
+      window.acceptanceCalls.download.push([docId,id])
+      window.finishAcceptanceDownload = resolve
+    })
+    documentApi.deleteAttachment = (docId,id) => new Promise(resolve => {
+      window.acceptanceCalls.delete.push([docId,id])
+      window.finishAcceptanceDelete = resolve
+    })
+    createApp({setup:() => () => h(DocumentEditor, {
+      document:doc,treeNodes:[],saveState:saveState.value,conflictVersion:2,
+      mentionMembers:[{id:1,label:'黄志文'}],mentionDocuments:[],
+      onUpdateContent:content => {doc.content=content},
+    })}).use(i18n).mount('#app')
+  </script>
+</body>
+</html>

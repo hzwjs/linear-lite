@@ -48,8 +48,6 @@ const props = withDefaults(
     documentId?: number
     imageAssets?: DocumentImageAsset[]
     cloneImageAsset?: (assetId: number) => Promise<DocumentImageAsset>
-    /** 附件上传中的占位文本模板，`{name}` 替换为文件名（由 Vue i18n 传入）。 */
-    fileUploadingText?: string
     /** 附件上传失败的占位文本模板，`{name}` 替换为文件名（由 Vue i18n 传入）。 */
     fileUploadFailedText?: string
   }>(),
@@ -184,7 +182,6 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmen
       :imageAssets="imageAssets"
       :cloneImageAsset="cloneImageAsset"
       :pasteFileAsLink="pasteFileAsLink"
-      :fileUploadingText="fileUploadingText"
       :fileUploadFailedText="fileUploadFailedText"
       :onChange="handleChange"
       :onBlur="handleBlur"

@@ -3,6 +3,8 @@ import { computed, ref, watch } from 'vue'
 import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
 import { documentApi } from '../services/api/documents'
 import type { DocumentImageAsset, ProjectDocumentAttachment } from '../types/document'
+import DocumentAttachmentUploadList from './documents/DocumentAttachmentUploadList.vue'
+import { useDocumentAttachmentUploads } from './documents/useDocumentAttachmentUploads'
 
 const props = withDefaults(
   defineProps<{
@@ -15,8 +17,6 @@ const props = withDefaults(
     mentionDocuments?: Array<{ id: number; title: string; projectId: number }>
     /** 文档图片资源清单：正文图片身份的唯一解析来源。 */
     imageAssets?: DocumentImageAsset[]
-    /** 附件上传中的占位文本模板，`{name}` 替换为文件名。 */
-    fileUploadingText?: string
     /** 附件上传失败的占位文本模板，`{name}` 替换为文件名。 */
     fileUploadFailedText?: string
   }>(),
@@ -36,6 +36,8 @@ const emit = defineEmits<{
 }>()
 
 const editorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
+const attachmentUploads = useDocumentAttachmentUploads()
+const uploadJobs = attachmentUploads.jobs
 // 本次打开期间新上传/复制的图片资源；服务端清单未刷新前先本地补全，避免出现无地址占位。
 const sessionAssets = ref<DocumentImageAsset[]>([])
 
@@ -62,7 +64,7 @@ async function handleUploadFile(file: File): Promise<string> {
     throw new Error('Document images must be uploaded as image assets')
   }
   // 文档附件必须走文档专属接口，普通图片上传接口不会创建附件元数据。
-  const attachment = await documentApi.uploadAttachment(props.documentId, file)
+  const attachment = await attachmentUploads.upload(props.documentId, file)
   if (attachment.contentType?.startsWith('image/')) {
     throw new Error('Document images must use the image asset upload callback')
   }
@@ -70,7 +72,7 @@ async function handleUploadFile(file: File): Promise<string> {
 }
 
 async function handleUploadImageAsset(file: File): Promise<DocumentImageAsset> {
-  const attachment = await documentApi.uploadAttachment(props.documentId, file)
+  const attachment = await attachmentUploads.upload(props.documentId, file)
   if (!attachment.contentType?.startsWith('image/')) {
     throw new Error('The uploaded document attachment is not an image')
   }
@@ -103,6 +105,7 @@ defineExpose({ focus, removeAttachmentLink })
 </script>
 
 <template>
+  <DocumentAttachmentUploadList :jobs="uploadJobs" @retry="attachmentUploads.retry" @cancel="attachmentUploads.cancel" />
   <BlockNoteEditorWrapper
     ref="editorRef"
     class="structured-document-editor"
@@ -117,7 +120,6 @@ defineExpose({ focus, removeAttachmentLink })
     :image-assets="mergedImageAssets"
     :clone-image-asset="handleCloneImageAsset"
     :paste-file-as-link="pasteFileAsLink"
-    :file-uploading-text="fileUploadingText"
     :file-upload-failed-text="fileUploadFailedText"
     :readonly="readonly"
     :placeholder="placeholder"

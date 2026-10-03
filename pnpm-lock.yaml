@@ -32,6 +32,9 @@ importers:
       '@shikijs/themes':
         specifier: ^4.3.1
         version: 4.4.3
+      '@tiptap/pm':
+        specifier: 3.22.3
+        version: 3.22.3
       axios:
         specifier: ^1.13.6
         version: 1.13.6(debug@4.4.3)

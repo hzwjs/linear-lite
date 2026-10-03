@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Archive, Check, Clock3, Copy, FileDown, Loader2, MoreHorizontal, RefreshCw, Star, TriangleAlert } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Archive, Check, Clock3, Copy, Download, FileDown, Loader2, MoreHorizontal, RefreshCw, Star, Trash2, TriangleAlert } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StructuredDocumentEditor from '../StructuredDocumentEditor.vue'
 import DocumentMinimap from './DocumentMinimap.vue'
@@ -43,16 +43,20 @@ const documentPageRef = ref<HTMLElement | null>(null)
 const documentBodyRef = ref<HTMLElement | null>(null)
 const documentEditorSurfaceRef = ref<HTMLElement | null>(null)
 const attachmentDownloadError = ref('')
-const attachmentDownloadPending = ref(false)
-const attachmentDeletePending = new Set<number>()
+const attachmentDownloadPending = reactive(new Set<number>())
+const attachmentDeletePending = reactive(new Set<number>())
+const activeAttachmentHref = ref('')
 const attachmentOverlays = ref<Array<{
   key: string
   href: string
   attachmentId: number
+  name: string
   style: Record<string, string>
 }>>([])
 const relativeTimeClock = ref(Date.now())
 let attachmentOverlayObserver: MutationObserver | null = null
+let attachmentResizeObserver: ResizeObserver | null = null
+const observedAttachmentAnchors = new Set<HTMLAnchorElement>()
 let relativeTimeTimer: ReturnType<typeof setInterval> | null = null
 let restorePdfExportState: (() => void) | null = null
 
@@ -78,28 +82,41 @@ function onMoreMenuOutsideClick(event: MouseEvent) {
   moreOpen.value = false
 }
 
-// BlockNote owns the surface DOM; 附件删除控件定位在兄弟 overlay 中。
+// BlockNote 管理正文 DOM；附件操作放在兄弟 overlay，避免干扰文本编辑。
 function syncAttachmentOverlays() {
   const body = documentBodyRef.value
   const surface = documentEditorSurfaceRef.value
   if (body == null || surface == null) return
   const bodyRect = body.getBoundingClientRect()
   const overlays: typeof attachmentOverlays.value = []
+  const anchors = new Set<HTMLAnchorElement>()
 
-  if (props.saveState !== 'conflict') for (const anchor of surface.querySelectorAll<HTMLAnchorElement>('a[href]')) {
+  for (const [index, anchor] of [...surface.querySelectorAll<HTMLAnchorElement>('a[href]')].entries()) {
     const href = anchor.getAttribute('href')
     const match = matchDocumentAttachmentPath(href)
     if (match == null || Number(match[1]) !== props.document.id) continue
+    anchors.add(anchor)
+    if (!observedAttachmentAnchors.has(anchor) && attachmentResizeObserver != null) {
+      attachmentResizeObserver.observe(anchor)
+      observedAttachmentAnchors.add(anchor)
+    }
     const rect = anchor.getBoundingClientRect()
     overlays.push({
-      key: `delete-${href}`,
+      key: `${href}-${index}`,
       href: href ?? '',
       attachmentId: Number(match[2]),
+      name: anchor.textContent?.trim() ?? '',
       style: {
-        top: `${rect.top - bodyRect.top + (rect.height - 44) / 2}px`,
-        left: `${rect.right - bodyRect.left - 52}px`
+        top: `${rect.top - bodyRect.top + rect.height / 2}px`,
+        left: `${rect.right - bodyRect.left}px`
       }
     })
+  }
+
+  for (const anchor of observedAttachmentAnchors) {
+    if (anchors.has(anchor)) continue
+    attachmentResizeObserver?.unobserve(anchor)
+    observedAttachmentAnchors.delete(anchor)
   }
 
   attachmentOverlays.value = overlays
@@ -117,6 +134,9 @@ onMounted(async () => {
     syncAttachmentOverlays()
   })
   attachmentOverlayObserver.observe(surface, { childList: true, subtree: true })
+  // 页面缩放与窗口变宽会改变附件位置，布局变化时更新操作区。
+  attachmentResizeObserver = new ResizeObserver(syncAttachmentOverlays)
+  attachmentResizeObserver.observe(surface)
   syncAttachmentOverlays()
 })
 watch(
@@ -135,6 +155,9 @@ onBeforeUnmount(() => {
   restorePdfExportState?.()
   attachmentOverlayObserver?.disconnect()
   attachmentOverlayObserver = null
+  attachmentResizeObserver?.disconnect()
+  attachmentResizeObserver = null
+  observedAttachmentAnchors.clear()
   attachmentOverlays.value = []
 })
 
@@ -192,7 +215,7 @@ function exportPdf() {
 }
 
 function handleDocumentBodyMouseDown(event: MouseEvent) {
-  if (event.target instanceof Element && event.target.closest('.document-attachment-delete') != null) {
+  if (event.target instanceof Element && event.target.closest('.document-attachment-action') != null) {
     event.stopPropagation()
     return
   }
@@ -205,11 +228,11 @@ async function handleDocumentAttachmentDelete(href: string, attachmentId: number
   const match = matchDocumentAttachmentPath(href)
   if (match == null) return
   const documentId = Number(match[1])
-  if (documentId !== props.document.id || attachmentDeletePending.has(attachmentId)) return
+  if (props.saveState === 'conflict' || documentId !== props.document.id ||
+    attachmentDeletePending.has(attachmentId) || attachmentDownloadPending.has(attachmentId)) return
 
   attachmentDownloadError.value = ''
   attachmentDeletePending.add(attachmentId)
-  syncAttachmentOverlays()
   try {
     await documentApi.deleteAttachment(documentId, attachmentId)
     bodyEditorRef.value?.removeAttachmentLink(href)
@@ -217,47 +240,50 @@ async function handleDocumentAttachmentDelete(href: string, attachmentId: number
     attachmentDownloadError.value = t('attachments.deleteFailed')
   } finally {
     attachmentDeletePending.delete(attachmentId)
-    syncAttachmentOverlays()
   }
 }
 
+function handleAttachmentInteraction(event: Event) {
+  if (!(event.target instanceof Element)) return
+  const group = event.target.closest<HTMLElement>('.document-attachment-actions')
+  const anchor = event.target.closest<HTMLAnchorElement>('a[href]')
+  activeAttachmentHref.value = group != null
+    ? group.dataset.attachmentHref ?? ''
+    : anchor != null && matchDocumentAttachmentPath(anchor.getAttribute('href')) != null
+      ? anchor.getAttribute('href') ?? ''
+      : ''
+}
+
 async function handleDocumentBodyClick(event: MouseEvent) {
-  if (event.target instanceof Element) {
-    const deleteButton = event.target.closest<HTMLButtonElement>('.document-attachment-delete')
-    if (deleteButton != null && documentBodyRef.value?.contains(deleteButton)) {
-      event.preventDefault()
-      event.stopPropagation()
-      void handleDocumentAttachmentDelete(
-        deleteButton.dataset.attachmentHref ?? '',
-        Number(deleteButton.dataset.attachmentId ?? '')
-      )
-      return
-    }
-  }
+  // 操作按钮用自己的 click 处理函数；正文捕获阶段不接管按钮。
+  if (event.target instanceof Element && event.target.closest('.document-attachment-action') != null) return
   const match = matchDocumentAttachmentEvent(event)
   if (match == null) return
 
   // 只接管附件路由，并阻止 Tiptap 的链接处理器再次通过 window.open 打开未鉴权地址。
   event.preventDefault()
   event.stopPropagation()
-  const documentId = Number(match[1])
-  const attachmentId = Number(match[2])
+  await handleDocumentAttachmentDownload(Number(match[1]), Number(match[2]))
+}
+
+async function handleDocumentAttachmentDownload(documentId: number, attachmentId: number) {
   if (documentId !== props.document.id) {
     attachmentDownloadError.value = t('documents.attachmentDocumentMismatch')
     return
   }
-  if (attachmentDownloadPending.value) return
+  if (attachmentDownloadPending.has(attachmentId) || attachmentDeletePending.has(attachmentId)) return
 
   attachmentDownloadError.value = ''
-  attachmentDownloadPending.value = true
+  attachmentDownloadPending.add(attachmentId)
   try {
     await documentApi.downloadAttachment(documentId, attachmentId)
   } catch {
     attachmentDownloadError.value = t('attachments.downloadFailed')
   } finally {
-    attachmentDownloadPending.value = false
+    attachmentDownloadPending.delete(attachmentId)
   }
 }
+
 </script>
 
 <template>
@@ -369,6 +395,10 @@ async function handleDocumentBodyClick(event: MouseEvent) {
         class="document-editor__body"
         @mousedown.capture="handleDocumentBodyMouseDown"
         @click.capture="handleDocumentBodyClick"
+        @pointerover="handleAttachmentInteraction"
+        @pointerleave="activeAttachmentHref = ''"
+        @focusin="handleAttachmentInteraction"
+        @focusout="activeAttachmentHref = ''"
       >
         <div ref="documentEditorSurfaceRef" class="document-editor__surface">
           <StructuredDocumentEditor
@@ -377,7 +407,6 @@ async function handleDocumentBodyClick(event: MouseEvent) {
             :document-id="document.id"
             :image-assets="document.imageAssets"
             paste-file-as-link
-            :file-uploading-text="$t('documents.attachmentUploading')"
             :file-upload-failed-text="$t('documents.attachmentUploadFailed')"
             :model-value="document.content"
             :readonly="saveState === 'conflict'"
@@ -387,20 +416,37 @@ async function handleDocumentBodyClick(event: MouseEvent) {
             @update:model-value="emit('updateContent', $event)"
           />
         </div>
-        <div v-if="attachmentOverlays.length > 0" class="document-attachment-overlay" aria-live="polite">
-          <button
+        <div v-if="attachmentOverlays.length > 0" class="document-attachment-overlay">
+          <div
             v-for="item in attachmentOverlays"
             :key="item.key"
-            type="button"
-            class="document-attachment-delete"
+            class="document-attachment-actions"
+            :class="{ 'is-active': activeAttachmentHref === item.href || attachmentDownloadPending.has(item.attachmentId) || attachmentDeletePending.has(item.attachmentId) }"
             :style="item.style"
             :data-attachment-href="item.href"
-            :data-attachment-id="item.attachmentId"
-            :disabled="attachmentDeletePending.has(item.attachmentId)"
-            :aria-label="t('documents.deleteAttachment')"
-            :title="t('documents.deleteAttachment')"
-            @click.stop.prevent="handleDocumentAttachmentDelete(item.href, item.attachmentId)"
-          />
+            role="group"
+            :aria-label="item.name"
+          >
+            <button
+              type="button"
+              class="document-attachment-action document-attachment-download"
+              :disabled="attachmentDownloadPending.has(item.attachmentId) || attachmentDeletePending.has(item.attachmentId)"
+              :aria-busy="attachmentDownloadPending.has(item.attachmentId)"
+              :aria-label="t('documents.downloadAttachment')"
+              :title="t('documents.downloadAttachment')"
+              @click.stop.prevent="handleDocumentAttachmentDownload(document.id, item.attachmentId)"
+            ><Loader2 v-if="attachmentDownloadPending.has(item.attachmentId)" class="document-attachment-action__spinner" aria-hidden="true" /><Download v-else aria-hidden="true" /></button>
+            <button
+              v-if="saveState !== 'conflict'"
+              type="button"
+              class="document-attachment-action document-attachment-delete"
+              :disabled="attachmentDeletePending.has(item.attachmentId) || attachmentDownloadPending.has(item.attachmentId)"
+              :aria-busy="attachmentDeletePending.has(item.attachmentId)"
+              :aria-label="t('documents.deleteAttachment')"
+              :title="t('documents.deleteAttachment')"
+              @click.stop.prevent="handleDocumentAttachmentDelete(item.href, item.attachmentId)"
+            ><Loader2 v-if="attachmentDeletePending.has(item.attachmentId)" class="document-attachment-action__spinner" aria-hidden="true" /><Trash2 v-else aria-hidden="true" /></button>
+          </div>
         </div>
       </div>
       <p v-if="attachmentDownloadError" class="document-editor__attachment-error" role="alert">
@@ -545,7 +591,13 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   line-height: 1.5;
 }
 
-.document-editor__body { position: relative; }
+.document-editor__body {
+  --attachment-action-size: 32px;
+  --attachment-action-gap: 4px;
+  --attachment-action-inset: 8px;
+  --attachment-icon-size: 16px;
+  position: relative;
+}
 .document-editor__surface { position: relative; }
 .document-attachment-overlay {
   position: absolute;
@@ -558,9 +610,9 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]) {
   position: relative;
   display: block;
-  min-height: 48px;
+  min-height: 56px;
   margin: 5px 0;
-  padding: 13px 96px 13px 46px;
+  padding: 17px calc(var(--attachment-action-size) * 2 + var(--attachment-action-gap) + var(--attachment-action-inset) * 2) 17px 46px;
   overflow: hidden;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
@@ -575,8 +627,7 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   transition: background-color 120ms ease, border-color 120ms ease;
 }
 
-.document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]::before),
-.document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]::after) {
+.document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]::before) {
   position: absolute;
   top: 50%;
   width: 18px;
@@ -599,22 +650,10 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'/%3E%3Cpath d='M14 2v6h6'/%3E%3C/svg%3E");
 }
 
-.document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]::after) {
-  right: 64px;
-  color: var(--color-text-secondary);
-  opacity: 0;
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3Cpath d='M12 15V3'/%3E%3C/svg%3E");
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3Cpath d='M12 15V3'/%3E%3C/svg%3E");
-  transition: opacity 120ms ease;
-}
-
 .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]:hover) {
   border-color: var(--color-border);
   background: var(--color-bg-hover);
 }
-
-.document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]:hover::after),
-.document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]:focus-visible::after) { opacity: 1; }
 
 .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]:focus-visible) {
   outline: 2px solid var(--color-border-strong);
@@ -660,51 +699,43 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   animation: document-attachment-image-spin 0.8s linear infinite;
 }
 
-.document-attachment-delete {
+.document-attachment-actions {
   position: absolute;
-  display: inline-flex;
-  width: 44px;
-  height: 44px;
-  align-items: center;
-  justify-content: center;
+  display: flex;
+  gap: var(--attachment-action-gap);
+  transform: translate(calc(-100% - var(--attachment-action-inset)), -50%);
+  pointer-events: none;
+}
+
+.document-attachment-action {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--attachment-action-size);
+  height: var(--attachment-action-size);
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
   cursor: pointer;
   pointer-events: auto;
-  transition: color 120ms ease, background-color 120ms ease;
+  transition: color 120ms ease, background-color 120ms ease, opacity 120ms ease;
 }
+.document-attachment-action svg { width: var(--attachment-icon-size); height: var(--attachment-icon-size); }
+.document-attachment-download:hover { color: var(--color-accent); background: var(--color-bg-hover); }
+.document-attachment-delete { opacity: 0; pointer-events: none; }
+.document-attachment-actions.is-active .document-attachment-delete,
+.document-attachment-actions:focus-within .document-attachment-delete,
+.document-attachment-actions:hover .document-attachment-delete { opacity: 1; pointer-events: auto; }
+.document-attachment-delete:hover { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 8%, var(--color-bg-base)); }
+.document-attachment-action:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.document-attachment-action:disabled { cursor: wait; opacity: 0.55; }
+.document-attachment-action__spinner { animation: document-attachment-image-spin 0.8s linear infinite; }
 
-.document-attachment-delete::before {
-  width: 18px;
-  height: 18px;
-  background: currentColor;
-  content: '';
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18'/%3E%3Cpath d='M8 6V4h8v2'/%3E%3Cpath d='M19 6v14H5V6'/%3E%3Cpath d='M10 11v5'/%3E%3Cpath d='M14 11v5'/%3E%3C/svg%3E");
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18'/%3E%3Cpath d='M8 6V4h8v2'/%3E%3Cpath d='M19 6v14H5V6'/%3E%3Cpath d='M10 11v5'/%3E%3Cpath d='M14 11v5'/%3E%3C/svg%3E");
-  -webkit-mask-position: center;
-  mask-position: center;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-size: contain;
-  mask-size: contain;
-}
-
-.document-attachment-delete:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-danger);
-}
-
-.document-attachment-delete:focus-visible {
-  outline: 2px solid var(--color-border-strong);
-  outline-offset: -2px;
-}
-
-.document-attachment-delete:disabled {
-  cursor: wait;
-  opacity: 0.55;
+@media (hover: none), (pointer: coarse) {
+  .document-editor__body { --attachment-action-size: 44px; }
+  .document-attachment-delete { opacity: 1; pointer-events: auto; }
 }
 
 .document-editor__attachment-error {
@@ -737,9 +768,10 @@ async function handleDocumentBodyClick(event: MouseEvent) {
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; }
   .document-attachment-image-status--loading { animation: none; }
-  .document-attachment-image-status__icon { animation: none; }
-  .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]),
-  .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]::after) { transition: none; }
+  .document-attachment-image-status__icon,
+  .document-attachment-action__spinner { animation: none; }
+  .document-attachment-action { transition: none; }
+  .document-editor__body :deep(a[href^="/api/project-documents/"][href*="/attachments/"][href$="/download"]) { transition: none; }
 }
 
 @media print {
@@ -747,6 +779,7 @@ async function handleDocumentBodyClick(event: MouseEvent) {
   .document-editor__toolbar,
   .document-editor__conflict,
   .document-editor__attachment-error,
+  .document-attachment-overlay,
   .document-editor__title,
   :deep(.document-minimap) { display: none !important; }
   .document-editor__page { display: block; min-height: auto; padding: 0; overflow: visible; }

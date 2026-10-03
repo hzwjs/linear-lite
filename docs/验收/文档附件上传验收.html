@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>文档附件上传验收</title>
+<body>
+  <main style="max-width:800px;margin:32px auto;padding:16px">
+    <h1>文档附件上传验收</h1>
+    <p>真实编辑器、上传接口与 R2；附件元数据使用内存替身。</p>
+    <label>选择验收文件 <input id="acceptance-file" type="file"></label>
+    <div id="app"></div>
+  </main>
+  <script type="module">
+    import { createApp, h, ref, nextTick } from 'vue'
+    import StructuredDocumentEditor from '/src/components/StructuredDocumentEditor.vue'
+    import { i18n } from '/src/i18n/index.ts'
+    import '/src/style.css'
+    const value = ref('')
+    window.acceptanceContent = value
+    createApp({ setup: () => () => h(StructuredDocumentEditor, {
+      documentId: 900001, modelValue: value.value, pasteFileAsLink: true,
+      fileUploadFailedText: '附件 {name} 上传失败',
+      'onUpdate:modelValue': content => { value.value = content },
+    }) }).use(i18n).mount('#app')
+    document.querySelector('#acceptance-file').addEventListener('change', async event => {
+      await nextTick()
+      const target = document.querySelector('.bn-editor[contenteditable]')
+      target.focus()
+      const data = new DataTransfer()
+      for (const file of event.target.files) data.items.add(file)
+      target.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+      event.target.value = ''
+    })
+  </script>
+</body>
+</html>

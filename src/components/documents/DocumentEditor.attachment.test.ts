@@ -55,7 +55,7 @@ const documentFixture = {
   updatedAt: '2026-07-29T08:00:00'
 }
 
-function renderEditor() {
+function renderEditor(saveState: 'idle' | 'conflict' = 'idle') {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const app = createApp(DocumentEditor, {
@@ -69,7 +69,7 @@ function renderEditor() {
       version: 1,
       updatedAt: '2026-07-29T08:00:00'
     }],
-    saveState: 'idle',
+    saveState,
     conflictVersion: null,
     mentionMembers: [],
     mentionDocuments: []
@@ -89,6 +89,7 @@ function renderEditor() {
 }
 
 beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   vi.mocked(documentApi.deleteAttachment).mockResolvedValue()
   vi.mocked(documentApi.uploadAttachment).mockResolvedValue({ url: '/api/project-documents/12/attachments/37/download' })
   removeAttachmentLink.mockReturnValue(true)
@@ -99,10 +100,43 @@ afterEach(() => {
   vi.mocked(documentApi.downloadAttachment).mockReset()
   removeAttachmentLink.mockReset()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   document.body.replaceChildren()
 })
 
 describe('DocumentEditor attachment links', () => {
+  it('downloads through a button and prevents duplicate requests while it is pending', async () => {
+    let finish!: () => void
+    vi.mocked(documentApi.downloadAttachment).mockImplementation(() => new Promise<void>(resolve => { finish = resolve }))
+    const view = renderEditor()
+    await nextTick()
+    await nextTick()
+    const button = view.host.querySelector<HTMLButtonElement>('.document-attachment-download')!
+    button.click()
+    await nextTick()
+    expect(button.disabled).toBe(true)
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    expect(view.host.querySelector<HTMLButtonElement>('.document-attachment-delete')!.disabled).toBe(true)
+    view.host.querySelector('#attachment')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    expect(documentApi.downloadAttachment).toHaveBeenCalledExactlyOnceWith(12, 34)
+    finish()
+    await nextTick()
+    await nextTick()
+    expect(button.disabled).toBe(false)
+    view.app.unmount()
+  })
+
+  it('keeps download available while hiding delete in a read-only conflict', async () => {
+    const view = renderEditor('conflict')
+    await nextTick()
+    await nextTick()
+    expect(view.host.querySelector('.document-attachment-delete')).toBeNull()
+    view.host.querySelector<HTMLButtonElement>('.document-attachment-download')!.click()
+    expect(documentApi.downloadAttachment).toHaveBeenCalledExactlyOnceWith(12, 34)
+    expect(documentApi.deleteAttachment).not.toHaveBeenCalled()
+    view.app.unmount()
+  })
+
   it('deletes an attachment from the card without requiring text-block editing', async () => {
     const view = renderEditor()
     await nextTick()

@@ -1,9 +1,12 @@
 import { createApp, defineComponent, h, nextTick } from 'vue'
 import { createI18n } from 'vue-i18n'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import DocumentEditor from './DocumentEditor.vue'
 // ?raw 拿到 SFC 源码文本，用于断言打印态 CSS 规则（jsdom 不应用 @media print）。
 import documentEditorSource from './DocumentEditor.vue?raw'
+
+beforeEach(() => { vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }) })
+afterEach(() => { vi.unstubAllGlobals() })
 
 vi.mock('../StructuredDocumentEditor.vue', () => ({
   default: defineComponent({

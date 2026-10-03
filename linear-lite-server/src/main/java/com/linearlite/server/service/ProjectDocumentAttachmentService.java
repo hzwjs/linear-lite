@@ -182,6 +182,50 @@ public class ProjectDocumentAttachmentService {
         return listAttachments(documentId).stream().map(this::toResponse).toList();
     }
 
+    public ProjectDocumentAttachmentResponse findUploadedAttachment(Long documentId, String sourceId, Long userId) {
+        requireDocument(documentId, userId);
+        ProjectDocumentAttachment attachment = findBySourceId(documentId, sourceId);
+        return attachment == null ? null : toResponse(attachment);
+    }
+
+    /** 分片传输与内容分析已完成，此事务只写附件元数据。sourceId 使确认请求具备幂等性。 */
+    @Transactional(rollbackFor = Exception.class)
+    public ProjectDocumentAttachmentResponse registerUploadedAttachment(
+            Long documentId, Long userId, String sourceId, String objectKey, String fileName,
+            long fileSize, String contentType, String sha256,
+            DocumentImageProcessor.ImageMetadata image, String thumbnailKey) {
+        ProjectDocument document = requireDocument(documentId, userId);
+        documentMapper.lockProjectDocumentMutations(document.getProjectId());
+        ProjectDocumentAttachment existing = findBySourceId(documentId, sourceId);
+        if (existing != null) {
+            if (!objectKey.equals(existing.getObjectKey()) || !sha256.equals(existing.getSha256())) {
+                throw new IllegalArgumentException("上传会话与附件内容不一致");
+            }
+            return toResponse(existing);
+        }
+        ProjectDocumentAttachment attachment = new ProjectDocumentAttachment();
+        attachment.setProjectId(document.getProjectId());
+        attachment.setDocumentId(documentId);
+        attachment.setSourceId(sourceId);
+        attachment.setObjectKey(objectKey);
+        attachment.setFileName(fileName);
+        attachment.setFileSize(fileSize);
+        attachment.setContentType(contentType);
+        attachment.setSha256(sha256);
+        if (image != null) {
+            attachment.setWidth(image.width());
+            attachment.setHeight(image.height());
+            if (image.hasThumbnail()) {
+                attachment.setThumbnailObjectKey(thumbnailKey);
+                attachment.setThumbnailFileSize((long) image.thumbnail().length);
+                attachment.setThumbnailContentType(image.thumbnailContentType());
+            }
+        }
+        attachment.setCreatedAt(BeijingTime.now());
+        attachmentMapper.insert(attachment);
+        return toResponse(attachment);
+    }
+
     /**
      * 文档正文图片身份清单。调用方已校验成员关系，此处不再重复鉴权。
      */
