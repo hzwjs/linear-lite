@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ChevronLeft, FileDown, FileText, Loader2, Star } from 'lucide-vue-next'
+import HtmlDocumentPreview from '../../components/documents/HtmlDocumentPreview.vue'
 import StructuredDocumentEditor from '../../components/StructuredDocumentEditor.vue'
 import { documentApi } from '../../services/api/documents'
 import { useProjectStore } from '../../store/projectStore'
@@ -98,7 +99,7 @@ onBeforeUnmount(() => restorePdfExportState?.())
           <Star v-else :size="20" aria-hidden="true" />
         </button>
         <button
-          v-if="document"
+          v-if="document?.contentFormat === 'BLOCKNOTE'"
           type="button"
           class="mobile-document-export"
           :disabled="exportingPdf"
@@ -137,7 +138,8 @@ onBeforeUnmount(() => restorePdfExportState?.())
         <h1>{{ document.title }}</h1>
       </div>
       <section class="mobile-document-body" :aria-label="t('documents.mobile.bodyLabel')">
-        <StructuredDocumentEditor :model-value="document.content" :document-id="document.id" :image-assets="document.imageAssets" readonly />
+        <HtmlDocumentPreview v-if="document.contentFormat === 'HTML'" :project-id="document.projectId" :content="document.content" :title="document.title" />
+        <StructuredDocumentEditor v-else :model-value="document.content" :document-id="document.id" :image-assets="document.imageAssets" readonly />
       </section>
     </article>
   </main>

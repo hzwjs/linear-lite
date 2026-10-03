@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS project_invitations (
 
 CREATE INDEX idx_project_invitations_project_email ON project_invitations (project_id, email, created_at);
 
--- 项目文档：正文固定保存 BlockNote JSON 数组，树关系只由 parent_document_id 表达。
+-- 项目文档：content 保存正文，content_format 声明 BLOCKNOTE 或 HTML；树关系由 parent_document_id 表达。
 CREATE TABLE IF NOT EXISTS project_documents (
     id                 BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     project_id         BIGINT       NOT NULL,
@@ -103,7 +103,8 @@ CREATE TABLE IF NOT EXISTS project_documents (
     external_source    VARCHAR(64)  DEFAULT NULL COMMENT '外部迁移来源',
     external_source_id VARCHAR(128) DEFAULT NULL COMMENT '外部来源内稳定文档 ID',
     title              VARCHAR(256) NOT NULL,
-    content_json       LONGTEXT     NOT NULL,
+    content            LONGTEXT     NOT NULL,
+    content_format     VARCHAR(16)  NOT NULL,
     sort_order         INT          NOT NULL DEFAULT 0,
     version            BIGINT       NOT NULL DEFAULT 1,
     creator_id         BIGINT       NOT NULL,
@@ -122,7 +123,8 @@ CREATE TABLE IF NOT EXISTS project_document_revisions (
     document_id   BIGINT       NOT NULL,
     version       BIGINT       NOT NULL,
     title         VARCHAR(256) NOT NULL,
-    content_json  LONGTEXT     NOT NULL,
+    content       LONGTEXT     NOT NULL,
+    content_format VARCHAR(16)  NOT NULL,
     editor_id     BIGINT       NOT NULL,
     created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_project_document_revisions_document_version (document_id, version),
@@ -526,3 +528,24 @@ SET @doc_attachment_image_meta_ddl = IF(
 PREPARE doc_attachment_image_meta_stmt FROM @doc_attachment_image_meta_ddl;
 EXECUTE doc_attachment_image_meta_stmt;
 DEALLOCATE PREPARE doc_attachment_image_meta_stmt;
+
+-- ========== 归档：HTML 文档类型与正文统一字段 ==========
+-- 发布时通过 DBX 执行本段；旧服务停写，字段更名后部署新服务。
+SET @html_doc_old_column = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'project_documents' AND COLUMN_NAME = 'content_json');
+SET @html_doc_ddl = IF(@html_doc_old_column = 1,
+    'ALTER TABLE project_documents CHANGE COLUMN content_json content LONGTEXT NOT NULL, ADD COLUMN content_format VARCHAR(16) NOT NULL DEFAULT ''BLOCKNOTE'' AFTER content', 'SELECT 1');
+PREPARE html_doc_stmt FROM @html_doc_ddl;
+EXECUTE html_doc_stmt;
+DEALLOCATE PREPARE html_doc_stmt;
+-- 存量正文的类型赋值完成后撤掉默认值，后续写入必须声明类型。
+ALTER TABLE project_documents ALTER COLUMN content_format DROP DEFAULT;
+SET @html_doc_old_column = (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'project_document_revisions' AND COLUMN_NAME = 'content_json');
+SET @html_doc_ddl = IF(@html_doc_old_column = 1,
+    'ALTER TABLE project_document_revisions CHANGE COLUMN content_json content LONGTEXT NOT NULL, ADD COLUMN content_format VARCHAR(16) NOT NULL DEFAULT ''BLOCKNOTE'' AFTER content', 'SELECT 1');
+PREPARE html_doc_stmt FROM @html_doc_ddl;
+EXECUTE html_doc_stmt;
+DEALLOCATE PREPARE html_doc_stmt;
+-- 存量正文的类型赋值完成后撤掉默认值，后续写入必须声明类型。
+ALTER TABLE project_document_revisions ALTER COLUMN content_format DROP DEFAULT;

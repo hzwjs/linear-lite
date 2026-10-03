@@ -41,7 +41,7 @@ public class DocumentRevisionSnapshotService {
 
     @Transactional(rollbackFor = Exception.class)
     public void captureAfterUpdate(ProjectDocument saved, Long editorId) {
-        if (revisionMapper.isActiveSnapshotDue(saved.getId())) {
+        if ("HTML".equals(saved.getContentFormat()) || revisionMapper.isActiveSnapshotDue(saved.getId())) {
             captureIfMissing(saved, editorId);
         }
     }
@@ -87,7 +87,8 @@ public class DocumentRevisionSnapshotService {
         revision.setDocumentId(document.getId());
         revision.setVersion(document.getVersion());
         revision.setTitle(document.getTitle());
-        revision.setContentJson(document.getContentJson());
+        revision.setContent(document.getContent());
+        revision.setContentFormat(document.getContentFormat());
         revision.setEditorId(editorId);
         revisionMapper.insert(revision);
     }

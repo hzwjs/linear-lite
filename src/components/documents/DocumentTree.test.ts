@@ -5,8 +5,8 @@ import type { ProjectDocumentTreeNode } from '../../types/document'
 import DocumentTree from './DocumentTree.vue'
 
 const nodes: ProjectDocumentTreeNode[] = [
-  { id: 1, projectId: 7, parentDocumentId: null, title: 'Root', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
-  { id: 2, projectId: 7, parentDocumentId: 1, title: 'Child', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
+  { id: 1, projectId: 7, parentDocumentId: null, contentFormat: 'BLOCKNOTE', title: 'Root', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
+  { id: 2, projectId: 7, parentDocumentId: 1, contentFormat: 'BLOCKNOTE', title: 'Child', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
 ]
 
 function createDragEvent(type: string, dataTransfer: Partial<DataTransfer>, clientX = 0, clientY = 0) {
@@ -24,6 +24,18 @@ describe('DocumentTree keyboard interaction', () => {
     document.body.innerHTML = ''
     localStorage.clear()
     i18n.global.locale.value = 'en'
+  })
+
+  it('opens HTML rows as isolated browser tabs', async () => {
+    const host = document.createElement('div'); document.body.append(host)
+    const app = createApp(DocumentTree, { projectId: 7, nodes: [{ ...nodes[0]!, contentFormat: 'HTML' }], activeId: null, moving: false }).use(i18n)
+    app.mount(host); await nextTick()
+    const link = host.querySelector('[data-document-tree-id="1"]') as HTMLAnchorElement
+    expect(link.tagName).toBe('A')
+    expect(link.getAttribute('href')).toBe('/projects/7/documents/1/html')
+    expect(link.target).toBe('_blank')
+    expect(link.rel).toBe('noopener noreferrer')
+    app.unmount()
   })
 
   it('exposes treeitem semantics and expands with ArrowRight', async () => {

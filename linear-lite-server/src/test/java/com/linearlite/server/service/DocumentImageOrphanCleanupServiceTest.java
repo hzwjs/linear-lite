@@ -75,7 +75,8 @@ class DocumentImageOrphanCleanupServiceTest {
         ProjectDocument document = new ProjectDocument();
         document.setId(11L);
         document.setProjectId(7L);
-        document.setContentJson("not-json");
+        document.setContent("not-json");
+        document.setContentFormat("BLOCKNOTE");
         when(attachmentMapper.selectList(any())).thenReturn(List.of(candidate));
         when(documentMapper.selectList(any())).thenReturn(List.of(document));
 
@@ -91,7 +92,8 @@ class DocumentImageOrphanCleanupServiceTest {
         ProjectDocument document = new ProjectDocument();
         document.setId(11L);
         document.setProjectId(7L);
-        document.setContentJson("[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":31}}]");
+        document.setContent("[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":31}}]");
+        document.setContentFormat("BLOCKNOTE");
         when(attachmentMapper.selectList(any())).thenReturn(List.of(candidate));
         when(documentMapper.selectList(any())).thenReturn(List.of(document));
         when(revisionMapper.selectList(any())).thenReturn(List.of());
@@ -108,7 +110,8 @@ class DocumentImageOrphanCleanupServiceTest {
         ProjectDocument document = new ProjectDocument();
         document.setId(11L);
         document.setProjectId(7L);
-        document.setContentJson("[{\"type\":\"image\",\"props\":{\"url\":\"/api/project-documents/11/attachments/31/download\"}}]");
+        document.setContent("[{\"type\":\"image\",\"props\":{\"url\":\"/api/project-documents/11/attachments/31/download\"}}]");
+        document.setContentFormat("BLOCKNOTE");
         when(attachmentMapper.selectList(any())).thenReturn(List.of(candidate));
         when(documentMapper.selectList(any())).thenReturn(List.of(document));
 
@@ -125,11 +128,13 @@ class DocumentImageOrphanCleanupServiceTest {
         ProjectDocument document = new ProjectDocument();
         document.setId(11L);
         document.setProjectId(7L);
-        document.setContentJson("[]");
+        document.setContent("[]");
+        document.setContentFormat("BLOCKNOTE");
         ProjectDocumentRevision revision = new ProjectDocumentRevision();
         revision.setId(41L);
         revision.setDocumentId(11L);
-        revision.setContentJson("[{\"type\":\"image\",\"props\":{\"url\":\"/api/project-documents/11/attachments/31/download\"}}]");
+        revision.setContent("[{\"type\":\"image\",\"props\":{\"url\":\"/api/project-documents/11/attachments/31/download\"}}]");
+        revision.setContentFormat("BLOCKNOTE");
         when(attachmentMapper.selectList(any())).thenReturn(List.of(candidate));
         when(documentMapper.selectList(any())).thenReturn(List.of(document));
         when(revisionMapper.selectList(any())).thenReturn(List.of(revision));
@@ -146,7 +151,8 @@ class DocumentImageOrphanCleanupServiceTest {
         ProjectDocument document = new ProjectDocument();
         document.setId(11L);
         document.setProjectId(7L);
-        document.setContentJson("[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":31,\"url\":\"/api/project-documents/11/attachments/32/download\"}}]");
+        document.setContent("[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":31,\"url\":\"/api/project-documents/11/attachments/32/download\"}}]");
+        document.setContentFormat("BLOCKNOTE");
         when(attachmentMapper.selectList(any())).thenReturn(List.of(candidate));
         when(documentMapper.selectList(any())).thenReturn(List.of(document));
 
@@ -162,11 +168,13 @@ class DocumentImageOrphanCleanupServiceTest {
         ProjectDocument document = new ProjectDocument();
         document.setId(11L);
         document.setProjectId(7L);
-        document.setContentJson("[]");
+        document.setContent("[]");
+        document.setContentFormat("BLOCKNOTE");
         ProjectDocumentRevision revision = new ProjectDocumentRevision();
         revision.setId(41L);
         revision.setDocumentId(11L);
-        revision.setContentJson("not-json");
+        revision.setContent("not-json");
+        revision.setContentFormat("BLOCKNOTE");
         when(attachmentMapper.selectList(any())).thenReturn(List.of(candidate));
         when(documentMapper.selectList(any())).thenReturn(List.of(document));
         when(revisionMapper.selectList(any())).thenReturn(List.of(revision));

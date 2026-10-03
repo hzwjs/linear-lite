@@ -77,6 +77,10 @@ public class ProjectDocumentCommandService {
     private ProjectDocumentResponse createInternal(
             Long projectId, CreateProjectDocumentRequest request, Long userId, LongFunction<String> contentFactory) {
         projectAccessGuard.requireMember(projectId, userId);
+        String format = requireFormat(request == null ? null : request.contentFormat());
+        if (contentFactory != null && !"BLOCKNOTE".equals(format)) {
+            throw new IllegalArgumentException("HTML 正文不得经过 BlockNote 转换");
+        }
         documentMapper.lockProjectDocumentMutations(projectId);
         String externalSource = normalizeExternalSource(request == null ? null : request.externalSource());
         String externalSourceId = normalizeExternalSourceId(
@@ -88,14 +92,17 @@ public class ProjectDocumentCommandService {
                     .eq(ProjectDocument::getExternalSourceId, externalSourceId));
             if (existing != null) {
                 requireActive(existing);
+                if (!format.equals(existing.getContentFormat())) {
+                    throw new IllegalArgumentException("外部绑定文档类型与请求不一致");
+                }
                 return toResponse(existing, userId);
             }
         }
         String title = requireTitle(request == null ? null : request.title());
         String content = contentFactory == null
-                ? request == null || request.content() == null
+                ? "BLOCKNOTE".equals(format) && request.content() == null
                         ? EMPTY_BLOCK_NOTE_DOCUMENT
-                        : requireBlockNoteJson(request.content())
+                        : requireContent(format, request.content())
                 : EMPTY_BLOCK_NOTE_DOCUMENT;
         Long parentId = request == null ? null : request.parentDocumentId();
         if (parentId != null) {
@@ -111,7 +118,8 @@ public class ProjectDocumentCommandService {
         document.setExternalSourceId(externalSourceId);
         document.setTitle(title);
         // 导入场景允许原子创建首版正文，避免附件处理失败时遗留只有标题的文档。
-        document.setContentJson(content);
+        document.setContent(content);
+        document.setContentFormat(format);
         // 新建文档始终排在列表第一位：现有兄弟整体后移一位，新文档占据 0 号位。
         // 项目行锁已串行化同项目创建，兄弟排序变更与插入在同一事务内生效。
         for (ProjectDocument sibling : loadSiblings(projectId, parentId, false)) {
@@ -127,11 +135,11 @@ public class ProjectDocumentCommandService {
             String resolvedContent = requireBlockNoteJson(contentFactory.apply(document.getId()));
             int updated = documentMapper.update(null, new UpdateWrapper<ProjectDocument>()
                     .eq("id", document.getId())
-                    .set("content_json", resolvedContent));
+                    .set("content", resolvedContent));
             if (updated != 1) {
                 throw new IllegalStateException("新建文档正文写入失败");
             }
-            document.setContentJson(resolvedContent);
+            document.setContent(resolvedContent);
         }
         revisionSnapshotService.captureInitial(document, userId);
         publishUpsert(document.getId());
@@ -159,15 +167,22 @@ public class ProjectDocumentCommandService {
         if (request == null || request.expectedVersion() == null) {
             throw new IllegalArgumentException("expectedVersion 不能为空");
         }
+        String format = requireFormat(request.contentFormat());
+        if (!format.equals(current.getContentFormat())) {
+            throw new IllegalArgumentException("文档类型不能变更");
+        }
+        if (contentFactory != null && !"BLOCKNOTE".equals(format)) {
+            throw new IllegalArgumentException("HTML 正文不得经过 BlockNote 转换");
+        }
         String title = requireTitle(request.title());
-        String content = contentFactory == null ? requireBlockNoteJson(request.content()) : null;
+        String content = contentFactory == null ? requireContent(format, request.content()) : null;
         if (!Objects.equals(current.getVersion(), request.expectedVersion())) {
             throwVersionConflict(documentId);
         }
         if (contentFactory != null) {
             content = requireBlockNoteJson(contentFactory.apply(documentId));
         }
-        if (Objects.equals(current.getTitle(), title) && Objects.equals(current.getContentJson(), content)) {
+        if (Objects.equals(current.getTitle(), title) && Objects.equals(current.getContent(), content)) {
             return toResponse(current, userId);
         }
         revisionSnapshotService.captureBeforeUpdate(current, userId);
@@ -283,7 +298,10 @@ public class ProjectDocumentCommandService {
         if (revision == null) {
             throw new ResourceNotFoundException("文档修订版不存在: " + revisionId);
         }
-        String revisionContent = requireBlockNoteJson(revision.getContentJson());
+        if (!current.getContentFormat().equals(revision.getContentFormat())) {
+            throw new IllegalArgumentException("历史版本类型与文档不一致");
+        }
+        String revisionContent = requireContent(revision.getContentFormat(), revision.getContent());
         revisionSnapshotService.captureBeforeRestore(current);
         int updated = documentMapper.updateContentIfVersionMatches(
                 documentId, expectedVersion, revision.getTitle(), revisionContent, userId);
@@ -393,6 +411,18 @@ public class ProjectDocumentCommandService {
             throw new IllegalArgumentException("外部来源文档 ID 不能超过 128 个字符");
         }
         return sourceId;
+    }
+
+    private String requireFormat(String format) {
+        if (!"BLOCKNOTE".equals(format) && !"HTML".equals(format)) {
+            throw new IllegalArgumentException("contentFormat 必须为 BLOCKNOTE 或 HTML");
+        }
+        return format;
+    }
+
+    private String requireContent(String format, String content) {
+        return "HTML".equals(requireFormat(format))
+                ? HtmlDocumentContent.requireSource(content) : requireBlockNoteJson(content);
     }
 
     private String requireBlockNoteJson(String content) {

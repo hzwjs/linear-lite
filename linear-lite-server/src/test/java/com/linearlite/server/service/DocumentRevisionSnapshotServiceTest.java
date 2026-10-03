@@ -81,7 +81,8 @@ class DocumentRevisionSnapshotServiceTest {
         document.setId(id);
         document.setVersion(version);
         document.setTitle(title);
-        document.setContentJson("[]");
+        document.setContent("[]");
+        document.setContentFormat("BLOCKNOTE");
         document.setLastEditorId(editorId);
         document.setUpdatedAt(LocalDateTime.now());
         return document;
@@ -94,4 +95,18 @@ class DocumentRevisionSnapshotServiceTest {
         revision.setCreatedAt(createdAt);
         return revision;
     }
+    @Test
+    void htmlExplicitSaveCapturesRevisionWithoutWaitingForIdleThreshold() {
+        ProjectDocument saved = document(11L, 2L, "HTML", 7L);
+        saved.setContent("<p>版本二</p>");
+        saved.setContentFormat("HTML");
+        DocumentRevisionSnapshotService service = new DocumentRevisionSnapshotService(documentMapper, revisionMapper);
+        service.captureAfterUpdate(saved, 7L);
+        var captor = org.mockito.ArgumentCaptor.forClass(com.linearlite.server.entity.ProjectDocumentRevision.class);
+        verify(revisionMapper).insert(captor.capture());
+        assertEquals("HTML", captor.getValue().getContentFormat());
+        assertEquals("<p>版本二</p>", captor.getValue().getContent());
+        verify(revisionMapper, never()).isActiveSnapshotDue(11L);
+    }
+
 }

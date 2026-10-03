@@ -27,7 +27,7 @@ class ProjectDocumentControllerTest {
                 queryService, mock(ProjectDocumentCommandService.class), mock(ProjectContentSearchService.class));
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
         ProjectDocumentTreeNode favorite = new ProjectDocumentTreeNode(
-                12L, 7L, null, "Guide", 0, 1L, true, java.time.LocalDateTime.parse("2026-07-29T08:00:00"));
+                12L, 7L, null, "Guide", 0, 1L, true, java.time.LocalDateTime.parse("2026-07-29T08:00:00"), "BLOCKNOTE");
         when(queryService.listFavorites(9L)).thenReturn(List.of(favorite));
 
         mockMvc.perform(get("/api/project-documents/favorites")
@@ -47,7 +47,7 @@ class ProjectDocumentControllerTest {
                 mock(ProjectDocumentQueryService.class), mock(ProjectDocumentCommandService.class), searchService);
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
         ProjectContentSearchResponse hit = new ProjectContentSearchResponse(
-                "document", "12", 7L, "PHX", "Phoenix", "派单说明", "命中摘要");
+                "document", "12", 7L, "PHX", "Phoenix", "派单说明", "命中摘要", "HTML");
         when(searchService.searchDocuments(7L, "派单", 9L)).thenReturn(List.of(hit));
 
         mockMvc.perform(get("/api/projects/7/documents/search")
@@ -55,7 +55,8 @@ class ProjectDocumentControllerTest {
                         .requestAttr(JwtAuthFilter.REQUEST_ATTR_USER_ID, 9L))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].contentType").value("document"))
-                .andExpect(jsonPath("$.data[0].resourceId").value("12"));
+                .andExpect(jsonPath("$.data[0].resourceId").value("12"))
+                .andExpect(jsonPath("$.data[0].contentFormat").value("HTML"));
 
         verify(searchService).searchDocuments(7L, "派单", 9L);
     }

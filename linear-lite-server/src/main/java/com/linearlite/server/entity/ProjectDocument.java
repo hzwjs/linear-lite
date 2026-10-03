@@ -15,7 +15,8 @@ public class ProjectDocument {
     private String externalSource;
     private String externalSourceId;
     private String title;
-    private String contentJson;
+    private String content;
+    private String contentFormat;
     private Integer sortOrder;
     private Long version;
     private Long creatorId;
@@ -23,6 +24,9 @@ public class ProjectDocument {
     private LocalDateTime archivedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    public String getContentFormat() { return contentFormat; }
+    public void setContentFormat(String contentFormat) { this.contentFormat = contentFormat; }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -36,8 +40,8 @@ public class ProjectDocument {
     public void setExternalSourceId(String externalSourceId) { this.externalSourceId = externalSourceId; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
-    public String getContentJson() { return contentJson; }
-    public void setContentJson(String contentJson) { this.contentJson = contentJson; }
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
     public Integer getSortOrder() { return sortOrder; }
     public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }
     public Long getVersion() { return version; }

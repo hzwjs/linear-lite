@@ -87,10 +87,11 @@ public class DocumentImageOrphanCleanupService {
         List<ProjectDocument> documents = documentMapper.selectList(
                 new LambdaQueryWrapper<ProjectDocument>()
                         .eq(ProjectDocument::getProjectId, projectId)
-                        .select(ProjectDocument::getId, ProjectDocument::getContentJson));
+                        .select(ProjectDocument::getId, ProjectDocument::getContent, ProjectDocument::getContentFormat));
         List<Long> documentIds = documents.stream().map(ProjectDocument::getId).toList();
         for (ProjectDocument document : documents) {
-            if (!collectAssetIds(document.getContentJson(), assetIds)) {
+            if ("HTML".equals(document.getContentFormat())) continue;
+            if (!collectAssetIds(document.getContent(), assetIds)) {
                 log.error("跳过文档图片回收：项目正文含旧 image 图片块或无法识别的结构，projectId={}, documentId={}",
                         projectId, document.getId());
                 return Optional.empty();
@@ -102,9 +103,10 @@ public class DocumentImageOrphanCleanupService {
         List<ProjectDocumentRevision> revisions = revisionMapper.selectList(
                 new LambdaQueryWrapper<ProjectDocumentRevision>()
                         .in(ProjectDocumentRevision::getDocumentId, documentIds)
-                        .select(ProjectDocumentRevision::getId, ProjectDocumentRevision::getContentJson));
+                        .select(ProjectDocumentRevision::getId, ProjectDocumentRevision::getContent, ProjectDocumentRevision::getContentFormat));
         for (ProjectDocumentRevision revision : revisions) {
-            if (!collectAssetIds(revision.getContentJson(), assetIds)) {
+            if ("HTML".equals(revision.getContentFormat())) continue;
+            if (!collectAssetIds(revision.getContent(), assetIds)) {
                 log.error("跳过文档图片回收：历史修订含旧 image 图片块或无法识别的结构，projectId={}, revisionId={}",
                         projectId, revision.getId());
                 return Optional.empty();
@@ -113,12 +115,12 @@ public class DocumentImageOrphanCleanupService {
         return Optional.of(assetIds);
     }
 
-    private boolean collectAssetIds(String contentJson, Set<Long> assetIds) {
-        if (contentJson == null || contentJson.isBlank()) {
+    private boolean collectAssetIds(String content, Set<Long> assetIds) {
+        if (content == null || content.isBlank()) {
             return true;
         }
         try {
-            JsonNode root = objectMapper.readTree(contentJson);
+            JsonNode root = objectMapper.readTree(content);
             if (root == null || !root.isArray()) {
                 return false;
             }

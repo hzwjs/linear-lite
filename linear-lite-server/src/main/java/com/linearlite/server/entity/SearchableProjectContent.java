@@ -10,7 +10,11 @@ public class SearchableProjectContent {
     private Long projectId;
     private String title;
     private String sourceContent;
+    private String contentFormat;
     private LocalDateTime sourceUpdatedAt;
+
+    public String getContentFormat() { return contentFormat; }
+    public void setContentFormat(String contentFormat) { this.contentFormat = contentFormat; }
 
     public String getContentType() { return contentType; }
     public void setContentType(String contentType) { this.contentType = contentType; }

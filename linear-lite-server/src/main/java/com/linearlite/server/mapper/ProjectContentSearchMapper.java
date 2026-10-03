@@ -14,7 +14,7 @@ public interface ProjectContentSearchMapper {
             SELECT 'task' AS contentType, t.task_key AS resourceId,
                    t.project_id AS projectId, p.identifier AS projectIdentifier,
                    p.name AS projectName, t.title,
-                   t.description AS excerpt
+                   t.description AS excerpt, NULL AS contentFormat
             FROM project_members pm
             INNER JOIN tasks t ON t.project_id = pm.project_id
             INNER JOIN projects p ON p.id = t.project_id
@@ -28,7 +28,7 @@ public interface ProjectContentSearchMapper {
             SELECT 'task' AS contentType, t.task_key AS resourceId,
                    t.project_id AS projectId, p.identifier AS projectIdentifier,
                    p.name AS projectName, t.title,
-                   t.description AS excerpt
+                   t.description AS excerpt, NULL AS contentFormat
             FROM project_members pm
             INNER JOIN tasks t ON t.project_id = pm.project_id
             INNER JOIN projects p ON p.id = t.project_id
@@ -50,7 +50,7 @@ public interface ProjectContentSearchMapper {
 
     @Select("""
             SELECT 'DOCUMENT' AS contentType, d.id AS numericId, CAST(d.id AS CHAR) AS resourceId,
-                   d.project_id AS projectId, d.title, d.content_json AS sourceContent,
+                   d.project_id AS projectId, d.title, d.content AS sourceContent, d.content_format AS contentFormat,
                    d.updated_at AS sourceUpdatedAt
             FROM project_documents d
             WHERE d.id = #{id} AND d.archived_at IS NULL
@@ -62,5 +62,19 @@ public interface ProjectContentSearchMapper {
 
     @Select("SELECT id FROM project_documents WHERE archived_at IS NULL ORDER BY id")
     List<Long> selectAllDocumentIds();
+
+    record DocumentFormat(Long id, String contentFormat) { }
+
+    /** 搜索结果的文档类型从成员可访问的源表批量读取，不加载正文或依赖旧索引元数据。 */
+    @Select("""
+            <script>
+            SELECT d.id, d.content_format AS contentFormat
+            FROM project_documents d
+            INNER JOIN project_members member ON member.project_id = d.project_id AND member.user_id = #{userId}
+            WHERE d.archived_at IS NULL AND d.id IN
+            <foreach collection="ids" item="id" open="(" close=")" separator=",">#{id}</foreach>
+            </script>
+            """)
+    List<DocumentFormat> selectDocumentFormats(@Param("ids") List<Long> ids, @Param("userId") Long userId);
 
 }

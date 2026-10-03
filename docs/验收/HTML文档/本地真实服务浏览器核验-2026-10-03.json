@@ -1,0 +1,35 @@
+{
+  "date": "2026-10-03",
+  "task_space": 13,
+  "frontend": "http://localhost:5173/",
+  "backend": "http://localhost:9080/",
+  "source": "Ego 浏览器操作与响应事件",
+  "existing_document": {
+    "url": "http://localhost:5173/projects/6/documents/510",
+    "title": "Linear Lite × 本地 Pi 联动技术方案",
+    "body_rendered": true
+  },
+  "html_popup": {
+    "url": "http://localhost:5173/projects/6/documents/html/new",
+    "opener_is_null": true,
+    "workspace_sidebar_count": 0,
+    "sandbox": "allow-scripts"
+  },
+  "preview_response": {
+    "url": "http://localhost:5173/api/projects/6/documents/html-preview",
+    "status": 200,
+    "content_type": "text/html",
+    "cache_control": "no-store",
+    "x_content_type_options": "nosniff",
+    "content_security_policy": "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+  },
+  "iframe_observation": {
+    "javascript": "JavaScript 运行成功",
+    "counter_before": 0,
+    "counter_after": 1,
+    "parent_dom_blocked": true,
+    "local_storage_blocked": true
+  },
+  "database_document_write": false,
+  "screenshot": "本地真实服务-JavaScript预览.png"
+}

@@ -530,6 +530,7 @@ export async function migrateOutlineDocuments({
       parentDocumentId: parentId,
       title: source.title,
       content: initialContent,
+      contentFormat: 'BLOCKNOTE',
       externalSource: 'outline',
       externalSourceId: source.outlineDocumentId
     })
@@ -585,6 +586,7 @@ export async function migrateOutlineDocuments({
     }
     const updated = await api.updateDocument(documentState.linearLiteDocumentId, {
       expectedVersion: documentState.version,
+      contentFormat: 'BLOCKNOTE',
       title: source.title,
       content
     })
@@ -1114,6 +1116,7 @@ export async function migrateOutlineApiDocuments({
         parentDocumentId: parentId,
         title: source.title,
         content: initialContent,
+        contentFormat: 'BLOCKNOTE',
         externalSource: 'outline',
         externalSourceId: entry.outlineDocumentId
       })
@@ -1173,6 +1176,7 @@ export async function migrateOutlineApiDocuments({
       }
       const updated = await linearLiteApi.updateDocument(documentState.linearLiteDocumentId, {
         expectedVersion: documentState.version,
+        contentFormat: 'BLOCKNOTE',
         title: source.title,
         content
       })

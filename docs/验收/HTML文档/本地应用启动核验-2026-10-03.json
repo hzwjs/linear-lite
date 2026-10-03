@@ -1,0 +1,39 @@
+{
+  "checked_at": "2026-10-03T15:20:06.003762+08:00",
+  "http": [
+    {
+      "url": "http://localhost:9080/",
+      "status": 200,
+      "content_type": "text/html",
+      "bytes": 3152
+    },
+    {
+      "url": "http://localhost:5173/",
+      "status": 200,
+      "content_type": "text/html",
+      "bytes": 3065
+    },
+    {
+      "url": "http://localhost:9080/api/tasks",
+      "status": 401,
+      "content_type": "application/json;charset=UTF-8",
+      "bytes": 43
+    },
+    {
+      "url": "http://localhost:5173/api/tasks",
+      "status": 401,
+      "content_type": "application/json;charset=UTF-8",
+      "bytes": 43
+    }
+  ],
+  "artifact": {
+    "jar_sha256": "2d44357e6e096a4537887a6aaf3e6a34b9b8585cf1309d8e008e80a550854b09",
+    "frontend_files": 137,
+    "mismatches": [],
+    "jsoup_included": true
+  },
+  "pids": {
+    "backend": 87086,
+    "frontend": 87099
+  }
+}

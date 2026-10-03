@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { Archive, ChevronRight, FileText, MoreHorizontal, Plus, Star } from 'lucide-vue-next'
+import { Archive, ChevronRight, Code2, FileText, MoreHorizontal, Plus, Star } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { htmlDocumentPath } from '../../utils/htmlDocument'
 import type { ProjectDocumentTreeNode } from '../../types/document'
 
 const props = defineProps<{
@@ -237,21 +238,26 @@ function onDocumentKeydown(event: KeyboardEvent) {
       >
         <ChevronRight :class="{ 'document-tree-row__chevron--expanded': isExpanded }" aria-hidden="true" />
       </button>
-      <button
-        type="button"
+      <component
+        :is="node.contentFormat === 'HTML' ? 'a' : 'button'"
+        :type="node.contentFormat === 'HTML' ? undefined : 'button'"
+        :href="node.contentFormat === 'HTML' ? htmlDocumentPath(node.projectId, node.id) : undefined"
+        :target="node.contentFormat === 'HTML' ? '_blank' : undefined"
+        :rel="node.contentFormat === 'HTML' ? 'noopener noreferrer' : undefined"
         class="document-tree-row__main"
         :data-document-tree-id="node.id"
         :aria-current="activeId === node.id ? 'page' : undefined"
         :aria-describedby="dragHintId"
         aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight"
         :title="node.title"
-        @click="emit('select', node.id)"
+        @click="node.contentFormat === 'BLOCKNOTE' && emit('select', node.id)"
         @keydown="onDocumentKeydown"
       >
-        <FileText aria-hidden="true" />
+        <Code2 v-if="node.contentFormat === 'HTML'" aria-hidden="true" />
+        <FileText v-else aria-hidden="true" />
         <span>{{ node.title }}</span>
         <Star v-if="node.favorited" class="document-tree-row__favorite" aria-hidden="true" />
-      </button>
+      </component>
       <button
         type="button"
         class="document-tree-row__menu-trigger"
@@ -386,7 +392,8 @@ function onDocumentKeydown(event: KeyboardEvent) {
 .document-tree-row:hover .document-tree-row__menu-trigger,
 .document-tree-row__menu-trigger:focus-visible { opacity: 1; }
 
-.document-tree-row__main {
+.document-tree-row__main { text-decoration: none;
+  color: inherit;
   display: flex;
   min-width: 0;
   align-items: center;

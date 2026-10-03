@@ -2,6 +2,7 @@ import { isAxiosError } from 'axios'
 import { api, unwrap } from './index'
 import type { ApiResponse } from './types'
 import type {
+  DocumentContentFormat,
   ProjectDocument,
   ProjectDocumentAttachment,
   ProjectDocumentRevision,
@@ -94,7 +95,7 @@ export const documentApi = {
       .then(unwrap)
   },
 
-  create(projectId: number, body: { parentDocumentId: number | null; title: string }): Promise<ProjectDocument> {
+  create(projectId: number, body: { parentDocumentId: number | null; title: string; contentFormat: DocumentContentFormat; content?: string }): Promise<ProjectDocument> {
     return api
       .post<ApiResponse<ProjectDocument>>(`/projects/${projectId}/documents`, body)
       .then(unwrap)
@@ -102,6 +103,11 @@ export const documentApi = {
 
   get(documentId: number): Promise<ProjectDocument> {
     return api.get<ApiResponse<ProjectDocument>>(`/project-documents/${documentId}`).then(unwrap)
+  },
+
+  renderHtml(projectId: number, content: string): Promise<string> {
+    return api.post<string>(`/projects/${projectId}/documents/html-preview`, { content }, { responseType: 'text' })
+      .then((response) => response.data)
   },
 
   async deleteAttachment(documentId: number, attachmentId: number): Promise<void> {
@@ -124,7 +130,7 @@ export const documentApi = {
 
   update(
     documentId: number,
-    body: { expectedVersion: number; title: string; content: string }
+    body: { expectedVersion: number; title: string; content: string; contentFormat: DocumentContentFormat }
   ): Promise<ProjectDocument> {
     return api
       .put<ApiResponse<ProjectDocument>>(`/project-documents/${documentId}`, body)

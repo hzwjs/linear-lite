@@ -225,22 +225,44 @@ public class McpToolRegistry {
         return projectDocumentQueryService.getDocumentByTitle(title, userId);
     }
 
+    /** 正文保留原始字符；字段验证不得裁掉 HTML 文件首尾空白。 */
+    private String documentSource(JsonNode arguments, boolean required) {
+        JsonNode value = arguments.get("content");
+        if (value == null || value.isNull()) {
+            if (required) throw new McpInvalidParamsException("content 不能为空");
+            return null;
+        }
+        if (!value.isTextual() || value.textValue().length() > 5 * 1024 * 1024
+                || (required && value.textValue().isBlank())) {
+            throw new McpInvalidParamsException("content 必须为有效正文字符串，长度不超过 5 MiB");
+        }
+        return value.textValue();
+    }
+
     private Object createDocument(JsonNode rawArguments, Long userId) {
         JsonNode arguments = McpArgumentValidator.object(rawArguments);
         McpArgumentValidator.fields(arguments, "projectId", "parentDocumentId", "title", "content",
-                "externalSource", "externalSourceId", "images");
+                "externalSource", "externalSourceId", "images", "contentFormat");
         Long projectId = requiredLong(arguments, "projectId");
         Long parentDocumentId = McpArgumentValidator.optionalLong(arguments, "parentDocumentId");
         String title = McpArgumentValidator.requiredText(arguments, "title", 256);
-        String markdown = McpArgumentValidator.optionalText(arguments, "content", 2_000_000);
+        String format = McpArgumentValidator.requiredText(arguments, "contentFormat", 16);
+        String markdown = documentSource(arguments, false);
         String externalSource = McpArgumentValidator.optionalText(arguments, "externalSource", 64);
         String externalSourceId = McpArgumentValidator.optionalText(arguments, "externalSourceId", 128);
         JsonNode imageInputs = arguments.get("images");
+        if ("HTML".equals(format)) {
+            if (imageInputs != null) throw new McpInvalidParamsException("HTML 文档不得提供 images");
+            return projectDocumentCommandService.create(projectId,
+                    new CreateProjectDocumentRequest(parentDocumentId, title, markdown,
+                            externalSource, externalSourceId, format), userId);
+        }
+        if (!"BLOCKNOTE".equals(format)) throw new McpInvalidParamsException("contentFormat 必须为 BLOCKNOTE 或 HTML");
         return projectDocumentCommandService.createWithContentFactory(
                 projectId,
                 new CreateProjectDocumentRequest(parentDocumentId, title,
                         null,
-                        externalSource, externalSourceId),
+                        externalSource, externalSourceId, "BLOCKNOTE"),
                 userId,
                 documentId -> documentImageContentService.convert(
                         markdown == null ? "" : markdown, parseDocumentImages(imageInputs), documentId, userId));
@@ -248,15 +270,22 @@ public class McpToolRegistry {
 
     private Object updateDocument(JsonNode rawArguments, Long userId) {
         JsonNode arguments = McpArgumentValidator.object(rawArguments);
-        McpArgumentValidator.fields(arguments, "documentId", "expectedVersion", "title", "content", "images");
+        McpArgumentValidator.fields(arguments, "documentId", "expectedVersion", "title", "content", "images", "contentFormat");
         Long documentId = requiredLong(arguments, "documentId");
         Long expectedVersion = requiredLong(arguments, "expectedVersion");
         String title = McpArgumentValidator.requiredText(arguments, "title", 256);
-        String markdown = McpArgumentValidator.requiredText(arguments, "content", 2_000_000);
+        String format = McpArgumentValidator.requiredText(arguments, "contentFormat", 16);
+        String markdown = documentSource(arguments, true);
         JsonNode imageInputs = arguments.get("images");
+        if ("HTML".equals(format)) {
+            if (imageInputs != null) throw new McpInvalidParamsException("HTML 文档不得提供 images");
+            return projectDocumentCommandService.update(documentId,
+                    new UpdateProjectDocumentRequest(expectedVersion, title, markdown, format), userId);
+        }
+        if (!"BLOCKNOTE".equals(format)) throw new McpInvalidParamsException("contentFormat 必须为 BLOCKNOTE 或 HTML");
         return projectDocumentCommandService.updateWithContentFactory(
                 documentId,
-                new UpdateProjectDocumentRequest(expectedVersion, title, null),
+                new UpdateProjectDocumentRequest(expectedVersion, title, null, "BLOCKNOTE"),
                 userId,
                 id -> documentImageContentService.convert(markdown, parseDocumentImages(imageInputs), id, userId));
     }
@@ -413,13 +442,16 @@ public class McpToolRegistry {
                         "projectId", integerSchema("项目 ID"),
                         "parentDocumentId", integerSchema("父文档 ID"),
                         "title", stringSchema("文档标题", 1, 256),
-                        "content", stringSchema("Markdown 正文，支持 GFM 表格", 0, 2_000_000),
+                        "content", stringSchema("正文：BLOCKNOTE 输入 Markdown（支持 GFM 表格），HTML 输入原始源码", 0, 5 * 1024 * 1024),
                         "externalSource", stringSchema("外部来源类型", 1, 64),
                         "externalSourceId", stringSchema("外部来源文档 ID", 1, 128)));
         properties.put("images", documentImagesSchema());
+        ObjectNode format = stringSchema("文档类型：BLOCKNOTE 输入 Markdown；HTML 输入自包含 HTML 源码", 1, 16);
+        format.putArray("enum").add("BLOCKNOTE").add("HTML");
+        properties.put("contentFormat", format);
         return tool("create_document", "创建文档",
-                "创建 Markdown 文档并转换为 BlockNote JSON；GFM 表格会转为原生 BlockNote 表格块。正文每个不同图片 ref 都要在 images 提供对应附件，且不允许未使用项。例：content=\"前文 ![流程图](mcp-image:flow) 后文\"，images=[{ref:\"flow\",fileName:\"flow.png\",contentType:\"image/png\",dataBase64:\"<Base64>\"}]；也可用 {ref:\"flow\",assetId:31} 引用有权限访问的已有附件。最多 8 个图片引用，单图不超过 6 MiB、总量不超过 12 MiB；不接受远程图片 URL。",
-                objectSchema(properties, "projectId", "title"),
+                "按 contentFormat 创建文档：HTML 原文保存，禁止 images；BLOCKNOTE 将 Markdown 转换为 BlockNote JSON；GFM 表格会转为原生 BlockNote 表格块。正文每个不同图片 ref 都要在 images 提供对应附件，且不允许未使用项。例：content=\"前文 ![流程图](mcp-image:flow) 后文\"，images=[{ref:\"flow\",fileName:\"flow.png\",contentType:\"image/png\",dataBase64:\"<Base64>\"}]；也可用 {ref:\"flow\",assetId:31} 引用有权限访问的已有附件。最多 8 个图片引用，单图不超过 6 MiB、总量不超过 12 MiB；不接受远程图片 URL。",
+                objectSchema(properties, "projectId", "title", "contentFormat"),
                 false, false);
     }
 
@@ -432,7 +464,7 @@ public class McpToolRegistry {
     }
 
     private ObjectNode getDocumentDefinition() {
-        return tool("get_document", "获取文档内容", "按文档 ID 或精确标题获取文档标题、BlockNote JSON 正文、版本号和元数据。",
+        return tool("get_document", "获取文档内容", "按文档 ID 或精确标题获取文档标题、contentFormat、原始正文、版本号和元数据。",
                 getDocumentInputSchema(),
                 true, true);
     }
@@ -452,11 +484,14 @@ public class McpToolRegistry {
                         "documentId", integerSchema("文档 ID"),
                         "expectedVersion", integerSchema("客户端已读版本号"),
                         "title", stringSchema("文档标题", 1, 256),
-                        "content", stringSchema("Markdown 正文，支持 GFM 表格", 1, 2_000_000)));
+                        "content", stringSchema("正文：BLOCKNOTE 输入 Markdown（支持 GFM 表格），HTML 输入原始源码", 1, 5 * 1024 * 1024)));
         properties.put("images", documentImagesSchema());
+        ObjectNode format = stringSchema("文档类型：BLOCKNOTE 输入 Markdown；HTML 输入自包含 HTML 源码", 1, 16);
+        format.putArray("enum").add("BLOCKNOTE").add("HTML");
+        properties.put("contentFormat", format);
         return tool("update_document", "更新文档",
-                "按 expectedVersion 更新 Markdown 文档并转换为 BlockNote JSON；GFM 表格会转为原生 BlockNote 表格块。更新正文每个不同图片 ref 都要在 images 提供对应附件，且不允许未使用项。例：content=\"前文 ![流程图](mcp-image:flow) 后文\"，images=[{ref:\"flow\",fileName:\"flow.png\",contentType:\"image/png\",dataBase64:\"<Base64>\"}]；也可用 {ref:\"flow\",assetId:31} 引用有权限访问的已有附件。最多 8 个图片引用，单图不超过 6 MiB、总量不超过 12 MiB；不接受远程图片 URL。",
-                objectSchema(properties, "documentId", "expectedVersion", "title", "content"), false, false);
+                "按 expectedVersion 与 contentFormat 更新文档：HTML 原文保存，禁止 images；BLOCKNOTE 将 Markdown 转换为 BlockNote JSON；GFM 表格会转为原生 BlockNote 表格块。更新正文每个不同图片 ref 都要在 images 提供对应附件，且不允许未使用项。例：content=\"前文 ![流程图](mcp-image:flow) 后文\"，images=[{ref:\"flow\",fileName:\"flow.png\",contentType:\"image/png\",dataBase64:\"<Base64>\"}]；也可用 {ref:\"flow\",assetId:31} 引用有权限访问的已有附件。最多 8 个图片引用，单图不超过 6 MiB、总量不超过 12 MiB；不接受远程图片 URL。",
+                objectSchema(properties, "documentId", "expectedVersion", "title", "content", "contentFormat"), false, false);
     }
 
     private ObjectNode documentImagesSchema() {

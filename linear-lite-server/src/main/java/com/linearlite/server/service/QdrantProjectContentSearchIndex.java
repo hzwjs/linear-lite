@@ -184,7 +184,7 @@ public class QdrantProjectContentSearchIndex implements ProjectContentSearchInde
 
     private String visibleText(SearchableProjectContent content) {
         return ProjectContentTextExtractor.extract(ProjectContentType.valueOf(content.getContentType()),
-                content.getSourceContent());
+                content.getSourceContent(), content.getContentFormat());
     }
 
     private List<SearchHit> readHits(JsonNode points, boolean includeScore) {

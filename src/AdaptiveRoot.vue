@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
 import DesktopApp from './App.vue'
+import { useRoute } from 'vue-router'
+
+const route = useRoute()
 
 const MobileApp = defineAsyncComponent(() => import('./mobile/MobileApp.vue'))
 const mobileQuery = '(max-width: 1099px)'
@@ -22,5 +25,6 @@ const activeApp = computed(() => (isMobile.value ? MobileApp : DesktopApp))
 </script>
 
 <template>
-  <component :is="activeApp" />
+  <router-view v-if="route.meta.standalone" />
+  <component v-else :is="activeApp" />
 </template>

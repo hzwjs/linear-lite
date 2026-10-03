@@ -38,8 +38,8 @@ vi.mock('../services/api/project', async () => {
 })
 
 const treeNodes: ProjectDocumentTreeNode[] = [
-  { id: 1, projectId: 7, parentDocumentId: null, title: 'First', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
-  { id: 2, projectId: 7, parentDocumentId: null, title: 'Second', sortOrder: 1, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
+  { id: 1, projectId: 7, parentDocumentId: null, contentFormat: 'BLOCKNOTE', title: 'First', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
+  { id: 2, projectId: 7, parentDocumentId: null, contentFormat: 'BLOCKNOTE', title: 'Second', sortOrder: 1, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
 ]
 
 function projectDocument(id: number): ProjectDocument {
@@ -191,7 +191,7 @@ describe('DocumentsView navigation', () => {
   it('debounces server search, replaces the tree with flat results, and clears search after navigation', async () => {
     vi.useFakeTimers()
     vi.mocked(documentApi.search).mockResolvedValue([{
-      contentType: 'document', resourceId: '2', projectId: 7, projectIdentifier: 'JLNX', projectName: 'JLNX',
+      contentType: 'document', contentFormat: 'BLOCKNOTE', resourceId: '2', projectId: 7, projectIdentifier: 'JLNX', projectName: 'JLNX',
       title: 'Security guide', excerpt: 'Review the security checklist'
     }])
     const router = createRouter({
@@ -240,7 +240,7 @@ describe('DocumentsView navigation', () => {
     vi.mocked(documentApi.search)
       .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve }))
       .mockResolvedValueOnce([{
-        contentType: 'document', resourceId: '2', projectId: 7, projectIdentifier: 'JLNX', projectName: 'JLNX',
+        contentType: 'document', contentFormat: 'BLOCKNOTE', resourceId: '2', projectId: 7, projectIdentifier: 'JLNX', projectName: 'JLNX',
         title: 'Newest result', excerpt: 'second query'
       }])
     const router = createRouter({
@@ -270,7 +270,7 @@ describe('DocumentsView navigation', () => {
     expect(host.textContent).toContain('Newest result')
 
     resolveFirst([{
-      contentType: 'document', resourceId: '1', projectId: 7, projectIdentifier: 'JLNX', projectName: 'JLNX',
+      contentType: 'document', contentFormat: 'BLOCKNOTE', resourceId: '1', projectId: 7, projectIdentifier: 'JLNX', projectName: 'JLNX',
       title: 'Stale result', excerpt: 'first query'
     }])
     await flushNavigation()

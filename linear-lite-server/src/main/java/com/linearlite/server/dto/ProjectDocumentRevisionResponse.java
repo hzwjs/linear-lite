@@ -12,6 +12,6 @@ public record ProjectDocumentRevisionResponse(
         List<DocumentImageAsset> imageAssets,
         Long editorId,
         String editorName,
-        LocalDateTime createdAt) {
+        LocalDateTime createdAt, String contentFormat) {
     // editor_id 无外键约束，被删除用户对应的 editorName 可能为 null，前端需处理
 }

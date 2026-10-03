@@ -11,8 +11,14 @@ final class ProjectContentTextExtractor {
     private ProjectContentTextExtractor() {
     }
 
-    static String extract(ProjectContentType contentType, String sourceContent) {
+    static String extract(ProjectContentType contentType, String sourceContent, String contentFormat) {
         if (sourceContent == null || sourceContent.isBlank()) return "";
+        if (contentType == ProjectContentType.DOCUMENT) {
+            if ("HTML".equals(contentFormat)) return HtmlDocumentContent.searchText(sourceContent);
+            if (!"BLOCKNOTE".equals(contentFormat)) {
+                throw new IllegalArgumentException("文档搜索缺少有效 contentFormat");
+            }
+        }
         if (contentType == ProjectContentType.TASK && !sourceContent.stripLeading().startsWith("[")) {
             return sourceContent.replaceAll("(?s)<[^>]*>", " ")
                     .replace("&nbsp;", " ").replaceAll("\\s+", " ").trim();
@@ -24,7 +30,7 @@ final class ProjectContentTextExtractor {
             appendBlocks(blocks, text);
             return text.toString().replaceAll("\\s+", " ").trim();
         } catch (Exception malformedBlockNote) {
-            // 文档内容没有第二种格式；无法解析时不猜测或回退到原始 JSON。
+            // 格式由数据源声明；解析失败禁止猜测另一种格式。
             return "";
         }
     }

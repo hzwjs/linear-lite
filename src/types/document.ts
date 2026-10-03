@@ -1,3 +1,5 @@
+export type DocumentContentFormat = 'BLOCKNOTE' | 'HTML'
+
 export interface DocumentImageAsset {
   /** 不可变图片资源 ID，等于 project_document_attachments.id。 */
   assetId: number
@@ -26,6 +28,7 @@ export interface ProjectDocumentAttachment {
 }
 
 export interface ProjectDocumentTreeNode {
+  contentFormat: DocumentContentFormat
   id: number
   projectId: number
   parentDocumentId: number | null
@@ -46,6 +49,7 @@ export interface ProjectDocument extends ProjectDocumentTreeNode {
 }
 
 export interface ProjectDocumentRevisionSummary {
+  contentFormat: DocumentContentFormat
   revisionId: number
   sourceVersion: number
   title: string
@@ -55,6 +59,7 @@ export interface ProjectDocumentRevisionSummary {
 }
 
 export interface ProjectDocumentRevision {
+  contentFormat: DocumentContentFormat
   documentId: number
   revisionId: number
   sourceVersion: number

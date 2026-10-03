@@ -5,6 +5,7 @@ import LoginView from './LoginView.vue'
 
 const authMocks = vi.hoisted(() => ({
   router: { push: vi.fn() },
+  route: { query: { redirect: undefined as string | undefined } },
   store: {
     sendRegisterCode: vi.fn(),
     sendPasswordResetCode: vi.fn().mockResolvedValue(undefined),
@@ -15,7 +16,8 @@ const authMocks = vi.hoisted(() => ({
 }))
 
 vi.mock('vue-router', () => ({
-  useRouter: () => authMocks.router
+  useRouter: () => authMocks.router,
+  useRoute: () => authMocks.route
 }))
 
 vi.mock('../store/authStore', () => ({
@@ -32,11 +34,29 @@ describe('LoginView password reset', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     vi.clearAllMocks()
+    authMocks.route.query.redirect = undefined
     i18n.global.locale.value = 'en'
   })
 
   afterEach(() => {
     document.body.innerHTML = ''
+  })
+
+  it.each([
+    ['/projects/3/documents/81/html', '/projects/3/documents/81/html'],
+    ['//external.example/path', '/']
+  ])('returns after login only to an internal document path: %s', async (redirect, target) => {
+    authMocks.route.query.redirect = redirect
+    authMocks.store.login.mockResolvedValue(undefined)
+    const host = document.createElement('div'); document.body.appendChild(host)
+    const app = createApp(LoginView).use(i18n); app.mount(host); await nextTick()
+    setInput(host, 'input[autocomplete="username"]', 'html-test')
+    setInput(host, 'input[autocomplete="current-password"]', 'fixture')
+    await nextTick()
+    host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await nextTick(); await nextTick()
+    expect(authMocks.router.push).toHaveBeenCalledWith(target)
+    app.unmount()
   })
 
   it('sends a reset code and submits the new password without logging in automatically', async () => {

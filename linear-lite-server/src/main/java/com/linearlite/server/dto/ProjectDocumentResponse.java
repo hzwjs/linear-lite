@@ -19,5 +19,5 @@ public record ProjectDocumentResponse(
         boolean favorited,
         LocalDateTime archivedAt,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt) {
+        LocalDateTime updatedAt, String contentFormat) {
 }

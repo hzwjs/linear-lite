@@ -46,6 +46,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
     const index = treeNodes.value.findIndex((node) => node.id === document.id)
     const node: ProjectDocumentTreeNode = {
       id: document.id,
+      contentFormat: document.contentFormat,
       projectId: document.projectId,
       parentDocumentId: document.parentDocumentId,
       title: document.title,
@@ -147,7 +148,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
   }
 
   async function createDocument(projectId: number, parentDocumentId: number | null, title: string) {
-    const document = await documentApi.create(projectId, { parentDocumentId, title })
+    const document = await documentApi.create(projectId, { parentDocumentId, title, contentFormat: 'BLOCKNOTE' })
     syncTreeNode(document)
     return document
   }
@@ -189,6 +190,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
     const submittedSequence = editSequence
     const submitted = {
       expectedVersion: document.version,
+      contentFormat: document.contentFormat,
       title: document.title,
       content: document.content
     }

@@ -21,6 +21,8 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -45,7 +47,7 @@ class ProjectDocumentQueryServiceTest {
     @Test
     void listTreeUsesTreeProjectionInsteadOfLoadingDocumentContent() {
         List<ProjectDocumentTreeNode> nodes = List.of(new ProjectDocumentTreeNode(
-                68L, 7L, null, "安全扫描", 0, 3L, true, LocalDateTime.of(2026, 7, 30, 14, 0)));
+                68L, 7L, null, "安全扫描", 0, 3L, true, LocalDateTime.of(2026, 7, 30, 14, 0), "BLOCKNOTE"));
         when(documentMapper.selectTreeNodes(7L, 9L, false)).thenReturn(nodes);
 
         List<ProjectDocumentTreeNode> result = service.listTree(7L, 9L, false);
@@ -53,7 +55,7 @@ class ProjectDocumentQueryServiceTest {
         assertEquals(nodes, result);
         verify(accessGuard).requireMember(7L, 9L);
         verify(documentMapper).selectTreeNodes(7L, 9L, false);
-        // 通用实体查询会连同 LONGTEXT content_json 一起读取，树加载禁止走该路径。
+        // 通用实体查询会连同 LONGTEXT content 一起读取，树加载禁止走该路径。
         verify(documentMapper, never()).selectList(org.mockito.ArgumentMatchers.any());
     }
 
@@ -64,7 +66,8 @@ class ProjectDocumentQueryServiceTest {
         revision.setDocumentId(11L);
         revision.setVersion(2L);
         revision.setTitle("快照");
-        revision.setContentJson("[]");
+        revision.setContent("[]");
+        revision.setContentFormat("BLOCKNOTE");
         revision.setEditorId(999L);
         revision.setCreatedAt(LocalDateTime.of(2026, 7, 30, 14, 0));
 
@@ -90,12 +93,21 @@ class ProjectDocumentQueryServiceTest {
     }
 
     @Test
+    void htmlPreviewRejectsNonMemberBeforeParsingSource() {
+        doThrow(new com.linearlite.server.exception.ForbiddenOperationException("denied"))
+                .when(accessGuard).requireMember(7L, 9L);
+        assertThrows(com.linearlite.server.exception.ForbiddenOperationException.class,
+                () -> service.renderHtml(7L, "<p>Preview</p>", 9L));
+        org.mockito.Mockito.verifyNoInteractions(documentMapper, attachmentService);
+    }
+
+    @Test
     void treeProjectionNeverSelectsDocumentContent() throws NoSuchMethodException {
         Select select = ProjectDocumentMapper.class
                 .getMethod("selectTreeNodes", Long.class, Long.class, boolean.class)
                 .getAnnotation(Select.class);
         String sql = String.join(" ", select.value());
 
-        assertFalse(sql.contains("content_json"));
+        assertFalse(sql.matches("(?s).*\\bd\\.content\\b.*"));
     }
 }

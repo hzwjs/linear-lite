@@ -13,6 +13,8 @@ import com.linearlite.server.dto.UpdateProjectDocumentRequest;
 import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.service.ProjectDocumentCommandService;
 import com.linearlite.server.service.ProjectDocumentQueryService;
+import com.linearlite.server.service.HtmlDocumentContent;
+import org.springframework.http.MediaType;
 import com.linearlite.server.service.ProjectContentSearchService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
@@ -80,6 +82,20 @@ public class ProjectDocumentController {
     public ResponseEntity<ApiResponse<ProjectDocumentResponse>> detail(
             HttpServletRequest request, @PathVariable Long documentId) {
         return ResponseEntity.ok(ApiResponse.success(queryService.getDocument(documentId, userId(request))));
+    }
+
+    public record HtmlPreviewRequest(String content) { }
+
+    /** 预览请求沿用文档权限；源码不落库，返回内容用于沙箱 srcdoc。 */
+    @PostMapping("/projects/{projectId}/documents/html-preview")
+    public ResponseEntity<String> htmlPreview(
+            HttpServletRequest request, @PathVariable Long projectId, @RequestBody HtmlPreviewRequest body) {
+        String html = queryService.renderHtml(projectId, body.content(), userId(request));
+        return ResponseEntity.ok().contentType(MediaType.TEXT_HTML)
+                .header("Cache-Control", "no-store")
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Content-Security-Policy", "sandbox allow-scripts; " + HtmlDocumentContent.PREVIEW_CSP)
+                .body(html);
     }
 
     @PutMapping("/project-documents/{documentId}")

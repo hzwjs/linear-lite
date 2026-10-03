@@ -24,7 +24,8 @@ public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
                    d.sort_order AS sortOrder,
                    d.version,
                    TRUE AS favorited,
-                   d.updated_at AS updatedAt
+                   d.updated_at AS updatedAt,
+                   d.content_format AS contentFormat
             FROM project_document_favorites favorite
             INNER JOIN project_documents d ON d.id = favorite.document_id
             INNER JOIN project_members member
@@ -41,7 +42,8 @@ public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
             @Arg(column = "sortOrder", javaType = Integer.class),
             @Arg(column = "version", javaType = Long.class),
             @Arg(column = "favorited", javaType = boolean.class),
-            @Arg(column = "updatedAt", javaType = java.time.LocalDateTime.class)
+            @Arg(column = "updatedAt", javaType = java.time.LocalDateTime.class),
+            @Arg(column = "contentFormat", javaType = String.class)
     })
     List<ProjectDocumentTreeNode> selectFavoriteTreeNodes(@Param("userId") Long userId);
 
@@ -55,7 +57,8 @@ public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
                    d.sort_order AS sortOrder,
                    d.version,
                    favorite.id IS NOT NULL AS favorited,
-                   d.updated_at AS updatedAt
+                   d.updated_at AS updatedAt,
+                   d.content_format AS contentFormat
             FROM project_documents d
             LEFT JOIN project_document_favorites favorite
               ON favorite.document_id = d.id AND favorite.user_id = #{userId}
@@ -79,7 +82,8 @@ public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
             @Arg(column = "sortOrder", javaType = Integer.class),
             @Arg(column = "version", javaType = Long.class),
             @Arg(column = "favorited", javaType = boolean.class),
-            @Arg(column = "updatedAt", javaType = java.time.LocalDateTime.class)
+            @Arg(column = "updatedAt", javaType = java.time.LocalDateTime.class),
+            @Arg(column = "contentFormat", javaType = String.class)
     })
     List<ProjectDocumentTreeNode> selectTreeNodes(
             @Param("projectId") Long projectId,
@@ -101,7 +105,7 @@ public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
 
     @Update("""
             UPDATE project_documents
-            SET title = #{title}, content_json = #{contentJson}, last_editor_id = #{editorId},
+            SET title = #{title}, content = #{content}, last_editor_id = #{editorId},
                 version = version + 1, updated_at = CURRENT_TIMESTAMP
             WHERE id = #{id} AND version = #{expectedVersion} AND archived_at IS NULL
             """)
@@ -109,7 +113,7 @@ public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
             @Param("id") Long id,
             @Param("expectedVersion") Long expectedVersion,
             @Param("title") String title,
-            @Param("contentJson") String contentJson,
+            @Param("content") String content,
             @Param("editorId") Long editorId);
 
     @Update("""

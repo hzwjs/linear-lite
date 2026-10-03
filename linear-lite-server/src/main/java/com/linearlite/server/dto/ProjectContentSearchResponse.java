@@ -8,5 +8,5 @@ public record ProjectContentSearchResponse(
         String projectIdentifier,
         String projectName,
         String title,
-        String excerpt) {
+        String excerpt, String contentFormat) {
 }

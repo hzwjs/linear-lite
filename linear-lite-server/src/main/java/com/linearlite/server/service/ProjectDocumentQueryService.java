@@ -44,6 +44,11 @@ public class ProjectDocumentQueryService {
         this.attachmentService = attachmentService;
     }
 
+    public String renderHtml(Long projectId, String content, Long userId) {
+        projectAccessGuard.requireMember(projectId, userId);
+        return HtmlDocumentContent.preview(content);
+    }
+
     public List<ProjectDocumentTreeNode> listTree(Long projectId, Long userId, boolean archived) {
         projectAccessGuard.requireMember(projectId, userId);
         return documentMapper.selectTreeNodes(projectId, userId, archived);
@@ -87,7 +92,7 @@ public class ProjectDocumentQueryService {
                 .stream()
                 .map(revision -> new ProjectDocumentRevisionSummary(
                         revision.getId(), revision.getVersion(), revision.getTitle(), revision.getEditorId(),
-                        editorNames.get(revision.getEditorId()), revision.getCreatedAt()))
+                        editorNames.get(revision.getEditorId()), revision.getCreatedAt(), revision.getContentFormat()))
                 .toList();
     }
 
@@ -105,8 +110,8 @@ public class ProjectDocumentQueryService {
         String editorName = editorNameMap.get(revision.getEditorId());
         return new ProjectDocumentRevisionResponse(
                 revision.getDocumentId(), revision.getId(), revision.getVersion(), revision.getTitle(),
-                revision.getContentJson(), attachmentService.listImageAssets(documentId),
-                revision.getEditorId(), editorName, revision.getCreatedAt());
+                revision.getContent(), "HTML".equals(revision.getContentFormat()) ? List.of() : attachmentService.listImageAssets(documentId),
+                revision.getEditorId(), editorName, revision.getCreatedAt(), revision.getContentFormat());
     }
 
     ProjectDocument requireDocument(Long documentId, Long userId) {
@@ -128,9 +133,9 @@ public class ProjectDocumentQueryService {
         return new ProjectDocumentResponse(
                 document.getId(), document.getProjectId(), document.getParentDocumentId(),
                 document.getExternalSource(), document.getExternalSourceId(), document.getTitle(),
-                document.getContentJson(), attachmentService.listImageAssets(document.getId()),
+                document.getContent(), "HTML".equals(document.getContentFormat()) ? List.of() : attachmentService.listImageAssets(document.getId()),
                 document.getSortOrder(), document.getVersion(), document.getCreatorId(),
-                document.getLastEditorId(), favorited, document.getArchivedAt(), document.getCreatedAt(), document.getUpdatedAt());
+                document.getLastEditorId(), favorited, document.getArchivedAt(), document.getCreatedAt(), document.getUpdatedAt(), document.getContentFormat());
     }
 
 }

@@ -4,7 +4,8 @@ import { i18n } from '../i18n'
 import LoginView from './LoginView.vue'
 
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() })
+  useRouter: () => ({ push: vi.fn() }),
+  useRoute: () => ({ query: {} })
 }))
 
 vi.mock('../store/authStore', () => ({

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../store/authStore'
 import { toApiError } from '../services/api'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 
 const mode = ref<'login' | 'register' | 'reset'>('login')
@@ -153,7 +154,8 @@ async function onSubmit() {
       notice.value = t('auth.success.passwordReset')
     }
     if (!wasResetMode) {
-      router.push('/')
+      const redirect = route.query.redirect
+      router.push(typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/')
     }
   } catch (e) {
     const fallbackKey = wasResetMode

@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.function.LongFunction;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -30,6 +31,9 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
 class McpDispatcherTest {
@@ -168,7 +172,7 @@ class McpDispatcherTest {
     @Test
     void invokesListDocumentsWithAuthenticatedUser() throws Exception {
         ProjectDocumentTreeNode document = new ProjectDocumentTreeNode(
-                68L, 7L, null, "安全扫描", 0, 3L, true, null);
+                68L, 7L, null, "安全扫描", 0, 3L, true, null, "BLOCKNOTE");
         when(projectDocumentQueryService.listTree(7L, 9L, false))
                 .thenReturn(java.util.List.of(document));
 
@@ -187,7 +191,7 @@ class McpDispatcherTest {
     void invokesGetDocumentWithAuthenticatedUser() throws Exception {
         ProjectDocumentResponse document = new ProjectDocumentResponse(
                 68L, 7L, null, null, null, "安全扫描", "正文", java.util.List.of(), 0, 3L,
-                9L, 9L, false, null, null, null);
+                9L, 9L, false, null, null, null, "BLOCKNOTE");
         when(projectDocumentQueryService.getDocument(68L, 9L)).thenReturn(document);
 
         String body = request("8", "tools/call",
@@ -205,7 +209,7 @@ class McpDispatcherTest {
     void invokesGetDocumentByTitleWhenTitleIsTheOnlyCondition() throws Exception {
         ProjectDocumentResponse document = new ProjectDocumentResponse(
                 68L, 7L, null, null, null, "安全扫描", "正文", java.util.List.of(), 0, 3L,
-                9L, 9L, false, null, null, null);
+                9L, 9L, false, null, null, null, "BLOCKNOTE");
         when(projectDocumentQueryService.getDocumentByTitle("安全扫描", 9L)).thenReturn(document);
 
         String body = request("9", "tools/call",
@@ -232,7 +236,7 @@ class McpDispatcherTest {
                 });
 
         McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("10", "tools/call",
-                "{\"name\":\"create_document\",\"arguments\":{\"projectId\":7,\"title\":\"设计\","
+                "{\"name\":\"create_document\",\"arguments\":{\"contentFormat\":\"BLOCKNOTE\",\"projectId\":7,\"title\":\"设计\","
                         + "\"content\":\"before ![图](mcp-image:fig) after\",\"images\":[{\"ref\":\"fig\","
                         + "\"fileName\":\"diagram.png\",\"contentType\":\"image/png\",\"dataBase64\":\"AQID\"}]}}"),
                 null, null, null, null, 7L);
@@ -255,7 +259,7 @@ class McpDispatcherTest {
                 });
 
         McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("10b", "tools/call",
-                "{\"name\":\"create_document\",\"arguments\":{\"projectId\":7,\"title\":\"设计\","
+                "{\"name\":\"create_document\",\"arguments\":{\"contentFormat\":\"BLOCKNOTE\",\"projectId\":7,\"title\":\"设计\","
                         + "\"content\":\"| 能力 | 职责 |\\n|---|---|\\n| 值与类型 | 声明输入输出类型 |\"}}"),
                 null, null, null, null, 7L);
 
@@ -282,7 +286,7 @@ class McpDispatcherTest {
                 });
 
         McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("11", "tools/call",
-                "{\"name\":\"update_document\",\"arguments\":{\"documentId\":11,\"expectedVersion\":3,"
+                "{\"name\":\"update_document\",\"arguments\":{\"contentFormat\":\"BLOCKNOTE\",\"documentId\":11,\"expectedVersion\":3,"
                         + "\"title\":\"设计\",\"content\":\"![图](mcp-image:reuse)\","
                         + "\"images\":[{\"ref\":\"reuse\",\"assetId\":31}]}}"),
                 null, null, null, null, 7L);
@@ -303,7 +307,7 @@ class McpDispatcherTest {
                 });
 
         McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("12", "tools/call",
-                "{\"name\":\"create_document\",\"arguments\":{\"projectId\":7,\"title\":\"设计\","
+                "{\"name\":\"create_document\",\"arguments\":{\"contentFormat\":\"BLOCKNOTE\",\"projectId\":7,\"title\":\"设计\","
                         + "\"content\":\"![外链](https://example.com/image.png)\"}}"),
                 null, null, null, null, 7L);
 
@@ -313,7 +317,7 @@ class McpDispatcherTest {
 
     private ProjectDocumentResponse documentResponse(String content) {
         return new ProjectDocumentResponse(11L, 7L, null, null, null, "设计", content,
-                List.of(), 0, 1L, 7L, 7L, false, null, null, null);
+                List.of(), 0, 1L, 7L, 7L, false, null, null, null, "BLOCKNOTE");
     }
 
     private ProjectDocumentAttachmentResponse attachment(Long id, Long documentId) {
@@ -331,4 +335,32 @@ class McpDispatcherTest {
         return "{\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"method\":\"" + method
                 + "\",\"params\":" + params + "}";
     }
+    @Test
+    void htmlMcpCreateKeepsWhitespaceAndBypassesMarkdownAndAttachments() throws Exception {
+        String html = "\n<!doctype html><html><body><script>window.x=1;</script></body></html>\n";
+        when(projectDocumentCommandService.create(eq(7L), any(CreateProjectDocumentRequest.class), eq(7L)))
+                .thenReturn(documentResponse(html));
+        var arguments = objectMapper.createObjectNode().put("projectId", 7).put("title", "HTML")
+                .put("contentFormat", "HTML").put("content", html);
+        var params = objectMapper.createObjectNode().put("name", "create_document");
+        params.set("arguments", arguments);
+        var response = dispatcher.dispatch(request("html", "tools/call", params.toString()), null, null, null, null, 7L);
+        assertFalse(response.body().path("result").path("isError").asBoolean());
+        var captor = org.mockito.ArgumentCaptor.forClass(CreateProjectDocumentRequest.class);
+        verify(projectDocumentCommandService).create(eq(7L), captor.capture(), eq(7L));
+        assertEquals(html, captor.getValue().content());
+        assertEquals("HTML", captor.getValue().contentFormat());
+        verify(projectDocumentCommandService, never()).createWithContentFactory(anyLong(), any(), anyLong(), any());
+        verifyNoInteractions(projectDocumentAttachmentService);
+    }
+
+    @Test
+    void htmlMcpRejectsAttachmentInputBeforeCallingDocumentService() throws Exception {
+        var params = objectMapper.readTree("{\"name\":\"create_document\",\"arguments\":{\"projectId\":7,\"title\":\"HTML\","
+                + "\"contentFormat\":\"HTML\",\"content\":\"<html></html>\",\"images\":[]}}");
+        var response = dispatcher.dispatch(request("html-images", "tools/call", params.toString()), null, null, null, null, 7L);
+        assertTrue(response.body().has("error"));
+        verifyNoInteractions(projectDocumentCommandService, projectDocumentAttachmentService);
+    }
+
 }

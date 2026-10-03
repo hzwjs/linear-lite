@@ -55,7 +55,7 @@ public class ProjectContentSearchService {
         if (scopeByProjectId.isEmpty()) return List.of();
         SearchScope searchScope = new SearchScope(List.copyOf(scopeByProjectId.keySet()),
                 List.of(ProjectContentType.TASK, ProjectContentType.DOCUMENT));
-        return search(normalized, scopeByProjectId, searchScope, GLOBAL_CHANNELS);
+        return search(normalized, scopeByProjectId, searchScope, GLOBAL_CHANNELS, userId);
     }
 
     public List<ProjectContentSearchResponse> searchDocuments(Long projectId, String query, Long userId) {
@@ -69,7 +69,7 @@ public class ProjectContentSearchService {
         String normalized = normalizeQuery(query);
         if (normalized.isEmpty()) return List.of();
         SearchScope searchScope = new SearchScope(List.of(projectId), List.of(ProjectContentType.DOCUMENT));
-        return search(normalized, scopeByProjectId, searchScope, GLOBAL_CHANNELS);
+        return search(normalized, scopeByProjectId, searchScope, GLOBAL_CHANNELS, userId);
     }
 
     private String normalizeQuery(String query) {
@@ -92,7 +92,7 @@ public class ProjectContentSearchService {
                         result.contentType(), result.resourceId(), result.projectId(),
                         result.projectIdentifier(), result.projectName(), result.title(),
                         ProjectContentTextExtractor.excerpt(
-                                ProjectContentTextExtractor.extract(ProjectContentType.TASK, result.excerpt()))))
+                                ProjectContentTextExtractor.extract(ProjectContentType.TASK, result.excerpt(), null)), null))
                 .toList();
     }
 
@@ -110,7 +110,7 @@ public class ProjectContentSearchService {
     private List<ProjectContentSearchResponse> search(String normalized,
                                                       Map<Long, ProjectPermissionScope> scopeByProjectId,
                                                       SearchScope searchScope,
-                                                      List<SearchChannel> channels) {
+                                                      List<SearchChannel> channels, Long userId) {
         // 搜索入口只声明不可变通道集合，候选合并、排序与权限复核始终走同一条路径。
         List<RankedHit> ranked = new ArrayList<>(ProjectContentSearchIndex.CHANNEL_LIMIT * channels.size());
         for (SearchChannel channel : channels) {
@@ -124,8 +124,17 @@ public class ProjectContentSearchService {
                 unique.putIfAbsent(identity(hit.hit()), hit);
             }
         }
-        return unique.values().stream().limit(MAX_RESULTS)
-                .map(hit -> toResponse(hit.hit(), scopeByProjectId.get(hit.hit().projectId())))
+        List<RankedHit> selected = unique.values().stream().limit(MAX_RESULTS).toList();
+        List<Long> documentIds = selected.stream().filter(item -> "DOCUMENT".equals(item.hit().contentType()))
+                .map(item -> item.hit().numericId()).toList();
+        Map<Long, String> formats = new LinkedHashMap<>();
+        if (!documentIds.isEmpty()) {
+            projectContentSearchMapper.selectDocumentFormats(documentIds, userId).forEach(item -> formats.put(item.id(), item.contentFormat()));
+        }
+        return selected.stream()
+                .filter(item -> !"DOCUMENT".equals(item.hit().contentType()) || formats.containsKey(item.hit().numericId()))
+                .map(item -> toResponse(item.hit(), scopeByProjectId.get(item.hit().projectId()),
+                        "DOCUMENT".equals(item.hit().contentType()) ? formats.get(item.hit().numericId()) : null))
                 .toList();
     }
 
@@ -153,9 +162,9 @@ public class ProjectContentSearchService {
     }
 
     private static ProjectContentSearchResponse toResponse(ProjectContentSearchIndex.SearchHit hit,
-                                                            ProjectPermissionScope scope) {
+                                                            ProjectPermissionScope scope, String contentFormat) {
         return new ProjectContentSearchResponse(hit.contentType().toLowerCase(Locale.ROOT), hit.resourceId(),
-                hit.projectId(), scope.projectIdentifier(), scope.projectName(), hit.title(), hit.excerpt());
+                hit.projectId(), scope.projectIdentifier(), scope.projectName(), hit.title(), hit.excerpt(), contentFormat);
     }
 
     private static ContentIdentity identity(ProjectContentSearchIndex.SearchHit hit) {

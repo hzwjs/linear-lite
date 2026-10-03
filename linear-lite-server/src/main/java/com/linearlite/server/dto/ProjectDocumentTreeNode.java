@@ -10,5 +10,5 @@ public record ProjectDocumentTreeNode(
         Integer sortOrder,
         Long version,
         boolean favorited,
-        LocalDateTime updatedAt) {
+        LocalDateTime updatedAt, String contentFormat) {
 }

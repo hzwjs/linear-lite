@@ -33,7 +33,10 @@ api.interceptors.response.use(
         return Promise.resolve()
       })
       afterLogout.then(() => import('../../router')).then(({ default: router }) => {
-        router.push('/login')
+        const current = router.currentRoute.value
+        if (current.name !== 'login') {
+          router.push({ path: '/login', query: { redirect: current.fullPath } })
+        }
       })
     }
     return Promise.reject(err)

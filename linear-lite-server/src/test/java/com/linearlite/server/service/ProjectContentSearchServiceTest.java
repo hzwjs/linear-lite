@@ -26,7 +26,7 @@ class ProjectContentSearchServiceTest {
         ProjectContentSearchIndex index = mock(ProjectContentSearchIndex.class);
         ProjectContentSearchResponse result = new ProjectContentSearchResponse(
                 "task", "ENG-123", 7L, "ENG", "Engineering", "Fix login",
-                "[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Handle login error\"}]}]");
+                "[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Handle login error\"}]}]", null);
         when(taskSearchMapper.selectTaskSearchByKey("ENG-123", 9L)).thenReturn(List.of(result));
 
         List<ProjectContentSearchResponse> results = service(memberMapper, taskSearchMapper, index)
@@ -43,8 +43,8 @@ class ProjectContentSearchServiceTest {
         ProjectContentSearchMapper taskSearchMapper = mock(ProjectContentSearchMapper.class);
         ProjectContentSearchIndex index = mock(ProjectContentSearchIndex.class);
         when(taskSearchMapper.selectTaskSearchByNumber("123", 9L)).thenReturn(List.of(
-                new ProjectContentSearchResponse("task", "ENG-123", 7L, "ENG", "Engineering", "A", ""),
-                new ProjectContentSearchResponse("task", "OPS-123", 8L, "OPS", "Operations", "B", "")));
+                new ProjectContentSearchResponse("task", "ENG-123", 7L, "ENG", "Engineering", "A", "", null),
+                new ProjectContentSearchResponse("task", "OPS-123", 8L, "OPS", "Operations", "B", "", null)));
 
         assertEquals(List.of("ENG-123", "OPS-123"), service(memberMapper, taskSearchMapper, index)
                 .search("00123", 9L).stream()
@@ -150,8 +150,34 @@ class ProjectContentSearchServiceTest {
         verifyNoInteractions(index);
     }
 
+    @Test
+    void documentSearchUsesSourceFormatAndDropsNoLongerAccessibleCandidates() {
+        ProjectMemberMapper memberMapper = memberMapper(List.of(new ProjectPermissionScope(7L, "PHX", "Phoenix")));
+        ProjectContentSearchMapper contentMapper = mock(ProjectContentSearchMapper.class);
+        ProjectContentSearchIndex index = mock(ProjectContentSearchIndex.class);
+        SearchScope scope = allContentScope(7L);
+        when(index.searchTitle(scope, "HTML")).thenReturn(List.of(
+                hit("DOCUMENT", 1L, "1", 7L, 200, 0), hit("DOCUMENT", 2L, "2", 7L, 100, 0),
+                hit("TASK", 1L, "PHX-1", 7L, 50, 0)));
+        when(index.searchBody(scope, "HTML")).thenReturn(List.of());
+        when(index.searchSemantic(scope, "HTML")).thenReturn(List.of());
+        when(contentMapper.selectDocumentFormats(List.of(1L, 2L), 9L)).thenReturn(List.of(
+                new ProjectContentSearchMapper.DocumentFormat(1L, "HTML")));
+
+        List<ProjectContentSearchResponse> result = service(memberMapper, contentMapper, index).search("HTML", 9L);
+        assertEquals(2, result.size());
+        assertEquals("1", result.get(0).resourceId());
+        assertEquals("HTML", result.get(0).contentFormat());
+        assertEquals("PHX-1", result.get(1).resourceId());
+        assertEquals(null, result.get(1).contentFormat());
+    }
+
     private static ProjectContentSearchService service(ProjectMemberMapper mapper, ProjectContentSearchIndex index) {
-        return service(mapper, mock(ProjectContentSearchMapper.class), index);
+        ProjectContentSearchMapper contentMapper = mock(ProjectContentSearchMapper.class);
+        when(contentMapper.selectDocumentFormats(org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.eq(9L)))
+                .thenAnswer(call -> ((List<Long>) call.getArgument(0)).stream()
+                        .map(id -> new ProjectContentSearchMapper.DocumentFormat(id, "BLOCKNOTE")).toList());
+        return service(mapper, contentMapper, index);
     }
 
     private static ProjectContentSearchService service(ProjectMemberMapper mapper,

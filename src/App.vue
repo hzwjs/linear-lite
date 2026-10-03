@@ -9,6 +9,7 @@ import { useDocumentFavoriteStore } from './store/documentFavoriteStore'
 import { useOverlayStore } from './store/overlayStore'
 import { useViewModeStore } from './store/viewModeStore'
 import NotificationCenter from './components/NotificationCenter.vue'
+import { htmlDocumentPath } from './utils/htmlDocument'
 import SidebarNavigation, { type SidebarMode } from './components/SidebarNavigation.vue'
 import CreateProjectModal from './components/CreateProjectModal.vue'
 import CommandPalette from './components/CommandPalette.vue'
@@ -138,11 +139,16 @@ function triggerFocusSearch() {
 
 async function openGlobalSearchResult(result: ProjectContentSearchResult) {
   globalSearchOpen.value = false
-  projectStore.setActiveProject(result.projectId)
   if (result.contentType === 'document') {
+    if (result.contentFormat === 'HTML') {
+      window.open(htmlDocumentPath(result.projectId, Number(result.resourceId)), '_blank', 'noopener,noreferrer')
+      return
+    }
+    projectStore.setActiveProject(result.projectId)
     await router.push(`/projects/${result.projectId}/documents/${result.resourceId}`)
     return
   }
+  projectStore.setActiveProject(result.projectId)
   await taskStore.fetchTasks()
   await router.push(buildTaskRoute(result.resourceId, result.projectId))
 }
@@ -256,6 +262,11 @@ function openFavoriteTask(taskId: string, projectId?: number) {
 }
 
 async function openFavoriteDocument(documentId: number, projectId: number) {
+  const document = documentFavoriteStore.favorites.find((item) => item.id === documentId)
+  if (document?.contentFormat === 'HTML') {
+    window.open(htmlDocumentPath(projectId, documentId), '_blank', 'noopener,noreferrer')
+    return
+  }
   projectStore.setActiveProject(projectId)
   await router.push(`/projects/${projectId}/documents/${documentId}`)
 }

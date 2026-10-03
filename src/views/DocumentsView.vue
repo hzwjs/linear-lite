@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ArchiveRestore, FilePlus2, Inbox, Loader2, Plus, Search, TriangleAlert, X } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { ArchiveRestore, Code2, ExternalLink, FilePlus2, Inbox, Loader2, Plus, Search, TriangleAlert, X } from 'lucide-vue-next'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import { htmlDocumentPath } from '../utils/htmlDocument'
 import DocumentEditor from '../components/documents/DocumentEditor.vue'
 import DocumentHistoryPanel from '../components/documents/DocumentHistoryPanel.vue'
 import DocumentSearchResults from '../components/documents/DocumentSearchResults.vue'
@@ -32,6 +33,12 @@ let workspaceLoadSequence = 0
 let documentSearchSequence = 0
 let documentSearchTimer: ReturnType<typeof setTimeout> | null = null
 const DOCUMENT_SEARCH_DEBOUNCE_MS = 250
+
+function refreshAfterTabFocus() {
+  void store.loadTree(projectId.value).catch(() => undefined)
+}
+onMounted(() => window.addEventListener('focus', refreshAfterTabFocus))
+onBeforeUnmount(() => window.removeEventListener('focus', refreshAfterTabFocus))
 
 const projectId = computed(() => Number(route.params.projectId))
 const documentId = computed(() => {
@@ -169,6 +176,11 @@ watch(
 watch(projectId, () => clearDocumentSearch())
 
 async function openDocument(id: number) {
+  const node = store.treeNodes.find((item) => item.id === id)
+  if (node?.contentFormat === 'HTML') {
+    window.open(htmlDocumentPath(projectId.value, id), '_blank', 'noopener,noreferrer')
+    return
+  }
   if (id === documentId.value) return
   await store.flushSaves()
   await router.push(documentRoute(id))
@@ -178,6 +190,10 @@ async function openDocumentSearchResult(result: ProjectContentSearchResult) {
   const id = Number(result.resourceId)
   if (!Number.isInteger(id)) return
   clearDocumentSearch()
+  if (result.contentFormat === 'HTML') {
+    window.open(htmlDocumentPath(result.projectId, id), '_blank', 'noopener,noreferrer')
+    return
+  }
   await openDocument(id)
 }
 
@@ -250,6 +266,7 @@ onBeforeUnmount(() => {
             <span class="documents-sidebar__project">{{ activeProject?.name }}</span>
             <h1>{{ t('documents.title') }}</h1>
           </div>
+          <a class="documents-sidebar__new" :href="`/projects/${projectId}/documents/html/new`" target="_blank" rel="noopener noreferrer" :aria-label="t('documents.html.new')" :title="t('documents.html.new')"><Code2 aria-hidden="true" /> HTML</a>
           <button
             type="button"
             class="documents-sidebar__new"
@@ -354,8 +371,13 @@ onBeforeUnmount(() => {
           @close="historyOpen = false"
           @restored="historyOpen = false"
         />
+        <div v-else-if="store.activeDocument?.contentFormat === 'HTML'" class="documents-content__state">
+          <a :href="htmlDocumentPath(projectId, store.activeDocument.id)" target="_blank" rel="noopener noreferrer">
+            <ExternalLink aria-hidden="true" />{{ t('documents.html.open') }}
+          </a>
+        </div>
         <DocumentEditor
-          v-else-if="store.activeDocument"
+          v-else-if="store.activeDocument?.contentFormat === 'BLOCKNOTE'"
           :document="store.activeDocument"
           :tree-nodes="store.treeNodes"
           :save-state="store.saveState"
@@ -398,6 +420,7 @@ onBeforeUnmount(() => {
 .documents-sidebar h1 { margin: 2px 0 0; font-size: 16px; font-weight: var(--font-weight-semibold); }
 .documents-sidebar__new { display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); }
 .documents-sidebar__new:hover { background: var(--color-bg-hover); }
+.documents-sidebar__new { gap: 4px; color: var(--color-text-secondary); text-decoration: none; font-size: var(--font-size-xs); padding: 6px; }
 .documents-sidebar__new svg { width: 16px; height: 16px; }
 .documents-sidebar__search {
   display: grid;

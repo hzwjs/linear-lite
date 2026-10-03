@@ -18,7 +18,7 @@ vi.mock('../services/api/documents', async () => {
 
 function document(overrides: Partial<ProjectDocument> = {}): ProjectDocument {
   return {
-    id: 8, projectId: 3, parentDocumentId: null, title: 'Spec', content: '[]',
+    id: 8, projectId: 3, parentDocumentId: null, contentFormat: 'BLOCKNOTE', title: 'Spec', content: '[]',
     sortOrder: 0, version: 1, favorited: false, creatorId: 1, lastEditorId: 1, archivedAt: null,
     createdAt: '2026-07-29T08:00:00', updatedAt: '2026-07-29T08:00:00', ...overrides
   }
@@ -47,7 +47,7 @@ describe('documentStore autosave', () => {
     store.updateDraft({ title: 'First' })
     await vi.advanceTimersByTimeAsync(800)
     expect(documentApi.update).toHaveBeenNthCalledWith(1, 8, {
-      expectedVersion: 1, title: 'First', content: '[]'
+      expectedVersion: 1, contentFormat: 'BLOCKNOTE', title: 'First', content: '[]'
     })
 
     store.updateDraft({ title: 'Second' })
@@ -55,7 +55,7 @@ describe('documentStore autosave', () => {
     await vi.runAllTimersAsync()
 
     expect(documentApi.update).toHaveBeenNthCalledWith(2, 8, {
-      expectedVersion: 2, title: 'Second', content: '[]'
+      expectedVersion: 2, contentFormat: 'BLOCKNOTE', title: 'Second', content: '[]'
     })
     expect(store.activeDocument?.version).toBe(3)
     expect(store.saveState).toBe('saved')
@@ -112,7 +112,7 @@ describe('documentStore autosave', () => {
     await store.flushSaves()
 
     expect(documentApi.update).toHaveBeenCalledWith(8, {
-      expectedVersion: 1, title: 'Local draft', content: '[]'
+      expectedVersion: 1, contentFormat: 'BLOCKNOTE', title: 'Local draft', content: '[]'
     })
   })
 
@@ -163,8 +163,8 @@ describe('documentStore autosave', () => {
     vi.mocked(documentApi.listTree).mockResolvedValue(refreshedTree)
     const store = useDocumentStore()
     store.treeNodes = [
-      { id: 8, projectId: 3, parentDocumentId: null, title: 'Spec', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
-      { id: 9, projectId: 3, parentDocumentId: null, title: 'Parent', sortOrder: 1, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
+      { id: 8, projectId: 3, parentDocumentId: null, contentFormat: 'BLOCKNOTE', title: 'Spec', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
+      { id: 9, projectId: 3, parentDocumentId: null, contentFormat: 'BLOCKNOTE', title: 'Parent', sortOrder: 1, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
     ]
 
     await store.moveDocument(3, 8, 9, null)
@@ -181,13 +181,13 @@ describe('documentStore autosave', () => {
       resolveMove = resolve
     }))
     vi.mocked(documentApi.listTree).mockResolvedValue([
-      { id: 9, projectId: 3, parentDocumentId: null, title: 'Second', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
-      { id: 8, projectId: 3, parentDocumentId: null, title: 'Spec', sortOrder: 1, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
+      { id: 9, projectId: 3, parentDocumentId: null, contentFormat: 'BLOCKNOTE', title: 'Second', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
+      { id: 8, projectId: 3, parentDocumentId: null, contentFormat: 'BLOCKNOTE', title: 'Spec', sortOrder: 1, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
     ])
     const store = useDocumentStore()
     store.treeNodes = [
-      { id: 8, projectId: 3, parentDocumentId: null, title: 'Spec', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
-      { id: 9, projectId: 3, parentDocumentId: null, title: 'Second', sortOrder: 1, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
+      { id: 8, projectId: 3, parentDocumentId: null, contentFormat: 'BLOCKNOTE', title: 'Spec', sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' },
+      { id: 9, projectId: 3, parentDocumentId: null, contentFormat: 'BLOCKNOTE', title: 'Second', sortOrder: 1, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00' }
     ]
 
     const movePromise = store.moveDocument(3, 8, null, 9)

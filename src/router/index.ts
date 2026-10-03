@@ -22,6 +22,18 @@ const router = createRouter({
       component: () => import('../views/DocumentsView.vue')
     },
     {
+      path: '/projects/:projectId/documents/html/new',
+      name: 'html-document-create',
+      component: () => import('../views/HtmlDocumentView.vue'),
+      meta: { standalone: true }
+    },
+    {
+      path: '/projects/:projectId/documents/:documentId/html',
+      name: 'html-document-read',
+      component: () => import('../views/HtmlDocumentView.vue'),
+      meta: { standalone: true }
+    },
+    {
       path: '/projects/:projectId/documents/:documentId',
       name: 'project-document-detail',
       component: () => import('../views/DocumentsView.vue')
@@ -58,7 +70,7 @@ export function setupRouterGuards(pinia: Pinia) {
       return true
     }
     if (!loggedIn) {
-      return { path: '/login' }
+      return { path: '/login', query: { redirect: to.fullPath } }
     }
     return true
   })
