@@ -1,10 +1,18 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
 import { documentApi } from '../services/api/documents'
+import { toApiError } from '../services/api'
 import type { DocumentImageAsset, ProjectDocumentAttachment } from '../types/document'
 import DocumentAttachmentUploadList from './documents/DocumentAttachmentUploadList.vue'
 import { useDocumentAttachmentUploads } from './documents/useDocumentAttachmentUploads'
+import { readLocalPastedImage, type PastedImageSource } from './documentImagePaste'
+
+const { t } = useI18n()
+const imagePasteLabels = computed(() => ({
+  source: t('documents.pastedImageSource'), importing: t('documents.imageImporting'),
+}))
 
 const props = withDefaults(
   defineProps<{
@@ -81,8 +89,25 @@ async function handleUploadImageAsset(file: File): Promise<DocumentImageAsset> {
   return asset
 }
 
-async function handleCloneImageAsset(assetId: number): Promise<DocumentImageAsset> {
-  const attachment = await documentApi.cloneAttachment(props.documentId, assetId)
+async function handleImportPastedImage(source: PastedImageSource, signal: AbortSignal): Promise<DocumentImageAsset> {
+  const documentId = props.documentId
+  let attachment: ProjectDocumentAttachment
+  try {
+    if (source.kind === 'asset') {
+      attachment = await documentApi.cloneAttachment(documentId, source.assetId, signal)
+    } else if (source.kind === 'url' && /^https?:\/\//i.test(source.url)) {
+      attachment = await documentApi.importImage(documentId, source.url, signal)
+    } else {
+      const file = await readLocalPastedImage(source, signal)
+      attachment = await documentApi.uploadAttachment(documentId, file, { signal })
+    }
+  } catch (error) {
+    throw toApiError(error)
+  }
+  if (signal.aborted || props.documentId !== documentId) throw new Error(t('documents.imageImportCanceled'))
+  if (attachment.documentId !== documentId || !attachment.contentType?.startsWith('image/')) {
+    throw new Error(t('documents.imageImportFailed'))
+  }
   const asset = toDocumentImageAsset(attachment)
   sessionAssets.value = [...sessionAssets.value, asset]
   return asset
@@ -112,13 +137,12 @@ defineExpose({ focus, removeAttachmentLink })
     :model-value="modelValue"
     :upload-file="handleUploadFile"
     :upload-image-asset="handleUploadImageAsset"
-    :external-image-paste-rejected-text="$t('documents.externalImagePasteRejected')"
-    :document-image-clone-failed-text="$t('documents.imageCloneFailed')"
+    :import-pasted-image="handleImportPastedImage"
+    :image-paste-labels="imagePasteLabels"
     :document-image-menu-label="$t('documents.insertImage')"
     :image-upload-type-unsupported-text="$t('documents.imageFileTypeUnsupported')"
     :document-id="documentId"
     :image-assets="mergedImageAssets"
-    :clone-image-asset="handleCloneImageAsset"
     :paste-file-as-link="pasteFileAsLink"
     :file-upload-failed-text="fileUploadFailedText"
     :readonly="readonly"

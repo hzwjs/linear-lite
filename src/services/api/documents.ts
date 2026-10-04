@@ -60,12 +60,18 @@ export const documentApi = {
   },
 
   /** 把其它文档的图片附件复制到当前文档，保证正文图片身份与文档归属一致。 */
-  cloneAttachment(documentId: number, attachmentId: number): Promise<ProjectDocumentAttachment> {
+  cloneAttachment(documentId: number, attachmentId: number, signal?: AbortSignal): Promise<ProjectDocumentAttachment> {
     return api
       .post<ApiResponse<ProjectDocumentAttachment>>(
-        `/project-documents/${documentId}/attachments/${attachmentId}/clone`
+        `/project-documents/${documentId}/attachments/${attachmentId}/clone`, undefined, { signal }
       )
       .then(unwrap)
+  },
+
+  importImage(documentId: number, url: string, signal: AbortSignal): Promise<ProjectDocumentAttachment> {
+    return api.post<ApiResponse<ProjectDocumentAttachment>>(
+      `/project-documents/${documentId}/image-imports`, { url }, { signal, timeout: 120000 }
+    ).then(unwrap)
   },
 
   search(projectId: number, query: string): Promise<ProjectContentSearchResult[]> {

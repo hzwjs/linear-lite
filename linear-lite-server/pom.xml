@@ -22,6 +22,15 @@
     </properties>
 
     <dependencies>
+        <!-- 外链图片使用自定义 DNS 校验；与现有 AWS SDK 的 HTTP 客户端版本一致。 -->
+        <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpclient</artifactId>
+            <version>4.5.13</version>
+            <exclusions>
+                <exclusion><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></exclusion>
+            </exclusions>
+        </dependency>
         <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>

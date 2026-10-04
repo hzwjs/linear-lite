@@ -52,6 +52,18 @@ describe('document attachment download', () => {
     expect(api.delete).toHaveBeenCalledWith('/project-documents/12/attachments/34')
   })
 
+  it('passes image import and clone cancellation to the HTTP client without serializing it into the body', async () => {
+    const attachment = { id: 34, documentId: 12, contentType: 'image/png' }
+    const signal = new AbortController().signal
+    vi.mocked(api.post).mockResolvedValue({ data: { data: attachment } } as any)
+
+    await expect(documentApi.cloneAttachment(12, 34, signal)).resolves.toEqual(attachment)
+    expect(api.post).toHaveBeenCalledWith('/project-documents/12/attachments/34/clone', undefined, { signal })
+    await expect(documentApi.importImage(12, 'https://image.example/a.png', signal)).resolves.toEqual(attachment)
+    expect(api.post).toHaveBeenCalledWith('/project-documents/12/image-imports',
+      { url: 'https://image.example/a.png' }, { signal, timeout: 120000 })
+  })
+
   it('fails before creating a download when Content-Disposition has no UTF-8 filename', async () => {
     vi.mocked(api.get).mockResolvedValue({
       data: new Blob(['document']),

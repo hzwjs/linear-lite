@@ -20,13 +20,14 @@ import {
   type PartialBlock,
 } from '@blocknote/core'
 import { createCodeBlockSpec } from '@blocknote/core/blocks'
+import { blockToNode } from '@blocknote/core'
+import { Fragment, Slice } from '@tiptap/pm/model'
 import type { HighlighterGeneric, LanguageInput } from '@shikijs/types'
 import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
 import { asciiTableToMarkdown, shouldPasteClipboardAsMarkdown } from '../utils/markdownClipboard'
 import { normalizeMermaidRenderError, renderMermaidSvg } from '../utils/mermaidRenderer'
 import type { DocumentImageAsset } from '../types/document'
 import {
-  clonePastedDocumentImageAssets,
   createDocumentImageUploadResult,
   formatUploadFeedback,
   hasDocumentImageAssetPaste,
@@ -35,6 +36,8 @@ import {
   isPastedImageFile,
   type DocumentImageUploadResult,
 } from './documentImageEditorUtils'
+import { materializeImagePaste, prepareImagePaste, type PastedImageSource } from './documentImagePaste'
+import { createImagePasteController, type ImagePasteLabels } from './documentImagePasteController'
 import { MentionMemberSuggestionMenu } from './MentionMemberSuggestionMenu'
 import {
   StructuredMentionSuggestionMenu,
@@ -815,16 +818,14 @@ export type BlockNoteEditorReactProps = {
   uploadFile?: (file: File) => Promise<string>
   /** Document images enter the editor through their resource identity. */
   uploadImageAsset?: (file: File) => Promise<DocumentImageAsset>
-  externalImagePasteRejectedText?: string
-  documentImageCloneFailedText?: string
+  importPastedImage?: (source: PastedImageSource, signal: AbortSignal) => Promise<DocumentImageAsset>
+  imagePasteLabels?: ImagePasteLabels
   documentImageMenuLabel?: string
   imageUploadTypeUnsupportedText?: string
   /** Current document ID scopes cross-document image cloning. */
   documentId?: number
   /** 文档图片资源清单：正文图片身份的唯一解析来源。 */
   imageAssets?: DocumentImageAsset[]
-  /** 跨文档粘贴图片时把资源复制到当前文档。 */
-  cloneImageAsset?: (assetId: number) => Promise<DocumentImageAsset>
   /** 文档中的普通附件粘贴后写入链接块，图片粘贴后写入可预览的图片块。 */
   pasteFileAsLink?: boolean
   /** 附件上传失败的占位文本模板，`{name}` 替换为文件名（由 Vue i18n 传入）。 */
@@ -857,7 +858,6 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     uploadImageAsset,
     documentId,
     imageAssets,
-    cloneImageAsset,
     onChange,
     onBlur,
     onInit,
@@ -889,7 +889,6 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     uploadFile
   const documentIdResolved = documentId
   const imageAssetsResolved = imageAssets
-  const cloneImageAssetResolved = cloneImageAsset
   const editorSchema = documentIdResolved != null ? documentSchema : taskSchema
 
   const editorRootRef = useRef<HTMLDivElement | null>(null)
@@ -913,8 +912,13 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   )
   const resolveAssetRef = useRef(resolveAsset)
   resolveAssetRef.current = resolveAsset
-  const cloneImageAssetRef = useRef(cloneImageAssetResolved)
-  cloneImageAssetRef.current = cloneImageAssetResolved
+  const importPastedImageRef = useRef(props.importPastedImage)
+  importPastedImageRef.current = props.importPastedImage
+  const imagePasteLabelsRef = useRef<ImagePasteLabels>(props.imagePasteLabels ?? {
+    source: 'Image source', importing: 'Importing image…',
+  })
+  if (props.imagePasteLabels) imagePasteLabelsRef.current = props.imagePasteLabels
+  const imagePasteControllerRef = useRef<ReturnType<typeof createImagePasteController> | null>(null)
   const documentIdRef = useRef(documentIdResolved)
   documentIdRef.current = documentIdResolved
   const registerAsset = useCallback((asset: DocumentImageAsset) => {
@@ -947,10 +951,6 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
 
   const pasteFileAsLinkResolved = pasteFileAsLink
   const fileUploadFailedTextResolved = props.fileUploadFailedText
-  const externalImagePasteRejectedTextResolved = props.externalImagePasteRejectedText ??
-    'Images pasted as external links cannot be added. Download the image, then upload it to this document.'
-  const documentImageCloneFailedTextResolved = props.documentImageCloneFailedText ??
-    'A pasted document image could not be copied. Check access to its source document.'
   const imageUploadTypeUnsupportedTextResolved = props.imageUploadTypeUnsupportedText ??
     'Choose an image file to insert into this document.'
   const [imagePasteNotice, setImagePasteNotice] = useState('')
@@ -958,10 +958,6 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
   editableRef.current = editable
   const pasteFileAsLinkRef = useRef(pasteFileAsLinkResolved)
   pasteFileAsLinkRef.current = pasteFileAsLinkResolved
-  const externalImagePasteRejectedTextRef = useRef(externalImagePasteRejectedTextResolved)
-  externalImagePasteRejectedTextRef.current = externalImagePasteRejectedTextResolved
-  const documentImageCloneFailedTextRef = useRef(documentImageCloneFailedTextResolved)
-  documentImageCloneFailedTextRef.current = documentImageCloneFailedTextResolved
 
   const pasteFiles = useCallback(async (files: File[], editorInstance: any) => {
     const upload = uploadFileRef.current
@@ -1043,41 +1039,44 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
           : clipboardTypes.includes('text/html')
             ? clipboardData?.getData('text/html') ?? ''
             : ''
-        if (pasteFileAsLinkRef.current && clipboardTypes.includes('Files')) {
-          const files = clipboardData == null
-            ? []
-            : Array.from(clipboardData.items)
-              .map((item) => item.getAsFile())
-              .filter((file): file is File => file != null)
-          if (files.length > 0) {
-            void pasteFiles(files, editor).catch(() => undefined)
-            return true
-          }
-        }
+        const files = clipboardTypes.includes('Files') && clipboardData != null
+          ? Array.from(clipboardData.items).map(item => item.getAsFile()).filter((file): file is File => file != null)
+          : []
         const plainText = clipboardData
           ? clipboardTypes.includes('text/markdown')
             ? clipboardData.getData('text/markdown')
             : clipboardData.getData('text/plain')
           : ''
+        const fileText = plainText.trim()
+        const fileOnly = !html && (fileText.length === 0 || files.some(file => fileText === file.name
+          || (/^(file:|\/|[a-z]:[\\/])/i.test(fileText) && fileText.replace(/\\/g, '/').endsWith('/' + file.name))))
+        const imageFilesOnly = pasteFileAsLinkRef.current && fileOnly && files.length > 0 && files.every(isPastedImageFile)
+        if (pasteFileAsLinkRef.current && files.length > 0 && (documentIdRef.current == null || (fileOnly && !imageFilesOnly))) {
+          void pasteFiles(files, editor).catch(() => undefined)
+          return true
+        }
         const isInCodeBlock = editor.transact(
           (tr) => tr.selection.$from.parent.type.spec.code && tr.selection.$to.parent.type.spec.code,
         )
         if (editableRef.current && documentIdRef.current != null && !isInCodeBlock) {
-          if (hasExternalImagePaste(html) || hasMarkdownImagePaste(plainText)) {
-            setImagePasteNotice(externalImagePasteRejectedTextRef.current)
-            return true
-          }
-          if (hasDocumentImageAssetPaste(html)) {
-            void clonePastedDocumentImageAssets(
-              html,
-              (assetId) => resolveAssetRef.current(assetId),
-              cloneImageAssetRef.current,
-            ).then(({ html: localHtml, clonedAssets }) => {
-              clonedAssets.forEach(registerAsset)
-              editor.pasteHTML(localHtml, internalHtml.length > 0)
-            }).catch(() => {
-              setImagePasteNotice(documentImageCloneFailedTextRef.current)
+          if (imageFilesOnly || hasExternalImagePaste(html) || hasDocumentImageAssetPaste(html) || (!html && hasMarkdownImagePaste(plainText))) {
+            const prepared = prepareImagePaste(imageFilesOnly
+              ? { filePath: fileText.length === 0 ? undefined : fileText }
+              : html ? { html } : { markdown: plainText }, files)
+            const result = materializeImagePaste(editor.tryParseHTMLToBlocks(prepared.html), prepared, imagePasteLabelsRef.current.source)
+            // 以完整块切片替换当前选区；保留占位块身份，异步结果不会落到移动后的光标处。
+            const anchorId = editor.getTextCursorPosition().block.id
+            const nodes = result.blocks.map(block => blockToNode(block, editor.pmSchema, editor.schema.styleSchema))
+            const transaction = editor.prosemirrorState.tr.replaceSelection(new Slice(Fragment.from(nodes), 0, 0))
+            // 完整块插入会拆开光标所在段落；消费拆分留下的空块，避免空标题或空段落残留。
+            let emptyAnchor: { position: number; size: number } | undefined
+            transaction.doc.descendants((node, position) => {
+              if (node.type.name === 'blockContainer' && node.attrs.id === anchorId && node.childCount === 1
+                  && node.firstChild?.content.size === 0) emptyAnchor = { position, size: node.nodeSize }
             })
+            if (emptyAnchor) transaction.delete(emptyAnchor.position, emptyAnchor.position + emptyAnchor.size)
+            editor.prosemirrorView.dispatch(transaction.scrollIntoView())
+            imagePasteControllerRef.current?.add(result.images)
             return true
           }
         }
@@ -1103,6 +1102,28 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     },
     [editorSchema]
   )
+
+  useEffect(() => {
+    if (documentIdResolved == null) return
+    assetOverridesRef.current = new Map()
+    setAssetOverrides(new Map())
+    const controller = createImagePasteController(editor, {
+      labels: () => imagePasteLabelsRef.current,
+      importImage: async (source, signal) => {
+        if (source.kind === 'asset') {
+          if (!Number.isInteger(source.assetId) || source.assetId <= 0) throw new Error('Pasted document image has an invalid asset ID')
+          const existing = resolveAssetRef.current(source.assetId)
+          if (existing) return existing
+        }
+        const importImage = importPastedImageRef.current
+        if (!importImage) throw new Error('Document image import is unavailable')
+        return importImage(source, signal)
+      },
+      registerAsset,
+    })
+    imagePasteControllerRef.current = controller
+    return () => { imagePasteControllerRef.current = null; controller.dispose() }
+  }, [editor, documentIdResolved, registerAsset])
 
   const documentImageMenuLabelResolved = props.documentImageMenuLabel ?? 'Image'
   const imageInsertAnchorRef = useRef<string | null>(null)

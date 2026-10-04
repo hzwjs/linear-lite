@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>文档图片粘贴验收</title>
+<body>
+  <main class="paste-acceptance">
+    <h1>文档图片粘贴验收</h1>
+    <p>真实编辑器、HTTP、JWT、图片导入与分片上传；数据库和对象存储使用内存替身。</p>
+    <div id="app"></div>
+    <details><summary>保存内容</summary><pre id="stored"></pre></details>
+  </main>
+  <script type="module">
+    import { createApp, h, ref } from 'vue'
+    import StructuredDocumentEditor from '/src/components/StructuredDocumentEditor.vue'
+    import { i18n } from '/src/i18n/index.ts'
+    import { JWT_STORAGE_KEY } from '/src/services/api/constants.ts'
+    import '/src/style.css'
+    const session = await fetch('/api/auth/login', { method: 'POST' }).then(response => response.json())
+    localStorage.setItem(JWT_STORAGE_KEY, session.token)
+    const attachments = await fetch('/api/project-documents/900001/attachments', {
+      headers: { Authorization: `Bearer ${session.token}` },
+    }).then(response => response.json()).then(body => body.data)
+    const imageAssets = attachments.filter(item => item.contentType.startsWith('image/')).map(item => ({
+      assetId: item.id, contentHash: item.sha256, width: item.width, height: item.height,
+      thumbnailUrl: item.thumbnailUrl,
+      originalUrl: `/api/document-assets/${item.documentId}/${item.id}/${item.sha256}/original`,
+    }))
+    const value = ref(sessionStorage.getItem('image-paste-acceptance') ?? '')
+    window.acceptanceContent = value
+    createApp({ setup: () => () => h(StructuredDocumentEditor, {
+      documentId: 900001, modelValue: value.value, pasteFileAsLink: true, imageAssets,
+      'onUpdate:modelValue': content => {
+        value.value = content
+        sessionStorage.setItem('image-paste-acceptance', content)
+        document.querySelector('#stored').textContent = content
+      },
+    }) }).use(i18n).mount('#app')
+  </script>
+  <style>
+    .paste-acceptance { max-width: 800px; margin: 32px auto; padding: 16px; color: var(--color-text-primary); }
+    .paste-acceptance > p { color: var(--color-text-secondary); margin-block: 16px; }
+    .paste-acceptance details { margin-block: 24px; }
+    .paste-acceptance pre { overflow-wrap: anywhere; white-space: pre-wrap; }
+    @media (max-width: 600px) { .paste-acceptance { margin: 8px; padding: 8px; } }
+  </style>
+</body>
+</html>

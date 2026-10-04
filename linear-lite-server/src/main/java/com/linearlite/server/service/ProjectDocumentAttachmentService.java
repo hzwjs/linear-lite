@@ -393,7 +393,7 @@ public class ProjectDocumentAttachmentService {
                 .orderByAsc(ProjectDocumentAttachment::getId));
     }
 
-    private ProjectDocument requireDocument(Long documentId, Long userId) {
+    ProjectDocument requireDocument(Long documentId, Long userId) {
         ProjectDocument document = documentMapper.selectById(documentId);
         if (document == null) {
             throw new ResourceNotFoundException("项目文档不存在: " + documentId);

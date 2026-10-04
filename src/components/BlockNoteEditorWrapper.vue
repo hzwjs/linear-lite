@@ -7,6 +7,8 @@ import BlockNoteEditorReact from './BlockNoteEditorReact'
 import type { EditorApi } from './BlockNoteEditorReact'
 import { uploadApi } from '../services/api/upload'
 import type { DocumentImageAsset } from '../types/document'
+import type { PastedImageSource } from './documentImagePaste'
+import type { ImagePasteLabels } from './documentImagePasteController'
 
 // 编辑器只在任务/文档编辑器真正打开时加载；将 veaury 初始化放到这里，避免首屏入口提前拉取 React 编辑器依赖。
 setVeauryOptions({ react: { createRoot } })
@@ -39,15 +41,14 @@ const props = withDefaults(
     uploadFile?: (file: File) => Promise<string>
     /** 文档图片上传直接返回资源身份；BlockNote 会据此插入 documentImage 块。 */
     uploadImageAsset?: (file: File) => Promise<DocumentImageAsset>
-    externalImagePasteRejectedText?: string
-    documentImageCloneFailedText?: string
+    importPastedImage?: (source: PastedImageSource, signal: AbortSignal) => Promise<DocumentImageAsset>
+    imagePasteLabels?: ImagePasteLabels
     documentImageMenuLabel?: string
     imageUploadTypeUnsupportedText?: string
     pasteFileAsLink?: boolean
     /** 当前文档 ID 与非图片附件的区分：只有文档编辑器启用 documentImage 资源链路。 */
     documentId?: number
     imageAssets?: DocumentImageAsset[]
-    cloneImageAsset?: (assetId: number) => Promise<DocumentImageAsset>
     /** 附件上传失败的占位文本模板，`{name}` 替换为文件名（由 Vue i18n 传入）。 */
     fileUploadFailedText?: string
   }>(),
@@ -174,13 +175,12 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmen
       :editable="!readonly"
       :uploadFile="handleUploadFile"
       :uploadImageAsset="uploadImageAsset"
-      :externalImagePasteRejectedText="externalImagePasteRejectedText"
-      :documentImageCloneFailedText="documentImageCloneFailedText"
+      :importPastedImage="importPastedImage"
+      :imagePasteLabels="imagePasteLabels"
       :documentImageMenuLabel="documentImageMenuLabel"
       :imageUploadTypeUnsupportedText="imageUploadTypeUnsupportedText"
       :documentId="documentId"
       :imageAssets="imageAssets"
-      :cloneImageAsset="cloneImageAsset"
       :pasteFileAsLink="pasteFileAsLink"
       :fileUploadFailedText="fileUploadFailedText"
       :onChange="handleChange"
@@ -213,6 +213,24 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmen
   background: color-mix(in srgb, var(--color-danger) 7%, var(--color-bg-base));
   font-size: var(--font-size-sm);
 }
+
+.blocknote-editor-wrap :deep(.bn-pasted-image) {
+  --paste-image-gap: 8px;
+  --paste-image-preview-height: 320px;
+  display: grid;
+  gap: var(--paste-image-gap);
+  padding-block: var(--paste-image-gap);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+.blocknote-editor-wrap :deep(.bn-pasted-image__preview) {
+  display: block;
+  max-width: 100%;
+  max-height: var(--paste-image-preview-height);
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+.blocknote-editor-wrap :deep(.bn-pasted-image__status) { overflow-wrap: anywhere; }
 
 /* Mention chip styling to match the project design */
 .blocknote-editor-wrap :deep(.bn-mention) {
