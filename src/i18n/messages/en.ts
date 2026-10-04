@@ -248,6 +248,17 @@ const en = {
 
     title: 'Documents', issues: 'Issues', workspaceNavigation: 'Project workspace',
     newRoot: 'New document', newChild: 'New child document', untitled: 'Untitled',
+    markdown: {
+      import: 'Import Markdown files', requirements: 'Import UTF-8 .md files up to 5 MiB each, with accompanying images and collapsible sections.',
+      resources: 'Images needed', resourceHint: 'Choose the referenced PNG, JPEG or GIF images, or the directory containing them.',
+      chooseImage: 'Choose image', replaceImage: 'Replace', chooseImages: 'Choose image files', chooseDirectory: 'Choose image directory', continueImport: 'Continue import',
+      hint: 'Drop .md files here or use MD to import.', results: 'Markdown import results',
+      dropRoot: 'Release to create root documents', dropChild: 'Release to create documents under “{title}”',
+      importing: 'Importing…', imported: 'Imported', failed: 'Import failed. Please retry.',
+      retryFile: 'Retry importing {name}',
+      fileType: 'Choose a .md file.', fileSize: 'Files must be 5 MiB or smaller.',
+      refreshFailed: 'Documents were imported, but the tree could not refresh. Retry the refresh.'
+    },
     searchLabel: 'Search documents in the current project', searchPlaceholder: 'Search current project documents…', clearSearch: 'Clear document search',
     searchLoading: 'Searching current project documents…', searchFailed: 'Document search is temporarily unavailable.', searchResultsLabel: 'Current project document search results',
     loadingTree: 'Loading documents…', loadingDocument: 'Loading document…', loadFailed: 'Documents could not be loaded.',

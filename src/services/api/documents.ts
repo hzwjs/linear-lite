@@ -1,5 +1,5 @@
 import { isAxiosError } from 'axios'
-import { api, unwrap } from './index'
+import { api, toApiError, unwrap } from './index'
 import type { ApiResponse } from './types'
 import type {
   DocumentContentFormat,
@@ -35,6 +35,8 @@ export function parseDocumentAttachmentFileName(contentDisposition: string | und
 export interface DocumentConflict {
   currentVersion: number
 }
+
+export interface MarkdownImageResource { path: string; file: File }
 
 async function requestDocumentAttachment(documentId: number, attachmentId: number) {
   const response = await api.get<Blob>(
@@ -105,6 +107,25 @@ export const documentApi = {
     return api
       .post<ApiResponse<ProjectDocument>>(`/projects/${projectId}/documents`, body)
       .then(unwrap)
+  },
+
+  inspectMarkdown(projectId: number, file: File): Promise<{ imagePaths: string[] }> {
+    const body = new FormData()
+    body.append('file', file)
+    return api.post<ApiResponse<{ imagePaths: string[] }>>(`/projects/${projectId}/documents/import-markdown/inspect`, body,
+      { timeout: 120000, headers: { 'Content-Type': undefined } }).then(unwrap)
+      .catch((cause) => { throw toApiError(cause) })
+  },
+
+  importMarkdown(projectId: number, parentDocumentId: number | null, file: File, images: MarkdownImageResource[]): Promise<ProjectDocument> {
+    const body = new FormData()
+    body.append('file', file)
+    body.append('imagePaths', new Blob([JSON.stringify(images.map((image) => image.path))], { type: 'application/json' }))
+    images.forEach((image) => body.append('images', image.file))
+    if (parentDocumentId != null) body.append('parentDocumentId', String(parentDocumentId))
+    return api.post<ApiResponse<ProjectDocument>>(`/projects/${projectId}/documents/import-markdown`, body,
+      { timeout: 120000, headers: { 'Content-Type': undefined } }).then(unwrap)
+      .catch((cause) => { throw toApiError(cause) })
   },
 
   get(documentId: number): Promise<ProjectDocument> {

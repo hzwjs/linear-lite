@@ -1,0 +1,20 @@
+{
+  "id": 629,
+  "version": 2,
+  "title": "注册业务梳理-v2",
+  "parentDocumentId": 602,
+  "imageAssets": 4,
+  "imageBlocks": 4,
+  "toggles": 3,
+  "sourceMatches": true,
+  "imagesOwnedByDocument": true,
+  "imageAssetIds": [
+    981,
+    982,
+    983,
+    984
+  ],
+  "rootBlockCount": 30,
+  "activeTestDocuments": 0,
+  "collapsed": true
+}

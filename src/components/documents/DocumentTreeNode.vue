@@ -17,6 +17,7 @@ const props = defineProps<{
   draggingDocumentId: number | null
   dragHintId: string
   moving: boolean
+  fileDropParentId?: number | null
 }>()
 
 const emit = defineEmits<{
@@ -214,9 +215,11 @@ function onDocumentKeydown(event: KeyboardEvent) {
     <div
       class="document-tree-row"
       ref="rowRef"
+      :data-document-drop-id="node.id"
       :class="[
         { 'document-tree-row--active': activeId === node.id },
         { 'document-tree-row--dragging': isDragging },
+        { 'document-tree-row--drop-inside': fileDropParentId === node.id },
         dragPlacement && `document-tree-row--drop-${dragPlacement}`
       ]"
       :style="{ '--document-depth': depth }"
@@ -300,6 +303,7 @@ function onDocumentKeydown(event: KeyboardEvent) {
         :dragging-document-id="draggingDocumentId"
         :drag-hint-id="dragHintId"
         :moving="moving"
+        :file-drop-parent-id="fileDropParentId"
         @select="emit('select', $event)"
         @toggle="emit('toggle', $event)"
         @create-child="emit('createChild', $event)"

@@ -156,11 +156,13 @@ let mermaidHydrationSeq = 0
 type MermaidBlockRef = {
   id: string
   source: string
+  sourceOnly: boolean
 }
 
 type MermaidLayoutState = {
   heights: Map<string, number>
   sourceBlockIds: Set<string>
+  toggleSourceBlockIds: Set<string>
   style: HTMLStyleElement
 }
 
@@ -176,7 +178,7 @@ function getMermaidLayoutState(layer: HTMLElement): MermaidLayoutState {
   const style = document.createElement('style')
   style.className = 'bn-mermaid-layout-styles'
   layer.appendChild(style)
-  const created = { heights: new Map<string, number>(), sourceBlockIds: new Set<string>(), style }
+  const created = { heights: new Map<string, number>(), sourceBlockIds: new Set<string>(), toggleSourceBlockIds: new Set<string>(), style }
   mermaidLayoutStates.set(layer, created)
   return created
 }
@@ -380,17 +382,17 @@ function openMermaidPreview(layer: HTMLElement, blockId: string) {
   pswp.init()
 }
 
-function collectMermaidBlocks(blocks: readonly any[]): MermaidBlockRef[] {
+function collectMermaidBlocks(blocks: readonly any[], insideToggle = false): MermaidBlockRef[] {
   const refs: MermaidBlockRef[] = []
   for (const block of blocks) {
     if (block?.type === 'codeBlock') {
       const language = String(block.props?.language ?? '').trim().toLowerCase()
       if (language === 'mermaid') {
-        refs.push({ id: String(block.id), source: getBlockContentText(block) })
+        refs.push({ id: String(block.id), source: getBlockContentText(block), sourceOnly: insideToggle })
       }
     }
     if (Array.isArray(block?.children) && block.children.length > 0) {
-      refs.push(...collectMermaidBlocks(block.children))
+      refs.push(...collectMermaidBlocks(block.children, insideToggle || block.type === 'toggleListItem'))
     }
   }
   return refs
@@ -404,7 +406,7 @@ function collectMermaidBlocksFromDom(root: HTMLElement): MermaidBlockRef[] {
     const host = content.closest<HTMLElement>('.bn-block-outer[data-id]')
     const id = host?.dataset.id
     if (!id) continue
-    refs.push({ id, source: content.querySelector('pre')?.textContent ?? '' })
+    refs.push({ id, source: content.querySelector('pre')?.textContent ?? '', sourceOnly: false })
   }
   return refs
 }
@@ -573,12 +575,23 @@ async function renderMermaidPreview(root: HTMLElement, preview: HTMLElement, sou
 function hydrateMermaidPreviewBlocks(root: HTMLElement, layer: HTMLElement, blocks: readonly any[]) {
   const byId = new Map<string, MermaidBlockRef>()
   for (const block of collectMermaidBlocks(blocks)) byId.set(block.id, block)
-  for (const block of collectMermaidBlocksFromDom(root)) byId.set(block.id, block)
+  for (const block of collectMermaidBlocksFromDom(root)) if (!byId.has(block.id)) byId.set(block.id, block)
   const mermaidBlocks = Array.from(byId.values())
-  const activeIds = new Set(mermaidBlocks.map((block) => block.id))
+  const layoutState = getMermaidLayoutState(layer)
+  const toggleSourceIds = new Set(mermaidBlocks.filter((block) => block.sourceOnly).map((block) => block.id))
+  for (const id of layoutState.toggleSourceBlockIds) {
+    if (!toggleSourceIds.has(id)) layoutState.sourceBlockIds.delete(id)
+  }
+  layoutState.toggleSourceBlockIds = toggleSourceIds
+  const activeIds = new Set(mermaidBlocks.filter((block) => !block.sourceOnly).map((block) => block.id))
   removeStaleMermaidOverlays(layer, activeIds)
 
   for (const block of mermaidBlocks) {
+    // 折叠区域的 Mermaid 是源码内容；图片在区域之外显示，避免预览层越过折叠边界。
+    if (block.sourceOnly) {
+      setMermaidSourceMode(layer, block.id, true)
+      continue
+    }
     const host = findMermaidBlockHost(root, block.id)
     if (!host) continue
     const preview = ensureMermaidPreview(root, layer, host, block.id, block.source)

@@ -9,6 +9,7 @@ const props = defineProps<{
   nodes: ProjectDocumentTreeNode[]
   activeId: number | null
   moving: boolean
+  fileDropParentId?: number | null
 }>()
 
 const emit = defineEmits<{
@@ -149,6 +150,7 @@ function onNavigateKey(payload: { event: KeyboardEvent; documentId: number }) {
         :dragging-document-id="draggingDocumentId"
         :drag-hint-id="dragHintId"
         :moving="moving"
+        :file-drop-parent-id="fileDropParentId"
         @select="emit('select', $event)"
         @toggle="toggle"
         @create-child="emit('createChild', $event)"

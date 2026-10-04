@@ -248,6 +248,17 @@ const zhCN = {
 
     title: '文档', issues: '任务', workspaceNavigation: '项目工作区',
     newRoot: '新建文档', newChild: '新建子文档', untitled: '无标题',
+    markdown: {
+      import: '导入 Markdown 文件', requirements: '导入 UTF-8 编码的 .md 文件，单文件上限 5 MiB；支持配套图片和折叠区域。',
+      resources: '等待补充图片', resourceHint: '请选择 Markdown 引用的 PNG、JPEG、GIF 图片，或选择包含这些图片的目录。',
+      chooseImage: '选择图片', replaceImage: '更换', chooseImages: '选择图片文件', chooseDirectory: '选择图片目录', continueImport: '继续导入',
+      hint: '拖入 .md 文件，或点击 MD 导入。', results: 'Markdown 导入结果',
+      dropRoot: '松开后创建根文档', dropChild: '松开后在“{title}”下创建子文档',
+      importing: '导入中…', imported: '导入成功', failed: '导入失败，请重试。',
+      retryFile: '重试导入 {name}',
+      fileType: '请选择 .md 文件。', fileSize: '文件不能超过 5 MiB。',
+      refreshFailed: '文档已导入，目录刷新失败。请重试刷新。'
+    },
     searchLabel: '搜索当前项目文档', searchPlaceholder: '搜索当前项目文档…', clearSearch: '清除文档搜索',
     searchLoading: '正在搜索当前项目文档…', searchFailed: '文档搜索暂时不可用。', searchResultsLabel: '当前项目文档搜索结果',
     loadingTree: '正在加载文档…', loadingDocument: '正在加载文档正文…', loadFailed: '文档加载失败。',

@@ -6,10 +6,12 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.commonmark.node.BlockQuote;
 import org.commonmark.node.BulletList;
 import org.commonmark.node.Code;
+import org.commonmark.node.CustomBlock;
 import org.commonmark.node.Emphasis;
 import org.commonmark.node.FencedCodeBlock;
 import org.commonmark.node.HardLineBreak;
 import org.commonmark.node.Heading;
+import org.commonmark.node.HtmlBlock;
 import org.commonmark.node.HtmlInline;
 import org.commonmark.node.Image;
 import org.commonmark.node.IndentedCodeBlock;
@@ -33,6 +35,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.regex.Pattern;
+import java.net.URI;
+import java.nio.file.Path;
+import org.jsoup.Jsoup;
 
 /** MCP 文档输入的唯一转换入口：Markdown 在服务端转换为前端使用的 BlockNote JSON。 */
 @Component
@@ -51,6 +59,135 @@ public class MarkdownToBlockNoteConverter {
 
     public String convert(String markdown) {
         return convert(markdown, Map.of());
+    }
+
+    private static final Pattern DETAILS_HEADER = Pattern.compile(
+            "(?is)^\\s*<details(?:\\s[^>]*)?>\\s*<summary>(.*?)</summary>\\s*");
+    private static final Pattern DETAILS_TAG = Pattern.compile("(?is)</?details(?:\\s[^>]*)?>");
+    private static final Pattern DETAILS_END = Pattern.compile("(?is)</details>\\s*$");
+
+    private static final class DetailsBlock extends CustomBlock {
+        private final String title;
+        private DetailsBlock(String title) { this.title = title; }
+    }
+
+    public List<String> fileImageReferences(String markdown) {
+        Node document = parser.parse(markdown);
+        prepareDetails(document);
+        Set<String> refs = new LinkedHashSet<>();
+        collectFileImageReferences(document.getFirstChild(), refs);
+        return List.copyOf(refs);
+    }
+
+    /** 本地图片转为资源身份，details 转为编辑器原生折叠结构。 */
+    public String convertFile(String markdown, Map<String, Long> imageAssetIds) {
+        Node document = parser.parse(markdown);
+        prepareDetails(document);
+        Map<String, Long> refs = new LinkedHashMap<>();
+        bindFileImages(document.getFirstChild(), imageAssetIds, refs);
+        if (refs.size() != imageAssetIds.size()) throw new IllegalArgumentException("Markdown 存在未使用的图片资源");
+        ArrayNode blocks = objectMapper.createArrayNode();
+        Set<String> usedImageRefs = new HashSet<>();
+        for (Node child = document.getFirstChild(); child != null; child = child.getNext()) {
+            appendBlock(child, blocks, refs, usedImageRefs);
+        }
+        return blocks.toString();
+    }
+
+    private String fileImagePath(Image image) {
+        try {
+            URI uri = URI.create(image.getDestination().replace('\\', '/').replace(" ", "%20"));
+            if (uri.isAbsolute() || uri.getAuthority() != null || uri.getQuery() != null || uri.getFragment() != null)
+                throw new IllegalArgumentException();
+            String path = Path.of(uri.getPath()).normalize().toString().replace('\\', '/');
+            if (path.isBlank() || path.startsWith("/")) throw new IllegalArgumentException();
+            return path;
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException("Markdown 图片须使用相对路径: " + image.getDestination());
+        }
+    }
+
+    private void collectFileImageReferences(Node node, Set<String> refs) {
+        for (Node current = node; current != null; current = current.getNext()) {
+            if (current instanceof Image image) refs.add(fileImagePath(image));
+            if (current.getFirstChild() != null) collectFileImageReferences(current.getFirstChild(), refs);
+        }
+    }
+
+    private void bindFileImages(Node node, Map<String, Long> imageAssetIds, Map<String, Long> refs) {
+        for (Node current = node; current != null;) {
+            Node next = current.getNext();
+            if (current instanceof Image image) {
+                String path = fileImagePath(image);
+                Long assetId = imageAssetIds.get(path);
+                if (assetId == null || assetId <= 0) throw new IllegalArgumentException("缺少图片资源: " + path);
+                // 文件路径在转换阶段绑定资源，正文图片使用 imageAssetId 作为身份。
+                String ref = "file_" + new java.util.ArrayList<>(imageAssetIds.keySet()).indexOf(path);
+                refs.put(ref, assetId);
+                image.setDestination(IMAGE_REF_PREFIX + ref);
+            } else if (current instanceof HtmlBlock html) {
+                FencedCodeBlock source = new FencedCodeBlock();
+                source.setInfo("html");
+                source.setLiteral(html.getLiteral());
+                current.insertBefore(source);
+                current.unlink();
+            } else if (current.getFirstChild() != null) {
+                bindFileImages(current.getFirstChild(), imageAssetIds, refs);
+            }
+            current = next;
+        }
+    }
+
+    private void prepareDetails(Node parent) {
+        for (Node current = parent.getFirstChild(); current != null;) {
+            Node next = current.getNext();
+            if (current instanceof HtmlBlock html) {
+                var header = DETAILS_HEADER.matcher(html.getLiteral());
+                if (header.find()) {
+                    DetailsBlock details = new DetailsBlock(Jsoup.parseBodyFragment(header.group(1)).text());
+                    current.insertBefore(details);
+                    String body = html.getLiteral().substring(header.end());
+                    var end = DETAILS_END.matcher(body);
+                    if (end.find()) {
+                        appendParsedChildren(details, body.substring(0, end.start()));
+                    } else {
+                        appendParsedChildren(details, body);
+                        int depth = 1;
+                        Node sibling = next;
+                        boolean closed = false;
+                        while (sibling != null) {
+                            Node after = sibling.getNext();
+                            if (sibling instanceof HtmlBlock fragment) {
+                                var tags = DETAILS_TAG.matcher(fragment.getLiteral());
+                                while (tags.find()) depth += tags.group().startsWith("</") ? -1 : 1;
+                                if (depth == 0) {
+                                    if (!fragment.getLiteral().trim().equalsIgnoreCase("</details>"))
+                                        throw new IllegalArgumentException("details 结束标签须独占一行");
+                                    sibling.unlink(); next = after; closed = true; break;
+                                }
+                            }
+                            details.appendChild(sibling);
+                            sibling = after;
+                        }
+                        if (!closed) throw new IllegalArgumentException("details 缺少结束标签");
+                    }
+                    current.unlink();
+                    prepareDetails(details);
+                } else if (html.getLiteral().trim().equalsIgnoreCase("</details>")) {
+                    throw new IllegalArgumentException("details 结束标签缺少对应的开始标签");
+                }
+            } else if (current.getFirstChild() != null) {
+                prepareDetails(current);
+            }
+            current = next;
+        }
+    }
+
+    private void appendParsedChildren(Node parent, String markdown) {
+        Node parsed = parser.parse(markdown);
+        for (Node child = parsed.getFirstChild(); child != null;) {
+            Node next = child.getNext(); parent.appendChild(child); child = next;
+        }
     }
 
     public Set<String> imageReferences(String markdown) {
@@ -95,7 +232,13 @@ public class MarkdownToBlockNoteConverter {
 
     private void appendBlock(Node node, ArrayNode blocks, Map<String, Long> imageAssetIds,
                              Set<String> usedImageRefs) {
-        if (node instanceof Heading heading) {
+        if (node instanceof DetailsBlock details) {
+            ArrayNode title = objectMapper.createArrayNode().add(textNode(details.title, Map.of()));
+            ObjectNode toggle = block("toggleListItem", title, Map.of());
+            for (Node child = details.getFirstChild(); child != null; child = child.getNext())
+                appendBlock(child, toggle.withArray("children"), imageAssetIds, usedImageRefs);
+            blocks.add(toggle);
+        } else if (node instanceof Heading heading) {
             appendInlineBlocks(heading.getFirstChild(), "heading", Map.of("level", heading.getLevel()),
                     blocks, imageAssetIds, usedImageRefs);
         } else if (node instanceof TableBlock table) {
