@@ -70,6 +70,36 @@ public class McpDocumentImageContentService {
         return converter.convert(markdown, assetIds);
     }
 
+    /** Resolves imageRef values for local BlockNote edits to target-document attachment IDs. */
+    public Map<String, Long> resolveReferences(
+            List<McpDocumentImageInput> images, Set<String> refs, Long documentId, Long userId) {
+        Map<String, McpDocumentImageInput> inputs = new HashMap<>();
+        for (McpDocumentImageInput image : images) {
+            if (image.ref() == null || !REF_PATTERN.matcher(image.ref()).matches()
+                    || inputs.putIfAbsent(image.ref(), image) != null) {
+                throw new McpInvalidParamsException("图片 ref 必须唯一且由字母、数字、下划线或短横线组成");
+            }
+        }
+        if (!inputs.keySet().equals(refs)) {
+            Set<String> missing = new HashSet<>(refs);
+            missing.removeAll(inputs.keySet());
+            Set<String> unused = new HashSet<>(inputs.keySet());
+            unused.removeAll(refs);
+            throw new McpInvalidParamsException(
+                    "图片 imageRef 与 images 不匹配；缺少=" + missing + "，未使用=" + unused);
+        }
+        Map<String, Long> assetIds = new HashMap<>();
+        for (String ref : refs) {
+            McpDocumentImageInput image = inputs.get(ref);
+            ProjectDocumentAttachmentResponse attachment = image.isUpload()
+                    ? attachmentService.uploadImage(documentId, image.fileName(), image.contentType(),
+                            image.content(), sourceId(image.content()), userId)
+                    : attachmentService.cloneToDocument(documentId, image.assetId(), userId);
+            assetIds.put(ref, attachment.id());
+        }
+        return assetIds;
+    }
+
     private String sourceId(byte[] content) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(content);

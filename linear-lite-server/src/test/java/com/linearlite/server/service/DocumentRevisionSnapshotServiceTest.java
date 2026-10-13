@@ -57,6 +57,7 @@ class DocumentRevisionSnapshotServiceTest {
         candidate.setUpdatedAt(LocalDateTime.now().minusMinutes(3));
         when(revisionMapper.selectDocumentsNeedingIdleRevision()).thenReturn(List.of(candidate));
         when(documentMapper.selectByIdForUpdate(10L)).thenReturn(candidate);
+        when(documentMapper.selectUpdatedBeforeIdle(10L)).thenReturn(true);
         when(revisionMapper.selectOne(any())).thenReturn(null);
 
         service.captureIdleRevisions();

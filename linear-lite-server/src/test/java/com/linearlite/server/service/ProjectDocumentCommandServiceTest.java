@@ -242,7 +242,9 @@ class ProjectDocumentCommandServiceTest {
 
     @Test
     void updateRejectsNonArrayContentBeforeWriting() {
-        when(documentMapper.selectById(11L)).thenReturn(document(11L, 3L, null, 2L, 0));
+        ProjectDocument current = document(11L, 3L, null, 2L, 0);
+        when(documentMapper.selectById(11L)).thenReturn(current);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
 
         assertThrows(IllegalArgumentException.class, () -> service.update(
                 11L, new UpdateProjectDocumentRequest(2L, "标题", "{}", "BLOCKNOTE"), 7L));
@@ -262,7 +264,9 @@ class ProjectDocumentCommandServiceTest {
 
     @Test
     void updateRejectsLegacyImageUrlBlock() {
-        when(documentMapper.selectById(11L)).thenReturn(document(11L, 3L, null, 2L, 0));
+        ProjectDocument current = document(11L, 3L, null, 2L, 0);
+        when(documentMapper.selectById(11L)).thenReturn(current);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
         String legacyContent = "[{\"type\":\"image\",\"props\":{\"url\":\"https://example.com/image.png\"}}]";
 
         assertThrows(IllegalArgumentException.class, () -> service.update(
@@ -286,7 +290,7 @@ class ProjectDocumentCommandServiceTest {
         ProjectDocument initial = document(11L, 3L, null, 2L, 0);
         ProjectDocument concurrent = document(11L, 3L, null, 3L, 0);
         when(documentMapper.selectById(11L)).thenReturn(initial, concurrent);
-        when(documentMapper.updateContentIfVersionMatches(11L, 2L, "新标题", "[]", 7L)).thenReturn(0);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(initial);
 
         DocumentVersionConflictException error = assertThrows(DocumentVersionConflictException.class, () ->
                 service.update(11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]", "BLOCKNOTE"), 7L));
@@ -297,7 +301,9 @@ class ProjectDocumentCommandServiceTest {
 
     @Test
     void updateVersionConflictDoesNotRunImageContentFactory() {
-        when(documentMapper.selectById(11L)).thenReturn(document(11L, 3L, null, 3L, 0));
+        ProjectDocument current = document(11L, 3L, null, 3L, 0);
+        when(documentMapper.selectById(11L)).thenReturn(current);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
         AtomicBoolean invoked = new AtomicBoolean();
 
         assertThrows(DocumentVersionConflictException.class, () -> service.updateWithContentFactory(
@@ -312,7 +318,9 @@ class ProjectDocumentCommandServiceTest {
 
     @Test
     void restoreRevisionRejectsLegacyImageUrlBlock() {
-        when(documentMapper.selectById(11L)).thenReturn(document(11L, 3L, null, 2L, 0));
+        ProjectDocument current = document(11L, 3L, null, 2L, 0);
+        when(documentMapper.selectById(11L)).thenReturn(current);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
         ProjectDocumentRevision revision = revision(41L, 11L,
                 "[{\"type\":\"image\",\"props\":{\"url\":\"/api/project-documents/11/attachments/31/download\"}}]");
         when(revisionMapper.selectOne(any())).thenReturn(revision);
@@ -334,6 +342,7 @@ class ProjectDocumentCommandServiceTest {
         ProjectDocumentRevision revision = revision(41L, 11L, content);
         revision.setTitle("历史标题");
         when(documentMapper.selectById(11L)).thenReturn(current, saved);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
         when(revisionMapper.selectOne(any())).thenReturn(revision);
         when(documentMapper.updateContentIfVersionMatches(11L, 2L, "历史标题", content, 7L)).thenReturn(1);
 
@@ -341,22 +350,23 @@ class ProjectDocumentCommandServiceTest {
 
         assertEquals(content, response.content());
         verify(revisionSnapshotService).captureBeforeRestore(current);
-        verify(revisionSnapshotService).captureRestored(saved, 7L);
+        verify(revisionSnapshotService).captureForced(saved, 7L);
     }
 
     @Test
-    void updateAutosaveChangesCurrentDocumentWithoutCreatingRevision() {
+    void updateAutosaveChangesCurrentDocumentAndCreatesVersionSnapshot() {
         ProjectDocument initial = document(11L, 3L, null, 2L, 0);
         ProjectDocument saved = document(11L, 3L, null, 3L, 0);
         saved.setTitle("新标题");
         when(documentMapper.selectById(11L)).thenReturn(initial, saved);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(initial);
         when(documentMapper.updateContentIfVersionMatches(11L, 2L, "新标题", "[]", 7L)).thenReturn(1);
 
         ProjectDocumentResponse response = service.update(
                 11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]", "BLOCKNOTE"), 7L);
 
         assertEquals(3L, response.version());
-        verify(revisionMapper, never()).insert(any());
+        verify(revisionSnapshotService).captureForced(saved, 7L);
         verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.DOCUMENT, 11L));
     }
@@ -367,18 +377,20 @@ class ProjectDocumentCommandServiceTest {
         ProjectDocument saved = document(11L, 3L, null, 3L, 0);
         saved.setTitle("新标题");
         when(documentMapper.selectById(11L)).thenReturn(initial, saved);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(initial);
         when(documentMapper.updateContentIfVersionMatches(11L, 2L, "新标题", "[]", 7L)).thenReturn(1);
 
         service.update(11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]", "BLOCKNOTE"), 7L);
 
         verify(revisionSnapshotService).captureBeforeUpdate(any(ProjectDocument.class), org.mockito.ArgumentMatchers.eq(7L));
-        verify(revisionSnapshotService).captureAfterUpdate(any(ProjectDocument.class), org.mockito.ArgumentMatchers.eq(7L));
+        verify(revisionSnapshotService).captureForced(any(ProjectDocument.class), org.mockito.ArgumentMatchers.eq(7L));
     }
 
     @Test
     void updateSkipsUnchangedContentAndVersion() {
         ProjectDocument current = document(11L, 3L, null, 2L, 0);
         when(documentMapper.selectById(11L)).thenReturn(current);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
 
         ProjectDocumentResponse response = service.update(
                 11L, new UpdateProjectDocumentRequest(2L, "标题", "[]", "BLOCKNOTE"), 7L);
@@ -393,10 +405,11 @@ class ProjectDocumentCommandServiceTest {
     void unchangedContentDoesNotInvokeSnapshotService() {
         ProjectDocument current = document(11L, 3L, null, 2L, 0);
         when(documentMapper.selectById(11L)).thenReturn(current);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
         service.update(11L, new UpdateProjectDocumentRequest(2L, "标题", "[]", "BLOCKNOTE"), 7L);
 
         verify(revisionSnapshotService, never()).captureBeforeUpdate(any(), any());
-        verify(revisionSnapshotService, never()).captureAfterUpdate(any(), any());
+        verify(revisionSnapshotService, never()).captureForced(any(), any());
         verify(documentMapper, never()).updateContentIfVersionMatches(any(), any(), any(), any(), any());
     }
 
@@ -526,6 +539,7 @@ class ProjectDocumentCommandServiceTest {
     void updateRejectsFormatChangeBeforePublishingSnapshot() {
         ProjectDocument document = document(11L, 3L, null, 1L, 0);
         when(documentMapper.selectById(11L)).thenReturn(document);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(document);
         assertThrows(IllegalArgumentException.class, () -> service.update(11L,
                 new UpdateProjectDocumentRequest(1L, "HTML", "<html></html>", "HTML"), 7L));
         verify(revisionSnapshotService, never()).captureBeforeUpdate(any(), any());

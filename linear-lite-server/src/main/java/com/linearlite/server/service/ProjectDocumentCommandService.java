@@ -163,7 +163,13 @@ public class ProjectDocumentCommandService {
 
     private ProjectDocumentResponse updateInternal(
             Long documentId, UpdateProjectDocumentRequest request, Long userId, LongFunction<String> contentFactory) {
-        ProjectDocument current = requireAccessibleActiveDocument(documentId, userId);
+        ProjectDocument observed = requireAccessibleActiveDocument(documentId, userId);
+        documentMapper.lockProjectDocumentMutations(observed.getProjectId());
+        ProjectDocument current = documentMapper.selectByIdForUpdate(documentId);
+        if (current == null || current.getArchivedAt() != null) {
+            throw new ResourceNotFoundException("项目文档不存在: " + documentId);
+        }
+        projectAccessGuard.requireMember(current.getProjectId(), userId);
         if (request == null || request.expectedVersion() == null) {
             throw new IllegalArgumentException("expectedVersion 不能为空");
         }
@@ -192,7 +198,7 @@ public class ProjectDocumentCommandService {
             throwVersionConflict(documentId);
         }
         ProjectDocument saved = requireDocument(documentId);
-        revisionSnapshotService.captureAfterUpdate(saved, userId);
+        revisionSnapshotService.captureForced(saved, userId);
         publishUpsert(saved.getId());
         return toResponse(saved, userId);
     }
@@ -288,7 +294,13 @@ public class ProjectDocumentCommandService {
     @Transactional(rollbackFor = Exception.class)
     public ProjectDocumentResponse restoreRevision(
             Long documentId, Long revisionId, Long expectedVersion, Long userId) {
-        ProjectDocument current = requireAccessibleActiveDocument(documentId, userId);
+        ProjectDocument observed = requireAccessibleActiveDocument(documentId, userId);
+        documentMapper.lockProjectDocumentMutations(observed.getProjectId());
+        ProjectDocument current = documentMapper.selectByIdForUpdate(documentId);
+        if (current == null || current.getArchivedAt() != null) {
+            throw new ResourceNotFoundException("项目文档不存在: " + documentId);
+        }
+        projectAccessGuard.requireMember(current.getProjectId(), userId);
         if (expectedVersion == null) {
             throw new IllegalArgumentException("expectedVersion 不能为空");
         }
@@ -309,7 +321,7 @@ public class ProjectDocumentCommandService {
             throwVersionConflict(documentId);
         }
         ProjectDocument saved = requireDocument(documentId);
-        revisionSnapshotService.captureRestored(saved, userId);
+        revisionSnapshotService.captureForced(saved, userId);
         publishUpsert(saved.getId());
         return toResponse(saved, userId);
     }

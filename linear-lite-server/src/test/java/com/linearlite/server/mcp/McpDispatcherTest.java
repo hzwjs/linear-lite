@@ -20,6 +20,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.function.BiFunction;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongFunction;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,6 +45,7 @@ class McpDispatcherTest {
     private ProjectDocumentCommandService projectDocumentCommandService;
     private ProjectDocumentAttachmentService projectDocumentAttachmentService;
     private ProjectDocumentQueryService projectDocumentQueryService;
+    private com.linearlite.server.service.McpDocumentPatchService documentPatchService;
     private McpDispatcher dispatcher;
 
     @BeforeEach
@@ -51,6 +54,7 @@ class McpDispatcherTest {
         projectDocumentCommandService = mock(ProjectDocumentCommandService.class);
         projectDocumentAttachmentService = mock(ProjectDocumentAttachmentService.class);
         projectDocumentQueryService = mock(ProjectDocumentQueryService.class);
+        documentPatchService = mock(com.linearlite.server.service.McpDocumentPatchService.class);
         McpProperties properties = new McpProperties();
         properties.setServerName("linear-lite-test");
         properties.setServerVersion("test");
@@ -64,7 +68,8 @@ class McpDispatcherTest {
                 mock(TaskQueryService.class),
                 mock(TaskCommentService.class),
                 projectDocumentCommandService,
-                projectDocumentQueryService);
+                projectDocumentQueryService,
+                documentPatchService);
         dispatcher = new McpDispatcher(objectMapper, properties, registry);
     }
 
@@ -81,28 +86,37 @@ class McpDispatcherTest {
     }
 
     @Test
-    void listsAllTenToolsInStableOrder() throws Exception {
+    void listsAllTwelveToolsInStableOrder() throws Exception {
         McpDispatcher.DispatchResponse response = dispatcher.dispatch(
                 request("2", "tools/list", "{}"), null, null, null, null, 7L);
 
         JsonNode tools = response.body().path("result").path("tools");
-        assertEquals(10, tools.size());
+        assertEquals(12, tools.size());
         assertEquals("list_projects", tools.get(0).path("name").asText());
         assertEquals("list_documents", tools.get(6).path("name").asText());
         assertEquals("get_document", tools.get(7).path("name").asText());
-        assertEquals("update_document", tools.get(9).path("name").asText());
+        assertEquals("get_document_blocks", tools.get(8).path("name").asText());
+        assertEquals("create_document", tools.get(9).path("name").asText());
+        assertEquals("update_document", tools.get(10).path("name").asText());
+        assertEquals("patch_document", tools.get(11).path("name").asText());
         assertTrue(tools.get(2).path("inputSchema").path("properties").has("projectId"));
-        assertEquals("array", tools.get(8).path("inputSchema").path("properties").path("images").path("type").asText());
-        assertEquals(8, tools.get(8).path("inputSchema").path("properties").path("images").path("maxItems").asInt());
-        JsonNode imageSchema = tools.get(8).path("inputSchema").path("properties").path("images").path("items");
-        assertTrue(tools.get(8).path("inputSchema").path("properties").path("images")
+        assertEquals("array", tools.get(9).path("inputSchema").path("properties").path("images").path("type").asText());
+        assertEquals(8, tools.get(9).path("inputSchema").path("properties").path("images").path("maxItems").asInt());
+        JsonNode imageSchema = tools.get(9).path("inputSchema").path("properties").path("images").path("items");
+        assertTrue(tools.get(9).path("inputSchema").path("properties").path("images")
                 .path("description").asText().contains("mcp-image:<ref>"));
         assertEquals(2, imageSchema.path("oneOf").size());
         assertEquals(false, imageSchema.path("oneOf").get(0).path("additionalProperties").asBoolean());
         assertEquals(false, imageSchema.path("oneOf").get(1).path("additionalProperties").asBoolean());
-        assertTrue(tools.get(9).path("inputSchema").path("properties").has("images"));
-        assertTrue(tools.get(8).path("description").asText().contains("GFM 表格"));
+        assertTrue(tools.get(10).path("inputSchema").path("properties").has("images"));
         assertTrue(tools.get(9).path("description").asText().contains("GFM 表格"));
+        assertTrue(tools.get(10).path("description").asText().contains("GFM 表格"));
+        assertTrue(tools.get(11).path("inputSchema").path("properties").has("operations"));
+        assertEquals(50, tools.get(11).path("inputSchema").path("properties").path("operations").path("maxItems").asInt());
+        JsonNode patchOperations = tools.get(11).path("inputSchema").path("properties").path("operations")
+                .path("items").path("oneOf");
+        assertEquals(8, patchOperations.size());
+        assertEquals("insert_table_row", patchOperations.get(5).path("properties").path("op").path("enum").get(0).asText());
     }
 
     @Test
@@ -247,6 +261,93 @@ class McpDispatcherTest {
         assertEquals(31L, blocks.get(1).path("props").path("imageAssetId").asLong());
         verify(projectDocumentAttachmentService).uploadImage(
                 eq(11L), eq("diagram.png"), eq("image/png"), any(byte[].class), any(), eq(7L));
+    }
+
+    @Test
+    void readsRootBlocksAndVersionForLocalEditing() throws Exception {
+        String content = "[{\"id\":\"h1\",\"type\":\"heading\",\"props\":{\"level\":1},"
+                + "\"content\":[{\"type\":\"text\",\"text\":\"API\"}],\"children\":["
+                + "{\"id\":\"p1\",\"type\":\"paragraph\",\"content\":[],\"children\":[]}]}]";
+        when(projectDocumentQueryService.getDocument(11L, 7L)).thenReturn(
+                new ProjectDocumentResponse(11L, 7L, null, null, null, "设计", content, List.of(),
+                        0, 19L, 7L, 7L, false, null, null, null, "BLOCKNOTE"));
+
+        McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("blocks", "tools/call",
+                "{\"name\":\"get_document_blocks\",\"arguments\":{\"documentId\":11}}"),
+                null, null, null, null, 7L);
+
+        JsonNode result = response.body().path("result").path("structuredContent");
+        assertEquals(19L, result.path("version").asLong());
+        assertEquals("h1", result.path("blocks").get(0).path("id").asText());
+        assertEquals("p1", result.path("blocks").get(0).path("children").get(0).path("id").asText());
+    }
+
+    @Test
+    void readsSelectedBlockAsACompleteSubtree() throws Exception {
+        String content = "[{\"id\":\"h1\",\"type\":\"heading\",\"props\":{\"level\":1},"
+                + "\"content\":[],\"children\":[{\"id\":\"p1\",\"type\":\"paragraph\","
+                + "\"content\":[],\"children\":[]}]}]";
+        when(projectDocumentQueryService.getDocument(11L, 7L)).thenReturn(documentResponse(content));
+
+        McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("subtree", "tools/call",
+                "{\"name\":\"get_document_blocks\",\"arguments\":{\"documentId\":11,\"blockId\":\"h1\"}}"),
+                null, null, null, null, 7L);
+
+        JsonNode blocks = response.body().path("result").path("structuredContent").path("blocks");
+        assertEquals(1, blocks.size());
+        assertEquals("h1", blocks.get(0).path("id").asText());
+        assertEquals("p1", blocks.get(0).path("children").get(0).path("id").asText());
+    }
+
+    @Test
+    void patchDocumentResolvesUploadedImageAndKeepsExistingBlocks() throws Exception {
+        when(projectDocumentAttachmentService.uploadImage(
+                eq(11L), eq("chart.png"), eq("image/png"), any(byte[].class), any(), eq(7L)))
+                .thenReturn(attachment(42L, 11L));
+        AtomicReference<String> patchedContent = new AtomicReference<>();
+        when(documentPatchService.patch(eq(11L), eq(4L), eq("retry-1"), any(), eq(null), eq(7L), any(BiFunction.class)))
+                .thenAnswer(invocation -> {
+                    BiFunction<String, Long, String> factory = invocation.getArgument(6);
+                    patchedContent.set(factory.apply(
+                            "[{\"id\":\"keep\",\"type\":\"paragraph\",\"content\":[],\"children\":[]}]", 11L));
+                    return objectMapper.createObjectNode().put("documentId", 11).put("version", 5);
+                });
+
+        McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("patch-img", "tools/call",
+                "{\"name\":\"patch_document\",\"arguments\":{\"documentId\":11,\"expectedVersion\":4,"
+                        + "\"operationId\":\"retry-1\",\"operations\":[{\"op\":\"insert_block\","
+                        + "\"block\":{\"type\":\"documentImage\",\"props\":{\"imageRef\":\"chart\"},"
+                        + "\"content\":[],\"children\":[]}}],\"images\":[{\"ref\":\"chart\","
+                        + "\"fileName\":\"chart.png\",\"contentType\":\"image/png\",\"dataBase64\":\"AQID\"}]}}"),
+                null, null, null, null, 7L);
+
+        assertEquals(200, response.status());
+        JsonNode patched = objectMapper.readTree(patchedContent.get());
+        assertEquals("keep", patched.get(0).path("id").asText());
+        assertEquals("documentImage", patched.get(1).path("type").asText());
+        assertEquals(42L, patched.get(1).path("props").path("imageAssetId").asLong());
+        verify(projectDocumentAttachmentService).uploadImage(
+                eq(11L), eq("chart.png"), eq("image/png"), any(byte[].class), any(), eq(7L));
+    }
+
+    @Test
+    void patchOperationFailureReturnsStableBusinessErrorAndZeroBasedIndex() {
+        when(documentPatchService.patch(eq(11L), eq(4L), eq("bad-op"), any(), eq(null), eq(7L), any(BiFunction.class)))
+                .thenAnswer(invocation -> {
+                    BiFunction<String, Long, String> factory = invocation.getArgument(6);
+                    return factory.apply("[]", 11L);
+                });
+
+        McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("patch-error", "tools/call",
+                "{\"name\":\"patch_document\",\"arguments\":{\"documentId\":11,\"expectedVersion\":4,"
+                        + "\"operationId\":\"bad-op\",\"operations\":[{\"op\":\"unknown\"}]}}"),
+                null, null, null, null, 7L);
+
+        assertEquals(200, response.status());
+        JsonNode result = response.body().path("result");
+        assertEquals(true, result.path("isError").asBoolean());
+        assertEquals("PATCH_OPERATION_INVALID", result.path("structuredContent").path("errorType").asText());
+        assertEquals(0, result.path("structuredContent").path("operationIndex").asInt());
     }
 
     @Test

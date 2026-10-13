@@ -129,6 +129,8 @@ public class McpDispatcher {
             return success(id, result);
         } catch (McpInvalidParamsException e) {
             return protocolError(id, 400, -32602, e.getMessage(), null);
+        } catch (McpDocumentPatchOperationException e) {
+            return success(id, toolError(e));
         } catch (Exception e) {
             log.warn("MCP tool execution failed, tool={}, userId={}, error={}",
                     params.path("name").asText(), userId, e.getMessage());
@@ -148,12 +150,18 @@ public class McpDispatcher {
         if (exception instanceof DocumentVersionConflictException conflict) {
             structured.put("currentVersion", conflict.getCurrentVersion());
         }
+        if (exception instanceof McpDocumentPatchOperationException patchFailure) {
+            structured.put("operationIndex", patchFailure.getOperationIndex());
+        }
         return result;
     }
 
     private static String errorType(Exception exception) {
         if (exception instanceof McpToolRegistry.McpToolNotFoundException) {
             return "TOOL_NOT_FOUND";
+        }
+        if (exception instanceof McpDocumentPatchOperationException) {
+            return "PATCH_OPERATION_INVALID";
         }
         if (exception instanceof ResourceNotFoundException) {
             return "RESOURCE_NOT_FOUND";

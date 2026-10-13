@@ -23,6 +23,8 @@ import com.linearlite.server.mapper.LabelMapper;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
+import com.linearlite.server.mapper.McpDocumentPatchOperationMapper;
+import com.linearlite.server.entity.McpDocumentPatchOperation;
 import com.linearlite.server.mapper.ProjectEmailPreferenceMapper;
 import com.linearlite.server.mapper.ProjectInvitationMapper;
 import com.linearlite.server.mapper.ProjectGitLabRepositoryMapper;
@@ -49,6 +51,7 @@ public class ProjectLifecycleService {
     private final ProjectDocumentMapper documentMapper;
     private final ProjectDocumentFavoriteMapper documentFavoriteMapper;
     private final ProjectDocumentRevisionMapper revisionMapper;
+    private final McpDocumentPatchOperationMapper patchOperationMapper;
     private final ProjectDocumentAttachmentService documentAttachmentService;
     private final TaskMapper taskMapper;
     private final TaskCommentMapper taskCommentMapper;
@@ -80,6 +83,7 @@ public class ProjectLifecycleService {
             ProjectInvitationMapper invitationMapper, ProjectMemberMapper memberMapper,
             ProjectEmailPreferenceMapper emailPreferenceMapper, ProjectGitLabRepositoryMapper gitLabRepositoryMapper,
             ProjectGitHubRepositoryMapper gitHubRepositoryMapper,
+            McpDocumentPatchOperationMapper patchOperationMapper,
             ProjectTaskSeqMapper taskSeqMapper,
             ApplicationEventPublisher eventPublisher) {
         this.accessGuard = accessGuard;
@@ -87,6 +91,7 @@ public class ProjectLifecycleService {
         this.documentMapper = documentMapper;
         this.documentFavoriteMapper = documentFavoriteMapper;
         this.revisionMapper = revisionMapper;
+        this.patchOperationMapper = patchOperationMapper;
         this.documentAttachmentService = documentAttachmentService;
         this.taskMapper = taskMapper;
         this.taskCommentMapper = taskCommentMapper;
@@ -122,7 +127,7 @@ public class ProjectLifecycleService {
         this(accessGuard, projectMapper, documentMapper, revisionMapper, documentFavoriteMapper,
                 documentAttachmentService, taskMapper, taskCommentMapper, mentionMapper, notificationMapper,
                 activityMapper, favoriteMapper, attachmentMapper, labelService, labelMapper, invitationMapper,
-                memberMapper, emailPreferenceMapper, gitLabRepositoryMapper, null, taskSeqMapper, eventPublisher);
+                memberMapper, emailPreferenceMapper, gitLabRepositoryMapper, null, null, taskSeqMapper, eventPublisher);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -139,6 +144,10 @@ public class ProjectLifecycleService {
                     .in(ProjectDocumentFavorite::getDocumentId, documentIds));
             revisionMapper.delete(new LambdaQueryWrapper<ProjectDocumentRevision>()
                     .in(ProjectDocumentRevision::getDocumentId, documentIds));
+            if (patchOperationMapper != null) {
+                patchOperationMapper.delete(new LambdaQueryWrapper<McpDocumentPatchOperation>()
+                        .in(McpDocumentPatchOperation::getDocumentId, documentIds));
+            }
             documentMapper.deleteBatchIds(documentIds);
         }
 

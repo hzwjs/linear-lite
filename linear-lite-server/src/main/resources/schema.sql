@@ -131,6 +131,19 @@ CREATE TABLE IF NOT EXISTS project_document_revisions (
     INDEX idx_project_document_revisions_document_created (document_id, created_at, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- MCP 局部编辑幂等记录；保留至文档物理删除，归档不清理。
+CREATE TABLE IF NOT EXISTS mcp_document_patch_operations (
+    id            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    document_id   BIGINT       NOT NULL,
+    caller_id     BIGINT       NOT NULL,
+    operation_id  VARCHAR(128) NOT NULL,
+    request_sha256 CHAR(64)    NOT NULL,
+    response_json LONGTEXT     NOT NULL,
+    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_mcp_document_patch_operation (document_id, caller_id, operation_id),
+    INDEX idx_mcp_document_patch_document (document_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS project_document_attachments (
     id           BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     project_id   BIGINT       NOT NULL COMMENT '逻辑关联 projects.id',

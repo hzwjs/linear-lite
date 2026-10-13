@@ -2,8 +2,10 @@ package com.linearlite.server.mcp;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.DecimalNode;
 import com.linearlite.server.dto.CreateProjectDocumentRequest;
 import com.linearlite.server.dto.CreateTaskCommentRequest;
 import com.linearlite.server.dto.TaskLabelItemRequest;
@@ -11,11 +13,14 @@ import com.linearlite.server.dto.UpdateProjectDocumentRequest;
 import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.service.ProjectDocumentCommandService;
 import com.linearlite.server.service.ProjectDocumentQueryService;
+import com.linearlite.server.service.McpDocumentPatchService;
+import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.service.ProjectService;
 import com.linearlite.server.service.TaskCommandService;
 import com.linearlite.server.service.TaskCommentService;
 import com.linearlite.server.service.TaskQueryService;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDateTime;
 import java.time.LocalDate;
@@ -27,6 +32,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.TreeMap;
 
 /** MCP 工具目录与领域服务映射；工具顺序固定以保证 tools/list 可缓存。 */
 @Component
@@ -54,6 +63,8 @@ public class McpToolRegistry {
     private final TaskCommentService taskCommentService;
     private final ProjectDocumentCommandService projectDocumentCommandService;
     private final ProjectDocumentQueryService projectDocumentQueryService;
+    private final McpDocumentPatchService documentPatchService;
+    private final BlockNoteDocumentPatchProcessor blockNotePatchProcessor;
     private final Map<String, ToolHandler> handlers;
     private final List<ObjectNode> definitions;
 
@@ -66,6 +77,21 @@ public class McpToolRegistry {
             TaskCommentService taskCommentService,
             ProjectDocumentCommandService projectDocumentCommandService,
             ProjectDocumentQueryService projectDocumentQueryService) {
+        this(objectMapper, documentImageContentService, projectService, taskCommandService, taskQueryService,
+                taskCommentService, projectDocumentCommandService, projectDocumentQueryService, null);
+    }
+
+    @Autowired
+    public McpToolRegistry(
+            ObjectMapper objectMapper,
+            McpDocumentImageContentService documentImageContentService,
+            ProjectService projectService,
+            TaskCommandService taskCommandService,
+            TaskQueryService taskQueryService,
+            TaskCommentService taskCommentService,
+            ProjectDocumentCommandService projectDocumentCommandService,
+            ProjectDocumentQueryService projectDocumentQueryService,
+            McpDocumentPatchService documentPatchService) {
         this.objectMapper = objectMapper;
         this.documentImageContentService = documentImageContentService;
         this.projectService = projectService;
@@ -74,6 +100,8 @@ public class McpToolRegistry {
         this.taskCommentService = taskCommentService;
         this.projectDocumentCommandService = projectDocumentCommandService;
         this.projectDocumentQueryService = projectDocumentQueryService;
+        this.documentPatchService = documentPatchService;
+        this.blockNotePatchProcessor = new BlockNoteDocumentPatchProcessor(objectMapper);
 
         Map<String, ToolHandler> registered = new LinkedHashMap<>();
         registered.put("list_projects", this::listProjects);
@@ -84,8 +112,10 @@ public class McpToolRegistry {
         registered.put("get_task", this::getTask);
         registered.put("list_documents", this::listDocuments);
         registered.put("get_document", this::getDocument);
+        registered.put("get_document_blocks", this::getDocumentBlocks);
         registered.put("create_document", this::createDocument);
         registered.put("update_document", this::updateDocument);
+        registered.put("patch_document", this::patchDocument);
         this.handlers = Map.copyOf(registered);
         this.definitions = List.of(
                 listProjectsDefinition(),
@@ -96,8 +126,10 @@ public class McpToolRegistry {
                 getTaskDefinition(),
                 listDocumentsDefinition(),
                 getDocumentDefinition(),
+                getDocumentBlocksDefinition(),
                 createDocumentDefinition(),
-                updateDocumentDefinition());
+                updateDocumentDefinition(),
+                patchDocumentDefinition());
     }
 
     public ArrayNode definitions() {
@@ -215,6 +247,7 @@ public class McpToolRegistry {
         McpArgumentValidator.fields(arguments, "documentId", "title");
         Long documentId = McpArgumentValidator.optionalLong(arguments, "documentId");
         String title = McpArgumentValidator.optionalText(arguments, "title", 256);
+        if (title != null && title.isBlank()) throw new McpInvalidParamsException("title 不能为空");
         if ((documentId == null) == (title == null)) {
             throw new McpInvalidParamsException("documentId 与 title 必须且只能提供一个");
         }
@@ -223,6 +256,111 @@ public class McpToolRegistry {
             return projectDocumentQueryService.getDocument(documentId, userId);
         }
         return projectDocumentQueryService.getDocumentByTitle(title, userId);
+    }
+
+    private Object getDocumentBlocks(JsonNode rawArguments, Long userId) {
+        JsonNode arguments = McpArgumentValidator.object(rawArguments);
+        McpArgumentValidator.fields(arguments, "documentId", "blockId");
+        Long documentId = requiredLong(arguments, "documentId");
+        String blockId = McpArgumentValidator.optionalText(arguments, "blockId", 64);
+        var document = projectDocumentQueryService.getDocument(documentId, userId);
+        if (!"BLOCKNOTE".equals(document.contentFormat())) {
+            throw new McpInvalidParamsException("get_document_blocks 仅支持 BLOCKNOTE 文档");
+        }
+        try {
+            JsonNode tree = objectMapper.readTree(document.content());
+            JsonNode selected = tree;
+            if (blockId != null) {
+                selected = findBlock(tree, blockId);
+                if (selected == null) throw new ResourceNotFoundException("文档块不存在: " + blockId);
+                selected = objectMapper.createArrayNode().add(selected);
+            }
+            if (objectMapper.writeValueAsBytes(selected).length > 1024 * 1024) {
+                throw new McpInvalidParamsException("文档块结果超过 1 MiB，请指定 blockId 分段读取");
+            }
+            return Map.of("documentId", documentId, "version", document.version(),
+                    "blocks", selected, "contentFormat", document.contentFormat());
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("已保存的 BlockNote 正文无法解析", e);
+        }
+    }
+
+    private Object patchDocument(JsonNode rawArguments, Long userId) {
+        JsonNode arguments = McpArgumentValidator.object(rawArguments);
+        McpArgumentValidator.fields(arguments, "documentId", "expectedVersion", "operationId", "operations", "title", "images");
+        Long documentId = requiredLong(arguments, "documentId");
+        Long expectedVersion = requiredLong(arguments, "expectedVersion");
+        String operationId = McpArgumentValidator.requiredText(arguments, "operationId", 128);
+        JsonNode operations = arguments.get("operations");
+        if (operations == null || !operations.isArray() || operations.isEmpty() || operations.size() > 50) {
+            throw new McpInvalidParamsException("operations 必须是 1 到 50 项的数组");
+        }
+        String title = McpArgumentValidator.optionalText(arguments, "title", 256);
+        List<McpDocumentImageInput> images = parseDocumentImages(arguments.get("images"));
+        String requestHash = sha256(canonicalJson(arguments));
+        return documentPatchService.patch(documentId, expectedVersion, operationId, requestHash, title, userId,
+                (content, targetDocumentId) -> {
+                    try {
+                        JsonNode tree = objectMapper.readTree(content);
+                        Set<String> imageRefs = new HashSet<>();
+                        collectImageRefs(operations, imageRefs);
+                        Map<String, Long> assets = documentImageContentService.resolveReferences(
+                                images, imageRefs, targetDocumentId, userId);
+                        var result = blockNotePatchProcessor.apply((ArrayNode) tree, (ArrayNode) operations, assets);
+                        return objectMapper.writeValueAsString(result.blocks());
+                    } catch (JsonProcessingException e) {
+                        throw new McpInvalidParamsException("无法解析 BlockNote patch 请求");
+                    }
+                });
+    }
+
+    private void collectImageRefs(JsonNode node, Set<String> refs) {
+        if (node == null) return;
+        if (node.isObject()) {
+            JsonNode ref = node.get("imageRef");
+            if (ref != null && ref.isTextual()) refs.add(ref.textValue());
+            node.fields().forEachRemaining(entry -> collectImageRefs(entry.getValue(), refs));
+        } else if (node.isArray()) {
+            node.forEach(item -> collectImageRefs(item, refs));
+        }
+    }
+
+    private JsonNode canonicalJson(JsonNode value) {
+        if (value.isObject()) {
+            ObjectNode sorted = objectMapper.createObjectNode();
+            TreeMap<String, JsonNode> fields = new TreeMap<>();
+            value.fields().forEachRemaining(entry -> fields.put(entry.getKey(), entry.getValue()));
+            fields.forEach((key, child) -> sorted.set(key, canonicalJson(child)));
+            return sorted;
+        }
+        if (value.isArray()) {
+            ArrayNode array = objectMapper.createArrayNode();
+            value.forEach(child -> array.add(canonicalJson(child)));
+            return array;
+        }
+        if (value.isNumber()) {
+            return DecimalNode.valueOf(value.decimalValue().stripTrailingZeros());
+        }
+        return value;
+    }
+
+    private String sha256(JsonNode value) {
+        try {
+            byte[] bytes = objectMapper.writeValueAsBytes(canonicalJson(value));
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (JsonProcessingException | NoSuchAlgorithmException e) {
+            throw new IllegalStateException("无法计算 patch_document 请求摘要", e);
+        }
+    }
+
+    private JsonNode findBlock(JsonNode blocks, String blockId) {
+        if (blocks == null || !blocks.isArray()) return null;
+        for (JsonNode block : blocks) {
+            if (blockId.equals(block.path("id").asText())) return block;
+            JsonNode found = findBlock(block.path("children"), blockId);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     /** 正文保留原始字符；字段验证不得裁掉 HTML 文件首尾空白。 */
@@ -469,6 +607,14 @@ public class McpToolRegistry {
                 true, true);
     }
 
+    private ObjectNode getDocumentBlocksDefinition() {
+        Map<String, ObjectNode> properties = new LinkedHashMap<>();
+        properties.put("documentId", integerSchema("文档 ID"));
+        properties.put("blockId", stringSchema("块 ID；省略时读取根块列表", 1, 64));
+        return tool("get_document_blocks", "读取文档块", "读取 BLOCKNOTE 文档的根块列表或指定块的完整子树；返回 version 用于后续 patch_document。结果超过 1 MiB 时按 blockId 分段读取。",
+                objectSchema(properties, "documentId"), true, true);
+    }
+
     private ObjectNode getDocumentInputSchema() {
         ObjectNode schema = objectSchema(Map.of(
                 "documentId", integerSchema("文档 ID"),
@@ -492,6 +638,121 @@ public class McpToolRegistry {
         return tool("update_document", "更新文档",
                 "按 expectedVersion 与 contentFormat 更新文档：HTML 原文保存，禁止 images；BLOCKNOTE 将 Markdown 转换为 BlockNote JSON；GFM 表格会转为原生 BlockNote 表格块。更新正文每个不同图片 ref 都要在 images 提供对应附件，且不允许未使用项。例：content=\"前文 ![流程图](mcp-image:flow) 后文\"，images=[{ref:\"flow\",fileName:\"flow.png\",contentType:\"image/png\",dataBase64:\"<Base64>\"}]；也可用 {ref:\"flow\",assetId:31} 引用有权限访问的已有附件。最多 8 个图片引用，单图不超过 6 MiB、总量不超过 12 MiB；不接受远程图片 URL。",
                 objectSchema(properties, "documentId", "expectedVersion", "title", "content", "contentFormat"), false, false);
+    }
+
+    private ObjectNode patchDocumentDefinition() {
+        Map<String, ObjectNode> properties = new LinkedHashMap<>();
+        properties.put("documentId", integerSchema("文档 ID"));
+        properties.put("expectedVersion", integerSchema("get_document_blocks 返回的已读版本"));
+        properties.put("operationId", stringSchema("请求幂等 ID；同一调用重试必须复用", 1, 128));
+        ObjectNode operations = objectMapper.createObjectNode();
+        operations.put("type", "array");
+        operations.put("minItems", 1);
+        operations.put("maxItems", 50);
+        operations.put("description", "按数组顺序执行的局部操作；支持 update_block_props、replace_inline_range、insert_block、move_block、delete_block、insert_table_row、update_table_cell、update_table_column_widths");
+        ArrayNode choices = operations.putObject("items").putArray("oneOf");
+        choices.add(patchOperationSchema("update_block_props", Map.of(
+                "blockId", stringSchema("目标块 ID", 1, 64), "props", objectSchema()), "op", "blockId", "props"));
+        choices.add(patchOperationSchema("replace_inline_range", Map.of(
+                "blockId", stringSchema("目标块 ID", 1, 64), "start", integerSchema("UTF-16 起始偏移"),
+                "end", integerSchema("UTF-16 结束偏移"), "expectedText", stringSchema("期望原文", 0, 100_000),
+                "content", patchInlineContentSchema()), "op", "blockId", "start", "end", "expectedText", "content"));
+        choices.add(patchOperationSchema("insert_block", Map.of(
+                "parentId", nullableStringSchema("父块 ID；null 或省略表示根级", 1, 64),
+                "beforeBlockId", stringSchema("目标父级内的前置块 ID", 1, 64),
+                "afterBlockId", stringSchema("目标父级内的后置块 ID", 1, 64),
+                "block", patchBlockSchema()), "op", "block"));
+        choices.add(patchOperationSchema("move_block", Map.of(
+                "blockId", stringSchema("待移动块 ID", 1, 64),
+                "parentId", nullableStringSchema("父块 ID；null 或省略表示根级", 1, 64),
+                "beforeBlockId", stringSchema("目标父级内的前置块 ID", 1, 64),
+                "afterBlockId", stringSchema("目标父级内的后置块 ID", 1, 64)), "op", "blockId"));
+        choices.add(patchOperationSchema("delete_block", Map.of(
+                "blockId", stringSchema("待删除块 ID；删除整个子树", 1, 64)), "op", "blockId"));
+        choices.add(patchOperationSchema("insert_table_row", Map.of(
+                "tableBlockId", stringSchema("目标表格块 ID", 1, 64),
+                "rowIndex", integerSchema("插入位置，从 0 开始；等于当前行数表示追加"),
+                "row", patchTableRowSchema()), "op", "tableBlockId", "rowIndex", "row"));
+        choices.add(patchOperationSchema("update_table_cell", Map.of(
+                "tableBlockId", stringSchema("表格块 ID", 1, 64), "rowIndex", integerSchema("从 0 开始的行号"),
+                "columnIndex", integerSchema("从 0 开始的列号"), "content", patchInlineContentSchema()),
+                "op", "tableBlockId", "rowIndex", "columnIndex", "content"));
+        ObjectNode widths = objectMapper.createObjectNode();
+        widths.put("type", "array");
+        widths.put("items", objectMapper.createObjectNode().put("type", "number").put("exclusiveMinimum", 0));
+        choices.add(patchOperationSchema("update_table_column_widths", Map.of(
+                "tableBlockId", stringSchema("表格块 ID", 1, 64), "columnWidths", widths),
+                "op", "tableBlockId", "columnWidths"));
+        properties.put("operations", operations);
+        properties.put("title", stringSchema("可选文档标题", 1, 256));
+        properties.put("images", documentImagesSchema());
+        return tool("patch_document", "局部更新文档", "按 expectedVersion 对 BLOCKNOTE 文档执行原子局部操作；支持块属性、标题、段内文本、插入/移动/删除、表格行/单元格/列宽，以及 documentImage 图片引用。insert_table_row 在指定原表格块内插入整行，不会创建分离的表格块；含合并单元格的表格不支持插入行。未涉及的块字段、表格列宽和块格式会保留。失败不保存部分操作；operationId 重放返回首次结果。图片用 documentImage.props.imageRef 指向 images.ref，已有 assetId 会复制到当前文档。",
+                objectSchema(properties, "documentId", "expectedVersion", "operationId", "operations"), false, false);
+    }
+
+    private ObjectNode patchTableRowSchema() {
+        ObjectNode row = objectMapper.createObjectNode();
+        row.put("type", "object");
+        row.put("additionalProperties", true);
+        ObjectNode cells = row.putObject("properties").putObject("cells");
+        cells.put("type", "array");
+        cells.put("minItems", 1);
+        ObjectNode cell = cells.putObject("items");
+        cell.put("type", "object");
+        cell.put("additionalProperties", true);
+        row.putArray("required").add("cells");
+        return row;
+    }
+
+    private ObjectNode patchOperationSchema(String operation, Map<String, ObjectNode> fields, String... required) {
+        Map<String, ObjectNode> properties = new LinkedHashMap<>();
+        ObjectNode op = stringSchema("局部操作类型", 1, 64);
+        op.putArray("enum").add(operation);
+        properties.put("op", op);
+        properties.putAll(fields);
+        return objectSchema(properties, required);
+    }
+
+    private ObjectNode patchInlineContentSchema() {
+        ObjectNode content = objectMapper.createObjectNode();
+        content.put("type", "array");
+        ObjectNode item = objectMapper.createObjectNode();
+        item.put("type", "object");
+        item.put("additionalProperties", true);
+        content.set("items", item);
+        return content;
+    }
+
+    private ObjectNode patchBlockSchema() {
+        ObjectNode block = objectMapper.createObjectNode();
+        block.put("type", "object");
+        block.put("additionalProperties", true);
+        ObjectNode properties = block.putObject("properties");
+        properties.set("type", stringSchema("BlockNote 块类型", 1, 64));
+        ObjectNode props = objectSchema();
+        props.put("additionalProperties", true);
+        properties.set("props", props);
+        ObjectNode content = objectMapper.createObjectNode();
+        ArrayNode contentChoices = content.putArray("anyOf");
+        contentChoices.add(patchInlineContentSchema());
+        ObjectNode tableContent = objectMapper.createObjectNode();
+        tableContent.put("type", "object");
+        tableContent.put("additionalProperties", true);
+        contentChoices.add(tableContent);
+        properties.set("content", content);
+        ObjectNode children = objectMapper.createObjectNode();
+        children.put("type", "array");
+        children.set("items", objectMapper.createObjectNode().put("type", "object"));
+        properties.set("children", children);
+        block.putArray("required").add("type").add("content").add("children");
+        return block;
+    }
+
+    private ObjectNode nullableStringSchema(String description, int minLength, int maxLength) {
+        ObjectNode schema = stringSchema(description, minLength, maxLength);
+        ArrayNode types = objectMapper.createArrayNode().add("string").add("null");
+        schema.set("type", types);
+        return schema;
     }
 
     private ObjectNode documentImagesSchema() {
