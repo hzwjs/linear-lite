@@ -2,9 +2,11 @@ package com.linearlite.server.filter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.common.ApiResponse;
+import com.linearlite.server.config.McpOAuthProperties;
 import com.linearlite.server.util.DocumentAssetCookie;
 import com.linearlite.server.util.JwtUtil;
 import io.jsonwebtoken.Claims;
+import org.springframework.beans.factory.ObjectProvider;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -13,8 +15,16 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
+import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 /**
  * 对 /api/** 请求校验 JWT（除公开鉴权接口与 OPTIONS 外）。无效或缺失返回 401。
@@ -22,6 +32,8 @@ import java.io.IOException;
 @Component
 @Order(Ordered.LOWEST_PRECEDENCE)
 public class JwtAuthFilter extends OncePerRequestFilter {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(JwtAuthFilter.class);
 
     private static final String AUTH_LOGIN_PATH = "/api/auth/login";
     private static final String AUTH_REGISTER_PATH = "/api/auth/register";
@@ -36,10 +48,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
     private final ObjectMapper objectMapper;
+    private final McpOAuthProperties mcpOAuthProperties;
+    private final OAuth2AuthorizationService authorizationService;
 
-    public JwtAuthFilter(JwtUtil jwtUtil, ObjectMapper objectMapper) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public JwtAuthFilter(JwtUtil jwtUtil, ObjectMapper objectMapper, McpOAuthProperties mcpOAuthProperties,
+                         ObjectProvider<OAuth2AuthorizationService> authorizationServiceProvider) {
         this.jwtUtil = jwtUtil;
         this.objectMapper = objectMapper;
+        this.mcpOAuthProperties = mcpOAuthProperties;
+        this.authorizationService = authorizationServiceProvider.getIfAvailable();
     }
 
     @Override
@@ -78,23 +96,92 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
+        boolean mcpRequest = "/mcp".equals(request.getRequestURI());
+        if (mcpRequest && !mcpOAuthProperties.isEnabled()) {
+            response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+            response.setContentType("application/json;charset=UTF-8");
+            ApiResponse<Void> body = ApiResponse.fail(503, "MCP OAuth is not configured.");
+            response.getWriter().write(objectMapper.writeValueAsString(body));
+            return;
+        }
         String token = resolveToken(request);
 
         if (token == null || token.isEmpty()) {
-            send401(response, "缺少认证信息");
+            if (mcpRequest) {
+                sendMcp401(response, "缺少 OAuth 访问令牌", null);
+            } else {
+                send401(response, "缺少认证信息");
+            }
             return;
         }
 
         try {
             Claims claims = jwtUtil.parseToken(token);
-            Long userId = jwtUtil.getUserIdFromClaims(claims);
-            if (userId != null) {
+            if (mcpRequest) {
+                Long userId = validateMcpAccessToken(token, claims);
                 request.setAttribute(REQUEST_ATTR_USER_ID, userId);
+                request.setAttribute("mcpScopes", extractScopes(claims));
+            } else {
+                Long userId = jwtUtil.getUserIdFromClaims(claims);
+                if (userId != null) {
+                    request.setAttribute(REQUEST_ATTR_USER_ID, userId);
+                }
             }
             filterChain.doFilter(request, response);
         } catch (IllegalArgumentException e) {
-            send401(response, "无效或过期的 Token");
+            if (mcpRequest) {
+                LOGGER.warn("Rejected MCP OAuth access token: {}", e.getMessage());
+                sendMcp401(response, "OAuth 访问令牌无效或权限已过期", "invalid_token");
+            } else {
+                send401(response, "无效或过期的 Token");
+            }
         }
+    }
+
+    private Long validateMcpAccessToken(String token, Claims claims) {
+        if (!mcpOAuthProperties.getIssuer().equals(claims.getIssuer())
+                || claims.getExpiration() == null
+                || claims.getAudience() == null
+                || !claims.getAudience().contains(mcpOAuthProperties.getResource())) {
+            throw new IllegalArgumentException("The OAuth token does not target Linear Lite MCP.");
+        }
+        if (authorizationService == null) {
+            throw new IllegalArgumentException("OAuth authorization state is unavailable.");
+        }
+        OAuth2Authorization authorization = authorizationService.findByToken(token, OAuth2TokenType.ACCESS_TOKEN);
+        if (authorization == null || authorization.getAccessToken() == null
+                || !authorization.getAccessToken().isActive()) {
+            throw new IllegalArgumentException("The OAuth token has been revoked or is not active.");
+        }
+        Long userId;
+        try {
+            userId = Long.valueOf(claims.getSubject());
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("The OAuth token has no Linear Lite account.");
+        }
+        if (userId <= 0) {
+            throw new IllegalArgumentException("The OAuth token has no Linear Lite account.");
+        }
+        extractScopes(claims);
+        return userId;
+    }
+
+    private Set<String> extractScopes(Claims claims) {
+        Object value = claims.get("scope");
+        Set<String> scopes = new LinkedHashSet<>();
+        if (value instanceof Collection<?> values) {
+            for (Object item : values) {
+                if (item instanceof String scope && !scope.isBlank()) {
+                    scopes.add(scope);
+                }
+            }
+        } else {
+            throw new IllegalArgumentException("The OAuth token contains no scope claim.");
+        }
+        if (!Set.of("linear-lite:read", "linear-lite:write").containsAll(scopes)) {
+            throw new IllegalArgumentException("The OAuth token contains an unsupported scope.");
+        }
+        return Set.copyOf(scopes);
     }
 
     /**
@@ -126,6 +213,19 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private void send401(HttpServletResponse response, String message) throws IOException {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setHeader("WWW-Authenticate", "Bearer");
+        response.setContentType("application/json;charset=UTF-8");
+        ApiResponse<Void> body = ApiResponse.fail(401, message);
+        response.getWriter().write(objectMapper.writeValueAsString(body));
+    }
+
+    private void sendMcp401(HttpServletResponse response, String message, String error) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        String challenge = "Bearer resource_metadata=\""
+                + mcpOAuthProperties.getProtectedResourceMetadataUrl() + "\"";
+        if (error != null) {
+            challenge += ", error=\"" + error + "\", error_description=\"The access token is invalid or expired.\"";
+        }
+        response.setHeader("WWW-Authenticate", challenge);
         response.setContentType("application/json;charset=UTF-8");
         ApiResponse<Void> body = ApiResponse.fail(401, message);
         response.getWriter().write(objectMapper.writeValueAsString(body));

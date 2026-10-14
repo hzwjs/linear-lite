@@ -3,6 +3,7 @@ package com.linearlite.server.mcp;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.config.McpProperties;
+import com.linearlite.server.config.McpOAuthProperties;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.dto.ProjectDocumentResponse;
 import com.linearlite.server.dto.ProjectDocumentTreeNode;
@@ -16,10 +17,12 @@ import com.linearlite.server.service.ProjectService;
 import com.linearlite.server.service.TaskCommandService;
 import com.linearlite.server.service.TaskCommentService;
 import com.linearlite.server.service.TaskQueryService;
+import com.linearlite.server.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongFunction;
@@ -69,13 +72,14 @@ class McpDispatcherTest {
                 mock(TaskCommentService.class),
                 projectDocumentCommandService,
                 projectDocumentQueryService,
-                documentPatchService);
-        dispatcher = new McpDispatcher(objectMapper, properties, registry);
+                documentPatchService,
+                mock(UserMapper.class));
+        dispatcher = new McpDispatcher(objectMapper, properties, new McpOAuthProperties(), registry);
     }
 
     @Test
     void initializesStandardMcpSession() throws Exception {
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(
+        McpDispatcher.DispatchResponse response = dispatch(
                 initializeRequest("1"), null, null, null, null, 7L);
 
         assertEquals(200, response.status());
@@ -86,34 +90,35 @@ class McpDispatcherTest {
     }
 
     @Test
-    void listsAllTwelveToolsInStableOrder() throws Exception {
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(
+    void listsAllThirteenToolsInStableOrder() throws Exception {
+        McpDispatcher.DispatchResponse response = dispatch(
                 request("2", "tools/list", "{}"), null, null, null, null, 7L);
 
         JsonNode tools = response.body().path("result").path("tools");
-        assertEquals(12, tools.size());
-        assertEquals("list_projects", tools.get(0).path("name").asText());
-        assertEquals("list_documents", tools.get(6).path("name").asText());
-        assertEquals("get_document", tools.get(7).path("name").asText());
-        assertEquals("get_document_blocks", tools.get(8).path("name").asText());
-        assertEquals("create_document", tools.get(9).path("name").asText());
-        assertEquals("update_document", tools.get(10).path("name").asText());
-        assertEquals("patch_document", tools.get(11).path("name").asText());
-        assertTrue(tools.get(2).path("inputSchema").path("properties").has("projectId"));
-        assertEquals("array", tools.get(9).path("inputSchema").path("properties").path("images").path("type").asText());
-        assertEquals(8, tools.get(9).path("inputSchema").path("properties").path("images").path("maxItems").asInt());
-        JsonNode imageSchema = tools.get(9).path("inputSchema").path("properties").path("images").path("items");
-        assertTrue(tools.get(9).path("inputSchema").path("properties").path("images")
+        assertEquals(13, tools.size());
+        assertEquals("get_profile", tools.get(0).path("name").asText());
+        assertEquals("list_projects", tools.get(1).path("name").asText());
+        assertEquals("list_documents", tools.get(7).path("name").asText());
+        assertEquals("get_document", tools.get(8).path("name").asText());
+        assertEquals("get_document_blocks", tools.get(9).path("name").asText());
+        assertEquals("create_document", tools.get(10).path("name").asText());
+        assertEquals("update_document", tools.get(11).path("name").asText());
+        assertEquals("patch_document", tools.get(12).path("name").asText());
+        assertTrue(tools.get(3).path("inputSchema").path("properties").has("projectId"));
+        assertEquals("array", tools.get(10).path("inputSchema").path("properties").path("images").path("type").asText());
+        assertEquals(8, tools.get(10).path("inputSchema").path("properties").path("images").path("maxItems").asInt());
+        JsonNode imageSchema = tools.get(10).path("inputSchema").path("properties").path("images").path("items");
+        assertTrue(tools.get(10).path("inputSchema").path("properties").path("images")
                 .path("description").asText().contains("mcp-image:<ref>"));
         assertEquals(2, imageSchema.path("oneOf").size());
         assertEquals(false, imageSchema.path("oneOf").get(0).path("additionalProperties").asBoolean());
         assertEquals(false, imageSchema.path("oneOf").get(1).path("additionalProperties").asBoolean());
-        assertTrue(tools.get(10).path("inputSchema").path("properties").has("images"));
-        assertTrue(tools.get(9).path("description").asText().contains("GFM 表格"));
+        assertTrue(tools.get(11).path("inputSchema").path("properties").has("images"));
         assertTrue(tools.get(10).path("description").asText().contains("GFM 表格"));
-        assertTrue(tools.get(11).path("inputSchema").path("properties").has("operations"));
-        assertEquals(50, tools.get(11).path("inputSchema").path("properties").path("operations").path("maxItems").asInt());
-        JsonNode patchOperations = tools.get(11).path("inputSchema").path("properties").path("operations")
+        assertTrue(tools.get(11).path("description").asText().contains("GFM 表格"));
+        assertTrue(tools.get(12).path("inputSchema").path("properties").has("operations"));
+        assertEquals(50, tools.get(12).path("inputSchema").path("properties").path("operations").path("maxItems").asInt());
+        JsonNode patchOperations = tools.get(12).path("inputSchema").path("properties").path("operations")
                 .path("items").path("oneOf");
         assertEquals(8, patchOperations.size());
         assertEquals("insert_table_row", patchOperations.get(5).path("properties").path("op").path("enum").get(0).asText());
@@ -121,11 +126,14 @@ class McpDispatcherTest {
 
     @Test
     void describesLinearLiteAsTheRequiredProjectManagementEntryPoint() throws Exception {
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(
+        McpDispatcher.DispatchResponse response = dispatch(
                 request("2b", "tools/list", "{}"), null, null, null, null, 7L);
 
         JsonNode tools = response.body().path("result").path("tools");
         for (JsonNode tool : tools) {
+            if ("get_profile".equals(tool.path("name").asText())) {
+                continue;
+            }
             String description = tool.path("description").asText();
             assertTrue(description.startsWith("用于 Linear Lite"));
             assertTrue(description.contains("必须优先调用此工具"));
@@ -136,7 +144,7 @@ class McpDispatcherTest {
 
     @Test
     void acceptsInitializedNotificationWithoutResponseBody() throws Exception {
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(
+        McpDispatcher.DispatchResponse response = dispatch(
                 "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\",\"params\":{}}",
                 null, null, null, null, 7L);
 
@@ -154,7 +162,7 @@ class McpDispatcherTest {
 
         String body = request("5", "tools/call",
                 "{\"name\":\"create_project\",\"arguments\":{\"name\":\"Engineering\",\"identifier\":\"ENG\"}}");
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(
+        McpDispatcher.DispatchResponse response = dispatch(
                 body, null, null, null, null, 7L);
 
         assertEquals(200, response.status());
@@ -173,7 +181,7 @@ class McpDispatcherTest {
 
         String body = request("6", "tools/call",
                 "{\"name\":\"list_projects\",\"arguments\":{}}");
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(
+        McpDispatcher.DispatchResponse response = dispatch(
                 body, null, null, null, null, 7L);
 
         assertEquals(200, response.status());
@@ -192,7 +200,7 @@ class McpDispatcherTest {
 
         String body = request("7", "tools/call",
                 "{\"name\":\"list_documents\",\"arguments\":{\"projectId\":7}}");
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(
+        McpDispatcher.DispatchResponse response = dispatch(
                 body, null, null, null, null, 9L);
 
         assertEquals(200, response.status());
@@ -210,7 +218,7 @@ class McpDispatcherTest {
 
         String body = request("8", "tools/call",
                 "{\"name\":\"get_document\",\"arguments\":{\"documentId\":68}}");
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(
+        McpDispatcher.DispatchResponse response = dispatch(
                 body, null, null, null, null, 9L);
 
         assertEquals(200, response.status());
@@ -228,7 +236,7 @@ class McpDispatcherTest {
 
         String body = request("9", "tools/call",
                 "{\"name\":\"get_document\",\"arguments\":{\"title\":\"安全扫描\"}}");
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(
+        McpDispatcher.DispatchResponse response = dispatch(
                 body, null, null, null, null, 9L);
 
         assertEquals(200, response.status());
@@ -249,7 +257,7 @@ class McpDispatcherTest {
                     return documentResponse(factory.apply(11L));
                 });
 
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("10", "tools/call",
+        McpDispatcher.DispatchResponse response = dispatch(request("10", "tools/call",
                 "{\"name\":\"create_document\",\"arguments\":{\"contentFormat\":\"BLOCKNOTE\",\"projectId\":7,\"title\":\"设计\","
                         + "\"content\":\"before ![图](mcp-image:fig) after\",\"images\":[{\"ref\":\"fig\","
                         + "\"fileName\":\"diagram.png\",\"contentType\":\"image/png\",\"dataBase64\":\"AQID\"}]}}"),
@@ -272,7 +280,7 @@ class McpDispatcherTest {
                 new ProjectDocumentResponse(11L, 7L, null, null, null, "设计", content, List.of(),
                         0, 19L, 7L, 7L, false, null, null, null, "BLOCKNOTE"));
 
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("blocks", "tools/call",
+        McpDispatcher.DispatchResponse response = dispatch(request("blocks", "tools/call",
                 "{\"name\":\"get_document_blocks\",\"arguments\":{\"documentId\":11}}"),
                 null, null, null, null, 7L);
 
@@ -289,7 +297,7 @@ class McpDispatcherTest {
                 + "\"content\":[],\"children\":[]}]}]";
         when(projectDocumentQueryService.getDocument(11L, 7L)).thenReturn(documentResponse(content));
 
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("subtree", "tools/call",
+        McpDispatcher.DispatchResponse response = dispatch(request("subtree", "tools/call",
                 "{\"name\":\"get_document_blocks\",\"arguments\":{\"documentId\":11,\"blockId\":\"h1\"}}"),
                 null, null, null, null, 7L);
 
@@ -313,7 +321,7 @@ class McpDispatcherTest {
                     return objectMapper.createObjectNode().put("documentId", 11).put("version", 5);
                 });
 
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("patch-img", "tools/call",
+        McpDispatcher.DispatchResponse response = dispatch(request("patch-img", "tools/call",
                 "{\"name\":\"patch_document\",\"arguments\":{\"documentId\":11,\"expectedVersion\":4,"
                         + "\"operationId\":\"retry-1\",\"operations\":[{\"op\":\"insert_block\","
                         + "\"block\":{\"type\":\"documentImage\",\"props\":{\"imageRef\":\"chart\"},"
@@ -338,7 +346,7 @@ class McpDispatcherTest {
                     return factory.apply("[]", 11L);
                 });
 
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("patch-error", "tools/call",
+        McpDispatcher.DispatchResponse response = dispatch(request("patch-error", "tools/call",
                 "{\"name\":\"patch_document\",\"arguments\":{\"documentId\":11,\"expectedVersion\":4,"
                         + "\"operationId\":\"bad-op\",\"operations\":[{\"op\":\"unknown\"}]}}"),
                 null, null, null, null, 7L);
@@ -359,7 +367,7 @@ class McpDispatcherTest {
                     return documentResponse(factory.apply(11L));
                 });
 
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("10b", "tools/call",
+        McpDispatcher.DispatchResponse response = dispatch(request("10b", "tools/call",
                 "{\"name\":\"create_document\",\"arguments\":{\"contentFormat\":\"BLOCKNOTE\",\"projectId\":7,\"title\":\"设计\","
                         + "\"content\":\"| 能力 | 职责 |\\n|---|---|\\n| 值与类型 | 声明输入输出类型 |\"}}"),
                 null, null, null, null, 7L);
@@ -386,7 +394,7 @@ class McpDispatcherTest {
                     return documentResponse(factory.apply(11L));
                 });
 
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("11", "tools/call",
+        McpDispatcher.DispatchResponse response = dispatch(request("11", "tools/call",
                 "{\"name\":\"update_document\",\"arguments\":{\"contentFormat\":\"BLOCKNOTE\",\"documentId\":11,\"expectedVersion\":3,"
                         + "\"title\":\"设计\",\"content\":\"![图](mcp-image:reuse)\","
                         + "\"images\":[{\"ref\":\"reuse\",\"assetId\":31}]}}"),
@@ -407,7 +415,7 @@ class McpDispatcherTest {
                     return documentResponse(factory.apply(11L));
                 });
 
-        McpDispatcher.DispatchResponse response = dispatcher.dispatch(request("12", "tools/call",
+        McpDispatcher.DispatchResponse response = dispatch(request("12", "tools/call",
                 "{\"name\":\"create_document\",\"arguments\":{\"contentFormat\":\"BLOCKNOTE\",\"projectId\":7,\"title\":\"设计\","
                         + "\"content\":\"![外链](https://example.com/image.png)\"}}"),
                 null, null, null, null, 7L);
@@ -436,6 +444,18 @@ class McpDispatcherTest {
         return "{\"jsonrpc\":\"2.0\",\"id\":\"" + id + "\",\"method\":\"" + method
                 + "\",\"params\":" + params + "}";
     }
+
+    private McpDispatcher.DispatchResponse dispatch(
+            String rawBody,
+            String protocolVersionHeader,
+            String methodHeader,
+            String nameHeader,
+            String origin,
+            Long userId) {
+        return dispatcher.dispatch(rawBody, protocolVersionHeader, methodHeader, nameHeader, origin, userId,
+                Set.of("linear-lite:read", "linear-lite:write"));
+    }
+
     @Test
     void htmlMcpCreateKeepsWhitespaceAndBypassesMarkdownAndAttachments() throws Exception {
         String html = "\n<!doctype html><html><body><script>window.x=1;</script></body></html>\n";
@@ -445,7 +465,7 @@ class McpDispatcherTest {
                 .put("contentFormat", "HTML").put("content", html);
         var params = objectMapper.createObjectNode().put("name", "create_document");
         params.set("arguments", arguments);
-        var response = dispatcher.dispatch(request("html", "tools/call", params.toString()), null, null, null, null, 7L);
+        var response = dispatch(request("html", "tools/call", params.toString()), null, null, null, null, 7L);
         assertFalse(response.body().path("result").path("isError").asBoolean());
         var captor = org.mockito.ArgumentCaptor.forClass(CreateProjectDocumentRequest.class);
         verify(projectDocumentCommandService).create(eq(7L), captor.capture(), eq(7L));
@@ -459,7 +479,7 @@ class McpDispatcherTest {
     void htmlMcpRejectsAttachmentInputBeforeCallingDocumentService() throws Exception {
         var params = objectMapper.readTree("{\"name\":\"create_document\",\"arguments\":{\"projectId\":7,\"title\":\"HTML\","
                 + "\"contentFormat\":\"HTML\",\"content\":\"<html></html>\",\"images\":[]}}");
-        var response = dispatcher.dispatch(request("html-images", "tools/call", params.toString()), null, null, null, null, 7L);
+        var response = dispatch(request("html-images", "tools/call", params.toString()), null, null, null, null, 7L);
         assertTrue(response.body().has("error"));
         verifyNoInteractions(projectDocumentCommandService, projectDocumentAttachmentService);
     }

@@ -19,6 +19,8 @@ import com.linearlite.server.service.ProjectService;
 import com.linearlite.server.service.TaskCommandService;
 import com.linearlite.server.service.TaskCommentService;
 import com.linearlite.server.service.TaskQueryService;
+import com.linearlite.server.entity.User;
+import com.linearlite.server.mapper.UserMapper;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -36,6 +38,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.TreeMap;
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 /** MCP 工具目录与领域服务映射；工具顺序固定以保证 tools/list 可缓存。 */
 @Component
@@ -54,6 +58,11 @@ public class McpToolRegistry {
     private static final int MAX_IMAGE_BYTES = 6 * 1024 * 1024;
     private static final int MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024;
     private static final int MAX_TOTAL_IMAGE_BASE64_CHARS = 4 * ((MAX_TOTAL_IMAGE_BYTES + 2) / 3);
+    private static final Set<String> READ_TOOLS = Set.of(
+            "list_projects", "get_task", "list_documents", "get_document", "get_document_blocks");
+    private static final Set<String> WRITE_TOOLS = Set.of(
+            "create_project", "create_task", "update_task", "add_task_comment",
+            "create_document", "update_document", "patch_document");
 
     private final ObjectMapper objectMapper;
     private final McpDocumentImageContentService documentImageContentService;
@@ -64,22 +73,10 @@ public class McpToolRegistry {
     private final ProjectDocumentCommandService projectDocumentCommandService;
     private final ProjectDocumentQueryService projectDocumentQueryService;
     private final McpDocumentPatchService documentPatchService;
+    private final UserMapper userMapper;
     private final BlockNoteDocumentPatchProcessor blockNotePatchProcessor;
     private final Map<String, ToolHandler> handlers;
     private final List<ObjectNode> definitions;
-
-    public McpToolRegistry(
-            ObjectMapper objectMapper,
-            McpDocumentImageContentService documentImageContentService,
-            ProjectService projectService,
-            TaskCommandService taskCommandService,
-            TaskQueryService taskQueryService,
-            TaskCommentService taskCommentService,
-            ProjectDocumentCommandService projectDocumentCommandService,
-            ProjectDocumentQueryService projectDocumentQueryService) {
-        this(objectMapper, documentImageContentService, projectService, taskCommandService, taskQueryService,
-                taskCommentService, projectDocumentCommandService, projectDocumentQueryService, null);
-    }
 
     @Autowired
     public McpToolRegistry(
@@ -91,7 +88,8 @@ public class McpToolRegistry {
             TaskCommentService taskCommentService,
             ProjectDocumentCommandService projectDocumentCommandService,
             ProjectDocumentQueryService projectDocumentQueryService,
-            McpDocumentPatchService documentPatchService) {
+            McpDocumentPatchService documentPatchService,
+            UserMapper userMapper) {
         this.objectMapper = objectMapper;
         this.documentImageContentService = documentImageContentService;
         this.projectService = projectService;
@@ -101,6 +99,7 @@ public class McpToolRegistry {
         this.projectDocumentCommandService = projectDocumentCommandService;
         this.projectDocumentQueryService = projectDocumentQueryService;
         this.documentPatchService = documentPatchService;
+        this.userMapper = userMapper;
         this.blockNotePatchProcessor = new BlockNoteDocumentPatchProcessor(objectMapper);
 
         Map<String, ToolHandler> registered = new LinkedHashMap<>();
@@ -116,8 +115,10 @@ public class McpToolRegistry {
         registered.put("create_document", this::createDocument);
         registered.put("update_document", this::updateDocument);
         registered.put("patch_document", this::patchDocument);
+        registered.put("get_profile", this::getProfile);
         this.handlers = Map.copyOf(registered);
         this.definitions = List.of(
+                getProfileDefinition(),
                 listProjectsDefinition(),
                 createProjectDefinition(),
                 createTaskDefinition(),
@@ -130,6 +131,7 @@ public class McpToolRegistry {
                 createDocumentDefinition(),
                 updateDocumentDefinition(),
                 patchDocumentDefinition());
+        this.definitions.forEach(this::addSecurityScheme);
     }
 
     public ArrayNode definitions() {
@@ -146,6 +148,73 @@ public class McpToolRegistry {
             throw new McpToolNotFoundException("工具不存在: " + name);
         }
         return objectMapper.valueToTree(handler.handle(arguments, userId));
+    }
+
+    public String requiredScope(String name) {
+        if ("get_profile".equals(name)) {
+            return "";
+        }
+        if (READ_TOOLS.contains(name)) {
+            return "linear-lite:read";
+        }
+        if (WRITE_TOOLS.contains(name)) {
+            return "linear-lite:write";
+        }
+        return null;
+    }
+
+    private void addSecurityScheme(ObjectNode definition) {
+        ArrayNode schemes = definition.putArray("securitySchemes");
+        ObjectNode oauth = schemes.addObject();
+        oauth.put("type", "oauth2");
+        ArrayNode scopes = oauth.putArray("scopes");
+        String requiredScope = requiredScope(definition.path("name").asText());
+        if (requiredScope != null && !requiredScope.isEmpty()) {
+            scopes.add(requiredScope);
+        }
+    }
+
+    private ObjectNode getProfileDefinition() {
+        ObjectNode definition = objectMapper.createObjectNode();
+        definition.put("name", "get_profile");
+        definition.put("description", "返回当前 Linear Lite 账号资料，用于识别已连接的账号。");
+        ObjectNode inputSchema = definition.putObject("inputSchema");
+        inputSchema.put("type", "object");
+        inputSchema.putObject("properties");
+        inputSchema.put("additionalProperties", false);
+        ObjectNode outputSchema = definition.putObject("outputSchema");
+        outputSchema.put("$schema", "https://json-schema.org/draft/2020-12/schema");
+        outputSchema.put("type", "object");
+        ObjectNode properties = outputSchema.putObject("properties");
+        properties.putObject("id").put("type", "string").put("minLength", 1).put("pattern", "\\S");
+        properties.putObject("name").put("type", "string");
+        properties.putObject("email").put("type", "string");
+        outputSchema.putArray("required").add("id");
+        outputSchema.put("additionalProperties", false);
+        ObjectNode annotations = definition.putObject("annotations");
+        annotations.put("readOnlyHint", true);
+        annotations.put("destructiveHint", false);
+        annotations.put("openWorldHint", false);
+        definition.putObject("_meta").put("openai/profile", true);
+        return definition;
+    }
+
+    private Object getProfile(JsonNode rawArguments, Long userId) {
+        McpArgumentValidator.fields(McpArgumentValidator.object(rawArguments));
+        User user = userMapper.selectById(userId);
+        if (user == null || user.getId() == null) {
+            throw new ResourceNotFoundException("Linear Lite 账号不存在");
+        }
+        ObjectNode profile = objectMapper.createObjectNode();
+        profile.put("id", "llp_" + UUID.nameUUIDFromBytes(
+                ("linear-lite-user:" + user.getId()).getBytes(StandardCharsets.UTF_8)));
+        if (user.getUsername() != null && !user.getUsername().isBlank()) {
+            profile.put("name", user.getUsername());
+        }
+        if (user.getEmail() != null && !user.getEmail().isBlank()) {
+            profile.put("email", user.getEmail());
+        }
+        return profile;
     }
 
     private Object createProject(JsonNode rawArguments, Long userId) {

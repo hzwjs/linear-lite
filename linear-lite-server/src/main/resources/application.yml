@@ -43,6 +43,7 @@ spring:
 
 server:
   port: ${SERVER_PORT:9080}
+  forward-headers-strategy: framework
   compression:
     enabled: true
     min-response-size: 1KB
@@ -69,6 +70,11 @@ mcp:
   server-name: ${MCP_SERVER_NAME:linear-lite}
   server-version: ${MCP_SERVER_VERSION:0.1.0}
   tool-list-ttl-ms: ${MCP_TOOL_LIST_TTL_MS:300000}
+  oauth:
+    enabled: ${MCP_OAUTH_ENABLED:false}
+    issuer: ${MCP_OAUTH_ISSUER:${APP_PUBLIC_BASE_URL:https://linearlite.eobua.cn}}
+    resource: ${MCP_OAUTH_RESOURCE:https://linearlite.eobua.cn/mcp}
+    token-ttl-seconds: ${MCP_OAUTH_TOKEN_TTL_SECONDS:2592000}
 
 app:
   timezone: ${APP_TIMEZONE:Asia/Shanghai}

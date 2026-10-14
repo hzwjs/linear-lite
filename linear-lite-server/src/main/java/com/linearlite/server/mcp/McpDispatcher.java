@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linearlite.server.config.McpProperties;
+import com.linearlite.server.config.McpOAuthProperties;
 import com.linearlite.server.exception.ConflictOperationException;
 import com.linearlite.server.exception.DocumentVersionConflictException;
 import com.linearlite.server.exception.ForbiddenOperationException;
@@ -28,11 +29,15 @@ public class McpDispatcher {
 
     private final ObjectMapper objectMapper;
     private final McpProperties properties;
+    private final McpOAuthProperties oauthProperties;
     private final McpToolRegistry toolRegistry;
 
-    public McpDispatcher(ObjectMapper objectMapper, McpProperties properties, McpToolRegistry toolRegistry) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public McpDispatcher(ObjectMapper objectMapper, McpProperties properties,
+                         McpOAuthProperties oauthProperties, McpToolRegistry toolRegistry) {
         this.objectMapper = objectMapper;
         this.properties = properties;
+        this.oauthProperties = oauthProperties;
         this.toolRegistry = toolRegistry;
     }
 
@@ -42,7 +47,8 @@ public class McpDispatcher {
             String methodHeader,
             String nameHeader,
             String origin,
-            Long userId) {
+            Long userId,
+            Set<String> scopes) {
         if (!isAllowedOrigin(origin)) {
             return new DispatchResponse(403, null);
         }
@@ -80,6 +86,9 @@ public class McpDispatcher {
         }
 
         JsonNode params = request.get("params");
+        if (params == null && "tools/list".equals(method)) {
+            params = objectMapper.createObjectNode();
+        }
         if (params == null || !params.isObject()) {
             return protocolError(id, 400, -32602, "params 必须是对象", null);
         }
@@ -87,17 +96,21 @@ public class McpDispatcher {
         return switch (method) {
             case "initialize" -> initialize(id, params);
             case "tools/list" -> listTools(id);
-            case "tools/call" -> callTool(id, params, userId);
+            case "tools/call" -> callTool(id, params, userId, scopes);
             default -> protocolError(id, 404, -32601, "方法不存在: " + method, null);
         };
     }
 
     private DispatchResponse initialize(JsonNode id, JsonNode params) {
-        if (!PROTOCOL_VERSION.equals(params.path("protocolVersion").asText())
+        JsonNode requestedProtocolVersion = params.get("protocolVersion");
+        if (requestedProtocolVersion == null
+                || !requestedProtocolVersion.isTextual()
+                || requestedProtocolVersion.textValue().isBlank()
                 || !params.path("capabilities").isObject()
                 || !params.path("clientInfo").isObject()) {
             return protocolError(id, 400, -32602, "initialize 参数不符合 MCP 2025-06-18", null);
         }
+        // MCP 版本协商：请求版本不受支持时，返回服务端支持的版本。
         ObjectNode result = objectMapper.createObjectNode();
         result.put("protocolVersion", PROTOCOL_VERSION);
         ObjectNode capabilities = result.putObject("capabilities");
@@ -115,13 +128,21 @@ public class McpDispatcher {
         return success(id, result);
     }
 
-    private DispatchResponse callTool(JsonNode id, JsonNode params, Long userId) {
+    private DispatchResponse callTool(JsonNode id, JsonNode params, Long userId, Set<String> scopes) {
+        String toolName = params.path("name").asText();
+        String requiredScope = toolRegistry.requiredScope(toolName);
+        if (requiredScope == null) {
+            return success(id, toolError(new McpToolRegistry.McpToolNotFoundException("工具不存在: " + toolName)));
+        }
+        if (!requiredScope.isEmpty() && !scopes.contains(requiredScope)) {
+            return success(id, authorizationRequired(requiredScope));
+        }
         JsonNode arguments = params.get("arguments");
         if (arguments == null) {
             arguments = objectMapper.createObjectNode();
         }
         try {
-            JsonNode value = toolRegistry.invoke(params.path("name").textValue(), arguments, userId);
+            JsonNode value = toolRegistry.invoke(toolName, arguments, userId);
             ObjectNode result = objectMapper.createObjectNode();
             result.set("structuredContent", value);
             ArrayNode content = result.putArray("content");
@@ -136,6 +157,19 @@ public class McpDispatcher {
                     params.path("name").asText(), userId, e.getMessage());
             return success(id, toolError(e));
         }
+    }
+
+    private ObjectNode authorizationRequired(String requiredScope) {
+        ObjectNode result = objectMapper.createObjectNode();
+        result.put("isError", true);
+        result.putArray("content").addObject().put("type", "text")
+                .put("text", "需要重新连接 Linear Lite 并授予写入权限。");
+        String resourceMetadata = oauthProperties.getProtectedResourceMetadataUrl();
+        result.putObject("_meta").putArray("mcp/www_authenticate")
+                .add("Bearer resource_metadata=\"" + resourceMetadata
+                        + "\", error=\"insufficient_scope\", error_description=\"Linear Lite write scope is required.\", scope=\""
+                        + requiredScope + "\"");
+        return result;
     }
 
     private ObjectNode toolError(Exception exception) {

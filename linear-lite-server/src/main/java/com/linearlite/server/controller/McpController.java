@@ -3,6 +3,7 @@ package com.linearlite.server.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.mcp.McpDispatcher;
+import com.linearlite.server.mcp.McpEndpointPaths;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -14,10 +15,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.Set;
 
 /** MCP 2026-07-28 唯一 HTTP 入口；旧 SSE、GET 和 DELETE 传输不注册。 */
 @RestController
-@RequestMapping("/mcp")
+@RequestMapping(McpEndpointPaths.MCP_ENDPOINT)
 @ConditionalOnProperty(prefix = "mcp", name = "enabled", havingValue = "true")
 public class McpController {
 
@@ -32,8 +34,11 @@ public class McpController {
             HttpServletRequest request,
             @RequestBody(required = false) String body) {
         Long userId = (Long) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        @SuppressWarnings("unchecked")
+        Set<String> scopes = (Set<String>) request.getAttribute("mcpScopes");
         McpDispatcher.DispatchResponse response = dispatcher.dispatch(
-                body, null, null, null, request.getHeader("Origin"), userId);
+                body, null, null, null, request.getHeader("Origin"), userId,
+                scopes == null ? Set.of() : scopes);
         if (response.body() == null) {
             return ResponseEntity.status(response.status()).build();
         }
