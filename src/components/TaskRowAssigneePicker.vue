@@ -39,6 +39,7 @@ function pick(value: string | number) {
     :aria-label="t('taskList.changeAssignee')"
     :tooltip="tooltip"
     trigger-mode="avatar"
+    @click.stop
     @update:model-value="pick"
   />
 </template>
