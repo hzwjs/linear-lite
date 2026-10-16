@@ -42,7 +42,7 @@ import java.net.URI;
 import java.nio.file.Path;
 import org.jsoup.Jsoup;
 
-/** MCP 文档输入的唯一转换入口：Markdown 在服务端转换为前端使用的 BlockNote JSON。 */
+/** MCP 文档与任务描述的 Markdown 转换入口。 */
 @Component
 public class MarkdownToBlockNoteConverter {
 
@@ -89,7 +89,7 @@ public class MarkdownToBlockNoteConverter {
         ArrayNode blocks = objectMapper.createArrayNode();
         Set<String> usedImageRefs = new HashSet<>();
         for (Node child = document.getFirstChild(); child != null; child = child.getNext()) {
-            appendBlock(child, blocks, refs, usedImageRefs);
+            appendBlock(child, blocks, refs, usedImageRefs, false);
         }
         return blocks.toString();
     }
@@ -211,10 +211,24 @@ public class MarkdownToBlockNoteConverter {
         Set<String> usedImageRefs = new HashSet<>();
         Node document = parser.parse(markdown);
         for (Node child = document.getFirstChild(); child != null; child = child.getNext()) {
-            appendBlock(child, blocks, imageAssetIds, usedImageRefs);
+            appendBlock(child, blocks, imageAssetIds, usedImageRefs, false);
         }
         if (!usedImageRefs.equals(imageAssetIds.keySet())) {
             throw new McpInvalidParamsException("Markdown 图片引用与 images 不匹配");
+        }
+        return blocks.toString();
+    }
+
+    /** 将任务 Markdown 转为任务编辑器使用的 BlockNote JSON，图片保留 URL。 */
+    public String convertTaskDescription(String markdown) {
+        if (markdown == null || markdown.isBlank()) {
+            return "[]";
+        }
+        ArrayNode blocks = objectMapper.createArrayNode();
+        Set<String> usedImageRefs = new HashSet<>();
+        Node document = parser.parse(markdown);
+        for (Node child = document.getFirstChild(); child != null; child = child.getNext()) {
+            appendBlock(child, blocks, Map.of(), usedImageRefs, true);
         }
         return blocks.toString();
     }
@@ -231,25 +245,25 @@ public class MarkdownToBlockNoteConverter {
     }
 
     private void appendBlock(Node node, ArrayNode blocks, Map<String, Long> imageAssetIds,
-                             Set<String> usedImageRefs) {
+                             Set<String> usedImageRefs, boolean taskDescription) {
         if (node instanceof DetailsBlock details) {
             ArrayNode title = objectMapper.createArrayNode().add(textNode(details.title, Map.of()));
             ObjectNode toggle = block("toggleListItem", title, Map.of());
             for (Node child = details.getFirstChild(); child != null; child = child.getNext())
-                appendBlock(child, toggle.withArray("children"), imageAssetIds, usedImageRefs);
+                appendBlock(child, toggle.withArray("children"), imageAssetIds, usedImageRefs, taskDescription);
             blocks.add(toggle);
         } else if (node instanceof Heading heading) {
             appendInlineBlocks(heading.getFirstChild(), "heading", Map.of("level", heading.getLevel()),
-                    blocks, imageAssetIds, usedImageRefs);
+                    blocks, imageAssetIds, usedImageRefs, taskDescription);
         } else if (node instanceof TableBlock table) {
             appendTable(table, blocks, imageAssetIds, usedImageRefs);
         } else if (node instanceof Paragraph paragraph) {
             appendInlineBlocks(paragraph.getFirstChild(), "paragraph", Map.of(),
-                    blocks, imageAssetIds, usedImageRefs);
+                    blocks, imageAssetIds, usedImageRefs, taskDescription);
         } else if (node instanceof BulletList list) {
-            appendList(list, "bulletListItem", blocks, imageAssetIds, usedImageRefs);
+            appendList(list, "bulletListItem", blocks, imageAssetIds, usedImageRefs, taskDescription);
         } else if (node instanceof OrderedList list) {
-            appendList(list, "numberedListItem", blocks, imageAssetIds, usedImageRefs);
+            appendList(list, "numberedListItem", blocks, imageAssetIds, usedImageRefs, taskDescription);
         } else if (node instanceof FencedCodeBlock code) {
             blocks.add(codeBlock(code.getLiteral(), code.getInfo()));
         } else if (node instanceof IndentedCodeBlock code) {
@@ -258,9 +272,9 @@ public class MarkdownToBlockNoteConverter {
             for (Node child = quote.getFirstChild(); child != null; child = child.getNext()) {
                 if (child instanceof Paragraph paragraph) {
                     appendInlineBlocks(paragraph.getFirstChild(), "quote", Map.of(),
-                            blocks, imageAssetIds, usedImageRefs);
+                            blocks, imageAssetIds, usedImageRefs, taskDescription);
                 } else {
-                    appendBlock(child, blocks, imageAssetIds, usedImageRefs);
+                    appendBlock(child, blocks, imageAssetIds, usedImageRefs, taskDescription);
                 }
             }
         } else if (node instanceof ThematicBreak) {
@@ -290,7 +304,7 @@ public class MarkdownToBlockNoteConverter {
                     ArrayNode cellContent = objectMapper.createArrayNode();
                     Map<String, Boolean> styles = cell.isHeader() ? Map.of("bold", true) : Map.of();
                     appendInline(cell.getFirstChild(), cellContent, styles, "paragraph", Map.of(),
-                            objectMapper.createArrayNode(), imageAssetIds, usedImageRefs, false);
+                            objectMapper.createArrayNode(), imageAssetIds, usedImageRefs, false, false);
                     ObjectNode cellNode = objectMapper.createObjectNode();
                     cellNode.put("type", "tableCell");
                     cellNode.set("content", cellContent);
@@ -336,7 +350,8 @@ public class MarkdownToBlockNoteConverter {
     }
 
     private void appendList(Node list, String type, ArrayNode blocks,
-                            Map<String, Long> imageAssetIds, Set<String> usedImageRefs) {
+                            Map<String, Long> imageAssetIds, Set<String> usedImageRefs,
+                            boolean taskDescription) {
         for (Node item = list.getFirstChild(); item != null; item = item.getNext()) {
             if (!(item instanceof ListItem listItem)) {
                 continue;
@@ -345,7 +360,7 @@ public class MarkdownToBlockNoteConverter {
             if (first instanceof Paragraph paragraph) {
                 ArrayNode segments = objectMapper.createArrayNode();
                 appendInlineBlocks(paragraph.getFirstChild(), type, Map.of(), segments,
-                        imageAssetIds, usedImageRefs);
+                        imageAssetIds, usedImageRefs, taskDescription);
 
                 ObjectNode listBlock;
                 int firstChild = 0;
@@ -358,13 +373,14 @@ public class MarkdownToBlockNoteConverter {
                 ArrayNode children = listBlock.withArray("children");
                 for (int index = firstChild; index < segments.size(); index++) {
                     ObjectNode segment = (ObjectNode) segments.get(index);
-                    if (!"documentImage".equals(segment.path("type").asText())) {
+                    if (!"documentImage".equals(segment.path("type").asText())
+                            && !(taskDescription && "image".equals(segment.path("type").asText()))) {
                         segment.put("type", "paragraph");
                     }
                     children.add(segment);
                 }
                 for (Node nested = first.getNext(); nested != null; nested = nested.getNext()) {
-                    appendBlock(nested, children, imageAssetIds, usedImageRefs);
+                    appendBlock(nested, children, imageAssetIds, usedImageRefs, taskDescription);
                 }
                 blocks.add(listBlock);
             }
@@ -373,16 +389,17 @@ public class MarkdownToBlockNoteConverter {
 
     private void appendInlineBlocks(Node node, String type, Map<String, Integer> extraProps,
                                    ArrayNode blocks, Map<String, Long> imageAssetIds,
-                                   Set<String> usedImageRefs) {
+                                   Set<String> usedImageRefs, boolean taskDescription) {
         ArrayNode content = objectMapper.createArrayNode();
-        appendInline(node, content, Map.of(), type, extraProps, blocks, imageAssetIds, usedImageRefs, false);
+        appendInline(node, content, Map.of(), type, extraProps, blocks, imageAssetIds,
+                usedImageRefs, false, taskDescription);
         flushInlineBlock(type, extraProps, content, blocks);
     }
 
     private void appendInline(Node node, ArrayNode content, Map<String, Boolean> styles,
                               String blockType, Map<String, Integer> extraProps, ArrayNode blocks,
                               Map<String, Long> imageAssetIds, Set<String> usedImageRefs,
-                              boolean insideLink) {
+                              boolean insideLink, boolean taskDescription) {
         for (Node current = node; current != null; current = current.getNext()) {
             if (current instanceof Text text) {
                 content.add(textNode(text.getLiteral(), styles));
@@ -390,10 +407,10 @@ public class MarkdownToBlockNoteConverter {
                 content.add(textNode(code.getLiteral(), Map.of("code", true)));
             } else if (current instanceof Emphasis emphasis) {
                 appendInline(emphasis.getFirstChild(), content, merge(styles, "italic"), blockType,
-                        extraProps, blocks, imageAssetIds, usedImageRefs, insideLink);
+                        extraProps, blocks, imageAssetIds, usedImageRefs, insideLink, taskDescription);
             } else if (current instanceof StrongEmphasis strong) {
                 appendInline(strong.getFirstChild(), content, merge(styles, "bold"), blockType,
-                        extraProps, blocks, imageAssetIds, usedImageRefs, insideLink);
+                        extraProps, blocks, imageAssetIds, usedImageRefs, insideLink, taskDescription);
             } else if (current instanceof Link link) {
                 if (containsImage(link)) {
                     throw new McpInvalidParamsException("图片不能嵌入 Markdown 链接");
@@ -403,7 +420,7 @@ public class MarkdownToBlockNoteConverter {
                 linkNode.put("href", link.getDestination());
                 ArrayNode linkContent = linkNode.putArray("content");
                 appendInline(link.getFirstChild(), linkContent, styles, blockType,
-                        extraProps, blocks, imageAssetIds, usedImageRefs, true);
+                        extraProps, blocks, imageAssetIds, usedImageRefs, true, taskDescription);
                 content.add(linkNode);
             } else if (current instanceof HardLineBreak) {
                 content.add(textNode("\n", styles));
@@ -412,6 +429,11 @@ public class MarkdownToBlockNoteConverter {
             } else if (current instanceof Image image) {
                 if (insideLink) {
                     throw new McpInvalidParamsException("图片不能嵌入 Markdown 链接");
+                }
+                if (taskDescription) {
+                    flushInlineBlock(blockType, extraProps, content, blocks);
+                    blocks.add(taskImage(image.getDestination(), imageCaption(image)));
+                    continue;
                 }
                 String ref = imageRef(image);
                 Long assetId = imageAssetIds.get(ref);
@@ -423,7 +445,7 @@ public class MarkdownToBlockNoteConverter {
                 usedImageRefs.add(ref);
             } else if (current.getFirstChild() != null) {
                 appendInline(current.getFirstChild(), content, styles, blockType, extraProps,
-                        blocks, imageAssetIds, usedImageRefs, insideLink);
+                        blocks, imageAssetIds, usedImageRefs, insideLink, taskDescription);
             }
         }
     }
@@ -488,6 +510,25 @@ public class MarkdownToBlockNoteConverter {
         props.put("caption", caption);
         block.putArray("content");
         block.putArray("children");
+        return block;
+    }
+
+    private ObjectNode taskImage(String url, String caption) {
+        try {
+            URI uri = URI.create(url);
+            String scheme = uri.getScheme();
+            if (uri.getHost() == null || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
+                throw new IllegalArgumentException();
+            }
+        } catch (RuntimeException e) {
+            throw new McpInvalidParamsException("任务描述图片须使用 HTTP 或 HTTPS URL");
+        }
+        ObjectNode block = block("image", objectMapper.createArrayNode(), Map.of());
+        ObjectNode props = block.with("props");
+        props.put("url", url);
+        props.put("caption", caption);
+        props.put("showPreview", true);
+        props.put("previewWidth", 512);
         return block;
     }
 

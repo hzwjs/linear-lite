@@ -64,6 +64,7 @@ class McpDispatcherTest {
         properties.setToolListTtlMs(60_000L);
         McpToolRegistry registry = new McpToolRegistry(
                 objectMapper,
+                new MarkdownToBlockNoteConverter(objectMapper),
                 new McpDocumentImageContentService(
                         new MarkdownToBlockNoteConverter(objectMapper), projectDocumentAttachmentService),
                 projectService,

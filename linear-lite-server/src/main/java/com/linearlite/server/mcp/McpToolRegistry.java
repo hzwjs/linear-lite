@@ -65,6 +65,7 @@ public class McpToolRegistry {
             "create_document", "update_document", "patch_document");
 
     private final ObjectMapper objectMapper;
+    private final MarkdownToBlockNoteConverter markdownToBlockNoteConverter;
     private final McpDocumentImageContentService documentImageContentService;
     private final ProjectService projectService;
     private final TaskCommandService taskCommandService;
@@ -81,6 +82,7 @@ public class McpToolRegistry {
     @Autowired
     public McpToolRegistry(
             ObjectMapper objectMapper,
+            MarkdownToBlockNoteConverter markdownToBlockNoteConverter,
             McpDocumentImageContentService documentImageContentService,
             ProjectService projectService,
             TaskCommandService taskCommandService,
@@ -91,6 +93,7 @@ public class McpToolRegistry {
             McpDocumentPatchService documentPatchService,
             UserMapper userMapper) {
         this.objectMapper = objectMapper;
+        this.markdownToBlockNoteConverter = markdownToBlockNoteConverter;
         this.documentImageContentService = documentImageContentService;
         this.projectService = projectService;
         this.taskCommandService = taskCommandService;
@@ -238,7 +241,7 @@ public class McpToolRegistry {
         Long projectId = requiredLong(arguments, "projectId");
         Long parentId = McpArgumentValidator.optionalLong(arguments, "parentId");
         String title = McpArgumentValidator.requiredText(arguments, "title", 256);
-        String description = McpArgumentValidator.optionalText(arguments, "description", 100_000);
+        String description = taskDescription(arguments);
         String status = optionalEnum(arguments, "status", STATUSES);
         String priority = optionalEnum(arguments, "priority", PRIORITIES);
         Long assigneeId = McpArgumentValidator.optionalLong(arguments, "assigneeId");
@@ -266,7 +269,7 @@ public class McpToolRegistry {
         request.setTitle(McpArgumentValidator.optionalText(arguments, "title", 256));
         request.setParentId(McpArgumentValidator.optionalLong(arguments, "parentId"));
         request.setClearParent(McpArgumentValidator.optionalBoolean(arguments, "clearParent"));
-        request.setDescription(McpArgumentValidator.optionalText(arguments, "description", 100_000));
+        request.setDescription(taskDescription(arguments));
         request.setStatus(optionalEnum(arguments, "status", STATUSES));
         request.setPriority(optionalEnum(arguments, "priority", PRIORITIES));
         request.setAssigneeId(McpArgumentValidator.optionalLong(arguments, "assigneeId"));
@@ -278,6 +281,43 @@ public class McpToolRegistry {
         request.setProgressPercent(McpArgumentValidator.optionalInteger(arguments, "progressPercent", 0, 100));
         request.setLabels(McpArgumentValidator.optionalLabels(arguments, "labels"));
         return taskCommandService.update(taskKey, request, userId);
+    }
+
+    private String taskDescription(JsonNode arguments) {
+        String description = McpArgumentValidator.optionalText(arguments, "description", 100_000);
+        if (description == null) {
+            return description;
+        }
+        if (description.isBlank()) {
+            return "[]";
+        }
+        if (isBlockNoteJson(description)) {
+            throw new McpInvalidParamsException(
+                    "description 接受 Markdown 文本；请勿传入序列化的 BlockNote JSON 数组");
+        }
+        return markdownToBlockNoteConverter.convertTaskDescription(description);
+    }
+
+    private boolean isBlockNoteJson(String description) {
+        String text = description.trim();
+        if ((text.startsWith("[") || text.startsWith("\"[")) && text.contains("\\\"type\\\"")) {
+            return true;
+        }
+        try {
+            JsonNode parsed = objectMapper.readTree(text);
+            if (parsed == null || !parsed.isArray() || parsed.isEmpty()) {
+                return false;
+            }
+            for (JsonNode block : parsed) {
+                if (block.isObject() && block.has("type")
+                        && (block.has("content") || block.has("children"))) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (JsonProcessingException ignored) {
+            return false;
+        }
     }
 
     private Object addTaskComment(JsonNode rawArguments, Long userId) {
@@ -603,7 +643,8 @@ public class McpToolRegistry {
         properties.put("projectId", integerSchema("项目 ID"));
         properties.put("parentId", integerSchema("父任务数据库 ID"));
         properties.put("labels", labelsSchema());
-        return tool("create_task", "创建任务", "在指定项目中创建任务，creatorId 取自当前认证用户。",
+        return tool("create_task", "创建任务",
+                "在指定项目中创建任务，creatorId 取自当前认证用户。description 接受 Markdown，写入时转为 BlockNote；不要传入序列化的 BlockNote JSON。",
                 objectSchema(properties, "projectId", "title"), false, false);
     }
 
@@ -624,7 +665,8 @@ public class McpToolRegistry {
         addMutualExclusion(schema, "assigneeId", "clearAssignee");
         addMutualExclusion(schema, "dueDate", "clearDueDate");
         addMutualExclusion(schema, "plannedStartDate", "clearPlannedStart");
-        return tool("update_task", "更新任务", "按 taskKey 更新任务；未提供的字段保持不变。",
+        return tool("update_task", "更新任务",
+                "按 taskKey 更新任务；未提供的字段保持不变。description 接受 Markdown，写入时转为 BlockNote；不要传入序列化的 BlockNote JSON。",
                 schema, false, false);
     }
 
@@ -853,7 +895,9 @@ public class McpToolRegistry {
         Map<String, ObjectNode> properties = new LinkedHashMap<>();
         properties.put("projectId", integerSchema("项目 ID"));
         properties.put("title", stringSchema("任务标题", 1, 256));
-        properties.put("description", stringSchema("任务描述", 0, 100_000));
+        properties.put("description", stringSchema(
+                "任务描述 Markdown；服务端会转为 BlockNote JSON，不要传入序列化的 BlockNote JSON 数组",
+                0, 100_000));
         properties.put("status", enumSchema("任务状态", STATUSES));
         properties.put("priority", enumSchema("任务优先级", PRIORITIES));
         properties.put("assigneeId", integerSchema("负责人用户 ID"));
