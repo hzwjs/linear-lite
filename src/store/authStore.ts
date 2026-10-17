@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authApi } from '../services/api/auth'
-import { JWT_STORAGE_KEY, USER_STORAGE_KEY } from '../services/api/constants'
+import { AUTH_SESSION_CHANGED_EVENT, JWT_STORAGE_KEY, USER_STORAGE_KEY } from '../services/api/constants'
 import type { User } from '../types/domain'
 import type { RegisterRequest, ResetPasswordRequest } from '../services/api/types'
 
@@ -23,6 +23,7 @@ export const useAuthStore = defineStore('authStore', () => {
   const isLoggedIn = computed(() => !!jwtToken.value)
 
   function setSession(token: string, userId: number, username: string) {
+    if (currentUser.value?.id !== userId || jwtToken.value !== token) window.dispatchEvent(new Event(AUTH_SESSION_CHANGED_EVENT))
     jwtToken.value = token
     currentUser.value = { id: userId, username }
     localStorage.setItem(JWT_STORAGE_KEY, token)
@@ -43,6 +44,7 @@ export const useAuthStore = defineStore('authStore', () => {
   }
 
   function clearSession() {
+    window.dispatchEvent(new Event(AUTH_SESSION_CHANGED_EVENT))
     jwtToken.value = null
     currentUser.value = null
     localStorage.removeItem(JWT_STORAGE_KEY)

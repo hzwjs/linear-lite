@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { documentApi, getDocumentConflict } from '../services/api/documents'
+import { documentApi } from '../services/api/documents'
+import { documentCollaborationApi } from '../services/api/documentCollaboration'
 import { useDocumentFavoriteStore } from './documentFavoriteStore'
 import type {
   DocumentSaveState,
@@ -25,6 +26,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
 
   let saveTimer: ReturnType<typeof setTimeout> | null = null
   let editSequence = 0
+  let acknowledgedTitle = ''
   let activeSavePromise: Promise<void> | null = null
   let treeLoadSequence = 0
   let visibleTreeLoadSequence = 0
@@ -133,6 +135,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
       const document = await documentApi.get(documentId)
       if (sequence !== documentLoadSequence) return document
       activeDocument.value = document
+      acknowledgedTitle = document.title
       resetEditorState()
       syncTreeNode(document)
       useDocumentFavoriteStore().syncDocument(document)
@@ -165,9 +168,8 @@ export const useDocumentStore = defineStore('documentStore', () => {
     const document = activeDocument.value
     if (!document || saveState.value === 'conflict') return
     const titleChanged = patch.title !== undefined && patch.title !== document.title
-    const contentChanged = patch.content !== undefined && patch.content !== document.content
-    if (!titleChanged && !contentChanged) return
-    const nextDocument = { ...document, ...patch }
+    if (!titleChanged) return
+    const nextDocument = { ...document, title: patch.title! }
     activeDocument.value = nextDocument
     editSequence += 1
     if (nextDocument.title.trim().length === 0) {
@@ -188,21 +190,18 @@ export const useDocumentStore = defineStore('documentStore', () => {
     cancelScheduledSave()
     const submittedId = document.id
     const submittedSequence = editSequence
-    const submitted = {
-      expectedVersion: document.version,
-      contentFormat: document.contentFormat,
-      title: document.title,
-      content: document.content
-    }
+    const expectedTitle = acknowledgedTitle
+    const submittedTitle = document.title
     saveState.value = 'saving'
     try {
-      const saved = await documentApi.update(submittedId, submitted)
+      const saved = await documentCollaborationApi.updateTitle(submittedId, expectedTitle, submittedTitle)
+      acknowledgedTitle = saved.title
       const current = activeDocument.value
       if (current?.id !== submittedId) return
       const changedDuringRequest = editSequence !== submittedSequence
       activeDocument.value = changedDuringRequest
-        ? { ...saved, title: current.title, content: current.content }
-        : saved
+        ? { ...current, title: current.title, version: saved.version, updatedAt: saved.updatedAt, lastEditorId: saved.lastEditorId }
+        : { ...current, ...saved }
       syncTreeNode(activeDocument.value)
       useDocumentFavoriteStore().syncDocument(activeDocument.value)
       if (changedDuringRequest && activeDocument.value.title.trim().length === 0) {
@@ -212,10 +211,10 @@ export const useDocumentStore = defineStore('documentStore', () => {
         if (changedDuringRequest) scheduleSave(0)
       }
     } catch (cause) {
-      const conflict = getDocumentConflict(cause)
       if (activeDocument.value?.id !== submittedId) return
-      if (conflict) {
-        conflictVersion.value = conflict.currentVersion
+      if (cause != null && typeof cause === 'object' && 'response' in cause &&
+        (cause as { response?: { status?: unknown } }).response?.status === 409) {
+        conflictVersion.value = null
         saveState.value = 'conflict'
       } else {
         error.value = cause instanceof Error ? cause.message : String(cause)

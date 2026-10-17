@@ -28,7 +28,7 @@ describe('document image resource flow', () => {
     expect(result.asset).toBe(asset)
     expect(result.block).toEqual({
       type: 'documentImage',
-      props: { imageAssetId: 41, caption: '' },
+      props: { imageAssetId: 41, altText: 'diagram.png', caption: '' },
     })
     expect(JSON.stringify(result.block)).not.toContain('originalUrl')
   })

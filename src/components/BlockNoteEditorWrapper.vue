@@ -4,7 +4,7 @@ import { applyReactInVue, setVeauryOptions } from 'veaury'
 import { createRoot } from 'react-dom/client'
 import 'photoswipe/style.css'
 import BlockNoteEditorReact from './BlockNoteEditorReact'
-import type { EditorApi } from './BlockNoteEditorReact'
+import type { BlockNoteCollaboration, EditorApi } from './BlockNoteEditorReact'
 import { uploadApi } from '../services/api/upload'
 import type { DocumentImageAsset } from '../types/document'
 import type { PastedImageSource } from './documentImagePaste'
@@ -49,6 +49,7 @@ const props = withDefaults(
     /** 当前文档 ID 与非图片附件的区分：只有文档编辑器启用 documentImage 资源链路。 */
     documentId?: number
     imageAssets?: DocumentImageAsset[]
+    collaboration?: BlockNoteCollaboration
     /** 附件上传失败的占位文本模板，`{name}` 替换为文件名（由 Vue i18n 传入）。 */
     fileUploadFailedText?: string
   }>(),
@@ -144,13 +145,17 @@ function removeAttachmentLink(href: string): boolean {
   return editorApi.value?.removeAttachmentLink(href) ?? false
 }
 
+function getSerializedContent(): string {
+  return editorApi.value?.getSerializedContent() ?? '[]'
+}
+
 function handleSurfaceClick() {
   // Suppress if user just finished a drag-select
   if (window.getSelection()?.toString()) return
   focusAppend()
 }
 
-defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmentLink })
+defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmentLink, getSerializedContent })
 </script>
 
 <template>
@@ -162,7 +167,7 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmen
   >
     <BlockNoteVue
       :key="editorKey"
-      :initialContent="internalValue"
+      :initialContent="collaboration ? undefined : internalValue"
       :placeholder="placeholder"
       :mentionMembers="mentionMembers"
       :mentionDocuments="mentionDocuments"
@@ -181,6 +186,7 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmen
       :imageUploadTypeUnsupportedText="imageUploadTypeUnsupportedText"
       :documentId="documentId"
       :imageAssets="imageAssets"
+      :collaboration="collaboration"
       :pasteFileAsLink="pasteFileAsLink"
       :fileUploadFailedText="fileUploadFailedText"
       :onChange="handleChange"

@@ -22,6 +22,9 @@ import {
 import { createCodeBlockSpec } from '@blocknote/core/blocks'
 import { blockToNode } from '@blocknote/core'
 import { Fragment, Slice } from '@tiptap/pm/model'
+import type * as Y from 'yjs'
+import type { Awareness } from 'y-protocols/awareness'
+import { createDocumentSchema, DOCUMENT_IMAGE_CONFIG, MENTION_CONFIG, SUPPORTED_CODE_BLOCK_LANGUAGES } from '../../collaboration-schema'
 import type { HighlighterGeneric, LanguageInput } from '@shikijs/types'
 import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
 import { asciiTableToMarkdown, shouldPasteClipboardAsMarkdown } from '../utils/markdownClipboard'
@@ -48,32 +51,7 @@ import {
 
 type CodeBlockLanguageLoader = () => Promise<{ default: LanguageInput }>
 
-const supportedCodeBlockLanguages = {
-  text:       { name: 'Plain Text' },
-  javascript: { name: 'JavaScript', aliases: ['js'] },
-  typescript: { name: 'TypeScript', aliases: ['ts'] },
-  python:     { name: 'Python', aliases: ['py'] },
-  java:       { name: 'Java' },
-  go:         { name: 'Go', aliases: ['golang'] },
-  rust:       { name: 'Rust' },
-  cpp:        { name: 'C++', aliases: ['c++'] },
-  c:          { name: 'C' },
-  csharp:     { name: 'C#', aliases: ['cs'] },
-  php:        { name: 'PHP' },
-  ruby:       { name: 'Ruby', aliases: ['rb'] },
-  swift:      { name: 'Swift' },
-  kotlin:     { name: 'Kotlin' },
-  html:       { name: 'HTML' },
-  css:        { name: 'CSS' },
-  scss:       { name: 'SCSS' },
-  sql:        { name: 'SQL' },
-  json:       { name: 'JSON' },
-  yaml:       { name: 'YAML', aliases: ['yml'] },
-  xml:        { name: 'XML' },
-  bash:       { name: 'Bash', aliases: ['sh', 'shell'] },
-  markdown:   { name: 'Markdown', aliases: ['md'] },
-  mermaid:    { name: 'Mermaid', aliases: ['mmd'] },
-} satisfies Record<string, { name: string; aliases?: string[] }>
+const supportedCodeBlockLanguages = SUPPORTED_CODE_BLOCK_LANGUAGES
 
 type HighlightedCodeBlockLanguage = Exclude<keyof typeof supportedCodeBlockLanguages, 'text'>
 
@@ -125,6 +103,7 @@ export async function createCodeBlockHighlighter() {
   highlighter.loadLanguage = (language) => {
     if (typeof language !== 'string') return loadLanguage(language)
     const loader = codeBlockLanguageLoaders[language as HighlightedCodeBlockLanguage]
+    if (!loader) return loadLanguage(language)
     return loader().then(({ default: grammar }) => loadLanguage(grammar))
   }
   return highlighter as unknown as HighlighterGeneric<any, any>
@@ -622,12 +601,7 @@ function hydrateMermaidPreviewBlocks(root: HTMLElement, layer: HTMLElement, bloc
 
 const mentionSpec = createReactInlineContentSpec(
   {
-    type: 'mention' as const,
-    propSchema: {
-      userId: { default: '' as string },
-      label: { default: '' as string },
-    },
-    content: 'none' as const,
+    ...MENTION_CONFIG,
   },
   {
     render: ({ inlineContent }) => (
@@ -648,12 +622,13 @@ const DocumentImageContext = createContext<DocumentImageContextValue>({
   onOpenOriginal: () => {},
 })
 
-type DocumentImageBlockProps = { props: { imageAssetId?: unknown; caption?: unknown } }
+type DocumentImageBlockProps = { props: { imageAssetId?: unknown; altText?: unknown; caption?: unknown } }
 
 function DocumentImageBlock({ block }: { block: DocumentImageBlockProps }) {
   const context = useContext(DocumentImageContext)
   const assetId = Number(block.props.imageAssetId ?? 0)
   const asset = assetId > 0 ? context.resolve(assetId) : undefined
+  const altText = typeof block.props.altText === 'string' ? block.props.altText : ''
   const caption = typeof block.props.caption === 'string' ? block.props.caption : ''
   if (!asset) {
     // 资源清单尚未到达或跨文档资源正在重绑定；不渲染临时展示地址，保持正文只存 assetId。
@@ -662,7 +637,7 @@ function DocumentImageBlock({ block }: { block: DocumentImageBlockProps }) {
         className="bn-document-image bn-document-image--missing"
         contentEditable={false}
         role="img"
-        aria-label={caption}
+        aria-label={altText}
       />
     )
   }
@@ -681,7 +656,7 @@ function DocumentImageBlock({ block }: { block: DocumentImageBlockProps }) {
         height={asset.height ?? undefined}
         loading="lazy"
         decoding="async"
-        alt={caption}
+        alt={altText}
         onClick={(event) => context.onOpenOriginal(asset, event.currentTarget)}
       />
       {caption ? <span className="bn-document-image__caption">{caption}</span> : null}
@@ -692,12 +667,7 @@ function DocumentImageBlock({ block }: { block: DocumentImageBlockProps }) {
 /** 正文图片块只持久化 assetId；地址、尺寸与缩略图由文档图片资源清单解析。 */
 const documentImageSpec = createReactBlockSpec(
   {
-    type: 'documentImage' as const,
-    propSchema: {
-      imageAssetId: { default: 0 },
-      caption: { default: '' },
-    },
-    content: 'none' as const,
+    ...DOCUMENT_IMAGE_CONFIG,
   },
   {
     render: ({ block }) => (
@@ -708,23 +678,24 @@ const documentImageSpec = createReactBlockSpec(
       if (raw == null) return undefined
       const imageAssetId = Number(raw)
       if (!Number.isFinite(imageAssetId) || imageAssetId <= 0) return undefined
-      return { imageAssetId, caption: element.getAttribute('data-caption') ?? '' }
+      return {
+        imageAssetId,
+        altText: element.getAttribute('data-alt-text') ?? '',
+        caption: element.getAttribute('data-caption') ?? '',
+      }
     },
     toExternalHTML: ({ block }) => {
-      const props = block.props as unknown as { imageAssetId?: unknown; caption?: unknown }
+      const props = block.props as unknown as { imageAssetId?: unknown; altText?: unknown; caption?: unknown }
       return (
         <img
           data-image-asset-id={String(props.imageAssetId ?? 0)}
+          data-alt-text={typeof props.altText === 'string' ? props.altText : ''}
           data-caption={typeof props.caption === 'string' ? props.caption : ''}
         />
       )
     },
   }
 )()
-
-const defaultDocumentBlockSpecs = Object.fromEntries(
-  Object.entries(defaultBlockSpecs).filter(([type]) => type !== 'image'),
-) as Omit<typeof defaultBlockSpecs, 'image'>
 
 // Task descriptions retain the URL-backed image block; document bodies use asset IDs only.
 const taskSchema = BlockNoteSchema.create({
@@ -739,16 +710,10 @@ const taskSchema = BlockNoteSchema.create({
   },
 })
 
-const documentSchema = BlockNoteSchema.create({
-  blockSpecs: {
-    ...defaultDocumentBlockSpecs,
-    codeBlock: codeBlockWithLanguages,
-    documentImage: documentImageSpec,
-  },
-  inlineContentSpecs: {
-    ...defaultInlineContentSpecs,
-    mention: mentionSpec,
-  },
+const documentSchema = createDocumentSchema({
+  documentImageSpec: documentImageSpec as never,
+  mentionSpec: mentionSpec as never,
+  codeBlockSpec: codeBlockWithLanguages as never,
 })
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
@@ -812,6 +777,13 @@ export interface EditorApi {
   getMentionedUserIds: () => number[]
   insertMention: (userId: string, label: string) => void
   removeAttachmentLink: (href: string) => boolean
+  getSerializedContent: () => string
+}
+
+export interface BlockNoteCollaboration {
+  fragment: Y.XmlFragment
+  user: { name: string; color: string }
+  provider?: { awareness?: Awareness }
 }
 
 /** Vue 桥接层使用驼峰字段传递编辑器属性。 */
@@ -858,6 +830,7 @@ export type BlockNoteEditorReactProps = {
   mentionMembersGroupText?: string
   mentionDocumentsGroupText?: string
   checkPiBridgeOnMention?: boolean
+  collaboration?: BlockNoteCollaboration
 }
 
 export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
@@ -874,6 +847,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     onChange,
     onBlur,
     onInit,
+    collaboration,
     blockChrome = false,
     pasteFileAsLink = false,
   } = props
@@ -1038,9 +1012,11 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
     return parsed && parsed.length > 0 ? parsed : undefined
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const collaborationResolved = collaboration
   const editor = useCreateBlockNote(
     {
       schema: editorSchema,
+      ...(collaborationResolved ? { collaboration: collaborationResolved } : {}),
       uploadFile: blockNoteUploadFile,
       pasteHandler: ({ event, editor, defaultPasteHandler }) => {
         const clipboardData = event.clipboardData
@@ -1109,11 +1085,13 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
         }
         return defaultPasteHandler()
       },
-      initialContent: parsedJsonInitial as PartialBlock<any, any, any>[] | undefined,
+      ...(!collaborationResolved
+        ? { initialContent: parsedJsonInitial as PartialBlock<any, any, any>[] | undefined }
+        : {}),
       // Use deprecated placeholders until dictionary approach is confirmed stable
       placeholders: placeholder ? { default: placeholder } : undefined,
     },
-    [editorSchema]
+    [editorSchema, collaborationResolved?.fragment, collaborationResolved?.provider, collaborationResolved?.user]
   )
 
   useEffect(() => {
@@ -1236,6 +1214,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
 
   // 非 BlockNote JSON 的整段内容（含 `[` 开头的 Markdown）在 mount 后解析
   useEffect(() => {
+    if (collaborationResolved) return
     const raw = (initialContent ?? '').trim()
     if (!raw) return
     if (parseBlockNoteStoredBlocks(raw) !== undefined) return
@@ -1280,6 +1259,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       getMentionedUserIds: () =>
         extractMentionIdsFromBlocks(editor.document as unknown as AnyBlock[]),
       removeAttachmentLink: (href: string) => removeAttachmentLinkFromDocument(editor, href),
+      getSerializedContent: () => JSON.stringify(editor.document),
       insertMention: (userId: string, label: string) => {
         editor.focus()
         editor.insertInlineContent(
@@ -1330,8 +1310,9 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
 
   // 必须在 BlockNoteView 注册 onChange 之前初始化索引，避免这次内部事务被误判为用户编辑并触发自动保存。
   useLayoutEffect(() => {
+    if (collaborationResolved) return
     initializeNumberedListIndices(editor)
-  }, [editor])
+  }, [editor, collaborationResolved])
 
   useEffect(() => {
     if (!blockChromeOn) return

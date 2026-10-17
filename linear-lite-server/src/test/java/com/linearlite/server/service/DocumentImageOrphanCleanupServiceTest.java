@@ -36,6 +36,7 @@ class DocumentImageOrphanCleanupServiceTest {
     @Mock private ProjectDocumentRevisionMapper revisionMapper;
     @Mock private ProjectDocumentAttachmentMapper attachmentMapper;
     @Mock private ObjectStorageService objectStorageService;
+    @Mock private DocumentCollaborationService collaborationService;
 
     private DocumentImageOrphanCleanupService service;
 
@@ -45,7 +46,8 @@ class DocumentImageOrphanCleanupServiceTest {
         initTableInfo(ProjectDocument.class);
         initTableInfo(ProjectDocumentRevision.class);
         service = new DocumentImageOrphanCleanupService(
-                documentMapper, revisionMapper, attachmentMapper, objectStorageService, new ObjectMapper());
+                documentMapper, revisionMapper, attachmentMapper, objectStorageService, new ObjectMapper(),
+                collaborationService);
     }
 
     private void initTableInfo(Class<?> entityType) {
@@ -75,8 +77,8 @@ class DocumentImageOrphanCleanupServiceTest {
         ProjectDocument document = new ProjectDocument();
         document.setId(11L);
         document.setProjectId(7L);
-        document.setContent("not-json");
         document.setContentFormat("BLOCKNOTE");
+        stubContent("not-json");
         when(attachmentMapper.selectList(any())).thenReturn(List.of(candidate));
         when(documentMapper.selectList(any())).thenReturn(List.of(document));
 
@@ -92,8 +94,8 @@ class DocumentImageOrphanCleanupServiceTest {
         ProjectDocument document = new ProjectDocument();
         document.setId(11L);
         document.setProjectId(7L);
-        document.setContent("[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":31}}]");
         document.setContentFormat("BLOCKNOTE");
+        stubContent("[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":31}}]");
         when(attachmentMapper.selectList(any())).thenReturn(List.of(candidate));
         when(documentMapper.selectList(any())).thenReturn(List.of(document));
         when(revisionMapper.selectList(any())).thenReturn(List.of());
@@ -110,8 +112,8 @@ class DocumentImageOrphanCleanupServiceTest {
         ProjectDocument document = new ProjectDocument();
         document.setId(11L);
         document.setProjectId(7L);
-        document.setContent("[{\"type\":\"image\",\"props\":{\"url\":\"/api/project-documents/11/attachments/31/download\"}}]");
         document.setContentFormat("BLOCKNOTE");
+        stubContent("[{\"type\":\"image\",\"props\":{\"url\":\"/api/project-documents/11/attachments/31/download\"}}]");
         when(attachmentMapper.selectList(any())).thenReturn(List.of(candidate));
         when(documentMapper.selectList(any())).thenReturn(List.of(document));
 
@@ -128,8 +130,8 @@ class DocumentImageOrphanCleanupServiceTest {
         ProjectDocument document = new ProjectDocument();
         document.setId(11L);
         document.setProjectId(7L);
-        document.setContent("[]");
         document.setContentFormat("BLOCKNOTE");
+        stubContent("[]");
         ProjectDocumentRevision revision = new ProjectDocumentRevision();
         revision.setId(41L);
         revision.setDocumentId(11L);
@@ -151,8 +153,8 @@ class DocumentImageOrphanCleanupServiceTest {
         ProjectDocument document = new ProjectDocument();
         document.setId(11L);
         document.setProjectId(7L);
-        document.setContent("[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":31,\"url\":\"/api/project-documents/11/attachments/32/download\"}}]");
         document.setContentFormat("BLOCKNOTE");
+        stubContent("[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":31,\"url\":\"/api/project-documents/11/attachments/32/download\"}}]");
         when(attachmentMapper.selectList(any())).thenReturn(List.of(candidate));
         when(documentMapper.selectList(any())).thenReturn(List.of(document));
 
@@ -168,8 +170,8 @@ class DocumentImageOrphanCleanupServiceTest {
         ProjectDocument document = new ProjectDocument();
         document.setId(11L);
         document.setProjectId(7L);
-        document.setContent("[]");
         document.setContentFormat("BLOCKNOTE");
+        stubContent("[]");
         ProjectDocumentRevision revision = new ProjectDocumentRevision();
         revision.setId(41L);
         revision.setDocumentId(11L);
@@ -194,5 +196,10 @@ class DocumentImageOrphanCleanupServiceTest {
         attachment.setObjectKey("document-attachments/7/11/image.png");
         attachment.setCreatedAt(LocalDateTime.now().minusDays(2));
         return attachment;
+    }
+
+    private void stubContent(String content) {
+        when(collaborationService.getSnapshot(11L, true)).thenReturn(
+                new CollaborationNodeClient.SnapshotResponse("epoch", 1L, "BLOCKNOTE", content));
     }
 }

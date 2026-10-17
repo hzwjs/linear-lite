@@ -4,6 +4,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { i18n } from '../i18n'
 import { documentApi } from '../services/api/documents'
+import { documentCollaborationApi, type DocumentCollaborationSession } from '../services/api/documentCollaboration'
 import { projectApi } from '../services/api/project'
 import { useDocumentStore } from '../store/documentStore'
 import type { ProjectDocument, ProjectDocumentTreeNode } from '../types/document'
@@ -11,6 +12,7 @@ import DocumentsView from './DocumentsView.vue'
 
 vi.mock('../components/documents/DocumentEditor.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('../components/documents/DocumentHistoryPanel.vue', () => ({ default: { template: '<div />' } }))
+vi.mock('../services/api/documentCollaboration', () => ({ documentCollaborationApi: { createSession: vi.fn() } }))
 
 vi.mock('../services/api/documents', async () => {
   const actual = await vi.importActual<typeof import('../services/api/documents')>('../services/api/documents')
@@ -68,6 +70,7 @@ describe('DocumentsView navigation', () => {
     vi.mocked(documentApi.move).mockReset().mockResolvedValue(undefined)
     vi.mocked(documentApi.search).mockReset().mockResolvedValue([])
     vi.mocked(projectApi.listMembers).mockReset().mockResolvedValue([])
+    vi.mocked(documentCollaborationApi.createSession).mockReset().mockResolvedValue({} as DocumentCollaborationSession)
   })
 
   afterEach(() => {
@@ -134,6 +137,7 @@ describe('DocumentsView navigation', () => {
 
     // 带文档 ID 的路由必须立即请求正文，不能被文档树的慢查询串行阻塞。
     expect(documentApi.get).toHaveBeenCalledWith(1)
+    expect(documentCollaborationApi.createSession).toHaveBeenCalledWith(1)
     expect(host.querySelector('.documents-content .spin')).not.toBeNull()
     expect(host.textContent).not.toContain('选择一篇文档或创建新文档。')
 

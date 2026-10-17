@@ -29,15 +29,18 @@ public class ProjectContentSemanticIndexQueueService {
     private final ProjectContentSemanticIndexJobMapper jobMapper;
     private final ProjectContentSearchMapper contentMapper;
     private final ProjectContentSearchIndex searchIndex;
+    private final DocumentCollaborationService collaborationService;
 
     public ProjectContentSemanticIndexQueueService(SemanticSearchProperties properties,
                                                    ProjectContentSemanticIndexJobMapper jobMapper,
                                                    ProjectContentSearchMapper contentMapper,
-                                                   ProjectContentSearchIndex searchIndex) {
+                                                   ProjectContentSearchIndex searchIndex,
+                                                   DocumentCollaborationService collaborationService) {
         this.properties = properties;
         this.jobMapper = jobMapper;
         this.contentMapper = contentMapper;
         this.searchIndex = searchIndex;
+        this.collaborationService = collaborationService;
     }
 
     @EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
@@ -118,8 +121,14 @@ public class ProjectContentSemanticIndexQueueService {
     }
 
     private SearchableProjectContent selectContent(ProjectContentType type, Long resourceId) {
-        return type == ProjectContentType.TASK
-                ? contentMapper.selectTask(resourceId)
-                : contentMapper.selectDocument(resourceId);
+        if (type == ProjectContentType.TASK) return contentMapper.selectTask(resourceId);
+        SearchableProjectContent document = contentMapper.selectDocument(resourceId);
+        if (document == null) return null;
+        CollaborationNodeClient.SnapshotResponse snapshot = collaborationService.getSnapshot(resourceId, true);
+        document = contentMapper.selectDocument(resourceId);
+        if (document == null) return null;
+        document.setSourceContent(snapshot.content());
+        document.setContentFormat(snapshot.contentFormat());
+        return document;
     }
 }

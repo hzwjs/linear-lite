@@ -122,7 +122,10 @@ class ProjectContentSemanticIndexQueueServiceTest {
     private static ProjectContentSemanticIndexQueueService service(
             SemanticSearchProperties properties, ProjectContentSemanticIndexJobMapper jobs,
             ProjectContentSearchMapper contents, ProjectContentSearchIndex semantic) {
-        return new ProjectContentSemanticIndexQueueService(properties, jobs, contents, semantic);
+        DocumentCollaborationService collaboration = mock(DocumentCollaborationService.class);
+        when(collaboration.getSnapshot(any(), eq(true))).thenReturn(
+                new CollaborationNodeClient.SnapshotResponse("epoch", 1L, "BLOCKNOTE", "[]"));
+        return new ProjectContentSemanticIndexQueueService(properties, jobs, contents, semantic, collaboration);
     }
 
     private static SemanticSearchProperties enabledProperties() {

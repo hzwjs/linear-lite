@@ -3,36 +3,31 @@ package com.linearlite.server.service;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.dto.CreateProjectDocumentRequest;
-import com.linearlite.server.dto.MoveProjectDocumentRequest;
 import com.linearlite.server.dto.ProjectDocumentResponse;
 import com.linearlite.server.dto.UpdateProjectDocumentRequest;
+import com.linearlite.server.dto.DocumentCollaborationDtos;
 import com.linearlite.server.entity.ProjectDocument;
+import com.linearlite.server.entity.ProjectDocumentCollabState;
 import com.linearlite.server.entity.ProjectDocumentFavorite;
 import com.linearlite.server.entity.ProjectDocumentRevision;
-import com.linearlite.server.exception.DocumentVersionConflictException;
-import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
+import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
-import com.linearlite.server.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -42,514 +37,129 @@ class ProjectDocumentCommandServiceTest {
     @Mock private ProjectDocumentFavoriteMapper favoriteMapper;
     @Mock private ProjectDocumentRevisionMapper revisionMapper;
     @Mock private ProjectAccessGuard accessGuard;
-    @Mock private DocumentRevisionSnapshotService revisionSnapshotService;
-    @Mock private UserMapper userMapper;
-    @Mock private ProjectDocumentAttachmentService attachmentService;
+    @Mock private DocumentCollaborationService collaborationService;
+    @Mock private CollaborationNodeClient nodeClient;
+    @Mock private ProjectDocumentQueryService queryService;
     @Mock private ApplicationEventPublisher eventPublisher;
 
     private ProjectDocumentCommandService service;
 
     @BeforeEach
     void setUp() {
-        ProjectDocumentQueryService queryService = new ProjectDocumentQueryService(
-                documentMapper, favoriteMapper, revisionMapper, userMapper, accessGuard, attachmentService);
-        service = new ProjectDocumentCommandService(
-                documentMapper, favoriteMapper, revisionMapper, accessGuard, revisionSnapshotService,
-                queryService, new ObjectMapper(), eventPublisher);
+        service = new ProjectDocumentCommandService(documentMapper, favoriteMapper, revisionMapper, accessGuard,
+                collaborationService, nodeClient, queryService, new ObjectMapper(), eventPublisher);
     }
 
     @Test
-    void createPersistsFixedEmptyBlockNoteDocumentAndInitialRevision() {
-        doAnswer(invocation -> {
+    void createStoresMetadataAndYjsStateWithoutActiveBodyField() {
+        when(documentMapper.selectList(any())).thenReturn(List.of());
+        when(documentMapper.insert(any(ProjectDocument.class))).thenAnswer(invocation -> {
             ProjectDocument document = invocation.getArgument(0);
             document.setId(11L);
             return 1;
-        }).when(documentMapper).insert(any(ProjectDocument.class));
-        when(documentMapper.selectList(any())).thenReturn(List.of());
-        when(documentMapper.selectById(11L)).thenAnswer(invocation -> {
-            ProjectDocument saved = new ProjectDocument();
-            saved.setId(11L);
-            saved.setProjectId(3L);
-            saved.setTitle("接口设计");
-            saved.setContent("[]");
-        saved.setContentFormat("BLOCKNOTE");
-            saved.setSortOrder(0);
-            saved.setVersion(1L);
-            saved.setCreatorId(7L);
-            saved.setLastEditorId(7L);
-            return saved;
         });
+        when(documentMapper.selectById(11L)).thenAnswer(invocation -> document(11L, 4L, 1L));
 
-        service.create(3L, new CreateProjectDocumentRequest(null, " 接口设计 ", null, null, null, "BLOCKNOTE"), 7L);
+        service.create(4L, new CreateProjectDocumentRequest(null, " 文档 ", null, null, null, "BLOCKNOTE"), 7L);
 
-        ArgumentCaptor<ProjectDocument> documentCaptor = ArgumentCaptor.forClass(ProjectDocument.class);
-        verify(documentMapper).insert(documentCaptor.capture());
-        assertEquals("[]", documentCaptor.getValue().getContent());
-        assertEquals("接口设计", documentCaptor.getValue().getTitle());
-        verify(revisionSnapshotService).captureInitial(any(ProjectDocument.class), org.mockito.ArgumentMatchers.eq(7L));
-        verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
-                ProjectContentType.DOCUMENT, 11L));
+        ArgumentCaptor<ProjectDocument> inserted = ArgumentCaptor.forClass(ProjectDocument.class);
+        verify(documentMapper).insert(inserted.capture());
+        assertEquals("文档", inserted.getValue().getTitle());
+        assertEquals(1L, inserted.getValue().getVersion());
+        verify(collaborationService).createInitialState(inserted.getValue(), "[]");
     }
 
     @Test
-    void createAtomicallyPersistsProvidedInitialContent() {
-        doAnswer(invocation -> {
-            ProjectDocument document = invocation.getArgument(0);
-            document.setId(12L);
-            return 1;
-        }).when(documentMapper).insert(any(ProjectDocument.class));
-        when(documentMapper.selectList(any())).thenReturn(List.of());
-        when(documentMapper.selectById(12L)).thenAnswer(invocation -> {
-            ProjectDocument saved = new ProjectDocument();
-            saved.setId(12L);
-            saved.setProjectId(3L);
-            saved.setTitle("迁移文档");
-            saved.setContent("[{\"type\":\"paragraph\"}]");
-        saved.setContentFormat("BLOCKNOTE");
-            saved.setSortOrder(0);
-            saved.setVersion(1L);
-            saved.setCreatorId(7L);
-            saved.setLastEditorId(7L);
-            return saved;
-        });
+    void updateUsesNodeCommandInsteadOfWritingActiveBody() {
+        ProjectDocument current = document(11L, 4L, 1L);
+        when(documentMapper.selectById(11L)).thenReturn(current);
+        when(collaborationService.getSnapshot(11L, true)).thenReturn(new CollaborationNodeClient.SnapshotResponse(
+                "epoch-1", 1L, "BLOCKNOTE", "[]"));
+        when(queryService.getDocument(11L, 7L)).thenReturn(null);
 
-        service.create(3L, new CreateProjectDocumentRequest(
-                null, "迁移文档", "[{\"type\":\"paragraph\"}]", null, null, "BLOCKNOTE"), 7L);
+        service.update(11L, new UpdateProjectDocumentRequest(1L, "标题", "[{\"type\":\"paragraph\"}]",
+                "BLOCKNOTE"), 7L);
 
-        ArgumentCaptor<ProjectDocument> documentCaptor = ArgumentCaptor.forClass(ProjectDocument.class);
-        verify(documentMapper).insert(documentCaptor.capture());
-        assertEquals("[{\"type\":\"paragraph\"}]", documentCaptor.getValue().getContent());
+        verify(collaborationService).validateReplacement(11L, "BLOCKNOTE", "[{\"type\":\"paragraph\"}]", 7L);
+        verify(nodeClient).command(any(Long.class), any(CollaborationNodeClient.CommandRequest.class));
     }
 
     @Test
-    void createPlacesNewDocumentFirstAndShiftsExistingSiblings() {
-        ProjectDocument first = document(21L, 3L, null, 1L, 0);
-        ProjectDocument second = document(22L, 3L, null, 1L, 1);
-        doAnswer(invocation -> {
-            ProjectDocument document = invocation.getArgument(0);
-            document.setId(23L);
-            return 1;
-        }).when(documentMapper).insert(any(ProjectDocument.class));
-        when(documentMapper.selectList(any())).thenReturn(List.of(first, second));
-        when(documentMapper.selectById(23L)).thenAnswer(invocation -> {
-            ProjectDocument saved = new ProjectDocument();
-            saved.setId(23L);
-            saved.setProjectId(3L);
-            saved.setTitle("新文档");
-            saved.setContent("[]");
-        saved.setContentFormat("BLOCKNOTE");
-            saved.setSortOrder(0);
-            saved.setVersion(1L);
-            saved.setCreatorId(7L);
-            saved.setLastEditorId(7L);
-            return saved;
-        });
-
-        service.create(3L, new CreateProjectDocumentRequest(null, "新文档", null, null, null, "BLOCKNOTE"), 7L);
-
-        ArgumentCaptor<ProjectDocument> documentCaptor = ArgumentCaptor.forClass(ProjectDocument.class);
-        verify(documentMapper).insert(documentCaptor.capture());
-        assertEquals(0, documentCaptor.getValue().getSortOrder());
-        // 现有兄弟整体后移一位，新文档占据列表第一位
-        verify(documentMapper).updatePosition(21L, null, 1);
-        verify(documentMapper).updatePosition(22L, null, 2);
-    }
-
-    @Test
-    void createReusesDocumentOnlyByProjectAndExternalSourceId() {
-        ProjectDocument existing = document(41L, 3L, null, 4L, 0);
-        existing.setExternalSource("outline");
-        existing.setExternalSourceId("EUEFsRqmJ4");
-        when(documentMapper.selectOne(any())).thenReturn(existing);
-
-        ProjectDocumentResponse response = service.create(3L, new CreateProjectDocumentRequest(
-                null, "不能用于匹配的标题", "[]", "outline", "EUEFsRqmJ4", "BLOCKNOTE"), 7L);
-
-        assertEquals(41L, response.id());
-        assertEquals("outline", response.externalSource());
-        assertEquals("EUEFsRqmJ4", response.externalSourceId());
-        verify(documentMapper, never()).insert(any());
-        verify(revisionMapper, never()).insert(any());
-    }
-
-    @Test
-    void createWithContentFactoryCapturesFinalImageBodyBeforeSnapshotAndIndexing() {
-        String finalContent = "[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":31}}]";
-        AtomicReference<String> persistedContent = new AtomicReference<>("[]");
-        doAnswer(invocation -> {
-            ProjectDocument document = invocation.getArgument(0);
-            document.setId(11L);
-            return 1;
-        }).when(documentMapper).insert(any(ProjectDocument.class));
-        when(documentMapper.selectList(any())).thenReturn(List.of());
-        when(documentMapper.update(org.mockito.ArgumentMatchers.isNull(), any(UpdateWrapper.class)))
+    void archiveFlushesAndClosesRoomsBeforeStartingDatabaseMutation() {
+        when(documentMapper.selectById(11L)).thenReturn(document(11L, 4L, 1L));
+        when(documentMapper.selectSubtreeIds(4L, 11L)).thenReturn(List.of(11L, 12L));
+        var prepared = new DocumentCollaborationDtos.ArchiveTransitionPrepared("transition-1", 1_900_000_000_000L,
+                List.of(new DocumentCollaborationDtos.ArchiveTransitionDocument(11L, "epoch-11", "next-11", 3L, 1L),
+                        new DocumentCollaborationDtos.ArchiveTransitionDocument(12L, "epoch-12", "next-12", 5L, 1L)));
+        when(collaborationService.prepareArchiveTransition(4L, 11L, List.of(11L, 12L), "archive"))
+                .thenReturn(prepared);
+        when(nodeClient.closeRoom(any(Long.class), any(CollaborationNodeClient.CloseRoomRequest.class)))
                 .thenAnswer(invocation -> {
-                    persistedContent.set(finalContent);
-                    return 1;
+                    Long id = invocation.getArgument(0);
+                    String epoch = id == 11L ? "epoch-11" : "epoch-12";
+                    long seq = id == 11L ? 3L : 5L;
+                    return new CollaborationNodeClient.CloseRoomResponse(epoch, seq, 2L, "transition-1");
                 });
-        when(documentMapper.selectById(11L)).thenAnswer(invocation -> {
-            ProjectDocument saved = document(11L, 3L, null, 1L, 0);
-            saved.setTitle("插图设计");
-            saved.setContent(persistedContent.get());
-        saved.setContentFormat("BLOCKNOTE");
-            return saved;
-        });
-
-        ProjectDocumentResponse response = service.createWithContentFactory(
-                3L, new CreateProjectDocumentRequest(null, "插图设计", null, null, null, "BLOCKNOTE"), 7L, id -> {
-                    assertEquals(11L, id);
-                    return finalContent;
-                });
-
-        assertEquals(finalContent, response.content());
-        org.mockito.InOrder order = inOrder(documentMapper, revisionSnapshotService, eventPublisher);
-        order.verify(documentMapper).insert(any(ProjectDocument.class));
-        order.verify(documentMapper).update(org.mockito.ArgumentMatchers.isNull(), any(UpdateWrapper.class));
-        order.verify(revisionSnapshotService).captureInitial(any(ProjectDocument.class),
-                org.mockito.ArgumentMatchers.eq(7L));
-        order.verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
-                ProjectContentType.DOCUMENT, 11L));
-    }
-
-    @Test
-    void idempotentCreateDoesNotRunImageContentFactory() {
-        ProjectDocument existing = document(41L, 3L, null, 4L, 0);
-        existing.setExternalSource("mcp");
-        existing.setExternalSourceId("request-1");
-        when(documentMapper.selectOne(any())).thenReturn(existing);
-        AtomicBoolean invoked = new AtomicBoolean();
-
-        service.createWithContentFactory(3L,
-                new CreateProjectDocumentRequest(null, "同一文档", null, "mcp", "request-1", "BLOCKNOTE"), 7L,
-                id -> {
-                    invoked.set(true);
-                    return "[]";
-                });
-
-        org.junit.jupiter.api.Assertions.assertFalse(invoked.get());
-        verify(documentMapper, never()).insert(any());
-    }
-
-    @Test
-    void createRejectsPartialExternalBinding() {
-        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
-                service.create(3L, new CreateProjectDocumentRequest(
-                        null, "迁移文档", "[]", null, "EUEFsRqmJ4", "BLOCKNOTE"), 7L));
-
-        assertEquals("externalSource 与 externalSourceId 必须同时提供", error.getMessage());
-        verify(documentMapper, never()).insert(any());
-    }
-
-    @Test
-    void updateRejectsNonArrayContentBeforeWriting() {
-        ProjectDocument current = document(11L, 3L, null, 2L, 0);
-        when(documentMapper.selectById(11L)).thenReturn(current);
-        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
-
-        assertThrows(IllegalArgumentException.class, () -> service.update(
-                11L, new UpdateProjectDocumentRequest(2L, "标题", "{}", "BLOCKNOTE"), 7L));
-
-        verify(documentMapper, never()).updateContentIfVersionMatches(any(), any(), any(), any(), any());
-    }
-
-    @Test
-    void createRejectsLegacyImageUrlBlock() {
-        String legacyContent = "[{\"type\":\"image\",\"props\":{\"url\":\"https://example.com/image.png\"}}]";
-
-        assertThrows(IllegalArgumentException.class, () -> service.create(
-                3L, new CreateProjectDocumentRequest(null, "标题", legacyContent, null, null, "BLOCKNOTE"), 7L));
-
-        verify(documentMapper, never()).insert(any(ProjectDocument.class));
-    }
-
-    @Test
-    void updateRejectsLegacyImageUrlBlock() {
-        ProjectDocument current = document(11L, 3L, null, 2L, 0);
-        when(documentMapper.selectById(11L)).thenReturn(current);
-        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
-        String legacyContent = "[{\"type\":\"image\",\"props\":{\"url\":\"https://example.com/image.png\"}}]";
-
-        assertThrows(IllegalArgumentException.class, () -> service.update(
-                11L, new UpdateProjectDocumentRequest(2L, "标题", legacyContent, "BLOCKNOTE"), 7L));
-
-        verify(documentMapper, never()).updateContentIfVersionMatches(any(), any(), any(), any(), any());
-    }
-
-    @Test
-    void documentImageRejectsAssetIdsOutsideLongRange() {
-        String invalidContent = "[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":9223372036854775808}}]";
-
-        assertThrows(IllegalArgumentException.class, () -> service.create(
-                3L, new CreateProjectDocumentRequest(null, "标题", invalidContent, null, null, "BLOCKNOTE"), 7L));
-
-        verify(documentMapper, never()).insert(any(ProjectDocument.class));
-    }
-
-    @Test
-    void updateReturnsCurrentVersionOnOptimisticLockConflict() {
-        ProjectDocument initial = document(11L, 3L, null, 2L, 0);
-        ProjectDocument concurrent = document(11L, 3L, null, 3L, 0);
-        when(documentMapper.selectById(11L)).thenReturn(initial, concurrent);
-        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(initial);
-
-        DocumentVersionConflictException error = assertThrows(DocumentVersionConflictException.class, () ->
-                service.update(11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]", "BLOCKNOTE"), 7L));
-
-        assertEquals(3L, error.getCurrentVersion());
-        verify(revisionMapper, never()).insert(any());
-    }
-
-    @Test
-    void updateVersionConflictDoesNotRunImageContentFactory() {
-        ProjectDocument current = document(11L, 3L, null, 3L, 0);
-        when(documentMapper.selectById(11L)).thenReturn(current);
-        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
-        AtomicBoolean invoked = new AtomicBoolean();
-
-        assertThrows(DocumentVersionConflictException.class, () -> service.updateWithContentFactory(
-                11L, new UpdateProjectDocumentRequest(2L, "新标题", null, "BLOCKNOTE"), 7L, id -> {
-                    invoked.set(true);
-                    return "[]";
-                }));
-
-        org.junit.jupiter.api.Assertions.assertFalse(invoked.get());
-        verify(revisionMapper, never()).insert(any());
-    }
-
-    @Test
-    void restoreRevisionRejectsLegacyImageUrlBlock() {
-        ProjectDocument current = document(11L, 3L, null, 2L, 0);
-        when(documentMapper.selectById(11L)).thenReturn(current);
-        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
-        ProjectDocumentRevision revision = revision(41L, 11L,
-                "[{\"type\":\"image\",\"props\":{\"url\":\"/api/project-documents/11/attachments/31/download\"}}]");
-        when(revisionMapper.selectOne(any())).thenReturn(revision);
-
-        assertThrows(IllegalArgumentException.class, () -> service.restoreRevision(11L, 41L, 2L, 7L));
-
-        verify(revisionSnapshotService, never()).captureBeforeRestore(any());
-        verify(documentMapper, never()).updateContentIfVersionMatches(any(), any(), any(), any(), any());
-    }
-
-    @Test
-    void restoreRevisionAcceptsDocumentImageAssetId() {
-        String content = "[{\"type\":\"documentImage\",\"props\":{\"imageAssetId\":31}}]";
-        ProjectDocument current = document(11L, 3L, null, 2L, 0);
-        ProjectDocument saved = document(11L, 3L, null, 3L, 0);
-        saved.setTitle("历史标题");
-        saved.setContent(content);
-        saved.setContentFormat("BLOCKNOTE");
-        ProjectDocumentRevision revision = revision(41L, 11L, content);
-        revision.setTitle("历史标题");
-        when(documentMapper.selectById(11L)).thenReturn(current, saved);
-        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
-        when(revisionMapper.selectOne(any())).thenReturn(revision);
-        when(documentMapper.updateContentIfVersionMatches(11L, 2L, "历史标题", content, 7L)).thenReturn(1);
-
-        ProjectDocumentResponse response = service.restoreRevision(11L, 41L, 2L, 7L);
-
-        assertEquals(content, response.content());
-        verify(revisionSnapshotService).captureBeforeRestore(current);
-        verify(revisionSnapshotService).captureForced(saved, 7L);
-    }
-
-    @Test
-    void updateAutosaveChangesCurrentDocumentAndCreatesVersionSnapshot() {
-        ProjectDocument initial = document(11L, 3L, null, 2L, 0);
-        ProjectDocument saved = document(11L, 3L, null, 3L, 0);
-        saved.setTitle("新标题");
-        when(documentMapper.selectById(11L)).thenReturn(initial, saved);
-        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(initial);
-        when(documentMapper.updateContentIfVersionMatches(11L, 2L, "新标题", "[]", 7L)).thenReturn(1);
-
-        ProjectDocumentResponse response = service.update(
-                11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]", "BLOCKNOTE"), 7L);
-
-        assertEquals(3L, response.version());
-        verify(revisionSnapshotService).captureForced(saved, 7L);
-        verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
-                ProjectContentType.DOCUMENT, 11L));
-    }
-
-    @Test
-    void updateCheckpointDelegatesSnapshotDecisionToRevisionService() {
-        ProjectDocument initial = document(11L, 3L, null, 2L, 0);
-        ProjectDocument saved = document(11L, 3L, null, 3L, 0);
-        saved.setTitle("新标题");
-        when(documentMapper.selectById(11L)).thenReturn(initial, saved);
-        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(initial);
-        when(documentMapper.updateContentIfVersionMatches(11L, 2L, "新标题", "[]", 7L)).thenReturn(1);
-
-        service.update(11L, new UpdateProjectDocumentRequest(2L, "新标题", "[]", "BLOCKNOTE"), 7L);
-
-        verify(revisionSnapshotService).captureBeforeUpdate(any(ProjectDocument.class), org.mockito.ArgumentMatchers.eq(7L));
-        verify(revisionSnapshotService).captureForced(any(ProjectDocument.class), org.mockito.ArgumentMatchers.eq(7L));
-    }
-
-    @Test
-    void updateSkipsUnchangedContentAndVersion() {
-        ProjectDocument current = document(11L, 3L, null, 2L, 0);
-        when(documentMapper.selectById(11L)).thenReturn(current);
-        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
-
-        ProjectDocumentResponse response = service.update(
-                11L, new UpdateProjectDocumentRequest(2L, "标题", "[]", "BLOCKNOTE"), 7L);
-
-        assertEquals(2L, response.version());
-        verify(documentMapper, never()).updateContentIfVersionMatches(any(), any(), any(), any(), any());
-        verify(revisionMapper, never()).insert(any());
-        verify(eventPublisher, never()).publishEvent(any());
-    }
-
-    @Test
-    void unchangedContentDoesNotInvokeSnapshotService() {
-        ProjectDocument current = document(11L, 3L, null, 2L, 0);
-        when(documentMapper.selectById(11L)).thenReturn(current);
-        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
-        service.update(11L, new UpdateProjectDocumentRequest(2L, "标题", "[]", "BLOCKNOTE"), 7L);
-
-        verify(revisionSnapshotService, never()).captureBeforeUpdate(any(), any());
-        verify(revisionSnapshotService, never()).captureForced(any(), any());
-        verify(documentMapper, never()).updateContentIfVersionMatches(any(), any(), any(), any(), any());
-    }
-
-    @Test
-    void moveAcrossParentsPersistsParentEvenWhenSortOrderDoesNotChange() {
-        ProjectDocument moving = document(11L, 3L, 10L, 2L, 1);
-        ProjectDocument targetParent = document(20L, 3L, null, 1L, 0);
-        ProjectDocument previousSibling = document(30L, 3L, 20L, 1L, 0);
-        when(documentMapper.selectById(11L)).thenReturn(moving, moving);
-        when(documentMapper.selectById(20L)).thenReturn(targetParent);
-        when(documentMapper.selectById(30L)).thenReturn(previousSibling);
-        when(documentMapper.selectSubtreeIds(3L, 11L)).thenReturn(List.of(11L));
-        when(documentMapper.selectList(any())).thenReturn(List.of(previousSibling), List.of());
-
-        service.move(11L, new MoveProjectDocumentRequest(20L, 30L), 7L);
-
-        assertEquals(20L, moving.getParentDocumentId());
-        assertEquals(1, moving.getSortOrder());
-        verify(documentMapper).updatePosition(11L, 20L, 1);
-        var order = inOrder(documentMapper);
-        order.verify(documentMapper).lockProjectDocumentMutations(3L);
-        order.verify(documentMapper).updatePosition(30L, 20L, 0);
-        order.verify(documentMapper).updatePosition(11L, 20L, 1);
-    }
-
-    @Test
-    void moveToRootExplicitlyPersistsNullParent() {
-        ProjectDocument moving = document(34L, 7L, 9L, 1L, 4);
-        ProjectDocument management = document(9L, 7L, null, 1L, 3);
-        when(documentMapper.selectById(34L)).thenReturn(moving, moving);
-        when(documentMapper.selectById(9L)).thenReturn(management);
-        when(documentMapper.selectList(any())).thenReturn(List.of(management), List.of());
-
-        service.move(34L, new MoveProjectDocumentRequest(null, 9L), 7L);
-
-        assertNull(moving.getParentDocumentId());
-        assertEquals(1, moving.getSortOrder());
-        verify(documentMapper).updatePosition(9L, null, 0);
-        verify(documentMapper).updatePosition(34L, null, 1);
-    }
-
-    @Test
-    void archivePublishesDeleteForEntireSubtree() {
-        ProjectDocument root = document(11L, 3L, null, 2L, 0);
-        when(documentMapper.selectById(11L)).thenReturn(root, root);
-        when(documentMapper.selectSubtreeIds(3L, 11L)).thenReturn(List.of(11L, 12L));
-        when(documentMapper.selectList(any())).thenReturn(List.of());
+        var transitionState = new DocumentCollaborationDtos.TransitionState("transition-1", "FINALIZED", List.of(
+                new DocumentCollaborationDtos.TransitionDocumentState(11L, "next-11", 1L, 2L, true),
+                new DocumentCollaborationDtos.TransitionDocumentState(12L, "next-12", 1L, 2L, true)));
+        when(collaborationService.finalizeArchiveTransition(eq("transition-1"), any())).thenReturn(transitionState);
 
         service.archive(11L, 7L);
 
-        verify(eventPublisher).publishEvent(new ProjectContentSemanticDeleteRequestedEvent(
-                ProjectContentType.DOCUMENT, List.of(11L, 12L)));
+        InOrder order = inOrder(collaborationService, nodeClient);
+        order.verify(collaborationService).prepareArchiveTransition(4L, 11L, List.of(11L, 12L), "archive");
+        order.verify(nodeClient, org.mockito.Mockito.times(2)).closeRoom(any(Long.class),
+                any(CollaborationNodeClient.CloseRoomRequest.class));
+        order.verify(collaborationService).finalizeArchiveTransition(eq("transition-1"), any());
+        verify(nodeClient).releaseTransition(any(CollaborationNodeClient.TransitionReleaseRequest.class));
     }
 
     @Test
-    void restorePublishesUpsertForEntireSubtree() {
-        ProjectDocument root = document(11L, 3L, null, 2L, 0);
-        root.setArchivedAt(java.time.LocalDateTime.now());
-        when(documentMapper.selectById(11L)).thenReturn(root, root);
-        when(documentMapper.selectSubtreeIds(3L, 11L)).thenReturn(List.of(11L, 12L));
-        when(documentMapper.selectList(any())).thenReturn(List.of(root));
+    void restoreAdvancesEpochBeforeReopeningArchivedSubtree() {
+        ProjectDocument archivedRoot = document(11L, 4L, 1L);
+        archivedRoot.setArchivedAt(java.time.LocalDateTime.now());
+        when(documentMapper.selectById(11L)).thenReturn(archivedRoot);
+        when(documentMapper.selectSubtreeIds(4L, 11L)).thenReturn(List.of(11L, 12L));
+        when(collaborationService.prepareArchiveTransition(4L, 11L, List.of(11L, 12L), "unarchive"))
+                .thenReturn(new DocumentCollaborationDtos.ArchiveTransitionPrepared("transition-2", 1_900_000_000_000L,
+                        List.of(new DocumentCollaborationDtos.ArchiveTransitionDocument(11L, "epoch-11", "next-11", 3L, 1L),
+                                new DocumentCollaborationDtos.ArchiveTransitionDocument(12L, "epoch-12", "next-12", 5L, 1L))));
+        when(nodeClient.closeRoom(any(Long.class), any(CollaborationNodeClient.CloseRoomRequest.class)))
+                .thenAnswer(invocation -> {
+                    Long id = invocation.getArgument(0);
+                    return new CollaborationNodeClient.CloseRoomResponse(
+                            id == 11L ? "epoch-11" : "epoch-12", id == 11L ? 3L : 5L, 1L, "transition-2");
+                });
+        when(collaborationService.finalizeArchiveTransition(eq("transition-2"), any()))
+                .thenReturn(new DocumentCollaborationDtos.TransitionState("transition-2", "FINALIZED", List.of(
+                        new DocumentCollaborationDtos.TransitionDocumentState(11L, "next-11", 1L, 2L, false),
+                        new DocumentCollaborationDtos.TransitionDocumentState(12L, "next-12", 1L, 2L, false))));
 
         service.restore(11L, 7L);
 
-        verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
-                ProjectContentType.DOCUMENT, 11L));
-        verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
-                ProjectContentType.DOCUMENT, 12L));
+        verify(collaborationService).prepareArchiveTransition(4L, 11L, List.of(11L, 12L), "unarchive");
+        verify(collaborationService).finalizeArchiveTransition(eq("transition-2"), any());
+        verify(nodeClient).releaseTransition(any(CollaborationNodeClient.TransitionReleaseRequest.class));
     }
 
-    @Test
-    void addFavoritePersistsTheCurrentUserDocumentRelation() {
-        ProjectDocument document = document(11L, 3L, null, 2L, 0);
-        when(documentMapper.selectById(11L)).thenReturn(document);
-        when(favoriteMapper.selectCount(any())).thenReturn(0L);
-
-        ProjectDocumentResponse response = service.addFavorite(11L, 7L);
-
-        ArgumentCaptor<ProjectDocumentFavorite> favoriteCaptor = ArgumentCaptor.forClass(ProjectDocumentFavorite.class);
-        verify(favoriteMapper).insert(favoriteCaptor.capture());
-        assertEquals(7L, favoriteCaptor.getValue().getUserId());
-        assertEquals(11L, favoriteCaptor.getValue().getDocumentId());
-        assertEquals(true, response.favorited());
-    }
-
-    private ProjectDocument document(Long id, Long projectId, Long parentId, Long version, Integer sortOrder) {
+    private ProjectDocument document(Long id, Long projectId, Long version) {
         ProjectDocument document = new ProjectDocument();
         document.setId(id);
         document.setProjectId(projectId);
-        document.setParentDocumentId(parentId);
         document.setTitle("标题");
-        document.setContent("[]");
         document.setContentFormat("BLOCKNOTE");
         document.setVersion(version);
-        document.setSortOrder(sortOrder);
+        document.setCreatorId(7L);
+        document.setLastEditorId(7L);
         return document;
     }
 
-    private ProjectDocumentRevision revision(Long id, Long documentId, String content) {
-        ProjectDocumentRevision revision = new ProjectDocumentRevision();
-        revision.setId(id);
-        revision.setDocumentId(documentId);
-        revision.setTitle("标题");
-        revision.setContent(content);
-        revision.setContentFormat("BLOCKNOTE");
-        return revision;
+    private ProjectDocumentCollabState state(Long id, String epoch, Long commitSeq) {
+        ProjectDocumentCollabState state = new ProjectDocumentCollabState();
+        state.setDocumentId(id);
+        state.setEpoch(epoch);
+        state.setCommitSeq(commitSeq);
+        return state;
     }
-    @Test
-    void htmlCreatePreservesSourceAndDeclaredFormat() {
-        String html = "\n<!doctype html><html><body><script>window.x=1</script></body></html>\n";
-        AtomicReference<ProjectDocument> row = new AtomicReference<>();
-        when(documentMapper.selectList(any())).thenReturn(List.of());
-        doAnswer(invocation -> {
-            ProjectDocument document = invocation.getArgument(0);
-            document.setId(81L);
-            row.set(document);
-            return 1;
-        }).when(documentMapper).insert(any(ProjectDocument.class));
-        when(documentMapper.selectById(81L)).thenAnswer(invocation -> row.get());
-        var result = service.create(3L, new CreateProjectDocumentRequest(null, "交互文档", html, null, null, "HTML"), 7L);
-        assertEquals(html, result.content());
-        assertEquals("HTML", result.contentFormat());
-        verify(attachmentService, never()).listImageAssets(any());
-    }
-
-    @Test
-    void updateRejectsFormatChangeBeforePublishingSnapshot() {
-        ProjectDocument document = document(11L, 3L, null, 1L, 0);
-        when(documentMapper.selectById(11L)).thenReturn(document);
-        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(document);
-        assertThrows(IllegalArgumentException.class, () -> service.update(11L,
-                new UpdateProjectDocumentRequest(1L, "HTML", "<html></html>", "HTML"), 7L));
-        verify(revisionSnapshotService, never()).captureBeforeUpdate(any(), any());
-    }
-
-    @Test
-    void createRejectsMissingExplicitFormat() {
-        assertThrows(IllegalArgumentException.class, () -> service.create(3L,
-                new CreateProjectDocumentRequest(null, "HTML", "<html></html>", null, null, null), 7L));
-        verify(documentMapper, never()).insert(any(ProjectDocument.class));
-    }
-
 }

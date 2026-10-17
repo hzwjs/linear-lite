@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BlockNoteEditorWrapper from './BlockNoteEditorWrapper.vue'
+import type { BlockNoteCollaboration } from './BlockNoteEditorReact'
 import { documentApi } from '../services/api/documents'
 import { toApiError } from '../services/api'
 import type { DocumentImageAsset, ProjectDocumentAttachment } from '../types/document'
@@ -25,6 +26,7 @@ const props = withDefaults(
     mentionDocuments?: Array<{ id: number; title: string; projectId: number }>
     /** 文档图片资源清单：正文图片身份的唯一解析来源。 */
     imageAssets?: DocumentImageAsset[]
+    collaboration?: BlockNoteCollaboration
     /** 附件上传失败的占位文本模板，`{name}` 替换为文件名。 */
     fileUploadFailedText?: string
   }>(),
@@ -41,6 +43,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
   blur: []
   focus: []
+  ready: []
 }>()
 
 const editorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
@@ -126,7 +129,11 @@ function removeAttachmentLink(href: string): boolean {
   return editorRef.value?.removeAttachmentLink(href) ?? false
 }
 
-defineExpose({ focus, removeAttachmentLink })
+function getSerializedContent(): string {
+  return editorRef.value?.getSerializedContent() ?? '[]'
+}
+
+defineExpose({ focus, removeAttachmentLink, getSerializedContent })
 </script>
 
 <template>
@@ -143,6 +150,7 @@ defineExpose({ focus, removeAttachmentLink })
     :image-upload-type-unsupported-text="$t('documents.imageFileTypeUnsupported')"
     :document-id="documentId"
     :image-assets="mergedImageAssets"
+    :collaboration="collaboration"
     :paste-file-as-link="pasteFileAsLink"
     :file-upload-failed-text="fileUploadFailedText"
     :readonly="readonly"
@@ -158,6 +166,7 @@ defineExpose({ focus, removeAttachmentLink })
     @update:model-value="emit('update:modelValue', $event)"
     @blur="emit('blur')"
     @focus="emit('focus')"
+    @ready="emit('ready')"
   />
 </template>
 

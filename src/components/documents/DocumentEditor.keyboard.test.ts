@@ -3,6 +3,19 @@ import { createI18n } from 'vue-i18n'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import DocumentEditor from './DocumentEditor.vue'
 
+vi.mock('../../composables/useDocumentCollaboration', async () => {
+  const vue = await vi.importActual<typeof import('vue')>('vue')
+  const Y = await vi.importActual<typeof import('yjs')>('yjs')
+  return { useDocumentCollaboration: () => ({
+    ydoc: vue.shallowRef(new Y.Doc()), previewDoc: vue.shallowRef(null),
+    session: vue.shallowRef({ user: { name: 'Ada', color: '#123456' }, sessionId: 'session-1', epoch: 'epoch-1' }),
+    provider: vue.shallowRef({ awareness: undefined }), hasSynced: vue.ref(true), authFailed: vue.ref(false),
+    saveState: vue.ref('saved'), connectionState: vue.ref('connected'), collaborators: vue.ref([]),
+    serverVersion: vue.ref(1), commitSeq: vue.ref(0), epochChanged: vue.ref(false),
+    start: vi.fn(), restartForEpoch: vi.fn(), retirePreview: vi.fn(),
+  }) }
+})
+
 const focus = vi.fn()
 
 beforeEach(() => { vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }) })

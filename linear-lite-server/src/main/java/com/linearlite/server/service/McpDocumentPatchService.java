@@ -13,9 +13,7 @@ import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.McpDocumentPatchOperationMapper;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
 import java.util.Objects;
@@ -25,36 +23,34 @@ import java.util.function.BiFunction;
 public class McpDocumentPatchService {
     private final ProjectDocumentMapper documentMapper;
     private final McpDocumentPatchOperationMapper operationMapper;
-    private final ProjectDocumentRevisionMapper revisionMapper;
     private final ProjectAccessGuard accessGuard;
-    private final DocumentRevisionSnapshotService snapshotService;
+    private final DocumentCollaborationService collaborationService;
+    private final CollaborationNodeClient nodeClient;
+    private final ProjectDocumentRevisionMapper revisionMapper;
     private final ObjectMapper objectMapper;
-    private final ApplicationEventPublisher eventPublisher;
 
     public McpDocumentPatchService(
             ProjectDocumentMapper documentMapper,
             McpDocumentPatchOperationMapper operationMapper,
-            ProjectDocumentRevisionMapper revisionMapper,
             ProjectAccessGuard accessGuard,
-            DocumentRevisionSnapshotService snapshotService,
+            DocumentCollaborationService collaborationService,
+            CollaborationNodeClient nodeClient,
             ObjectMapper objectMapper,
-            ApplicationEventPublisher eventPublisher) {
+            ProjectDocumentRevisionMapper revisionMapper) {
         this.documentMapper = documentMapper;
         this.operationMapper = operationMapper;
-        this.revisionMapper = revisionMapper;
         this.accessGuard = accessGuard;
-        this.snapshotService = snapshotService;
+        this.collaborationService = collaborationService;
+        this.nodeClient = nodeClient;
         this.objectMapper = objectMapper;
-        this.eventPublisher = eventPublisher;
+        this.revisionMapper = revisionMapper;
     }
 
-    @Transactional(rollbackFor = Exception.class)
     public JsonNode patch(
             Long documentId, Long expectedVersion, String operationId, String requestSha256,
             String title, Long callerId, BiFunction<String, Long, String> contentFactory) {
-        ProjectDocument observed = accessible(documentId, callerId);
-        documentMapper.lockProjectDocumentMutations(observed.getProjectId());
-        ProjectDocument current = documentMapper.selectByIdForUpdate(documentId);
+        accessible(documentId, callerId);
+        ProjectDocument current = documentMapper.selectById(documentId);
         if (current == null || current.getArchivedAt() != null) {
             throw new ResourceNotFoundException("项目文档不存在: " + documentId);
         }
@@ -74,24 +70,29 @@ public class McpDocumentPatchService {
             throw new DocumentVersionConflictException(current.getVersion());
         }
 
+        CollaborationNodeClient.SnapshotResponse snapshot = collaborationService.getSnapshot(documentId, true);
+        if (!Objects.equals(snapshot.version(), expectedVersion)) {
+            throw new DocumentVersionConflictException(snapshot.version());
+        }
         String nextTitle = title == null ? current.getTitle() : title;
-        String nextContent = requireBlockNoteJson(contentFactory.apply(current.getContent(), documentId));
+        String nextContent = requireBlockNoteJson(contentFactory.apply(snapshot.content(), documentId));
+        collaborationService.validateReplacement(documentId, "BLOCKNOTE", nextContent, callerId);
         boolean changed = !Objects.equals(current.getTitle(), nextTitle)
-                || !sameJson(current.getContent(), nextContent);
+                || !sameJson(snapshot.content(), nextContent);
         Long revisionId = null;
-        ProjectDocument saved = current;
+        Long resultingVersion = current.getVersion();
         if (changed) {
-            snapshotService.captureBeforeUpdate(current, callerId);
-            int updated = documentMapper.updateContentIfVersionMatches(
-                    documentId, expectedVersion, nextTitle, nextContent, callerId);
-            if (updated != 1) {
-                ProjectDocument latest = documentMapper.selectById(documentId);
-                throw new DocumentVersionConflictException(latest == null ? current.getVersion() : latest.getVersion());
+            CollaborationNodeClient.CommandResponse result = nodeClient.command(documentId,
+                    new CollaborationNodeClient.CommandRequest(operationId, callerId, snapshot.epoch(),
+                            expectedVersion, "replace", "BLOCKNOTE", nextContent, nextTitle));
+            if (result == null || result.version() == null) {
+                throw new IllegalStateException("协作服务未返回 patch_document 提交版本");
             }
-            saved = documentMapper.selectById(documentId);
-            revisionId = snapshotService.captureForced(saved, callerId);
-            eventPublisher.publishEvent(new ProjectContentSemanticIndexRequestedEvent(
-                    ProjectContentType.DOCUMENT, documentId));
+            resultingVersion = result.version();
+            ProjectDocumentRevision revision = revisionMapper.selectOne(new LambdaQueryWrapper<ProjectDocumentRevision>()
+                    .eq(ProjectDocumentRevision::getDocumentId, documentId)
+                    .eq(ProjectDocumentRevision::getVersion, resultingVersion));
+            revisionId = revision == null ? null : revision.getId();
         } else {
             ProjectDocumentRevision revision = revisionMapper.selectOne(new LambdaQueryWrapper<ProjectDocumentRevision>()
                     .eq(ProjectDocumentRevision::getDocumentId, documentId)
@@ -101,7 +102,7 @@ public class McpDocumentPatchService {
 
         Map<String, Object> response = Map.of(
                 "documentId", documentId,
-                "version", saved.getVersion(),
+                "version", resultingVersion,
                 "changed", changed,
                 "revisionId", revisionId == null ? objectMapper.nullNode() : revisionId);
         JsonNode responseJson = objectMapper.valueToTree(response);

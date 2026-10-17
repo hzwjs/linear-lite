@@ -1,6 +1,7 @@
 package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.linearlite.server.dto.DocumentCollaborationDtos;
 import com.linearlite.server.entity.ProjectDocument;
 import com.linearlite.server.mapper.CommentMentionMapper;
 import com.linearlite.server.mapper.InAppNotificationMapper;
@@ -26,10 +27,14 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -57,6 +62,9 @@ class ProjectLifecycleServiceTest {
     @Mock private ProjectGitLabRepositoryMapper gitLabRepositoryMapper;
     @Mock private ProjectTaskSeqMapper taskSeqMapper;
     @Mock private ApplicationEventPublisher eventPublisher;
+    @Mock private DocumentCollaborationService collaborationService;
+    @Mock private CollaborationNodeClient nodeClient;
+    @Mock private PlatformTransactionManager transactionManager;
 
     private ProjectLifecycleService service;
 
@@ -68,7 +76,7 @@ class ProjectLifecycleServiceTest {
                 mentionMapper, notificationMapper, activityMapper, favoriteMapper, attachmentMapper,
                 labelService, labelMapper, invitationMapper, memberMapper, emailPreferenceMapper,
                 gitLabRepositoryMapper,
-                taskSeqMapper, eventPublisher);
+                null, null, taskSeqMapper, eventPublisher, collaborationService, nodeClient, transactionManager);
     }
 
     @Test
@@ -77,17 +85,64 @@ class ProjectLifecycleServiceTest {
         document.setId(21L);
         document.setProjectId(3L);
         when(documentMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(document));
+        when(documentMapper.selectProjectDocumentIds(3L)).thenReturn(List.of(21L));
         when(taskMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        when(collaborationService.prepareArchiveTransition(3L, 21L, List.of(21L), "delete"))
+                .thenReturn(new DocumentCollaborationDtos.ArchiveTransitionPrepared("transition-delete", 1_900_000_000_000L,
+                        List.of(new DocumentCollaborationDtos.ArchiveTransitionDocument(
+                                21L, "epoch-21", "next-21", 4L, 2L))));
+        when(nodeClient.closeRoom(21L, new CollaborationNodeClient.CloseRoomRequest(
+                "epoch-21", "next-21", "delete", "transition-delete", 1_900_000_000_000L)))
+                .thenReturn(new CollaborationNodeClient.CloseRoomResponse("epoch-21", 4L, 2L,
+                        "transition-delete"));
+        when(collaborationService.finalizeProjectDeleteTransition(eq("transition-delete"), any(), any()))
+                .thenAnswer(invocation -> {
+                    Runnable delete = invocation.getArgument(2);
+                    delete.run();
+                    return new DocumentCollaborationDtos.TransitionState("transition-delete", "FINALIZED",
+                            List.of(new DocumentCollaborationDtos.TransitionDocumentState(
+                                    21L, "next-21", 4L, 2L, true)));
+                });
 
         service.deleteProject(3L, 7L);
 
-        verify(accessGuard).requireOwner(3L, 7L);
+        verify(accessGuard, org.mockito.Mockito.times(2)).requireOwner(3L, 7L);
+        verify(collaborationService).prepareArchiveTransition(3L, 21L, List.of(21L), "delete");
+        verify(nodeClient).closeRoom(21L, new CollaborationNodeClient.CloseRoomRequest(
+                "epoch-21", "next-21", "delete", "transition-delete", 1_900_000_000_000L));
         InOrder deletionOrder = inOrder(revisionMapper, documentMapper, projectMapper);
         deletionOrder.verify(revisionMapper).delete(any(LambdaQueryWrapper.class));
         deletionOrder.verify(documentMapper).deleteBatchIds(List.of(21L));
         verify(gitLabRepositoryMapper).delete(any(LambdaQueryWrapper.class));
         deletionOrder.verify(projectMapper).deleteById(3L);
+        verify(nodeClient).releaseTransition(any(CollaborationNodeClient.TransitionReleaseRequest.class));
         verify(eventPublisher).publishEvent(new ProjectContentSemanticDeleteRequestedEvent(
                 ProjectContentType.DOCUMENT, List.of(21L)));
+    }
+
+    @Test
+    void failedRoomDrainAbortsDeleteAndLeavesProjectRows() {
+        ProjectDocument document = new ProjectDocument();
+        document.setId(21L);
+        document.setProjectId(3L);
+        when(documentMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(document));
+        when(collaborationService.prepareArchiveTransition(3L, 21L, List.of(21L), "delete"))
+                .thenReturn(new DocumentCollaborationDtos.ArchiveTransitionPrepared("transition-fail", 1_900_000_000_000L,
+                        List.of(new DocumentCollaborationDtos.ArchiveTransitionDocument(
+                                21L, "epoch-21", "next-21", 4L, 2L))));
+        doThrow(new IllegalStateException("Node unavailable")).when(nodeClient).closeRoom(21L,
+                new CollaborationNodeClient.CloseRoomRequest(
+                        "epoch-21", "next-21", "delete", "transition-fail", 1_900_000_000_000L));
+        when(collaborationService.abortArchiveTransition("transition-fail"))
+                .thenReturn(new DocumentCollaborationDtos.TransitionState("transition-fail", "ABORTED",
+                        List.of(new DocumentCollaborationDtos.TransitionDocumentState(
+                                21L, "epoch-21", 4L, 2L, false))));
+
+        assertThrows(IllegalStateException.class, () -> service.deleteProject(3L, 7L));
+
+        verify(collaborationService).abortArchiveTransition("transition-fail");
+        verify(nodeClient).releaseTransition(any(CollaborationNodeClient.TransitionReleaseRequest.class));
+        verify(documentMapper, org.mockito.Mockito.never()).deleteBatchIds(any());
+        verify(projectMapper, org.mockito.Mockito.never()).deleteById(3L);
     }
 }

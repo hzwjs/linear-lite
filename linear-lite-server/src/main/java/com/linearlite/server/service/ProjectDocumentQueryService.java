@@ -28,6 +28,7 @@ public class ProjectDocumentQueryService {
     private final UserMapper userMapper;
     private final ProjectAccessGuard projectAccessGuard;
     private final ProjectDocumentAttachmentService attachmentService;
+    private final DocumentCollaborationService collaborationService;
 
     public ProjectDocumentQueryService(
             ProjectDocumentMapper documentMapper,
@@ -35,13 +36,15 @@ public class ProjectDocumentQueryService {
             ProjectDocumentRevisionMapper revisionMapper,
             UserMapper userMapper,
             ProjectAccessGuard projectAccessGuard,
-            ProjectDocumentAttachmentService attachmentService) {
+            ProjectDocumentAttachmentService attachmentService,
+            DocumentCollaborationService collaborationService) {
         this.documentMapper = documentMapper;
         this.favoriteMapper = favoriteMapper;
         this.revisionMapper = revisionMapper;
         this.userMapper = userMapper;
         this.projectAccessGuard = projectAccessGuard;
         this.attachmentService = attachmentService;
+        this.collaborationService = collaborationService;
     }
 
     public String renderHtml(Long projectId, String content, Long userId) {
@@ -130,10 +133,14 @@ public class ProjectDocumentQueryService {
     }
 
     ProjectDocumentResponse toResponse(ProjectDocument document, boolean favorited) {
+        CollaborationNodeClient.SnapshotResponse snapshot = collaborationService.getSnapshot(document.getId(), true);
+        if (!document.getContentFormat().equals(snapshot.contentFormat())) {
+            throw new IllegalStateException("协作正文类型与文档元数据不一致");
+        }
         return new ProjectDocumentResponse(
                 document.getId(), document.getProjectId(), document.getParentDocumentId(),
                 document.getExternalSource(), document.getExternalSourceId(), document.getTitle(),
-                document.getContent(), "HTML".equals(document.getContentFormat()) ? List.of() : attachmentService.listImageAssets(document.getId()),
+                snapshot.content(), "HTML".equals(document.getContentFormat()) ? List.of() : attachmentService.listImageAssets(document.getId()),
                 document.getSortOrder(), document.getVersion(), document.getCreatorId(),
                 document.getLastEditorId(), favorited, document.getArchivedAt(), document.getCreatedAt(), document.getUpdatedAt(), document.getContentFormat());
     }

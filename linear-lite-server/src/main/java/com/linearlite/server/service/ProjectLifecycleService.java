@@ -1,6 +1,7 @@
 package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.linearlite.server.dto.DocumentCollaborationDtos;
 import com.linearlite.server.entity.CommentMention;
 import com.linearlite.server.entity.InAppNotification;
 import com.linearlite.server.entity.Label;
@@ -40,7 +41,8 @@ import com.linearlite.server.mapper.TaskMapper;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 
@@ -69,6 +71,9 @@ public class ProjectLifecycleService {
     private final ProjectGitHubRepositoryMapper gitHubRepositoryMapper;
     private final ProjectTaskSeqMapper taskSeqMapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final DocumentCollaborationService collaborationService;
+    private final DocumentCollaborationTransitionCoordinator transitionCoordinator;
+    private final TransactionTemplate transactionTemplate;
 
     @Autowired
     public ProjectLifecycleService(
@@ -85,7 +90,10 @@ public class ProjectLifecycleService {
             ProjectGitHubRepositoryMapper gitHubRepositoryMapper,
             McpDocumentPatchOperationMapper patchOperationMapper,
             ProjectTaskSeqMapper taskSeqMapper,
-            ApplicationEventPublisher eventPublisher) {
+            ApplicationEventPublisher eventPublisher,
+            DocumentCollaborationService collaborationService,
+            CollaborationNodeClient nodeClient,
+            PlatformTransactionManager transactionManager) {
         this.accessGuard = accessGuard;
         this.projectMapper = projectMapper;
         this.documentMapper = documentMapper;
@@ -109,34 +117,38 @@ public class ProjectLifecycleService {
         this.gitHubRepositoryMapper = gitHubRepositoryMapper;
         this.taskSeqMapper = taskSeqMapper;
         this.eventPublisher = eventPublisher;
+        this.collaborationService = collaborationService;
+        this.transitionCoordinator = new DocumentCollaborationTransitionCoordinator(collaborationService, nodeClient);
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
-    /** 保留现有单元测试及扩展调用方的构造签名；生产 Bean 使用包含 GitHub mapper 的构造器。 */
-    public ProjectLifecycleService(
-            ProjectAccessGuard accessGuard, ProjectMapper projectMapper,
-            ProjectDocumentMapper documentMapper, ProjectDocumentRevisionMapper revisionMapper,
-            ProjectDocumentFavoriteMapper documentFavoriteMapper,
-            ProjectDocumentAttachmentService documentAttachmentService,
-            TaskMapper taskMapper, TaskCommentMapper taskCommentMapper, CommentMentionMapper mentionMapper,
-            InAppNotificationMapper notificationMapper, TaskActivityMapper activityMapper,
-            TaskFavoriteMapper favoriteMapper, TaskAttachmentMapper attachmentMapper,
-            LabelService labelService, LabelMapper labelMapper,
-            ProjectInvitationMapper invitationMapper, ProjectMemberMapper memberMapper,
-            ProjectEmailPreferenceMapper emailPreferenceMapper, ProjectGitLabRepositoryMapper gitLabRepositoryMapper,
-            ProjectTaskSeqMapper taskSeqMapper, ApplicationEventPublisher eventPublisher) {
-        this(accessGuard, projectMapper, documentMapper, revisionMapper, documentFavoriteMapper,
-                documentAttachmentService, taskMapper, taskCommentMapper, mentionMapper, notificationMapper,
-                activityMapper, favoriteMapper, attachmentMapper, labelService, labelMapper, invitationMapper,
-                memberMapper, emailPreferenceMapper, gitLabRepositoryMapper, null, null, taskSeqMapper, eventPublisher);
-    }
-
-    @Transactional(rollbackFor = Exception.class)
     public void deleteProject(Long projectId, Long userId) {
         accessGuard.requireOwner(projectId, userId);
-        documentMapper.lockProjectDocumentMutations(projectId);
         List<Long> documentIds = documentMapper.selectList(new LambdaQueryWrapper<ProjectDocument>()
                         .eq(ProjectDocument::getProjectId, projectId))
-                .stream().map(ProjectDocument::getId).toList();
+                .stream().map(ProjectDocument::getId).sorted().toList();
+        if (documentIds.isEmpty()) {
+            transactionTemplate.execute(status -> {
+                deleteProjectRows(projectId, userId, documentIds);
+                return null;
+            });
+            return;
+        }
+        DocumentCollaborationDtos.ArchiveTransitionPrepared prepared = collaborationService
+                .prepareArchiveTransition(projectId, documentIds.get(0), documentIds, "delete");
+        transitionCoordinator.execute(prepared, "delete", drained ->
+                collaborationService.finalizeProjectDeleteTransition(prepared.transitionId(), drained,
+                        () -> deleteProjectRows(projectId, userId, documentIds)));
+    }
+
+    private void deleteProjectRows(Long projectId, Long userId, List<Long> expectedDocumentIds) {
+        accessGuard.requireOwner(projectId, userId);
+        documentMapper.lockProjectDocumentMutations(projectId);
+        List<Long> documentIds = documentMapper.selectProjectDocumentIds(projectId);
+        if (!expectedDocumentIds.equals(documentIds)) {
+            throw new com.linearlite.server.exception.ConflictOperationException(
+                    "项目删除期间文档集合发生变化");
+        }
         if (!documentIds.isEmpty()) {
             // 先清理对象存储与附件元数据，再清理不可变版本和当前文档。
             documentAttachmentService.deleteForProject(projectId);

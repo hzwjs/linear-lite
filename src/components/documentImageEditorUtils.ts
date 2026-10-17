@@ -38,7 +38,7 @@ export function hasDocumentImageAssetPaste(html: string): boolean {
 
 export interface DocumentImageUploadResult {
   asset: DocumentImageAsset
-  block: { type: 'documentImage'; props: { imageAssetId: number; caption: string } }
+  block: { type: 'documentImage'; props: { imageAssetId: number; altText: string; caption: string } }
 }
 
 export async function createDocumentImageUploadResult(
@@ -50,7 +50,7 @@ export async function createDocumentImageUploadResult(
     asset,
     block: {
       type: 'documentImage',
-      props: { imageAssetId: asset.assetId, caption: '' },
+      props: { imageAssetId: asset.assetId, altText: file.name, caption: '' },
     },
   }
 }

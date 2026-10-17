@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArchiveRestore, Check, Code2, ExternalLink, FilePlus2, ImagePlus, Inbox, Loader2, Plus, Search, TriangleAlert, Upload, X } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { htmlDocumentPath } from '../utils/htmlDocument'
@@ -9,6 +9,7 @@ import DocumentHistoryPanel from '../components/documents/DocumentHistoryPanel.v
 import DocumentSearchResults from '../components/documents/DocumentSearchResults.vue'
 import DocumentTree from '../components/documents/DocumentTree.vue'
 import { documentApi } from '../services/api/documents'
+import { documentCollaborationApi, type DocumentCollaborationSession } from '../services/api/documentCollaboration'
 import { projectApi } from '../services/api/project'
 import { useDocumentStore } from '../store/documentStore'
 import { useProjectStore } from '../store/projectStore'
@@ -51,6 +52,17 @@ const fileDropTitle = computed(() => store.treeNodes.find((node) => node.id === 
 let workspaceDisposed = false
 const members = ref<Array<{ id: number; label: string }>>([])
 let workspaceLoadSequence = 0
+const collaborationPrefetch = shallowRef<{ documentId: number; promise: Promise<DocumentCollaborationSession> } | null>(null)
+
+function prefetchCollaboration(documentId: number | null) {
+  if (documentId == null) {
+    collaborationPrefetch.value = null
+    return
+  }
+  const promise = documentCollaborationApi.createSession(documentId)
+  void promise.catch(() => undefined)
+  collaborationPrefetch.value = { documentId, promise }
+}
 let documentSearchSequence = 0
 let documentSearchTimer: ReturnType<typeof setTimeout> | null = null
 const DOCUMENT_SEARCH_DEBOUNCE_MS = 250
@@ -139,6 +151,7 @@ async function loadWorkspace() {
   projectStore.setActiveProject(id)
   historyOpen.value = false
   archiveOpen.value = false
+  prefetchCollaboration(requestedDocumentId)
   // 路由已明确文档 ID 时立即加载正文，禁止被树或成员接口串行阻塞。
   const routedDocumentPromise = requestedDocumentId == null
     ? Promise.resolve(null)
@@ -168,6 +181,7 @@ async function loadDocumentRoute() {
 
 async function loadRoutedDocument(sequence: number, id: number, requestedDocumentId: number | null) {
   if (sequence !== workspaceLoadSequence) return
+  prefetchCollaboration(requestedDocumentId)
   if (requestedDocumentId == null) {
     const latestId = latestRootDocumentId()
     store.activeDocument = null
@@ -599,8 +613,10 @@ onBeforeUnmount(() => {
           </a>
         </div>
         <DocumentEditor
+          :key="store.activeDocument.id"
           v-else-if="store.activeDocument?.contentFormat === 'BLOCKNOTE'"
           :document="store.activeDocument"
+          :initial-session="collaborationPrefetch?.documentId === store.activeDocument.id ? collaborationPrefetch.promise : undefined"
           :tree-nodes="store.treeNodes"
           :save-state="store.saveState"
           :conflict-version="store.conflictVersion"
@@ -608,7 +624,6 @@ onBeforeUnmount(() => {
           :mention-documents="store.treeNodes.map((node) => ({ id: node.id, title: node.title, projectId: node.projectId }))"
           :favorite-pending="store.favoritePendingIds.has(store.activeDocument.id)"
           @update-title="store.updateDraft({ title: $event })"
-          @update-content="store.updateDraft({ content: $event })"
           @archive="archiveDocument(store.activeDocument.id)"
           @history="openHistory"
           @reload="store.reloadAfterConflict"

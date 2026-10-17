@@ -50,7 +50,7 @@ public interface ProjectContentSearchMapper {
 
     @Select("""
             SELECT 'DOCUMENT' AS contentType, d.id AS numericId, CAST(d.id AS CHAR) AS resourceId,
-                   d.project_id AS projectId, d.title, d.content AS sourceContent, d.content_format AS contentFormat,
+                   d.project_id AS projectId, d.title, d.content_format AS contentFormat,
                    d.updated_at AS sourceUpdatedAt
             FROM project_documents d
             WHERE d.id = #{id} AND d.archived_at IS NULL

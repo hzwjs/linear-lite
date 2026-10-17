@@ -2,17 +2,34 @@ import { createApp, nextTick, type App } from 'vue'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as Y from 'yjs'
 import { i18n } from '../i18n'
 import { documentApi } from '../services/api/documents'
+import { documentCollaborationApi } from '../services/api/documentCollaboration'
 import type { ProjectDocument } from '../types/document'
 import HtmlDocumentView from './HtmlDocumentView.vue'
 
 vi.mock('../components/documents/HtmlDocumentPreview.vue', () => ({ default: { props: ['content', 'projectId'], template: '<div class="preview-stub">{{ content }}</div>' } }))
 vi.mock('../components/documents/DocumentHistoryPanel.vue', () => ({ default: { template: '<div />' } }))
+vi.mock('../components/documents/HtmlDocumentCollaboration.vue', () => ({ default: {
+  props: ['documentId', 'visible', 'ariaLabel', 'placeholder', 'initialSession'], emits: ['content', 'status'],
+  template: '<textarea class="collab-source" :placeholder="placeholder" @input="$emit(\'content\', $event.target.value)" />',
+  async mounted() {
+    const session = await (this.initialSession ?? documentCollaborationApi.createSession(this.documentId))
+    const doc = new Y.Doc()
+    Y.applyUpdate(doc, Uint8Array.from(atob(session.stateBase64), character => character.charCodeAt(0)))
+    this.$emit('content', doc.getText('html').toString())
+    doc.destroy()
+    this.$emit('status', { saveState: 'saved', connectionState: 'connected', hasSynced: true, collaborators: [], version: 1, commitSeq: 0 })
+  }
+} }))
 vi.mock('../services/api/documents', async () => {
   const actual = await vi.importActual<typeof import('../services/api/documents')>('../services/api/documents')
   return { ...actual, documentApi: { ...actual.documentApi, get: vi.fn(), create: vi.fn(), update: vi.fn() } }
 })
+vi.mock('../services/api/documentCollaboration', () => ({
+  documentCollaborationApi: { createSession: vi.fn(), updateTitle: vi.fn() }
+}))
 
 const htmlDocument = (patch: Partial<ProjectDocument> = {}): ProjectDocument => ({
   id: 81, projectId: 3, parentDocumentId: null, title: '交互文档', contentFormat: 'HTML',
@@ -41,6 +58,17 @@ describe('HTML document source and publishing', () => {
   beforeEach(() => {
     document.body.innerHTML = ''; localStorage.clear(); vi.clearAllMocks(); i18n.global.locale.value = 'en'
     vi.mocked(documentApi.get).mockResolvedValue(htmlDocument())
+    const checkpoint = new Y.Doc()
+    checkpoint.getText('html').insert(0, htmlDocument().content)
+    const stateBase64 = btoa(String.fromCharCode(...Y.encodeStateAsUpdate(checkpoint)))
+    checkpoint.destroy()
+    vi.mocked(documentCollaborationApi.createSession).mockResolvedValue({
+      documentId: 81, epoch: 'epoch-1', roomName: 'doc:81:epoch:epoch-1', websocketUrl: 'ws://test',
+      roomToken: 'token', user: { id: 7, name: 'Ada', color: '#123456' }, sessionId: 'session-1',
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(), version: 1, commitSeq: 0,
+      contentFormat: 'HTML', stateBase64,
+    })
+    vi.mocked(documentCollaborationApi.updateTitle).mockReset()
   })
   afterEach(() => { apps.splice(0).forEach((app) => app.unmount()) })
 
@@ -66,26 +94,26 @@ describe('HTML document source and publishing', () => {
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/projects/3/documents/81/html'))
   })
 
-  it('publishes only on Save and carries the acknowledged version and format', async () => {
+  it('keeps existing HTML in the collaboration editor and does not send whole-body PUTs', async () => {
     const { host } = await mount(); button(host, 'Source').click(); await flush()
     const source = '\n<html><body>版本二<script>window.x=2</script></body></html>\n'
-    input(host.querySelector('textarea')!, source); await flush()
+    input(host.querySelector('.collab-source')!, source); await flush()
     expect(documentApi.update).not.toHaveBeenCalled()
-    vi.mocked(documentApi.update).mockResolvedValue(htmlDocument({ content: source, version: 2 }))
-    button(host, 'Save').click(); await flush()
-    expect(documentApi.update).toHaveBeenCalledWith(81, { expectedVersion: 1, title: '交互文档', content: source, contentFormat: 'HTML' })
+    button(host, 'Run preview').click(); await flush()
+    expect(documentApi.update).not.toHaveBeenCalled()
     expect(host.querySelector('.preview-stub')?.textContent).toBe(source)
-    expect(host.textContent).toContain('v2')
   })
 
-  it('keeps local source on version conflict and blocks further publishing', async () => {
+  it('saves an existing document title through the title CAS endpoint', async () => {
     const { host } = await mount(); button(host, 'Source').click(); await flush()
-    input(host.querySelector('textarea')!, '<p>local draft</p>'); await flush()
-    vi.mocked(documentApi.update).mockRejectedValue({ isAxiosError: true, response: { status: 409, data: { data: { currentVersion: 4 } } } })
+    input(host.querySelector('input:not([type=file])')!, '新标题'); await flush()
+    vi.mocked(documentCollaborationApi.updateTitle).mockResolvedValue({
+      title: '新标题', version: 2, updatedAt: '2026-10-17T08:00:00', lastEditorId: 7
+    })
     button(host, 'Save').click(); await flush()
-    expect((host.querySelector('textarea') as HTMLTextAreaElement).value).toBe('<p>local draft</p>')
-    expect(host.querySelector('[role=alert]')?.textContent).toContain('Someone else changed')
-    expect(button(host, 'Save').disabled).toBe(true)
+    expect(documentCollaborationApi.updateTitle).toHaveBeenCalledWith(81, '交互文档', '新标题')
+    expect(documentApi.update).not.toHaveBeenCalled()
+    expect(host.querySelector('h1')?.textContent).toBe('新标题')
   })
 
   it('keeps edits made while an imported file is still being read', async () => {

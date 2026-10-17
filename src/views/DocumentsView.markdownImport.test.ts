@@ -4,12 +4,14 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { i18n } from '../i18n'
 import { documentApi } from '../services/api/documents'
+import { documentCollaborationApi, type DocumentCollaborationSession } from '../services/api/documentCollaboration'
 import { projectApi } from '../services/api/project'
 import type { ProjectDocument, ProjectDocumentTreeNode } from '../types/document'
 import DocumentsView from './DocumentsView.vue'
 
 vi.mock('../components/documents/DocumentEditor.vue', () => ({ default: { template: '<div data-editor />' } }))
 vi.mock('../components/documents/DocumentHistoryPanel.vue', () => ({ default: { template: '<div />' } }))
+vi.mock('../services/api/documentCollaboration', () => ({ documentCollaborationApi: { createSession: vi.fn() } }))
 vi.mock('../services/api/documents', async (importOriginal) => ({
   ...await importOriginal<typeof import('../services/api/documents')>(),
   documentApi: { listTree: vi.fn(), get: vi.fn(), importMarkdown: vi.fn(), inspectMarkdown: vi.fn(), search: vi.fn() }
@@ -42,6 +44,7 @@ describe('DocumentsView Markdown import', () => {
     vi.mocked(documentApi.inspectMarkdown).mockReset().mockResolvedValue({ imagePaths: [] })
     vi.mocked(documentApi.importMarkdown).mockReset().mockResolvedValue(imported())
     vi.mocked(projectApi.listMembers).mockReset().mockResolvedValue([])
+    vi.mocked(documentCollaborationApi.createSession).mockReset().mockResolvedValue({} as DocumentCollaborationSession)
   })
   afterEach(() => unmount?.())
 

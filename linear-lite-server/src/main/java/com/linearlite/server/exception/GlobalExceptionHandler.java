@@ -8,6 +8,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.util.Map;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -86,6 +88,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
                 .body(ApiResponse.fail(HttpStatus.CONFLICT.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(CollaborationTransitionFenceException.class)
+    public ResponseEntity<Map<String, Object>> handleCollaborationTransitionFence(
+            CollaborationTransitionFenceException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "code", HttpStatus.CONFLICT.value(),
+                "message", e.getMessage(),
+                "errorType", e.getErrorType()));
     }
 
     @ExceptionHandler(DocumentVersionConflictException.class)

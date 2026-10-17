@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS project_invitations (
 
 CREATE INDEX idx_project_invitations_project_email ON project_invitations (project_id, email, created_at);
 
--- 项目文档：content 保存正文，content_format 声明 BLOCKNOTE 或 HTML；树关系由 parent_document_id 表达。
+-- 项目文档：正文保存在 Yjs binary 状态表；content_format 声明 BLOCKNOTE 或 HTML。
 CREATE TABLE IF NOT EXISTS project_documents (
     id                 BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     project_id         BIGINT       NOT NULL,
@@ -103,7 +103,6 @@ CREATE TABLE IF NOT EXISTS project_documents (
     external_source    VARCHAR(64)  DEFAULT NULL COMMENT '外部迁移来源',
     external_source_id VARCHAR(128) DEFAULT NULL COMMENT '外部来源内稳定文档 ID',
     title              VARCHAR(256) NOT NULL,
-    content            LONGTEXT     NOT NULL,
     content_format     VARCHAR(16)  NOT NULL,
     sort_order         INT          NOT NULL DEFAULT 0,
     version            BIGINT       NOT NULL DEFAULT 1,
@@ -117,6 +116,47 @@ CREATE TABLE IF NOT EXISTS project_documents (
     INDEX idx_project_documents_project_updated (project_id, updated_at, id),
     UNIQUE KEY uk_project_documents_external_source (project_id, external_source, external_source_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS project_document_collab_state (
+    document_id BIGINT NOT NULL PRIMARY KEY,
+    epoch VARCHAR(36) NOT NULL,
+    commit_seq BIGINT NOT NULL,
+    state_binary LONGBLOB NOT NULL,
+    transition_id VARCHAR(36) DEFAULT NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS project_document_collab_transitions (
+    transition_id VARCHAR(36) NOT NULL PRIMARY KEY,
+    project_id BIGINT NOT NULL,
+    root_document_id BIGINT NOT NULL,
+    operation VARCHAR(16) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    deadline_at DATETIME(3) NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    KEY idx_project_document_collab_transition_project (project_id, status, deadline_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS project_document_collab_transition_items (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    transition_id VARCHAR(36) NOT NULL,
+    document_id BIGINT NOT NULL,
+    epoch VARCHAR(36) NOT NULL,
+    next_epoch VARCHAR(36) NOT NULL,
+    commit_seq BIGINT NOT NULL,
+    version BIGINT NOT NULL,
+    UNIQUE KEY uk_project_document_collab_transition_document (transition_id, document_id),
+    KEY idx_project_document_collab_transition_item_document (document_id, transition_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 2026-10-17 停写转换：DBX 全字段备份表 project_documents_backup_20261017_collab_cutover。
+-- 802 篇正文经一次性转换生成 Yjs 状态；DBX 执行 state-batch-*.sql，
+-- 再按文件序号执行 state-large-*-part-*.sql；802 条状态的长度与 SHA-256 均通过核对。
+-- Node 经 Java 读取 802 篇状态，内容摘要与转换清单相符；DBX 执行：
+-- ALTER TABLE project_documents DROP COLUMN content;
+-- 备份与校验记录见 docs/数据库备份/实时协作文档正文备份-20261017-V2.md。
+-- project_document_revisions 保存历史正文，本次转换未修改该表。
 
 CREATE TABLE IF NOT EXISTS project_document_revisions (
     id            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,

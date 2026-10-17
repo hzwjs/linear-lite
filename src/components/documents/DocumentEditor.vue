@@ -8,6 +8,8 @@ import { documentApi } from '../../services/api/documents'
 import type { DocumentSaveState, ProjectDocument, ProjectDocumentTreeNode } from '../../types/document'
 import { formatRelativeTime } from '../../utils/beijingTime'
 import { startDocumentPdfExport } from '../../utils/documentPdfExport'
+import { useDocumentCollaboration } from '../../composables/useDocumentCollaboration'
+import type { DocumentCollaborationSession } from '../../services/api/documentCollaboration'
 
 const DOCUMENT_ATTACHMENT_PATH = /^\/api\/project-documents\/(\d+)\/attachments\/(\d+)\/download$/
 
@@ -19,6 +21,7 @@ const props = withDefaults(defineProps<{
   mentionMembers: Array<{ id: number; label: string }>
   mentionDocuments: Array<{ id: number; title: string; projectId: number }>
   favoritePending?: boolean
+  initialSession?: Promise<DocumentCollaborationSession>
 }>(), {
   favoritePending: false
 })
@@ -34,6 +37,46 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const collaborationState = useDocumentCollaboration(props.document.id, 'BLOCKNOTE')
+const collaborationStatusKey = computed(() => {
+  if (!collaborationState.hasSynced.value) {
+    return collaborationState.connectionState.value === 'connecting' ? 'connecting' : 'connectionLost'
+  }
+  return collaborationState.saveState.value
+})
+const previewOptions = computed(() => {
+  const current = collaborationState.session.value
+  const preview = collaborationState.previewDoc.value
+  if (!current || !preview) return null
+  return {
+    fragment: preview.getXmlFragment('document-store'),
+    user: { name: current.user.name, color: current.user.color },
+  }
+})
+const collaborationOptions = computed(() => {
+  const current = collaborationState.session.value
+  const activeProvider = collaborationState.provider.value
+  if (!current || !activeProvider || !collaborationState.hasSynced.value) return null
+  return {
+    fragment: collaborationState.ydoc.value.getXmlFragment('document-store'),
+    provider: { awareness: activeProvider.awareness ?? undefined },
+    user: { name: current.user.name, color: current.user.color },
+  }
+})
+const liveReady = ref(false)
+
+async function onLiveReady() {
+  if (liveReady.value || !collaborationOptions.value) return
+  const liveDoc = collaborationState.ydoc.value
+  const epoch = collaborationState.session.value?.epoch
+  const scrollPosition = documentPageRef.value?.scrollTop ?? 0
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  if (!collaborationOptions.value || collaborationState.ydoc.value !== liveDoc || collaborationState.session.value?.epoch !== epoch) return
+  liveReady.value = true
+  await nextTick()
+  collaborationState.retirePreview()
+  if (documentPageRef.value != null) documentPageRef.value.scrollTop = scrollPosition
+}
 const copied = ref(false)
 const exportingPdf = ref(false)
 const moreOpen = ref(false)
@@ -123,6 +166,7 @@ function syncAttachmentOverlays() {
 }
 
 onMounted(async () => {
+  void collaborationState.start(props.initialSession)
   window.document.addEventListener('click', onMoreMenuOutsideClick, true)
   // 页面停留期间按分钟刷新相对时间，避免“最近更新”文案逐渐失真。
   relativeTimeTimer = window.setInterval(() => { relativeTimeClock.value = Date.now() }, 60_000)
@@ -138,6 +182,12 @@ onMounted(async () => {
   attachmentResizeObserver = new ResizeObserver(syncAttachmentOverlays)
   attachmentResizeObserver.observe(surface)
   syncAttachmentOverlays()
+})
+watch(collaborationState.epochChanged, (changed) => {
+  if (changed) {
+    liveReady.value = false
+    void collaborationState.restartForEpoch()
+  }
 })
 watch(
   () => [props.document.id, props.document.content] as const,
@@ -196,7 +246,8 @@ function handleTitleKeydown(event: KeyboardEvent) {
 }
 
 async function copyDraft() {
-  await navigator.clipboard.writeText(`${props.document.title}\n\n${props.document.content}`)
+  const content = bodyEditorRef.value?.getSerializedContent() ?? '[]'
+  await navigator.clipboard.writeText(`${props.document.title}\n\n${content}`)
   copied.value = true
   window.setTimeout(() => { copied.value = false }, 1800)
 }
@@ -317,6 +368,17 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
           <Check v-else-if="saveState === 'saved'" aria-hidden="true" />
           {{ saveLabel }}
         </span>
+        <span class="document-editor__save-state" role="status" aria-live="polite">
+          <Loader2 v-if="collaborationStatusKey === 'connecting' || collaborationStatusKey === 'saving'" class="spin" aria-hidden="true" />
+          <TriangleAlert v-else-if="collaborationStatusKey === 'offline' || collaborationStatusKey === 'connectionLost'" aria-hidden="true" />
+          <Check v-else aria-hidden="true" />
+          {{ t(`documents.collaboration.${collaborationStatusKey}`) }}
+        </span>
+        <div class="document-editor__collaborators" :aria-label="t('documents.collaboration.people')">
+          <span v-for="person in collaborationState.collaborators.value" :key="person.id" :title="person.name" :style="{ '--collaborator-color': person.color }">
+            {{ person.name.slice(0, 1).toUpperCase() }}
+          </span>
+        </div>
         <button type="button" :title="t('documents.exportPdf')" :disabled="exportingPdf" @click="exportPdf">
           <Loader2 v-if="exportingPdf" class="spin" aria-hidden="true" />
           <FileDown v-else aria-hidden="true" /><span>{{ exportingPdf ? t('documents.exportingPdf') : t('documents.exportPdf') }}</span>
@@ -401,20 +463,37 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
         @focusout="activeAttachmentHref = ''"
       >
         <div ref="documentEditorSurfaceRef" class="document-editor__surface">
+          <div v-if="!previewOptions && !collaborationOptions" class="document-editor__collaboration-loading" role="status">
+            {{ t(`documents.collaboration.${collaborationStatusKey}`) }}
+          </div>
           <StructuredDocumentEditor
-            ref="bodyEditorRef"
-            :key="document.id"
+            v-if="previewOptions && !liveReady"
+            :key="`preview-${document.id}-${collaborationState.previewDoc.value?.clientID ?? ''}`"
             :document-id="document.id"
             :image-assets="document.imageAssets"
-            paste-file-as-link
-            :file-upload-failed-text="$t('documents.attachmentUploadFailed')"
-            :model-value="document.content"
-            :readonly="saveState === 'conflict'"
+            model-value=""
+            readonly
+            :collaboration="previewOptions"
             :placeholder="t('documents.bodyPlaceholder')"
-            :mention-members="mentionMembers"
-            :mention-documents="mentionDocuments"
-            @update:model-value="emit('updateContent', $event)"
           />
+          <div v-if="collaborationOptions" :class="{ 'document-editor__live-pending': !liveReady }">
+            <StructuredDocumentEditor
+              ref="bodyEditorRef"
+              :key="`live-${document.id}-${collaborationState.ydoc.value.clientID}-${collaborationState.session.value?.sessionId ?? ''}`"
+              :document-id="document.id"
+              :image-assets="document.imageAssets"
+              paste-file-as-link
+              :file-upload-failed-text="$t('documents.attachmentUploadFailed')"
+              model-value=""
+              :readonly="saveState === 'conflict' || collaborationState.authFailed.value"
+              :collaboration="collaborationOptions"
+              :placeholder="t('documents.bodyPlaceholder')"
+              :mention-members="mentionMembers"
+              :mention-documents="mentionDocuments"
+              @update:model-value="emit('updateContent', $event)"
+              @ready="onLiveReady"
+            />
+          </div>
         </div>
         <div v-if="attachmentOverlays.length > 0" class="document-attachment-overlay">
           <div
@@ -529,6 +608,9 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
 .document-editor__save-state svg { width: 14px; height: 14px; }
 .document-editor__favorite svg { width: 16px; height: 16px; }
 .document-editor__save-state { gap: 5px; padding: 0 6px; color: var(--color-text-muted); font-size: var(--font-size-caption); }
+.document-editor__collaborators { display: flex; align-items: center; padding-inline: 4px; }
+.document-editor__collaborators span { display: grid; width: 26px; height: 26px; margin-left: -5px; place-items: center; border: 2px solid var(--color-bg-base); border-radius: 50%; color: white; background: var(--collaborator-color, var(--color-accent)); font-size: 11px; }
+.document-editor__collaboration-loading { min-height: 120px; color: var(--color-text-secondary); }
 
 .document-editor__more { position: relative; }
 .document-editor__more-trigger { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0 !important; border-radius: var(--radius-sm); color: var(--color-text-secondary); }
@@ -599,6 +681,7 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
   position: relative;
 }
 .document-editor__surface { position: relative; }
+.document-editor__live-pending { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
 .document-attachment-overlay {
   position: absolute;
   inset: 0;

@@ -105,16 +105,46 @@ public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
 
     @Update("""
             UPDATE project_documents
-            SET title = #{title}, content = #{content}, last_editor_id = #{editorId},
-                version = version + 1, updated_at = CURRENT_TIMESTAMP
+            SET last_editor_id = #{editorId}, version = #{nextVersion}, updated_at = CURRENT_TIMESTAMP
             WHERE id = #{id} AND version = #{expectedVersion} AND archived_at IS NULL
             """)
-    int updateContentIfVersionMatches(
-            @Param("id") Long id,
-            @Param("expectedVersion") Long expectedVersion,
-            @Param("title") String title,
-            @Param("content") String content,
-            @Param("editorId") Long editorId);
+    int updateVersionAndEditorIfMatches(@Param("id") Long id, @Param("expectedVersion") Long expectedVersion,
+                                        @Param("nextVersion") Long nextVersion, @Param("editorId") Long editorId);
+
+    @Update("""
+            UPDATE project_documents
+            SET title = #{title}, last_editor_id = #{editorId}, version = #{nextVersion},
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = #{id} AND title = #{expectedTitle} AND version = #{expectedVersion}
+              AND archived_at IS NULL
+            """)
+    int updateTitleIfMatches(@Param("id") Long id, @Param("expectedTitle") String expectedTitle,
+                             @Param("title") String title, @Param("expectedVersion") Long expectedVersion,
+                             @Param("nextVersion") Long nextVersion, @Param("editorId") Long editorId);
+
+    @Update("""
+            UPDATE project_documents SET archived_at = UTC_TIMESTAMP()
+            WHERE id = #{id} AND archived_at IS NULL
+            """)
+    int archiveIfActive(@Param("id") Long id);
+
+    @Update("""
+            UPDATE project_documents SET archived_at = NULL
+            WHERE id = #{id} AND archived_at IS NOT NULL
+            """)
+    int unarchiveIfArchived(@Param("id") Long id);
+
+    @Update("""
+            UPDATE project_documents
+            SET title = #{title}, last_editor_id = #{editorId}, version = #{nextVersion},
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = #{id} AND version = #{expectedVersion} AND archived_at IS NULL
+            """)
+    int updateCollaborationRestoreIfVersionMatches(@Param("id") Long id,
+                                                   @Param("expectedVersion") Long expectedVersion,
+                                                   @Param("nextVersion") Long nextVersion,
+                                                   @Param("editorId") Long editorId,
+                                                   @Param("title") String title);
 
     @Update("""
             UPDATE project_documents
@@ -139,6 +169,9 @@ public interface ProjectDocumentMapper extends BaseMapper<ProjectDocument> {
             SELECT id FROM document_subtree
             """)
     List<Long> selectSubtreeIds(@Param("projectId") Long projectId, @Param("documentId") Long documentId);
+
+    @Select("SELECT id FROM project_documents WHERE project_id = #{projectId} ORDER BY id ASC")
+    List<Long> selectProjectDocumentIds(@Param("projectId") Long projectId);
 
     /** 项目行是文档树写入的固定互斥点，即使项目尚无文档也能串行化首次创建。 */
     @Select("SELECT id FROM projects WHERE id = #{projectId} FOR UPDATE")

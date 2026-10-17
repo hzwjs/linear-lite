@@ -37,18 +37,21 @@ public class DocumentImageOrphanCleanupService {
     private final ProjectDocumentAttachmentMapper attachmentMapper;
     private final ObjectStorageService objectStorageService;
     private final ObjectMapper objectMapper;
+    private final DocumentCollaborationService collaborationService;
 
     public DocumentImageOrphanCleanupService(
             ProjectDocumentMapper documentMapper,
             ProjectDocumentRevisionMapper revisionMapper,
             ProjectDocumentAttachmentMapper attachmentMapper,
             ObjectStorageService objectStorageService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            DocumentCollaborationService collaborationService) {
         this.documentMapper = documentMapper;
         this.revisionMapper = revisionMapper;
         this.attachmentMapper = attachmentMapper;
         this.objectStorageService = objectStorageService;
         this.objectMapper = objectMapper;
+        this.collaborationService = collaborationService;
     }
 
     /** @return 删除的附件数量 */
@@ -87,11 +90,19 @@ public class DocumentImageOrphanCleanupService {
         List<ProjectDocument> documents = documentMapper.selectList(
                 new LambdaQueryWrapper<ProjectDocument>()
                         .eq(ProjectDocument::getProjectId, projectId)
-                        .select(ProjectDocument::getId, ProjectDocument::getContent, ProjectDocument::getContentFormat));
+                        .select(ProjectDocument::getId, ProjectDocument::getContentFormat));
         List<Long> documentIds = documents.stream().map(ProjectDocument::getId).toList();
         for (ProjectDocument document : documents) {
             if ("HTML".equals(document.getContentFormat())) continue;
-            if (!collectAssetIds(document.getContent(), assetIds)) {
+            String content;
+            try {
+                content = collaborationService.getSnapshot(document.getId(), true).content();
+            } catch (RuntimeException unavailable) {
+                log.error("跳过文档图片回收：协作状态读取失败，projectId={}, documentId={}", projectId,
+                        document.getId(), unavailable);
+                return Optional.empty();
+            }
+            if (!collectAssetIds(content, assetIds)) {
                 log.error("跳过文档图片回收：项目正文含旧 image 图片块或无法识别的结构，projectId={}, documentId={}",
                         projectId, document.getId());
                 return Optional.empty();

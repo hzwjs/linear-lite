@@ -1,6 +1,8 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { documentApi } from '../services/api/documents'
+import { documentCollaborationApi } from '../services/api/documentCollaboration'
+import type { DocumentTitleUpdate } from '../services/api/documentCollaboration'
 import type { ProjectDocument } from '../types/document'
 import { useDocumentStore } from './documentStore'
 
@@ -15,6 +17,13 @@ vi.mock('../services/api/documents', async () => {
     }
   }
 })
+vi.mock('../services/api/documentCollaboration', () => ({
+  documentCollaborationApi: { createSession: vi.fn(), updateTitle: vi.fn() }
+}))
+
+function titleUpdate(title: string, version: number): DocumentTitleUpdate {
+  return { title, version, updatedAt: '2026-10-17T08:00:00', lastEditorId: 1 }
+}
 
 function document(overrides: Partial<ProjectDocument> = {}): ProjectDocument {
   return {
@@ -29,6 +38,7 @@ describe('documentStore autosave', () => {
     setActivePinia(createPinia())
     vi.useFakeTimers()
     vi.mocked(documentApi.update).mockReset()
+    vi.mocked(documentCollaborationApi.updateTitle).mockReset()
     vi.mocked(documentApi.get).mockReset()
     vi.mocked(documentApi.move).mockReset()
     vi.mocked(documentApi.listTree).mockReset()
@@ -36,59 +46,57 @@ describe('documentStore autosave', () => {
     vi.mocked(documentApi.removeFavorite).mockReset()
   })
 
-  it('serializes edits made while an update is in flight onto the acknowledged version', async () => {
-    let resolveFirst!: (value: ProjectDocument) => void
-    vi.mocked(documentApi.update)
+  it('saves title metadata against the acknowledged title while a newer title is in flight', async () => {
+    let resolveFirst!: (value: DocumentTitleUpdate) => void
+    vi.mocked(documentCollaborationApi.updateTitle)
       .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve }))
-      .mockResolvedValueOnce(document({ title: 'Second', version: 3 }))
+      .mockResolvedValueOnce(titleUpdate('Second', 3))
+    vi.mocked(documentApi.get).mockResolvedValue(document())
     const store = useDocumentStore()
-    store.activeDocument = document()
+    await store.loadDocument(8)
 
     store.updateDraft({ title: 'First' })
     await vi.advanceTimersByTimeAsync(800)
-    expect(documentApi.update).toHaveBeenNthCalledWith(1, 8, {
-      expectedVersion: 1, contentFormat: 'BLOCKNOTE', title: 'First', content: '[]'
-    })
+    expect(documentCollaborationApi.updateTitle).toHaveBeenNthCalledWith(1, 8, 'Spec', 'First')
 
     store.updateDraft({ title: 'Second' })
-    resolveFirst(document({ title: 'First', version: 2 }))
+    resolveFirst(titleUpdate('First', 2))
     await vi.runAllTimersAsync()
 
-    expect(documentApi.update).toHaveBeenNthCalledWith(2, 8, {
-      expectedVersion: 2, contentFormat: 'BLOCKNOTE', title: 'Second', content: '[]'
-    })
+    expect(documentCollaborationApi.updateTitle).toHaveBeenNthCalledWith(2, 8, 'First', 'Second')
     expect(store.activeDocument?.version).toBe(3)
     expect(store.saveState).toBe('saved')
   })
 
   it('stops writes on 409 and preserves the local draft', async () => {
-    vi.mocked(documentApi.update).mockRejectedValue({
+    vi.mocked(documentCollaborationApi.updateTitle).mockRejectedValue({
       isAxiosError: true,
       response: { status: 409, data: { data: { currentVersion: 4 } } }
     })
     const store = useDocumentStore()
-    store.activeDocument = document()
+    vi.mocked(documentApi.get).mockResolvedValue(document())
+    await store.loadDocument(8)
 
     store.updateDraft({ title: 'Local draft' })
     await vi.advanceTimersByTimeAsync(800)
 
     expect(store.saveState).toBe('conflict')
-    expect(store.conflictVersion).toBe(4)
+    expect(store.conflictVersion).toBeNull()
     expect(store.activeDocument?.title).toBe('Local draft')
     store.updateDraft({ title: 'Blocked edit' })
     await vi.runAllTimersAsync()
-    expect(documentApi.update).toHaveBeenCalledTimes(1)
+    expect(documentCollaborationApi.updateTitle).toHaveBeenCalledTimes(1)
   })
 
   it('does not autosave a draft with an empty title', async () => {
-    vi.mocked(documentApi.update).mockResolvedValue(document({ title: '   ', version: 2 }))
+    vi.mocked(documentCollaborationApi.updateTitle).mockResolvedValue(titleUpdate('   ', 2))
     const store = useDocumentStore()
     store.activeDocument = document()
 
     store.updateDraft({ title: '   ' })
     await vi.advanceTimersByTimeAsync(800)
 
-    expect(documentApi.update).not.toHaveBeenCalled()
+    expect(documentCollaborationApi.updateTitle).not.toHaveBeenCalled()
     expect(store.saveState).toBe('invalid')
     expect(store.error).toBeNull()
   })
@@ -100,26 +108,26 @@ describe('documentStore autosave', () => {
 
     await store.flushSaves()
 
-    expect(documentApi.update).not.toHaveBeenCalled()
+    expect(documentCollaborationApi.updateTitle).not.toHaveBeenCalled()
   })
 
   it('flushes a dirty document before leaving without a client revision flag', async () => {
-    vi.mocked(documentApi.update).mockResolvedValue(document({ title: 'Local draft', version: 2 }))
+    vi.mocked(documentCollaborationApi.updateTitle).mockResolvedValue(titleUpdate('Local draft', 2))
     const store = useDocumentStore()
-    store.activeDocument = document()
+    vi.mocked(documentApi.get).mockResolvedValue(document())
+    await store.loadDocument(8)
 
     store.updateDraft({ title: 'Local draft' })
     await store.flushSaves()
 
-    expect(documentApi.update).toHaveBeenCalledWith(8, {
-      expectedVersion: 1, contentFormat: 'BLOCKNOTE', title: 'Local draft', content: '[]'
-    })
+    expect(documentCollaborationApi.updateTitle).toHaveBeenCalledWith(8, 'Spec', 'Local draft')
   })
 
   it('keeps save failures out of the document tree error state', async () => {
-    vi.mocked(documentApi.update).mockRejectedValue(new Error('Network unavailable'))
+    vi.mocked(documentCollaborationApi.updateTitle).mockRejectedValue(new Error('Network unavailable'))
     const store = useDocumentStore()
-    store.activeDocument = document()
+    vi.mocked(documentApi.get).mockResolvedValue(document())
+    await store.loadDocument(8)
 
     store.updateDraft({ title: 'Draft' })
     await vi.advanceTimersByTimeAsync(800)

@@ -163,7 +163,7 @@ public class McpOAuthServerConfiguration {
                         .usernameParameter("identity")
                         .permitAll())
                 .logout(logout -> logout.logoutUrl("/oauth/logout"))
-                .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**", "/mcp", "/oauth2/register"));
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**", "/mcp", "/oauth2/register", "/internal/collaboration/**"));
         return http.build();
     }
 

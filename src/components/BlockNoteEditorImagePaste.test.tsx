@@ -30,10 +30,15 @@ afterEach(async () => {
   delete (Range.prototype as any).getClientRects
   delete (Range.prototype as any).getBoundingClientRect
 })
-async function mount(importPastedImage: (source: PastedImageSource, signal: AbortSignal) => Promise<typeof asset>) {
+async function mount(
+  importPastedImage: (source: PastedImageSource, signal: AbortSignal) => Promise<typeof asset>,
+  initialContent = JSON.stringify([{ id: 'start', type: 'paragraph', content: [], children: [] }]),
+  imageAssets: typeof asset[] = [],
+) {
   await act(async () => root.render(createElement(BlockNoteEditorReact, {
     documentId: 11, pasteFileAsLink: true, imagePasteLabels: labels, importPastedImage,
-    initialContent: JSON.stringify([{ id: 'start', type: 'paragraph', content: [], children: [] }]),
+    imageAssets,
+    initialContent,
     onInit: api => { editorApi = api }, onChange: value => { json = JSON.parse(value) },
   })))
 }
@@ -65,7 +70,7 @@ describe('document image paste', () => {
     expect(json.some(block => block.type === 'documentImage')).toBe(false)
     await act(async () => finish(asset))
     const image = json.find(block => block.type === 'documentImage')
-    expect(image.props).toMatchObject({ imageAssetId: 92, caption: '架构图' })
+    expect(image.props).toMatchObject({ imageAssetId: 92, altText: '架构图', caption: '' })
     expect(image.props).not.toHaveProperty('url')
     expect(host.querySelector('.bn-pasted-image')).toBeNull()
     expect(json.findIndex(block => block.type === 'documentImage')).toBeGreaterThan(json.findIndex(block => JSON.stringify(block).includes('图片前')))
@@ -149,6 +154,15 @@ describe('document image paste', () => {
     expect(host.textContent).toContain('https://wrong.example/999')
     expect(host.textContent).not.toContain('源文档无权限')
     expect(json.filter(block => block.type === 'documentImage')).toHaveLength(1)
+  })
+
+  it('renders alt text for assistive technology without turning it into a visible caption', async () => {
+    const initialContent = JSON.stringify([{
+      id: 'image', type: 'documentImage', props: { imageAssetId: 92, altText: 'Architectural diagram', caption: 'Deployment topology' }, children: [],
+    }])
+    await mount(vi.fn().mockResolvedValue(asset), initialContent, [asset])
+    expect(host.querySelector('img[data-image-asset-id="92"]')?.getAttribute('alt')).toBe('Architectural diagram')
+    expect(host.querySelector('.bn-document-image__caption')?.textContent).toBe('Deployment topology')
   })
 
   it('preserves Markdown tables and fenced image syntax while importing actual image tokens', async () => {

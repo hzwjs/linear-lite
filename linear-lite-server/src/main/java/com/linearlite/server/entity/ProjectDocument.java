@@ -15,7 +15,6 @@ public class ProjectDocument {
     private String externalSource;
     private String externalSourceId;
     private String title;
-    private String content;
     private String contentFormat;
     private Integer sortOrder;
     private Long version;
@@ -40,8 +39,6 @@ public class ProjectDocument {
     public void setExternalSourceId(String externalSourceId) { this.externalSourceId = externalSourceId; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
-    public String getContent() { return content; }
-    public void setContent(String content) { this.content = content; }
     public Integer getSortOrder() { return sortOrder; }
     public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }
     public Long getVersion() { return version; }

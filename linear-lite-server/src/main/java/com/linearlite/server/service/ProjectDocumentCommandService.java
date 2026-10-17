@@ -1,11 +1,11 @@
 package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.dto.CreateProjectDocumentRequest;
+import com.linearlite.server.dto.DocumentCollaborationDtos;
 import com.linearlite.server.dto.MoveProjectDocumentRequest;
 import com.linearlite.server.dto.ProjectDocumentResponse;
 import com.linearlite.server.dto.UpdateProjectDocumentRequest;
@@ -13,15 +13,18 @@ import com.linearlite.server.entity.ProjectDocument;
 import com.linearlite.server.entity.ProjectDocumentFavorite;
 import com.linearlite.server.entity.ProjectDocumentRevision;
 import com.linearlite.server.exception.DocumentVersionConflictException;
+import com.linearlite.server.exception.ConflictOperationException;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectDocumentFavoriteMapper;
 import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -35,28 +38,67 @@ public class ProjectDocumentCommandService {
     private final ProjectDocumentFavoriteMapper favoriteMapper;
     private final ProjectDocumentRevisionMapper revisionMapper;
     private final ProjectAccessGuard projectAccessGuard;
-    private final DocumentRevisionSnapshotService revisionSnapshotService;
+    private final DocumentCollaborationService collaborationService;
+    private final CollaborationNodeClient nodeClient;
     private final ProjectDocumentQueryService queryService;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final TransactionTemplate transactionTemplate;
+    private final DocumentCollaborationTransitionCoordinator transitionCoordinator;
+
+    @Autowired
+    public ProjectDocumentCommandService(
+            ProjectDocumentMapper documentMapper,
+            ProjectDocumentFavoriteMapper favoriteMapper,
+            ProjectDocumentRevisionMapper revisionMapper,
+            ProjectAccessGuard projectAccessGuard,
+            DocumentCollaborationService collaborationService,
+            CollaborationNodeClient nodeClient,
+            ProjectDocumentQueryService queryService,
+            ObjectMapper objectMapper,
+            ApplicationEventPublisher eventPublisher,
+            PlatformTransactionManager transactionManager) {
+        this(documentMapper, favoriteMapper, revisionMapper, projectAccessGuard, collaborationService,
+                nodeClient, queryService, objectMapper, eventPublisher,
+                new TransactionTemplate(transactionManager));
+    }
 
     public ProjectDocumentCommandService(
             ProjectDocumentMapper documentMapper,
             ProjectDocumentFavoriteMapper favoriteMapper,
             ProjectDocumentRevisionMapper revisionMapper,
             ProjectAccessGuard projectAccessGuard,
-            DocumentRevisionSnapshotService revisionSnapshotService,
+            DocumentCollaborationService collaborationService,
+            CollaborationNodeClient nodeClient,
             ProjectDocumentQueryService queryService,
             ObjectMapper objectMapper,
             ApplicationEventPublisher eventPublisher) {
+        this(documentMapper, favoriteMapper, revisionMapper, projectAccessGuard, collaborationService,
+                nodeClient, queryService, objectMapper, eventPublisher, (TransactionTemplate) null);
+    }
+
+    private ProjectDocumentCommandService(
+            ProjectDocumentMapper documentMapper,
+            ProjectDocumentFavoriteMapper favoriteMapper,
+            ProjectDocumentRevisionMapper revisionMapper,
+            ProjectAccessGuard projectAccessGuard,
+            DocumentCollaborationService collaborationService,
+            CollaborationNodeClient nodeClient,
+            ProjectDocumentQueryService queryService,
+            ObjectMapper objectMapper,
+            ApplicationEventPublisher eventPublisher,
+            TransactionTemplate transactionTemplate) {
         this.documentMapper = documentMapper;
         this.favoriteMapper = favoriteMapper;
         this.revisionMapper = revisionMapper;
         this.projectAccessGuard = projectAccessGuard;
-        this.revisionSnapshotService = revisionSnapshotService;
+        this.collaborationService = collaborationService;
+        this.nodeClient = nodeClient;
         this.queryService = queryService;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
+        this.transactionTemplate = transactionTemplate;
+        this.transitionCoordinator = new DocumentCollaborationTransitionCoordinator(collaborationService, nodeClient);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -117,8 +159,6 @@ public class ProjectDocumentCommandService {
         document.setExternalSource(externalSource);
         document.setExternalSourceId(externalSourceId);
         document.setTitle(title);
-        // 导入场景允许原子创建首版正文，避免附件处理失败时遗留只有标题的文档。
-        document.setContent(content);
         document.setContentFormat(format);
         // 新建文档始终排在列表第一位：现有兄弟整体后移一位，新文档占据 0 号位。
         // 项目行锁已串行化同项目创建，兄弟排序变更与插入在同一事务内生效。
@@ -131,28 +171,17 @@ public class ProjectDocumentCommandService {
         document.setCreatorId(userId);
         document.setLastEditorId(userId);
         documentMapper.insert(document);
-        if (contentFactory != null) {
-            String resolvedContent = requireBlockNoteJson(contentFactory.apply(document.getId()));
-            int updated = documentMapper.update(null, new UpdateWrapper<ProjectDocument>()
-                    .eq("id", document.getId())
-                    .set("content", resolvedContent));
-            if (updated != 1) {
-                throw new IllegalStateException("新建文档正文写入失败");
-            }
-            document.setContent(resolvedContent);
-        }
-        revisionSnapshotService.captureInitial(document, userId);
+        if (contentFactory != null) content = requireBlockNoteJson(contentFactory.apply(document.getId()));
+        collaborationService.createInitialState(document, content);
         publishUpsert(document.getId());
         return toResponse(requireDocument(document.getId()), userId);
     }
 
-    @Transactional(rollbackFor = Exception.class)
     public ProjectDocumentResponse update(Long documentId, UpdateProjectDocumentRequest request, Long userId) {
         return updateInternal(documentId, request, userId, null);
     }
 
     /** Resolves attachment-backed content only after access and expectedVersion checks pass. */
-    @Transactional(rollbackFor = Exception.class)
     public ProjectDocumentResponse updateWithContentFactory(
             Long documentId, UpdateProjectDocumentRequest request, Long userId, LongFunction<String> contentFactory) {
         if (contentFactory == null) {
@@ -163,13 +192,7 @@ public class ProjectDocumentCommandService {
 
     private ProjectDocumentResponse updateInternal(
             Long documentId, UpdateProjectDocumentRequest request, Long userId, LongFunction<String> contentFactory) {
-        ProjectDocument observed = requireAccessibleActiveDocument(documentId, userId);
-        documentMapper.lockProjectDocumentMutations(observed.getProjectId());
-        ProjectDocument current = documentMapper.selectByIdForUpdate(documentId);
-        if (current == null || current.getArchivedAt() != null) {
-            throw new ResourceNotFoundException("项目文档不存在: " + documentId);
-        }
-        projectAccessGuard.requireMember(current.getProjectId(), userId);
+        ProjectDocument current = requireAccessibleActiveDocument(documentId, userId);
         if (request == null || request.expectedVersion() == null) {
             throw new IllegalArgumentException("expectedVersion 不能为空");
         }
@@ -188,19 +211,18 @@ public class ProjectDocumentCommandService {
         if (contentFactory != null) {
             content = requireBlockNoteJson(contentFactory.apply(documentId));
         }
-        if (Objects.equals(current.getTitle(), title) && Objects.equals(current.getContent(), content)) {
-            return toResponse(current, userId);
+        collaborationService.validateReplacement(documentId, format, content, userId);
+        CollaborationNodeClient.SnapshotResponse snapshot = collaborationService.getSnapshot(documentId, true);
+        if (!Objects.equals(snapshot.version(), request.expectedVersion())) {
+            throw new DocumentVersionConflictException(snapshot.version());
         }
-        revisionSnapshotService.captureBeforeUpdate(current, userId);
-        int updated = documentMapper.updateContentIfVersionMatches(
-                documentId, request.expectedVersion(), title, content, userId);
-        if (updated != 1) {
-            throwVersionConflict(documentId);
+        if (Objects.equals(current.getTitle(), title) && Objects.equals(snapshot.content(), content)) {
+            return queryService.getDocument(documentId, userId);
         }
-        ProjectDocument saved = requireDocument(documentId);
-        revisionSnapshotService.captureForced(saved, userId);
-        publishUpsert(saved.getId());
-        return toResponse(saved, userId);
+        nodeClient.command(documentId, new CollaborationNodeClient.CommandRequest(
+                java.util.UUID.randomUUID().toString(), userId, snapshot.epoch(), request.expectedVersion(),
+                "replace", format, content, title));
+        return queryService.getDocument(documentId, userId);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -253,26 +275,15 @@ public class ProjectDocumentCommandService {
         }
     }
 
-    @Transactional(rollbackFor = Exception.class)
     public void archive(Long documentId, Long userId) {
         ProjectDocument document = requireAccessibleActiveDocument(documentId, userId);
-        documentMapper.lockProjectDocumentMutations(document.getProjectId());
-        document = requireAccessibleActiveDocument(documentId, userId);
-        List<Long> subtreeIds = documentMapper.selectSubtreeIds(document.getProjectId(), documentId);
-        documentMapper.update(null, new UpdateWrapper<ProjectDocument>()
-                .in("id", subtreeIds)
-                .set("archived_at", LocalDateTime.now()));
-        // 同步监听器与归档事务共同提交，确保子树索引删除任务不会丢失。
-        eventPublisher.publishEvent(new ProjectContentSemanticDeleteRequestedEvent(
-                ProjectContentType.DOCUMENT, subtreeIds));
-        persistOrder(loadSiblings(document.getProjectId(), document.getParentDocumentId(), false));
+        List<Long> subtreeIds = documentMapper.selectSubtreeIds(document.getProjectId(), documentId)
+                .stream().sorted().toList();
+        runArchiveTransition(document.getProjectId(), documentId, subtreeIds, "archive");
     }
 
-    @Transactional(rollbackFor = Exception.class)
     public void restore(Long documentId, Long userId) {
         ProjectDocument document = requireAccessibleDocument(documentId, userId);
-        documentMapper.lockProjectDocumentMutations(document.getProjectId());
-        document = requireAccessibleDocument(documentId, userId);
         if (document.getArchivedAt() == null) {
             throw new IllegalArgumentException("文档未归档");
         }
@@ -283,24 +294,22 @@ public class ProjectDocumentCommandService {
                 throw new IllegalArgumentException("请先恢复父文档");
             }
         }
-        List<Long> subtreeIds = documentMapper.selectSubtreeIds(document.getProjectId(), documentId);
-        documentMapper.update(null, new UpdateWrapper<ProjectDocument>()
-                .in("id", subtreeIds)
-                .set("archived_at", null));
-        subtreeIds.forEach(this::publishUpsert);
-        persistOrder(loadSiblings(document.getProjectId(), document.getParentDocumentId(), false));
+        List<Long> subtreeIds = documentMapper.selectSubtreeIds(document.getProjectId(), documentId)
+                .stream().sorted().toList();
+        runArchiveTransition(document.getProjectId(), documentId, subtreeIds, "unarchive");
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    private void runArchiveTransition(Long projectId, Long rootDocumentId, List<Long> subtreeIds,
+                                      String operation) {
+        DocumentCollaborationDtos.ArchiveTransitionPrepared prepared =
+                collaborationService.prepareArchiveTransition(projectId, rootDocumentId, subtreeIds, operation);
+        transitionCoordinator.execute(prepared, operation, drained ->
+                collaborationService.finalizeArchiveTransition(prepared.transitionId(), drained));
+    }
+
     public ProjectDocumentResponse restoreRevision(
             Long documentId, Long revisionId, Long expectedVersion, Long userId) {
-        ProjectDocument observed = requireAccessibleActiveDocument(documentId, userId);
-        documentMapper.lockProjectDocumentMutations(observed.getProjectId());
-        ProjectDocument current = documentMapper.selectByIdForUpdate(documentId);
-        if (current == null || current.getArchivedAt() != null) {
-            throw new ResourceNotFoundException("项目文档不存在: " + documentId);
-        }
-        projectAccessGuard.requireMember(current.getProjectId(), userId);
+        ProjectDocument current = requireAccessibleActiveDocument(documentId, userId);
         if (expectedVersion == null) {
             throw new IllegalArgumentException("expectedVersion 不能为空");
         }
@@ -314,16 +323,15 @@ public class ProjectDocumentCommandService {
             throw new IllegalArgumentException("历史版本类型与文档不一致");
         }
         String revisionContent = requireContent(revision.getContentFormat(), revision.getContent());
-        revisionSnapshotService.captureBeforeRestore(current);
-        int updated = documentMapper.updateContentIfVersionMatches(
-                documentId, expectedVersion, revision.getTitle(), revisionContent, userId);
-        if (updated != 1) {
-            throwVersionConflict(documentId);
+        collaborationService.validateReplacement(documentId, revision.getContentFormat(), revisionContent, userId);
+        CollaborationNodeClient.SnapshotResponse snapshot = collaborationService.getSnapshot(documentId, true);
+        if (!Objects.equals(snapshot.version(), expectedVersion)) {
+            throw new DocumentVersionConflictException(snapshot.version());
         }
-        ProjectDocument saved = requireDocument(documentId);
-        revisionSnapshotService.captureForced(saved, userId);
-        publishUpsert(saved.getId());
-        return toResponse(saved, userId);
+        nodeClient.command(documentId, new CollaborationNodeClient.CommandRequest(
+                java.util.UUID.randomUUID().toString(), userId, snapshot.epoch(), expectedVersion,
+                "restore", revision.getContentFormat(), revisionContent, revision.getTitle()));
+        return queryService.getDocument(documentId, userId);
     }
 
     @Transactional(rollbackFor = Exception.class)

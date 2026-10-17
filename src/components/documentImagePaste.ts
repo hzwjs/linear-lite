@@ -9,6 +9,7 @@ export type PastedImageSource =
 export interface PastedImage {
   blockId: string
   caption: string
+  altText: string
   source: PastedImageSource
   pathText: string
   previewUrl?: string
@@ -20,10 +21,10 @@ const localImageLimit = 6 * 1024 * 1024
 
 /** 用解析器识别图片节点，代码块中的图片语法保持原文。 */
 export function prepareImagePaste(input: { html?: string; markdown?: string; filePath?: string }, files: File[]) {
-  const sources = new Map<string, { source: PastedImageSource; caption: string; pathText: string }>()
-  function marker(source: PastedImageSource, caption: string, pathText: string) {
+  const sources = new Map<string, { source: PastedImageSource; caption: string; altText: string; pathText: string }>()
+  function marker(source: PastedImageSource, caption: string, altText: string, pathText: string) {
     const href = markerPrefix + randomClientId()
-    sources.set(href, { source, caption, pathText })
+    sources.set(href, { source, caption, altText, pathText })
     const element = document.createElement('a')
     element.href = href
     element.textContent = caption.length > 0 ? caption : '\uFFFC'
@@ -35,28 +36,29 @@ export function prepareImagePaste(input: { html?: string; markdown?: string; fil
     const roots = Array.from(parsed.querySelectorAll('[data-content-type="documentImage"][data-image-asset-id]'))
     for (const root of roots) {
       const caption = root.getAttribute('data-caption') ?? ''
+      const altText = root.getAttribute('data-alt-text') ?? ''
       const assetId = Number(root.getAttribute('data-image-asset-id'))
       const image = root.querySelector('img[src]')
       const pathText = image == null ? `document-image:${assetId}` : image.getAttribute('src')!
-      root.replaceWith(marker({ kind: 'asset', assetId }, caption, pathText))
+      root.replaceWith(marker({ kind: 'asset', assetId }, caption, altText, pathText))
     }
     for (const image of Array.from(parsed.querySelectorAll('img'))) {
       const assetId = image.getAttribute('data-image-asset-id')
       const pathText = image.getAttribute('src') ?? ''
       image.replaceWith(marker(assetId == null
         ? { kind: 'url', url: pathText }
-        : { kind: 'asset', assetId: Number(assetId) }, image.getAttribute('alt') ?? '', pathText))
+        : { kind: 'asset', assetId: Number(assetId) }, '', image.getAttribute('alt') ?? '', pathText))
     }
     html = parsed.body.innerHTML
   } else if (input.markdown != null) {
     const renderer = new Renderer()
-    renderer.image = ({ href, text }) => marker({ kind: 'url', url: href }, text, href).outerHTML
+    renderer.image = ({ href, text }) => marker({ kind: 'url', url: href }, '', text, href).outerHTML
     html = marked.parse(input.markdown, { renderer, async: false })
   } else {
     html = files.map(file => {
       const paragraph = document.createElement('p')
       const pathText = files.length === 1 && input.filePath != null ? input.filePath : file.name
-      paragraph.append(marker({ kind: 'file', file }, file.name, pathText))
+      paragraph.append(marker({ kind: 'file', file }, '', file.name, pathText))
       return paragraph.outerHTML
     }).join('')
   }
@@ -78,16 +80,17 @@ export function prepareImagePaste(input: { html?: string; markdown?: string; fil
 /** 图片占位使用普通段落；临时 URL 和导入状态不会进入图片块的持久化字段。 */
 export function materializeImagePaste(blocks: any[], prepared: ReturnType<typeof prepareImagePaste>, sourceLabel: string) {
   const images: PastedImage[] = []
-  function placeholder(entry: { source: PastedImageSource; caption: string; pathText: string }) {
+  function placeholder(entry: { source: PastedImageSource; caption: string; altText: string; pathText: string }) {
     const id = randomClientId()
-    const caption = entry.caption.trim().length > 0 ? entry.caption.trim() : sourceLabel
+    const altText = entry.altText.trim() || (entry.source.kind === 'file' ? entry.source.file.name : '')
+    const label = entry.caption.trim() || altText || sourceLabel
     const source = entry.source
     const content = source.kind === 'url' && /^https?:\/\//i.test(source.url)
-      ? [{ type: 'link', href: source.url, content: [{ type: 'text', text: caption, styles: {} }] }]
-      : [{ type: 'text', text: caption, styles: {} }]
+      ? [{ type: 'link', href: source.url, content: [{ type: 'text', text: label, styles: {} }] }]
+      : [{ type: 'text', text: label, styles: {} }]
     const previewUrl = source.kind === 'url' && /^(https?:|data:image\/|blob:)/i.test(source.url)
       ? source.url : undefined
-    images.push({ blockId: id, caption, source, pathText: entry.pathText, previewUrl, content })
+    images.push({ blockId: id, caption: entry.caption.trim(), altText, source, pathText: entry.pathText, previewUrl, content })
     return { id, type: 'paragraph', content, children: [] }
   }
   function rewrite(block: any): any[] {

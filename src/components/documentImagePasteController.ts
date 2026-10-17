@@ -44,7 +44,11 @@ export function createImagePasteController(editor: any, options: {
       if (disposed || jobs.get(job.blockId) !== job || !valid(job)) return
       jobs.delete(job.blockId)
       options.registerAsset(asset)
-      editor.updateBlock(job.blockId, { type: 'documentImage', props: { imageAssetId: asset.assetId, caption: job.caption } })
+      editor.updateBlock(job.blockId, { type: 'documentImage', props: {
+        imageAssetId: asset.assetId,
+        altText: job.altText || (job.source.kind === 'file' ? job.source.file.name : ''),
+        caption: job.caption,
+      } })
     } catch {
       if (disposed || jobs.get(job.blockId) !== job || !valid(job)) return
       jobs.delete(job.blockId)
@@ -65,7 +69,7 @@ export function createImagePasteController(editor: any, options: {
     if (job.previewUrl) {
       const image = document.createElement('img')
       image.className = 'bn-pasted-image__preview'
-      image.alt = job.caption
+      image.alt = job.altText
       image.referrerPolicy = 'no-referrer'
       image.src = job.previewUrl
       image.addEventListener('error', () => image.remove(), { once: true })

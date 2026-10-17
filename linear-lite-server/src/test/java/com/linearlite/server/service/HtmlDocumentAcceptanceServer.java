@@ -48,6 +48,8 @@ public class HtmlDocumentAcceptanceServer {
     private final Map<Long, ProjectDocumentRevision> versions = new ConcurrentHashMap<>();
     private final AtomicLong documentIds = new AtomicLong(8000);
     private final AtomicLong revisionIds = new AtomicLong(9000);
+    private final Map<Long, String> collaborationContents = new ConcurrentHashMap<>();
+    private final Map<Long, String> collaborationEpochs = new ConcurrentHashMap<>();
 
     public static void main(String[] args) {
         SpringApplication app = new SpringApplication(HtmlDocumentAcceptanceServer.class);
@@ -90,15 +92,6 @@ public class HtmlDocumentAcceptanceServer {
         when(mapper.selectTreeNodes(anyLong(), anyLong(), eq(false))).thenAnswer(call -> tree());
         when(mapper.selectFavoriteTreeNodes(anyLong())).thenReturn(List.of());
         when(mapper.selectTreeNodes(anyLong(), anyLong(), eq(true))).thenReturn(List.of());
-        when(mapper.updateContentIfVersionMatches(anyLong(), anyLong(), anyString(), anyString(), anyLong())).thenAnswer(call -> {
-            Long id = call.getArgument(0); Long expected = call.getArgument(1);
-            ProjectDocument row = rows.get(id);
-            if (row == null || !row.getVersion().equals(expected)) return 0;
-            row.setTitle(call.getArgument(2)); row.setContent(call.getArgument(3));
-            row.setLastEditorId(call.getArgument(4)); row.setVersion(expected + 1);
-            row.setUpdatedAt(LocalDateTime.now());
-            return 1;
-        });
         when(mapper.updatePosition(anyLong(), nullable(Long.class), anyInt())).thenAnswer(call -> {
             ProjectDocument row = rows.get(call.getArgument(0));
             row.setParentDocumentId(call.getArgument(1)); row.setSortOrder(call.getArgument(2)); return 1;
@@ -153,6 +146,40 @@ public class HtmlDocumentAcceptanceServer {
     }
     @Bean ProjectDocumentAttachmentService attachments() { return mock(ProjectDocumentAttachmentService.class); }
     @Bean ProjectContentSearchService search() { return mock(ProjectContentSearchService.class); }
+    @Bean DocumentCollaborationService collaboration() {
+        DocumentCollaborationService service = mock(DocumentCollaborationService.class);
+        doAnswer(call -> {
+            ProjectDocument row = call.getArgument(0);
+            collaborationContents.put(row.getId(), call.getArgument(1));
+            collaborationEpochs.put(row.getId(), UUID.randomUUID().toString());
+            return null;
+        }).when(service).createInitialState(any(ProjectDocument.class), anyString());
+        when(service.getSnapshot(anyLong(), anyBoolean())).thenAnswer(call -> {
+            Long id = call.getArgument(0);
+            ProjectDocument row = rows.get(id);
+            return new CollaborationNodeClient.SnapshotResponse(collaborationEpochs.get(id), row.getVersion(),
+                    row.getContentFormat(), collaborationContents.get(id));
+        });
+        return service;
+    }
+    @Bean CollaborationNodeClient nodeClient() {
+        CollaborationNodeClient client = mock(CollaborationNodeClient.class);
+        when(client.command(anyLong(), any(CollaborationNodeClient.CommandRequest.class))).thenAnswer(call -> {
+            Long id = call.getArgument(0);
+            CollaborationNodeClient.CommandRequest request = call.getArgument(1);
+            ProjectDocument row = rows.get(id);
+            long nextVersion = row.getVersion() + 1;
+            row.setVersion(nextVersion);
+            row.setTitle(request.title());
+            row.setLastEditorId(request.actorId());
+            row.setUpdatedAt(LocalDateTime.now());
+            rows.put(id, copy(row));
+            collaborationContents.put(id, request.content());
+            return new CollaborationNodeClient.CommandResponse(request.epoch(), 2L, nextVersion,
+                    request.contentFormat(), request.content(), request.title());
+        });
+        return client;
+    }
     @Bean PlatformTransactionManager transactions() {
         return new AbstractPlatformTransactionManager() {
             protected Object doGetTransaction() { return new Object(); }

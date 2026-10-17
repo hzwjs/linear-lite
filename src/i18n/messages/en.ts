@@ -294,7 +294,8 @@ const en = {
     insertImage: 'Image', imageFileTypeUnsupported: 'Choose an image file.',
     attachmentDocumentMismatch: 'This attachment does not belong to the current document. The download was blocked.',
     mobile: { title: 'Project document', readonly: 'Read only', back: 'Back', loading: 'Loading document…', loadFailed: 'Document could not be loaded', projectMismatch: 'This document does not belong to the current project.', bodyLabel: 'Document content' },
-    saveState: { idle: 'Not edited', dirty: 'Unsaved changes', saving: 'Saving…', saved: 'Saved', conflict: 'Save conflict', invalid: 'Title required', failed: 'Save failed' }
+    saveState: { idle: 'Not edited', dirty: 'Unsaved changes', saving: 'Saving…', saved: 'Saved', conflict: 'Save conflict', invalid: 'Title required', failed: 'Save failed' },
+    collaboration: { connecting: 'Connecting to collaboration…', connectionLost: 'Connection lost; document is read-only', saved: 'Saved', saving: 'Saving…', offline: 'Offline edits pending sync', people: 'Collaborators' }
   },
   globalSearch: {
     title: 'Search project content', placeholder: 'Search tasks and documents across projects…', searchAria: 'Search tasks and documents across projects', close: 'Close search',
