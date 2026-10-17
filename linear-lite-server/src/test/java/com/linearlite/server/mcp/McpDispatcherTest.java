@@ -9,10 +9,13 @@ import com.linearlite.server.dto.ProjectDocumentResponse;
 import com.linearlite.server.dto.ProjectDocumentTreeNode;
 import com.linearlite.server.dto.ProjectDocumentAttachmentResponse;
 import com.linearlite.server.dto.CreateProjectDocumentRequest;
+import com.linearlite.server.dto.TaskChangeRecord;
+import com.linearlite.server.dto.TaskListItemResponse;
 import com.linearlite.server.dto.UpdateProjectDocumentRequest;
 import com.linearlite.server.service.ProjectDocumentCommandService;
 import com.linearlite.server.service.ProjectDocumentQueryService;
 import com.linearlite.server.service.ProjectDocumentAttachmentService;
+import com.linearlite.server.service.TaskActivityService;
 import com.linearlite.server.service.ProjectService;
 import com.linearlite.server.service.TaskCommandService;
 import com.linearlite.server.service.TaskCommentService;
@@ -23,6 +26,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Set;
+import java.time.LocalDateTime;
 import java.util.function.BiFunction;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongFunction;
@@ -49,6 +53,8 @@ class McpDispatcherTest {
     private ProjectDocumentAttachmentService projectDocumentAttachmentService;
     private ProjectDocumentQueryService projectDocumentQueryService;
     private com.linearlite.server.service.McpDocumentPatchService documentPatchService;
+    private TaskQueryService taskQueryService;
+    private TaskActivityService taskActivityService;
     private McpDispatcher dispatcher;
 
     @BeforeEach
@@ -58,6 +64,8 @@ class McpDispatcherTest {
         projectDocumentAttachmentService = mock(ProjectDocumentAttachmentService.class);
         projectDocumentQueryService = mock(ProjectDocumentQueryService.class);
         documentPatchService = mock(com.linearlite.server.service.McpDocumentPatchService.class);
+        taskQueryService = mock(TaskQueryService.class);
+        taskActivityService = mock(TaskActivityService.class);
         McpProperties properties = new McpProperties();
         properties.setServerName("linear-lite-test");
         properties.setServerVersion("test");
@@ -69,7 +77,8 @@ class McpDispatcherTest {
                         new MarkdownToBlockNoteConverter(objectMapper), projectDocumentAttachmentService),
                 projectService,
                 mock(TaskCommandService.class),
-                mock(TaskQueryService.class),
+                taskQueryService,
+                taskActivityService,
                 mock(TaskCommentService.class),
                 projectDocumentCommandService,
                 projectDocumentQueryService,
@@ -91,38 +100,235 @@ class McpDispatcherTest {
     }
 
     @Test
-    void listsAllThirteenToolsInStableOrder() throws Exception {
+    void listsAllSixteenToolsInStableOrder() throws Exception {
         McpDispatcher.DispatchResponse response = dispatch(
                 request("2", "tools/list", "{}"), null, null, null, null, 7L);
 
         JsonNode tools = response.body().path("result").path("tools");
-        assertEquals(13, tools.size());
+        assertEquals(16, tools.size());
         assertEquals("get_profile", tools.get(0).path("name").asText());
         assertEquals("list_projects", tools.get(1).path("name").asText());
-        assertEquals("list_documents", tools.get(7).path("name").asText());
-        assertEquals("get_document", tools.get(8).path("name").asText());
-        assertEquals("get_document_blocks", tools.get(9).path("name").asText());
-        assertEquals("create_document", tools.get(10).path("name").asText());
-        assertEquals("update_document", tools.get(11).path("name").asText());
-        assertEquals("patch_document", tools.get(12).path("name").asText());
+        assertEquals("list_project_tasks", tools.get(7).path("name").asText());
+        assertEquals("list_task_changes", tools.get(8).path("name").asText());
+        assertEquals("list_documents", tools.get(9).path("name").asText());
+        assertEquals("get_document", tools.get(10).path("name").asText());
+        assertEquals("get_document_blocks", tools.get(11).path("name").asText());
+        assertEquals("create_document", tools.get(12).path("name").asText());
+        assertEquals("update_document", tools.get(13).path("name").asText());
+        assertEquals("patch_document", tools.get(14).path("name").asText());
+        assertEquals("get_member_id", tools.get(15).path("name").asText());
+        assertTrue(tools.get(15).path("inputSchema").path("properties").has("username"));
         assertTrue(tools.get(3).path("inputSchema").path("properties").has("projectId"));
-        assertEquals("array", tools.get(10).path("inputSchema").path("properties").path("images").path("type").asText());
-        assertEquals(8, tools.get(10).path("inputSchema").path("properties").path("images").path("maxItems").asInt());
-        JsonNode imageSchema = tools.get(10).path("inputSchema").path("properties").path("images").path("items");
-        assertTrue(tools.get(10).path("inputSchema").path("properties").path("images")
+        assertEquals("array", tools.get(12).path("inputSchema").path("properties").path("images").path("type").asText());
+        assertEquals(8, tools.get(12).path("inputSchema").path("properties").path("images").path("maxItems").asInt());
+        JsonNode imageSchema = tools.get(12).path("inputSchema").path("properties").path("images").path("items");
+        assertTrue(tools.get(12).path("inputSchema").path("properties").path("images")
                 .path("description").asText().contains("mcp-image:<ref>"));
         assertEquals(2, imageSchema.path("oneOf").size());
         assertEquals(false, imageSchema.path("oneOf").get(0).path("additionalProperties").asBoolean());
         assertEquals(false, imageSchema.path("oneOf").get(1).path("additionalProperties").asBoolean());
-        assertTrue(tools.get(11).path("inputSchema").path("properties").has("images"));
-        assertTrue(tools.get(10).path("description").asText().contains("GFM 表格"));
-        assertTrue(tools.get(11).path("description").asText().contains("GFM 表格"));
-        assertTrue(tools.get(12).path("inputSchema").path("properties").has("operations"));
-        assertEquals(50, tools.get(12).path("inputSchema").path("properties").path("operations").path("maxItems").asInt());
-        JsonNode patchOperations = tools.get(12).path("inputSchema").path("properties").path("operations")
+        assertTrue(tools.get(13).path("inputSchema").path("properties").has("images"));
+        assertTrue(tools.get(12).path("description").asText().contains("GFM 表格"));
+        assertTrue(tools.get(13).path("description").asText().contains("GFM 表格"));
+        assertTrue(tools.get(14).path("inputSchema").path("properties").has("operations"));
+        assertEquals(50, tools.get(14).path("inputSchema").path("properties").path("operations").path("maxItems").asInt());
+        JsonNode patchOperations = tools.get(14).path("inputSchema").path("properties").path("operations")
                 .path("items").path("oneOf");
         assertEquals(8, patchOperations.size());
         assertEquals("insert_table_row", patchOperations.get(5).path("properties").path("op").path("enum").get(0).asText());
+    }
+
+    @Test
+    void projectTaskReadToolsExposeReadOnlyPaginationAndDailyRules() throws Exception {
+        McpDispatcher.DispatchResponse response = dispatch(
+                request("read-contract", "tools/list", "{}"), null, null, null, null, 9L);
+        JsonNode tools = response.body().path("result").path("tools");
+        JsonNode taskList = tools.get(7);
+        JsonNode changes = tools.get(8);
+
+        assertEquals("list_project_tasks", taskList.path("name").asText());
+        assertTrue(taskList.path("annotations").path("readOnlyHint").asBoolean());
+        assertEquals("linear-lite:read", taskList.path("securitySchemes").get(0).path("scopes").get(0).asText());
+        assertTrue(taskList.path("inputSchema").path("properties").has("cursor"));
+        assertTrue(taskList.path("inputSchema").path("properties").has("limit"));
+        assertTrue(taskList.path("inputSchema").path("properties").has("status"));
+        assertTrue(taskList.path("inputSchema").path("properties").has("assigneeId"));
+        assertTrue(taskList.path("description").asText().contains("0% 任务"));
+
+        assertEquals("list_task_changes", changes.path("name").asText());
+        assertTrue(changes.path("annotations").path("readOnlyHint").asBoolean());
+        assertEquals("linear-lite:read", changes.path("securitySchemes").get(0).path("scopes").get(0).asText());
+        assertEquals("date-time", changes.path("inputSchema").path("properties").path("from").path("format").asText());
+        assertTrue(changes.path("description").asText().contains("Asia/Shanghai"));
+        assertTrue(changes.path("description").asText().contains("当前 0% 任务排除，含 status 变化"));
+        assertTrue(changes.path("description").asText().contains("0% 升至正数"));
+        assertTrue(changes.path("description").asText().contains("updatedAt 变化不代表进度变化"));
+    }
+
+    @Test
+    void listProjectTasksPaginatesWithoutDuplicatesAndPreservesZeroProgress() throws Exception {
+        when(taskQueryService.listProjectTasksForMcp(37L, null, 2, null, null, 9L))
+                .thenReturn(List.of(taskItem(1L, "EASYGO-1", "backlog", 20, 3L),
+                        taskItem(2L, "EASYGO-2", "done", 0, null),
+                        taskItem(3L, "EASYGO-3", "todo", 55, 4L)));
+        when(taskQueryService.listProjectTasksForMcp(37L, 2L, 2, null, null, 9L))
+                .thenReturn(List.of(taskItem(3L, "EASYGO-3", "todo", 55, 4L)));
+
+        McpDispatcher.DispatchResponse first = dispatch(request("tasks-1", "tools/call",
+                "{\"name\":\"list_project_tasks\",\"arguments\":{\"projectId\":37,\"limit\":2}}"),
+                null, null, null, null, 9L);
+        JsonNode firstContent = first.body().path("result").path("structuredContent");
+        assertTrue(firstContent.path("hasMore").asBoolean());
+        assertEquals("2", firstContent.path("nextCursor").asText());
+        assertEquals(2, firstContent.path("items").size());
+        assertEquals(0, firstContent.path("items").get(1).path("progressPercent").asInt());
+        assertTrue(firstContent.path("items").get(1).path("assigneeId").isNull());
+
+        McpDispatcher.DispatchResponse second = dispatch(request("tasks-2", "tools/call",
+                "{\"name\":\"list_project_tasks\",\"arguments\":{\"projectId\":37,\"limit\":2,\"cursor\":\"2\"}}"),
+                null, null, null, null, 9L);
+        JsonNode secondContent = second.body().path("result").path("structuredContent");
+        assertFalse(secondContent.path("hasMore").asBoolean());
+        assertTrue(secondContent.path("nextCursor").isNull());
+
+        List<Long> ids = List.of(
+                firstContent.path("items").get(0).path("id").asLong(),
+                firstContent.path("items").get(1).path("id").asLong(),
+                secondContent.path("items").get(0).path("id").asLong());
+        assertEquals(List.of(1L, 2L, 3L), ids);
+        verify(taskQueryService).listProjectTasksForMcp(37L, null, 2, null, null, 9L);
+        verify(taskQueryService).listProjectTasksForMcp(37L, 2L, 2, null, null, 9L);
+    }
+
+    @Test
+    void listProjectTasksReturnsAnEmptyTerminalPage() throws Exception {
+        when(taskQueryService.listProjectTasksForMcp(37L, null, 100, null, null, 9L)).thenReturn(List.of());
+
+        McpDispatcher.DispatchResponse response = dispatch(request("tasks-empty", "tools/call",
+                "{\"name\":\"list_project_tasks\",\"arguments\":{\"projectId\":37}}"),
+                null, null, null, null, 9L);
+        JsonNode content = response.body().path("result").path("structuredContent");
+
+        assertEquals(0, content.path("items").size());
+        assertFalse(content.path("hasMore").asBoolean());
+        assertTrue(content.path("nextCursor").isNull());
+    }
+
+    @Test
+    void listProjectTasksPassesOptionalStateAndAssigneeFilters() throws Exception {
+        when(taskQueryService.listProjectTasksForMcp(37L, null, 25, "in_progress", 9L, 9L))
+                .thenReturn(List.of(taskItem(8L, "EASYGO-8", "in_progress", 35, 9L)));
+
+        McpDispatcher.DispatchResponse response = dispatch(request("task-filters", "tools/call",
+                "{\"name\":\"list_project_tasks\",\"arguments\":{\"projectId\":37,\"limit\":25,\"status\":\"in_progress\",\"assigneeId\":9}}"),
+                null, null, null, null, 9L);
+
+        assertEquals(8L, response.body().path("result").path("structuredContent")
+                .path("items").get(0).path("id").asLong());
+        verify(taskQueryService).listProjectTasksForMcp(37L, null, 25, "in_progress", 9L, 9L);
+    }
+
+    @Test
+    void listTaskChangesUsesShanghaiHalfOpenBoundsAndReturnsActorAndOffset() throws Exception {
+        TaskChangeRecord change = new TaskChangeRecord();
+        change.setId(45L);
+        change.setTaskId(121L);
+        change.setTaskKey("EASYGO-9");
+        change.setField("progressPercent");
+        change.setOldValue("0");
+        change.setNewValue("25");
+        change.setChangedAt(LocalDateTime.of(2026, 10, 14, 0, 0));
+        change.setActorId(9L);
+        change.setActorDisplayName("alice");
+        when(taskActivityService.listProjectTaskChangesForMcp(37L,
+                LocalDateTime.of(2026, 10, 14, 0, 0), LocalDateTime.of(2026, 10, 15, 0, 0),
+                List.of("progressPercent", "status"), null, 100, 9L)).thenReturn(List.of(change));
+
+        McpDispatcher.DispatchResponse response = dispatch(request("changes", "tools/call",
+                "{\"name\":\"list_task_changes\",\"arguments\":{\"projectId\":37,\"from\":\"2026-10-13T16:00:00Z\",\"to\":\"2026-10-14T16:00:00Z\"}}"),
+                null, null, null, null, 9L);
+        JsonNode content = response.body().path("result").path("structuredContent");
+        JsonNode item = content.path("items").get(0);
+
+        assertEquals("Asia/Shanghai", content.path("timezone").asText());
+        assertEquals("2026-10-14T00:00:00+08:00", content.path("from").asText());
+        assertEquals("2026-10-15T00:00:00+08:00", content.path("to").asText());
+        assertEquals(121L, item.path("taskId").asLong());
+        assertEquals("progressPercent", item.path("field").asText());
+        assertEquals("0", item.path("oldValue").asText());
+        assertEquals("25", item.path("newValue").asText());
+        assertEquals("2026-10-14T00:00:00+08:00", item.path("changedAt").asText());
+        assertEquals(9L, item.path("actor").path("id").asLong());
+        assertEquals("alice", item.path("actor").path("displayName").asText());
+        assertTrue(content.path("historyNote").asText().contains("中间值无法还原"));
+        verify(taskActivityService).listProjectTaskChangesForMcp(37L,
+                LocalDateTime.of(2026, 10, 14, 0, 0), LocalDateTime.of(2026, 10, 15, 0, 0),
+                List.of("progressPercent", "status"), null, 100, 9L);
+    }
+
+    @Test
+    void listTaskChangesPaginatesByActivityCursor() throws Exception {
+        TaskChangeRecord firstChange = taskChange(41L, "status", "todo", "in_progress");
+        TaskChangeRecord secondChange = taskChange(42L, "progressPercent", "0", "15");
+        when(taskActivityService.listProjectTaskChangesForMcp(37L,
+                LocalDateTime.of(2026, 10, 14, 0, 0), LocalDateTime.of(2026, 10, 15, 0, 0),
+                List.of("status", "progressPercent"), null, 1, 9L))
+                .thenReturn(List.of(firstChange, secondChange));
+        when(taskActivityService.listProjectTaskChangesForMcp(37L,
+                LocalDateTime.of(2026, 10, 14, 0, 0), LocalDateTime.of(2026, 10, 15, 0, 0),
+                List.of("status", "progressPercent"), 41L, 1, 9L))
+                .thenReturn(List.of(secondChange));
+
+        String firstArgs = "{\"projectId\":37,\"from\":\"2026-10-14T00:00:00+08:00\","
+                + "\"to\":\"2026-10-15T00:00:00+08:00\",\"fields\":[\"status\",\"progressPercent\"],\"limit\":1}";
+        McpDispatcher.DispatchResponse first = dispatch(request("change-page-1", "tools/call",
+                "{\"name\":\"list_task_changes\",\"arguments\":" + firstArgs + "}"),
+                null, null, null, null, 9L);
+        JsonNode firstContent = first.body().path("result").path("structuredContent");
+        assertTrue(firstContent.path("hasMore").asBoolean());
+        assertEquals("41", firstContent.path("nextCursor").asText());
+        assertEquals(41L, firstContent.path("items").get(0).path("taskId").asLong());
+
+        String secondArgs = "{\"projectId\":37,\"from\":\"2026-10-14T00:00:00+08:00\","
+                + "\"to\":\"2026-10-15T00:00:00+08:00\",\"fields\":[\"status\",\"progressPercent\"],"
+                + "\"limit\":1,\"cursor\":\"41\"}";
+        McpDispatcher.DispatchResponse second = dispatch(request("change-page-2", "tools/call",
+                "{\"name\":\"list_task_changes\",\"arguments\":" + secondArgs + "}"),
+                null, null, null, null, 9L);
+        JsonNode secondContent = second.body().path("result").path("structuredContent");
+        assertFalse(secondContent.path("hasMore").asBoolean());
+        assertEquals(42L, secondContent.path("items").get(0).path("taskId").asLong());
+        verify(taskActivityService).listProjectTaskChangesForMcp(37L,
+                LocalDateTime.of(2026, 10, 14, 0, 0), LocalDateTime.of(2026, 10, 15, 0, 0),
+                List.of("status", "progressPercent"), 41L, 1, 9L);
+    }
+
+    @Test
+    void listTaskChangesReturnsAnEmptyTerminalPage() throws Exception {
+        when(taskActivityService.listProjectTaskChangesForMcp(37L,
+                LocalDateTime.of(2026, 10, 14, 0, 0), LocalDateTime.of(2026, 10, 15, 0, 0),
+                List.of("progressPercent", "status"), null, 100, 9L)).thenReturn(List.of());
+
+        McpDispatcher.DispatchResponse response = dispatch(request("changes-empty", "tools/call",
+                "{\"name\":\"list_task_changes\",\"arguments\":{\"projectId\":37,"
+                        + "\"from\":\"2026-10-14T00:00:00+08:00\",\"to\":\"2026-10-15T00:00:00+08:00\"}}"),
+                null, null, null, null, 9L);
+        JsonNode content = response.body().path("result").path("structuredContent");
+
+        assertEquals(0, content.path("items").size());
+        assertFalse(content.path("hasMore").asBoolean());
+        assertTrue(content.path("nextCursor").isNull());
+    }
+
+    @Test
+    void listTaskChangesRejectsLocalTimesWithoutAnOffset() throws Exception {
+        McpDispatcher.DispatchResponse response = dispatch(request("changes-no-offset", "tools/call",
+                "{\"name\":\"list_task_changes\",\"arguments\":{\"projectId\":37,\"from\":\"2026-10-14T00:00:00\",\"to\":\"2026-10-15T00:00:00+08:00\"}}"),
+                null, null, null, null, 9L);
+
+        assertEquals(400, response.status());
+        assertTrue(response.body().has("error"));
+        verifyNoInteractions(taskActivityService);
     }
 
     @Test
@@ -423,6 +629,33 @@ class McpDispatcherTest {
 
         assertEquals(400, response.status());
         assertEquals(-32602, response.body().path("error").path("code").asInt());
+    }
+
+    private TaskListItemResponse taskItem(Long id, String taskKey, String status, int progress, Long assigneeId) {
+        TaskListItemResponse item = new TaskListItemResponse();
+        item.setId(id);
+        item.setTaskKey(taskKey);
+        item.setTitle(taskKey);
+        item.setStatus(status);
+        item.setProgressPercent(progress);
+        item.setAssigneeId(assigneeId);
+        item.setAssigneeDisplayName(assigneeId == null ? null : "member-" + assigneeId);
+        item.setUpdatedAt(LocalDateTime.of(2026, 10, 14, 16, 30));
+        return item;
+    }
+
+    private TaskChangeRecord taskChange(Long id, String field, String oldValue, String newValue) {
+        TaskChangeRecord change = new TaskChangeRecord();
+        change.setId(id);
+        change.setTaskId(id);
+        change.setTaskKey("EASYGO-" + id);
+        change.setField(field);
+        change.setOldValue(oldValue);
+        change.setNewValue(newValue);
+        change.setChangedAt(LocalDateTime.of(2026, 10, 14, 12, 0));
+        change.setActorId(9L);
+        change.setActorDisplayName("alice");
+        return change;
     }
 
     private ProjectDocumentResponse documentResponse(String content) {

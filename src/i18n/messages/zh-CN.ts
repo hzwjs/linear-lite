@@ -107,6 +107,7 @@ const zhCN = {
     newProjectTitle: '新建项目',
     projectSettings: '项目设置',
     analytics: '统计',
+    agentConnections: 'Agent 接入',
     signOut: '登出',
     workspaceNavigation: '工作区导航',
     compactNavigation: '紧凑工作区导航',
@@ -828,6 +829,34 @@ const zhCN = {
     totalItems: '共 {total} 项',
     prevPage: '上一页',
     nextPage: '下一页'
+  },
+  agentSetup: {
+    title: 'Agent 接入',
+    purpose: '为支持 OAuth 的 Agent 配置远程 MCP，为 stdio Agent 配置本机连接器。',
+    endpointLabel: 'MCP 地址',
+    remote: '远程 OAuth',
+    local: '本机 stdio',
+    remoteDescription: 'Agent 直接访问 Linear Lite MCP。浏览器 OAuth 由 Agent 完成。',
+    localDescription: '连接器通过 stdio 接收协议消息，使用浏览器 OAuth 和系统凭据库保存令牌。',
+    agentLabel: 'Agent',
+    vsCode: 'VS Code',
+    genericStdio: '通用 stdio 配置',
+    commandLabel: '连接器程序路径',
+    commandPlaceholderMac: '/Applications/Linear Lite/linear-lite-mcp-connector',
+    commandPlaceholderWindows: 'C:\\Program Files\\Linear Lite\\linear-lite-mcp-connector.exe',
+    commandPlaceholderLinux: '/usr/local/bin/linear-lite-mcp-connector',
+    commandHelp: '填写本机连接器可执行文件的完整路径。配置片段不包含凭据。',
+    downloadConnector: '下载本机连接器',
+    genericStdioNote: '通用输出是 stdio 配置片段。请按目标 Agent 的配置文件结构放置。',
+    configLabel: 'Agent 配置',
+    copyConfig: '复制配置',
+    copied: '已复制',
+    copyFailed: '复制失败，请选择配置文本后复制。',
+    remoteOAuthNote: '首次连接时，VS Code 会打开浏览器完成 OAuth 授权。',
+    localOAuthNote: '首次启动连接器时会打开浏览器授权；令牌写入 macOS 钥匙串、Windows 凭据管理器或 Linux Secret Service。',
+    credentialsNote: '用户名、密码和令牌不会写入 Agent 配置。',
+    codexNote: 'Codex 团队连接沿用现有插件配置。',
+    readWriteScopes: '授权范围：读取与写入 Linear Lite 工作区内容。'
   }
 } as const
 

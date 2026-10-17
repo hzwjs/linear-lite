@@ -12,6 +12,7 @@ public class McpOAuthProperties {
     private String issuer = "";
     private String resource = "";
     private long tokenTtlSeconds = 2_592_000;
+    private long refreshTokenTtlSeconds = 2_592_000;
 
     public boolean isEnabled() {
         return enabled;
@@ -51,11 +52,22 @@ public class McpOAuthProperties {
         this.tokenTtlSeconds = tokenTtlSeconds;
     }
 
+    public long getRefreshTokenTtlSeconds() {
+        return refreshTokenTtlSeconds;
+    }
+
+    public void setRefreshTokenTtlSeconds(long refreshTokenTtlSeconds) {
+        this.refreshTokenTtlSeconds = refreshTokenTtlSeconds;
+    }
+
     public void validateForAuthorizationServer() {
         requireHttpsOrigin(getIssuer(), "mcp.oauth.issuer");
         requireHttpsResource(getResource(), "mcp.oauth.resource");
         if (tokenTtlSeconds < 300 || tokenTtlSeconds > 2_592_000) {
             throw new IllegalStateException("mcp.oauth.token-ttl-seconds must be between 300 and 2592000.");
+        }
+        if (refreshTokenTtlSeconds < 3_600 || refreshTokenTtlSeconds > 7_776_000) {
+            throw new IllegalStateException("mcp.oauth.refresh-token-ttl-seconds must be between 3600 and 7776000.");
         }
     }
 

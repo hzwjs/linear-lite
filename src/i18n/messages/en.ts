@@ -107,6 +107,7 @@ const en = {
     newProjectTitle: 'New project',
     projectSettings: 'Project settings',
     analytics: 'Analytics',
+    agentConnections: 'Agent connections',
     signOut: 'Sign out',
     workspaceNavigation: 'Workspace navigation',
     compactNavigation: 'Compact workspace navigation',
@@ -828,6 +829,34 @@ const en = {
     totalItems: '{total} items',
     prevPage: 'Previous',
     nextPage: 'Next'
+  },
+  agentSetup: {
+    title: 'Agent connections',
+    purpose: 'Use remote MCP for Agents with OAuth support, or the local connector for stdio Agents.',
+    endpointLabel: 'MCP endpoint',
+    remote: 'Remote OAuth',
+    local: 'Local stdio',
+    remoteDescription: 'The Agent connects to Linear Lite MCP. The Agent handles browser OAuth.',
+    localDescription: 'The connector receives MCP messages over stdio, runs browser OAuth, and stores tokens in the operating-system credential store.',
+    agentLabel: 'Agent',
+    vsCode: 'VS Code',
+    genericStdio: 'Generic stdio configuration',
+    commandLabel: 'Connector executable path',
+    commandPlaceholderMac: '/Applications/Linear Lite/linear-lite-mcp-connector',
+    commandPlaceholderWindows: 'C:\\Program Files\\Linear Lite\\linear-lite-mcp-connector.exe',
+    commandPlaceholderLinux: '/usr/local/bin/linear-lite-mcp-connector',
+    commandHelp: 'Enter the full path to the local connector executable. The configuration contains no credentials.',
+    downloadConnector: 'Download local connector',
+    genericStdioNote: 'This is a generic stdio snippet. Place it in the format required by your Agent.',
+    configLabel: 'Agent configuration',
+    copyConfig: 'Copy configuration',
+    copied: 'Copied',
+    copyFailed: 'Could not copy. Select the configuration text and copy it.',
+    remoteOAuthNote: 'VS Code opens a browser for OAuth authorization on first connection.',
+    localOAuthNote: 'The connector opens a browser on first launch. Tokens are stored in macOS Keychain, Windows Credential Manager, or Linux Secret Service.',
+    credentialsNote: 'The Agent configuration contains no username, password, or token.',
+    codexNote: 'The Codex team connection keeps its current plugin configuration.',
+    readWriteScopes: 'Scopes: read and write Linear Lite workspace content.'
   }
 } as const
 

@@ -312,13 +312,13 @@ async function handleCreate() {
       role="dialog"
       aria-modal="true"
       :aria-label="t('issueComposer.dialogLabel')"
-      @click.self="emit('close')"
     >
       <div class="composer-panel" @keydown.esc="emit('close')">
         <div class="composer-header">
           <div class="composer-title">{{ t('issueComposer.title') }}</div>
           <button class="composer-close" type="button" :aria-label="t('common.close')" @click="emit('close')">
             <X :size="16" aria-hidden="true" />
+            <span>{{ t('common.close') }}</span>
           </button>
         </div>
 
@@ -526,19 +526,29 @@ async function handleCreate() {
 }
 
 .composer-close {
-  width: 32px;
-  height: 32px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
-  border-radius: var(--radius-sm);
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-md);
   color: var(--color-text-secondary);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
 }
 
 .composer-close:hover {
-  background: var(--color-hover);
+  background: var(--color-bg-hover);
   color: var(--color-text-primary);
+}
+
+.composer-close:focus-visible {
+  outline: 2px solid var(--color-border-strong);
+  outline-offset: 1px;
 }
 
 .composer-body {

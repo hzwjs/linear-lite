@@ -207,6 +207,7 @@ const paletteCommands = computed<CommandItem[]>(() => [
 ])
 
 const isLoginRoute = computed(() => route.path === '/login')
+const isStandaloneRoute = computed(() => route.meta.standalone === true)
 
 function ensureProjects() {
   if (authStore.isLoggedIn && !isLoginRoute.value) {
@@ -274,6 +275,7 @@ async function openFavoriteDocument(documentId: number, projectId: number) {
 const showEmptyProjects = computed(
   () =>
     !isLoginRoute.value &&
+    !isStandaloneRoute.value &&
     authStore.isLoggedIn &&
     projectStore.projects.length === 0
 )
@@ -282,6 +284,7 @@ const showEmptyProjects = computed(
 const showSelectProject = computed(
   () =>
     !isLoginRoute.value &&
+    !isStandaloneRoute.value &&
     authStore.isLoggedIn &&
     projectStore.projects.length > 0 &&
     projectStore.activeProjectId == null
@@ -383,6 +386,7 @@ onUnmounted(() => {
       @open-favorite-task="openFavoriteTask"
       @open-favorite-document="openFavoriteDocument"
       @open-analytics="router.push('/analytics')"
+      @open-agent-connections="router.push('/settings/agent-connections')"
       @toggle-projects-collapsed="toggleProjectsCollapsed"
       @reorder-projects="reorderProjects"
       @create-project="createProjectOpen = true"

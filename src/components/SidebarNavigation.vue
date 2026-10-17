@@ -5,6 +5,7 @@ import type { Project, Task } from '../types/domain'
 import type { ProjectDocumentTreeNode } from '../types/document'
 import {
   BarChart3,
+  Bot,
   CheckCircle,
   ChevronDown,
   ChevronRight,
@@ -52,6 +53,7 @@ const emit = defineEmits<{
   'open-favorite-task': [taskId: string, projectId?: number]
   'open-favorite-document': [documentId: number, projectId: number]
   'open-analytics': []
+  'open-agent-connections': []
   'toggle-projects-collapsed': []
   'reorder-projects': [projectIds: number[]]
   'create-project': []
@@ -586,6 +588,19 @@ onUnmounted(() => {
           >
             <BarChart3 class="sidebar-nav__icon sidebar-nav__item-icon" />
             <span class="sidebar-nav__item-label">{{ t('sidebar.analytics') }}</span>
+          </button>
+          <button
+            type="button"
+            class="sidebar-nav__item"
+            :class="{ 'sidebar-nav__item--active': routePath === '/settings/agent-connections' }"
+            :title="t('sidebar.agentConnections')"
+            :aria-current="routePath === '/settings/agent-connections' ? 'page' : undefined"
+            data-item-kind="agent-connections"
+            data-testid="sidebar-agent-connections"
+            @click="emit('open-agent-connections')"
+          >
+            <Bot class="sidebar-nav__icon sidebar-nav__item-icon" aria-hidden="true" />
+            <span class="sidebar-nav__item-label">{{ t('sidebar.agentConnections') }}</span>
           </button>
         </nav>
       </section>

@@ -54,6 +54,12 @@ const router = createRouter({
       component: () => import('../views/AnalyticsView.vue')
     },
     {
+      path: '/settings/agent-connections',
+      name: 'agent-connections',
+      component: () => import('../views/AgentSetupView.vue'),
+      meta: { standalone: true }
+    },
+    {
       path: '/login',
       name: 'login',
       component: () => import('../views/LoginView.vue')

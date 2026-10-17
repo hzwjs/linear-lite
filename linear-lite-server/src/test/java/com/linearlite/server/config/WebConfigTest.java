@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -46,4 +47,21 @@ class WebConfigTest {
 
         assertNotEquals(403, response.getStatus());
     }
+
+    @Test
+    void permitsVsCodeOriginForOAuthAndMcp() throws Exception {
+        WebConfig config = new WebConfig();
+        ReflectionTestUtils.setField(config, "allowedOrigins", "http://localhost:5173,http://127.0.0.1:5173");
+        ReflectionTestUtils.setField(config, "allowedOriginPatterns", "http://localhost:*,http://127.0.0.1:*,http://[::1]:*");
+        MockHttpServletRequest request = new MockHttpServletRequest("OPTIONS", "/oauth2/register");
+        request.addHeader("Origin", "https://vscode.dev");
+        request.addHeader("Access-Control-Request-Method", "POST");
+        request.addHeader("Access-Control-Request-Headers", "content-type");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        config.corsFilter().doFilter(request, response, new MockFilterChain());
+
+        assertEquals("https://vscode.dev", response.getHeader("Access-Control-Allow-Origin"));
+    }
+
 }

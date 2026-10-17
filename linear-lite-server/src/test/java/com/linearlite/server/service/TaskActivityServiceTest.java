@@ -3,9 +3,11 @@ package com.linearlite.server.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.linearlite.server.dto.TaskActivityResponse;
+import com.linearlite.server.dto.TaskChangeRecord;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskActivity;
 import com.linearlite.server.entity.User;
+import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.mapper.TaskActivityMapper;
 import com.linearlite.server.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,11 +22,14 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 class TaskActivityServiceTest {
@@ -59,25 +64,16 @@ class TaskActivityServiceTest {
     }
 
     @Test
-    void recordFieldChangeCoalescesFrequentProgressUpdates() {
-        TaskActivity recent = new TaskActivity();
-        recent.setId(66L);
-        recent.setTaskId(3L);
-        recent.setUserId(8L);
-        recent.setActionType("changed");
-        recent.setFieldName("progressPercent");
-        recent.setOldValue("20");
-        recent.setNewValue("30");
-        recent.setCreatedAt(LocalDateTime.now().minusSeconds(30));
-        Page<TaskActivity> page = new Page<>(1, 1);
-        page.setRecords(List.of(recent));
-        when(taskActivityMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(page);
-
+    void recordFieldChangePersistsEachProgressUpdate() {
         taskActivityService.recordFieldChange(3L, 8L, "progressPercent", "30", "40");
 
-        verify(taskActivityMapper).updateById(recent);
-        assertEquals("40", recent.getNewValue());
-        verify(taskActivityMapper, never()).insert(any());
+        ArgumentCaptor<TaskActivity> captor = ArgumentCaptor.forClass(TaskActivity.class);
+        verify(taskActivityMapper).insert(captor.capture());
+        assertEquals("progressPercent", captor.getValue().getFieldName());
+        assertEquals("30", captor.getValue().getOldValue());
+        assertEquals("40", captor.getValue().getNewValue());
+        verify(taskActivityMapper, never()).selectPage(any(Page.class), any(LambdaQueryWrapper.class));
+        verify(taskActivityMapper, never()).updateById(any());
     }
 
     @Test
@@ -122,6 +118,51 @@ class TaskActivityServiceTest {
         assertEquals("changed", result.get(1).getActionType());
         assertEquals("status", result.get(1).getFieldName());
         assertEquals(LocalDateTime.of(2026, 3, 14, 10, 0), result.get(1).getCreatedAt());
+    }
+
+    @Test
+    void listProjectTaskChangesUsesProjectRangeFieldsAndKeysetCursor() {
+        LocalDateTime from = LocalDateTime.of(2026, 10, 14, 0, 0);
+        LocalDateTime to = LocalDateTime.of(2026, 10, 15, 0, 0);
+        TaskChangeRecord change = new TaskChangeRecord();
+        change.setId(51L);
+        change.setTaskId(3L);
+        change.setTaskKey("ENG-3");
+        change.setField("status");
+        change.setOldValue("todo");
+        change.setNewValue("in_progress");
+        change.setChangedAt(from);
+        change.setActorId(8L);
+        change.setActorDisplayName("alice");
+        when(taskActivityMapper.selectMcpProjectTaskChanges(
+                7L, from, to, List.of("progressPercent", "status"), 25L, 4))
+                .thenReturn(List.of(change));
+
+        List<TaskChangeRecord> result = taskActivityService.listProjectTaskChangesForMcp(
+                7L, from, to, List.of("progressPercent", "status"), 25L, 3, 9L);
+
+        assertEquals(1, result.size());
+        assertEquals("status", result.get(0).getField());
+        assertEquals("alice", result.get(0).getActorDisplayName());
+        verify(taskPermissionGuard).requireProjectMember(7L, 9L);
+        verify(taskActivityMapper).selectMcpProjectTaskChanges(
+                7L, from, to, List.of("progressPercent", "status"), 25L, 4);
+    }
+
+    @Test
+    void listProjectTaskChangesRejectsInvalidRangesAndChecksProjectPermission() {
+        LocalDateTime from = LocalDateTime.of(2026, 10, 15, 0, 0);
+        LocalDateTime to = LocalDateTime.of(2026, 10, 14, 0, 0);
+        assertThrows(IllegalArgumentException.class, () -> taskActivityService.listProjectTaskChangesForMcp(
+                7L, from, to, List.of("status"), null, 20, 9L));
+        assertThrows(IllegalArgumentException.class, () -> taskActivityService.listProjectTaskChangesForMcp(
+                7L, from, from.plusDays(1), List.of("description"), null, 20, 9L));
+
+        doThrow(new ForbiddenOperationException("not a member"))
+                .when(taskPermissionGuard).requireProjectMember(7L, 9L);
+        assertThrows(ForbiddenOperationException.class, () -> taskActivityService.listProjectTaskChangesForMcp(
+                7L, from, from.plusDays(1), List.of("status"), null, 20, 9L));
+        verifyNoInteractions(taskActivityMapper);
     }
 
     @Test

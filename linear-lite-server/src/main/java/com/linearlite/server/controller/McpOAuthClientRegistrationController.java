@@ -22,6 +22,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,9 +52,9 @@ public class McpOAuthClientRegistrationController {
         }
         List<String> redirectUris = stringArray(request.path("redirect_uris"));
         if (redirectUris.isEmpty() || redirectUris.size() > 5
-                || redirectUris.stream().anyMatch(uri -> !McpOAuthRedirectUris.isAllowed(uri))
+                || !McpOAuthRedirectUris.isAllowedRegistrationSet(new HashSet<>(redirectUris))
                 || redirectUris.stream().mapToInt(String::length).sum() + redirectUris.size() > 1000
-                || redirectUris.stream().map(uri -> URI.create(uri).getScheme()).distinct().count() != 1) {
+        ) {
             return invalid("Unsupported redirect_uris.");
         }
         List<String> grantTypes = request.path("grant_types").isMissingNode()
@@ -84,21 +85,30 @@ public class McpOAuthClientRegistrationController {
         }
         String clientId = UUID.randomUUID().toString();
         Instant issuedAt = Instant.now();
+        List<org.springframework.security.oauth2.core.AuthorizationGrantType> authorizationGrantTypes =
+                new ArrayList<>(List.of(AuthorizationGrantType.AUTHORIZATION_CODE));
+        if (grantTypes.contains("refresh_token")) {
+            authorizationGrantTypes.add(AuthorizationGrantType.REFRESH_TOKEN);
+        }
+        TokenSettings.Builder tokenSettings = TokenSettings.builder()
+                .accessTokenTimeToLive(Duration.ofSeconds(properties.getTokenTtlSeconds()));
+        if (grantTypes.contains("refresh_token")) {
+            tokenSettings.refreshTokenTimeToLive(Duration.ofSeconds(properties.getRefreshTokenTtlSeconds()))
+                    .reuseRefreshTokens(false);
+        }
         RegisteredClient client = RegisteredClient.withId(clientId)
                 .clientId(clientId)
                 .clientIdIssuedAt(issuedAt)
                 .clientName(clientName)
                 .clientAuthenticationMethod(ClientAuthenticationMethod.NONE)
-                .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+                .authorizationGrantTypes(grants -> grants.addAll(authorizationGrantTypes))
                 .redirectUris(uris -> uris.addAll(redirectUris))
                 .scopes(scopes -> scopes.addAll(requestedScopes))
                 .clientSettings(ClientSettings.builder()
                         .requireProofKey(true)
                         .requireAuthorizationConsent(true)
                         .build())
-                .tokenSettings(TokenSettings.builder()
-                        .accessTokenTimeToLive(Duration.ofSeconds(properties.getTokenTtlSeconds()))
-                        .build())
+                .tokenSettings(tokenSettings.build())
                 .build();
         clients.save(client);
 
@@ -109,8 +119,7 @@ public class McpOAuthClientRegistrationController {
         response.put("redirect_uris", redirectUris);
         response.put("application_type", "http".equals(URI.create(redirectUris.get(0)).getScheme())
                 ? "native" : "web");
-        // Spring Authorization Server does not issue refresh tokens to public PKCE clients.
-        response.put("grant_types", List.of("authorization_code"));
+        response.put("grant_types", grantTypes);
         response.put("response_types", List.of("code"));
         response.put("token_endpoint_auth_method", "none");
         response.put("scope", String.join(" ", requestedScopes));

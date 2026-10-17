@@ -1,0 +1,77 @@
+name: Linear Lite MCP connector release
+
+on:
+  push:
+    tags:
+      - 'linear-lite-mcp-connector-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x64
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - label: macos-arm64
+            os: macos-15
+            target: aarch64-apple-darwin
+          - label: macos-x64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+          - label: windows-x64
+            os: windows-2025
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install Linux keyring build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes pkg-config libdbus-1-dev
+      - name: Build connector
+        run: cargo build --locked --release --target ${{ matrix.target }} --manifest-path linear-lite-mcp-connector/Cargo.toml
+      - name: Package connector on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir package
+          cp target/${{ matrix.target }}/release/linear-lite-mcp-connector package/
+          cp 'docs/本机 MCP 连接器使用说明 V1.md' package/INSTALL.md
+          tar -czf linear-lite-mcp-connector-${{ matrix.label }}.tar.gz -C package .
+      - name: Package connector on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/linear-lite-mcp-connector.exe package/
+          Copy-Item 'docs/本机 MCP 连接器使用说明 V1.md' package/INSTALL.md
+          Compress-Archive -Path package/* -DestinationPath linear-lite-mcp-connector-${{ matrix.label }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linear-lite-mcp-connector-${{ matrix.label }}
+          path: linear-lite-mcp-connector-${{ matrix.label }}.*
+          if-no-files-found: error
+
+  draft-release:
+    name: Create draft release
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: linear-lite-mcp-connector-*
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: release-assets/*

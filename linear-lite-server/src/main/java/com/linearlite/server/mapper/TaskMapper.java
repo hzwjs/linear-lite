@@ -111,6 +111,39 @@ public interface TaskMapper extends BaseMapper<Task> {
     @Select("""
             <script>
             SELECT
+              t.id AS id,
+              t.task_key AS taskKey,
+              t.title AS title,
+              t.status AS status,
+              t.progress_percent AS progressPercent,
+              t.assignee_id AS assigneeId,
+              t.assignee_display_name AS assigneeDisplayName,
+              t.updated_at AS updatedAt
+            FROM tasks t
+            WHERE t.project_id = #{projectId}
+              <if test="afterId != null">
+                AND t.id &gt; #{afterId}
+              </if>
+              <if test="status != null">
+                AND t.status = #{status}
+              </if>
+              <if test="assigneeId != null">
+                AND t.assignee_id = #{assigneeId}
+              </if>
+            ORDER BY t.id ASC
+            LIMIT #{fetchLimit}
+            </script>
+            """)
+    List<TaskListItemResponse> selectMcpProjectTasks(
+            @Param("projectId") Long projectId,
+            @Param("afterId") Long afterId,
+            @Param("status") String status,
+            @Param("assigneeId") Long assigneeId,
+            @Param("fetchLimit") int fetchLimit);
+
+    @Select("""
+            <script>
+            SELECT
               parent_id AS parentId,
               COUNT(*) AS totalCount,
               SUM(CASE WHEN LOWER(status) IN ('done', 'canceled', 'duplicate') THEN 1 ELSE 0 END) AS completedCount

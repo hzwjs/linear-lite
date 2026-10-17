@@ -19,6 +19,7 @@ import org.springframework.http.CacheControl;
 import java.util.ArrayList;
 import java.util.List;
 import java.time.Duration;
+import java.util.Set;
 
 /**
  * CORS 配置与 SPA 静态资源服务：允许 Vue (Vite) 本地开发域名访问；
@@ -79,7 +80,12 @@ public class WebConfig implements WebMvcConfigurer {
     public CorsFilter corsFilter() {
         CorsConfigurationSource source = (request) -> {
             String requestUri = request.getRequestURI();
-            if (!requestUri.startsWith("/api/") && !"/mcp".equals(requestUri)) {
+            boolean agentOAuthPath = Set.of(
+                    "/oauth2/register",
+                    "/oauth2/token",
+                    "/.well-known/oauth-authorization-server",
+                    "/.well-known/oauth-protected-resource/mcp").contains(requestUri);
+            if (!requestUri.startsWith("/api/") && !"/mcp".equals(requestUri) && !agentOAuthPath) {
                 return null;
             }
             CorsConfiguration config = new CorsConfiguration();
@@ -87,6 +93,9 @@ public class WebConfig implements WebMvcConfigurer {
             origins.removeIf(String::isBlank);
             List<String> originPatterns = new ArrayList<>(List.of(allowedOriginPatterns.trim().split(",\\s*")));
             originPatterns.removeIf(String::isBlank);
+            if ("/mcp".equals(requestUri) || agentOAuthPath) {
+                origins.add("https://vscode.dev");
+            }
             // 单 JAR 同机部署：请求的 Origin 与当前服务同 host+port 时自动放行
             String origin = request.getHeader("Origin");
             if (origin != null && !origin.isEmpty()) {

@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.security.McpOAuthRedirectUris;
 import com.linearlite.server.security.LinearLiteAuthenticationProvider;
 import com.linearlite.server.security.LinearLiteUserDetails;
+import com.linearlite.server.security.McpOAuthAuthorizationCodeAuthenticationProvider;
+import com.linearlite.server.security.McpOAuthRefreshTokenAuthenticationProvider;
+import com.linearlite.server.security.McpOAuthRefreshTokenStore;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.OctetSequenceKey;
@@ -33,6 +36,8 @@ import org.springframework.security.oauth2.server.authorization.authentication.O
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationValidator;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeAuthenticationProvider;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2RefreshTokenAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.security.oauth2.server.authorization.token.DelegatingOAuth2TokenGenerator;
 import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
@@ -45,6 +50,8 @@ import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcOperations;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.security.jackson2.SecurityJackson2Modules;
 
 import javax.crypto.SecretKey;
@@ -71,7 +78,10 @@ public class McpOAuthServerConfiguration {
             OAuth2AuthorizationService authorizationService,
             OAuth2AuthorizationConsentService consentService,
             AuthorizationServerSettings authorizationServerSettings,
-            OAuth2TokenGenerator<?> tokenGenerator) throws Exception {
+            OAuth2TokenGenerator<?> tokenGenerator,
+            McpOAuthRefreshTokenStore refreshTokenStore,
+            PlatformTransactionManager transactionManager,
+            McpOAuthProperties oauthProperties) throws Exception {
         if (!mcpProperties.isEnabled()) {
             throw new IllegalStateException("mcp.enabled must be true when MCP OAuth is enabled.");
         }
@@ -102,13 +112,27 @@ public class McpOAuthServerConfiguration {
                                         });
                                     }
                                 })))
+                        .tokenEndpoint(endpoint -> endpoint.authenticationProviders(providers -> {
+                            TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+                            for (int index = 0; index < providers.size(); index++) {
+                                if (providers.get(index) instanceof OAuth2AuthorizationCodeAuthenticationProvider codeProvider) {
+                                    providers.set(index, new McpOAuthAuthorizationCodeAuthenticationProvider(
+                                            codeProvider, authorizationService, refreshTokenStore, oauthProperties,
+                                            transactionTemplate));
+                                }
+                            }
+                            providers.removeIf(OAuth2RefreshTokenAuthenticationProvider.class::isInstance);
+                            providers.add(new McpOAuthRefreshTokenAuthenticationProvider(
+                                    authorizationService, refreshTokenStore, tokenGenerator, oauthProperties,
+                                    transactionTemplate));
+                        }))
                         .authorizationServerMetadataEndpoint(endpoint -> endpoint
                                 .authorizationServerMetadataCustomizer(metadata -> {
                                     metadata.claim("registration_endpoint", properties.getIssuer() + "/oauth2/register");
                                     metadata.claim("token_endpoint_auth_methods_supported", List.of("none"));
                                     metadata.claim("code_challenge_methods_supported", List.of("S256"));
                                     metadata.claim("scopes_supported", List.of("linear-lite:read", "linear-lite:write"));
-                                    metadata.claim("grant_types_supported", List.of("authorization_code"));
+                                    metadata.claim("grant_types_supported", List.of("authorization_code", "refresh_token"));
                                     metadata.claim("revocation_endpoint_auth_methods_supported", List.of("none"));
                                     metadata.claims(claims -> {
                                         claims.remove("jwks_uri");
@@ -185,6 +209,12 @@ public class McpOAuthServerConfiguration {
             JdbcOperations jdbcOperations,
             RegisteredClientRepository registeredClientRepository) {
         return new JdbcOAuth2AuthorizationConsentService(jdbcOperations, registeredClientRepository);
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "mcp.oauth", name = "enabled", havingValue = "true")
+    McpOAuthRefreshTokenStore mcpOAuthRefreshTokenStore(JdbcOperations jdbcOperations) {
+        return new McpOAuthRefreshTokenStore(jdbcOperations);
     }
 
     @Bean

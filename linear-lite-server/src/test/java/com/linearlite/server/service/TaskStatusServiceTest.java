@@ -55,4 +55,25 @@ class TaskStatusServiceTest {
         assertTrue(update.getValue().getSqlSet().contains("completed_at"));
         verify(taskActivityService).recordFieldChangeAt(1L, 7L, "status", "todo", "duplicate", occurredAt);
     }
+
+    @Test
+    void zeroToPositiveProgressRecordsTheStoredBaselineChange() {
+        LocalDateTime occurredAt = LocalDateTime.of(2026, 10, 14, 17, 0);
+        Task existing = new Task();
+        existing.setId(2L);
+        existing.setStatus("todo");
+        existing.setProgressPercent(0);
+        Task updated = new Task();
+        updated.setId(2L);
+        updated.setStatus("todo");
+        updated.setProgressPercent(25);
+        when(taskMapper.selectByIdForUpdate(2L)).thenReturn(existing);
+        when(taskMapper.selectById(2L)).thenReturn(updated);
+
+        new TaskStatusService(taskMapper, taskActivityService)
+                .updateState(2L, "todo", 25, 9L, occurredAt);
+
+        verify(taskActivityService).recordFieldChangeAt(
+                2L, 9L, "progressPercent", "0", "25", occurredAt);
+    }
 }

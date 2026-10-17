@@ -19,9 +19,11 @@ import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class TaskQueryServiceTest {
@@ -112,6 +114,74 @@ class TaskQueryServiceTest {
     }
 
     @Test
+    void mcpProjectTaskListIncludesEveryStatusAndAssigneeWhenFiltersAreOmitted() {
+        AtomicReference<Object[]> queryArgs = new AtomicReference<>();
+        List<TaskListItemResponse> allStates = List.of(
+                task(1L, "ENG-1", null, "backlog"),
+                task(2L, "ENG-2", null, "todo"),
+                task(3L, "ENG-3", null, "in_progress"),
+                task(4L, "ENG-4", null, "in_review"),
+                task(5L, "ENG-5", null, "done"),
+                task(6L, "ENG-6", null, "canceled"),
+                task(7L, "ENG-7", null, "duplicate"));
+        allStates.get(0).setAssigneeId(4L);
+        allStates.get(4).setAssigneeId(5L);
+        allStates.get(4).setProgressPercent(0);
+        TaskMapper taskMapper = proxy(TaskMapper.class, invocation -> {
+            if ("selectMcpProjectTasks".equals(invocation.getMethod().getName())) {
+                queryArgs.set(invocation.args().clone());
+                return allStates;
+            }
+            throw new AssertionError("MCP snapshot must use the paged project task query");
+        });
+        AtomicInteger memberChecks = new AtomicInteger();
+        ProjectMemberMapper projectMemberMapper = proxy(ProjectMemberMapper.class, invocation -> {
+            if ("selectCount".equals(invocation.getMethod().getName())) {
+                memberChecks.incrementAndGet();
+                return 1L;
+            }
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
+
+        List<TaskListItemResponse> result = service(taskMapper, projectMemberMapper)
+                .listProjectTasksForMcp(7L, null, 10, null, null, 9L);
+
+        assertEquals(7, result.size());
+        assertEquals(List.of("backlog", "todo", "in_progress", "in_review", "done", "canceled", "duplicate"),
+                result.stream().map(TaskListItemResponse::getStatus).toList());
+        assertEquals(0, result.get(4).getProgressPercent());
+        assertEquals(4L, result.get(0).getAssigneeId());
+        assertEquals(5L, result.get(4).getAssigneeId());
+        assertEquals(7L, queryArgs.get()[0]);
+        assertNull(queryArgs.get()[1]);
+        assertNull(queryArgs.get()[2]);
+        assertNull(queryArgs.get()[3]);
+        assertEquals(11, queryArgs.get()[4]);
+        assertEquals(1, memberChecks.get());
+    }
+
+    @Test
+    void mcpProjectTaskListAllowsEmptyProjectsAndChecksAccessBeforeQuery() {
+        AtomicInteger queryCalls = new AtomicInteger();
+        TaskMapper taskMapper = proxy(TaskMapper.class, invocation -> {
+            if ("selectMcpProjectTasks".equals(invocation.getMethod().getName())) {
+                queryCalls.incrementAndGet();
+                return Collections.emptyList();
+            }
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
+        ProjectMemberMapper member = projectMemberMapper(1L);
+        assertEquals(Collections.emptyList(), service(taskMapper, member)
+                .listProjectTasksForMcp(7L, null, 10, null, null, 9L));
+        assertEquals(1, queryCalls.get());
+
+        ProjectMemberMapper nonMember = projectMemberMapper(0L);
+        assertThrows(ForbiddenOperationException.class, () -> service(taskMapper, nonMember)
+                .listProjectTasksForMcp(7L, null, 10, null, null, 9L));
+        assertEquals(1, queryCalls.get());
+    }
+
+    @Test
     void listItemsReturnsEmptyForProjectMemberWhenProjectHasNoTasks() {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), Task.class);
         AtomicInteger memberChecks = new AtomicInteger();
@@ -193,6 +263,28 @@ class TaskQueryServiceTest {
         task.setParentId(parentId);
         task.setProgressPercent(0);
         return task;
+    }
+
+    private static TaskQueryService service(TaskMapper taskMapper, ProjectMemberMapper projectMemberMapper) {
+        TaskPermissionGuard permissionGuard = new TaskPermissionGuard(
+                taskMapper, new ProjectAccessGuard(null, projectMemberMapper));
+        TaskFavoriteMapper favoriteMapper = proxy(TaskFavoriteMapper.class,
+                invocation -> defaultValue(invocation.getMethod().getReturnType()));
+        TaskLabelMapper taskLabelMapper = proxy(TaskLabelMapper.class,
+                invocation -> defaultValue(invocation.getMethod().getReturnType()));
+        LabelMapper labelMapper = proxy(LabelMapper.class,
+                invocation -> defaultValue(invocation.getMethod().getReturnType()));
+        LabelService labelService = new LabelService(labelMapper, taskLabelMapper, projectMemberMapper);
+        return new TaskQueryService(taskMapper, favoriteMapper, labelService, permissionGuard);
+    }
+
+    private static ProjectMemberMapper projectMemberMapper(long memberCount) {
+        return proxy(ProjectMemberMapper.class, invocation -> {
+            if ("selectCount".equals(invocation.getMethod().getName())) {
+                return memberCount;
+            }
+            return defaultValue(invocation.getMethod().getReturnType());
+        });
     }
 
     @FunctionalInterface

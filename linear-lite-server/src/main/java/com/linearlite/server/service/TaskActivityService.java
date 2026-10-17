@@ -2,6 +2,7 @@ package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.linearlite.server.dto.TaskChangeRecord;
 import com.linearlite.server.dto.TaskActivityResponse;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskActivity;
@@ -22,6 +23,8 @@ import java.util.stream.Stream;
 
 @Service
 public class TaskActivityService {
+
+    private static final Set<String> PROJECT_STATE_CHANGE_FIELDS = Set.of("progressPercent", "status");
 
     private final TaskActivityMapper taskActivityMapper;
     private final UserMapper userMapper;
@@ -49,7 +52,7 @@ public class TaskActivityService {
     private static final int GENERAL_VALUE_MAX_CHARS = 256;
     private static final int COALESCE_LOOKBACK_LIMIT = 200;
     private static final Set<String> COALESCE_FIELDS = Set.of(
-            "title", "progressPercent", "dueDate", "plannedStartDate", "labels");
+            "title", "dueDate", "plannedStartDate", "labels");
 
     public void recordFieldChange(Long taskId, Long userId, String fieldName, String oldValue, String newValue) {
         recordFieldChangeAt(taskId, userId, fieldName, oldValue, newValue, LocalDateTime.now());
@@ -144,6 +147,30 @@ public class TaskActivityService {
             response.setActorName(actor != null ? actor.getUsername() : "Someone");
             return response;
         }).toList();
+    }
+
+    public List<TaskChangeRecord> listProjectTaskChangesForMcp(
+            Long projectId, LocalDateTime from, LocalDateTime to, List<String> fields,
+            Long afterId, int limit, Long userId) {
+        if (projectId == null || projectId <= 0) {
+            throw new IllegalArgumentException("projectId 必须是正整数");
+        }
+        if (from == null || to == null || !from.isBefore(to)) {
+            throw new IllegalArgumentException("from 必须早于 to");
+        }
+        if (fields == null || fields.isEmpty()
+                || fields.stream().anyMatch(field -> field == null || !PROJECT_STATE_CHANGE_FIELDS.contains(field))) {
+            throw new IllegalArgumentException("fields 允许 progressPercent 和 status");
+        }
+        if (afterId != null && afterId <= 0) {
+            throw new IllegalArgumentException("cursor 必须是正整数");
+        }
+        if (limit < 1 || limit > 200) {
+            throw new IllegalArgumentException("limit 必须在 1 到 200 之间");
+        }
+        taskPermissionGuard.requireProjectMember(projectId, userId);
+        return taskActivityMapper.selectMcpProjectTaskChanges(
+                projectId, from, to, List.copyOf(fields), afterId, limit + 1);
     }
 
     private Map<Long, String> resolveUserNames(List<Long> userIds) {

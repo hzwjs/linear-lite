@@ -626,3 +626,32 @@ CREATE TABLE IF NOT EXISTS oauth2_authorization_consent (
     authorities          VARCHAR(1000) NOT NULL,
     PRIMARY KEY (registered_client_id, principal_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Refresh-token families keep raw refresh-token values out of oauth2_authorization.refresh_token_value.
+CREATE TABLE IF NOT EXISTS mcp_oauth_refresh_token_family (
+    family_id            VARCHAR(36)  NOT NULL,
+    authorization_id     VARCHAR(100) NOT NULL,
+    registered_client_id VARCHAR(100) NOT NULL,
+    resource             VARCHAR(512) NOT NULL,
+    scopes               VARCHAR(1000) NOT NULL,
+    created_at           TIMESTAMP(6) NOT NULL,
+    expires_at           TIMESTAMP(6) NOT NULL,
+    last_used_at         TIMESTAMP(6) DEFAULT NULL,
+    revoked_at           TIMESTAMP(6) DEFAULT NULL,
+    PRIMARY KEY (family_id),
+    KEY idx_mcp_oauth_refresh_family_authorization (authorization_id),
+    KEY idx_mcp_oauth_refresh_family_client (registered_client_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS mcp_oauth_refresh_token (
+    token_hash  CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    family_id   VARCHAR(36) NOT NULL,
+    issued_at   TIMESTAMP(6) NOT NULL,
+    expires_at  TIMESTAMP(6) NOT NULL,
+    consumed_at TIMESTAMP(6) DEFAULT NULL,
+    revoked_at  TIMESTAMP(6) DEFAULT NULL,
+    PRIMARY KEY (token_hash),
+    KEY idx_mcp_oauth_refresh_token_family (family_id),
+    CONSTRAINT fk_mcp_oauth_refresh_token_family
+        FOREIGN KEY (family_id) REFERENCES mcp_oauth_refresh_token_family (family_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

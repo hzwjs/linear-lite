@@ -58,6 +58,24 @@ public class TaskQueryService {
         return list;
     }
 
+    public List<TaskListItemResponse> listProjectTasksForMcp(
+            Long projectId, Long afterId, int limit, String status, Long assigneeId, Long userId) {
+        if (projectId == null || projectId <= 0) {
+            throw new IllegalArgumentException("projectId 必须是正整数");
+        }
+        if (afterId != null && afterId <= 0) {
+            throw new IllegalArgumentException("cursor 必须是正整数");
+        }
+        if (limit < 1 || limit > 200) {
+            throw new IllegalArgumentException("limit 必须在 1 到 200 之间");
+        }
+        if (assigneeId != null && assigneeId <= 0) {
+            throw new IllegalArgumentException("assigneeId 必须是正整数");
+        }
+        taskPermissionGuard.requireProjectMember(projectId, userId);
+        return taskMapper.selectMcpProjectTasks(projectId, afterId, status, assigneeId, limit + 1);
+    }
+
     public List<TaskListItemResponse> listItemsByProjectId(Long projectId, Boolean topLevelOnly, Long parentId, Long userId) {
         if (projectId == null) {
             throw new IllegalArgumentException("projectId 不能为空");

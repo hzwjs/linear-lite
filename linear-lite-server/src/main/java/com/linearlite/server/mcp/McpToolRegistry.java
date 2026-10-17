@@ -1,13 +1,16 @@
 package com.linearlite.server.mcp;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.DecimalNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linearlite.server.dto.CreateProjectDocumentRequest;
 import com.linearlite.server.dto.CreateTaskCommentRequest;
+import com.linearlite.server.dto.TaskChangeRecord;
+import com.linearlite.server.dto.TaskListItemResponse;
 import com.linearlite.server.dto.TaskLabelItemRequest;
 import com.linearlite.server.dto.UpdateProjectDocumentRequest;
 import com.linearlite.server.dto.UpdateTaskRequest;
@@ -17,8 +20,10 @@ import com.linearlite.server.service.McpDocumentPatchService;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.service.ProjectService;
 import com.linearlite.server.service.TaskCommandService;
+import com.linearlite.server.service.TaskActivityService;
 import com.linearlite.server.service.TaskCommentService;
 import com.linearlite.server.service.TaskQueryService;
+import com.linearlite.server.time.BeijingTime;
 import com.linearlite.server.entity.User;
 import com.linearlite.server.mapper.UserMapper;
 import org.springframework.stereotype.Component;
@@ -26,6 +31,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDateTime;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashSet;
@@ -59,7 +67,8 @@ public class McpToolRegistry {
     private static final int MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024;
     private static final int MAX_TOTAL_IMAGE_BASE64_CHARS = 4 * ((MAX_TOTAL_IMAGE_BYTES + 2) / 3);
     private static final Set<String> READ_TOOLS = Set.of(
-            "list_projects", "get_task", "list_documents", "get_document", "get_document_blocks");
+            "list_projects", "get_task", "list_project_tasks", "list_task_changes",
+            "list_documents", "get_document", "get_document_blocks", "get_member_id");
     private static final Set<String> WRITE_TOOLS = Set.of(
             "create_project", "create_task", "update_task", "add_task_comment",
             "create_document", "update_document", "patch_document");
@@ -70,6 +79,7 @@ public class McpToolRegistry {
     private final ProjectService projectService;
     private final TaskCommandService taskCommandService;
     private final TaskQueryService taskQueryService;
+    private final TaskActivityService taskActivityService;
     private final TaskCommentService taskCommentService;
     private final ProjectDocumentCommandService projectDocumentCommandService;
     private final ProjectDocumentQueryService projectDocumentQueryService;
@@ -87,6 +97,7 @@ public class McpToolRegistry {
             ProjectService projectService,
             TaskCommandService taskCommandService,
             TaskQueryService taskQueryService,
+            TaskActivityService taskActivityService,
             TaskCommentService taskCommentService,
             ProjectDocumentCommandService projectDocumentCommandService,
             ProjectDocumentQueryService projectDocumentQueryService,
@@ -98,6 +109,7 @@ public class McpToolRegistry {
         this.projectService = projectService;
         this.taskCommandService = taskCommandService;
         this.taskQueryService = taskQueryService;
+        this.taskActivityService = taskActivityService;
         this.taskCommentService = taskCommentService;
         this.projectDocumentCommandService = projectDocumentCommandService;
         this.projectDocumentQueryService = projectDocumentQueryService;
@@ -112,6 +124,8 @@ public class McpToolRegistry {
         registered.put("update_task", this::updateTask);
         registered.put("add_task_comment", this::addTaskComment);
         registered.put("get_task", this::getTask);
+        registered.put("list_project_tasks", this::listProjectTasks);
+        registered.put("list_task_changes", this::listTaskChanges);
         registered.put("list_documents", this::listDocuments);
         registered.put("get_document", this::getDocument);
         registered.put("get_document_blocks", this::getDocumentBlocks);
@@ -119,6 +133,7 @@ public class McpToolRegistry {
         registered.put("update_document", this::updateDocument);
         registered.put("patch_document", this::patchDocument);
         registered.put("get_profile", this::getProfile);
+        registered.put("get_member_id", this::getMemberId);
         this.handlers = Map.copyOf(registered);
         this.definitions = List.of(
                 getProfileDefinition(),
@@ -128,12 +143,15 @@ public class McpToolRegistry {
                 updateTaskDefinition(),
                 addTaskCommentDefinition(),
                 getTaskDefinition(),
+                listProjectTasksDefinition(),
+                listTaskChangesDefinition(),
                 listDocumentsDefinition(),
                 getDocumentDefinition(),
                 getDocumentBlocksDefinition(),
                 createDocumentDefinition(),
                 updateDocumentDefinition(),
-                patchDocumentDefinition());
+                patchDocumentDefinition(),
+                getMemberIdDefinition());
         this.definitions.forEach(this::addSecurityScheme);
     }
 
@@ -220,6 +238,22 @@ public class McpToolRegistry {
         return profile;
     }
 
+    private Object getMemberId(JsonNode rawArguments, Long userId) {
+        JsonNode arguments = McpArgumentValidator.object(rawArguments);
+        McpArgumentValidator.fields(arguments, "username");
+        String username = McpArgumentValidator.requiredText(arguments, "username", 64);
+        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getUsername, username)
+                .eq(User::getPrincipalType, "human"));
+        if (user == null || user.getId() == null) {
+            throw new ResourceNotFoundException("成员不存在: " + username);
+        }
+        ObjectNode result = objectMapper.createObjectNode();
+        result.put("id", user.getId());
+        result.put("username", user.getUsername());
+        return result;
+    }
+
     private Object createProject(JsonNode rawArguments, Long userId) {
         JsonNode arguments = McpArgumentValidator.object(rawArguments);
         McpArgumentValidator.fields(arguments, "name", "identifier");
@@ -283,6 +317,28 @@ public class McpToolRegistry {
         return taskCommandService.update(taskKey, request, userId);
     }
 
+    private Object addTaskComment(JsonNode rawArguments, Long userId) {
+        JsonNode arguments = McpArgumentValidator.object(rawArguments);
+        McpArgumentValidator.fields(arguments, "taskKey", "body", "parentId", "mentionedUserIds");
+        String taskKey = McpArgumentValidator.requiredText(arguments, "taskKey", 32);
+        String body = McpArgumentValidator.requiredText(arguments, "body", 100_000);
+        CreateTaskCommentRequest request = new CreateTaskCommentRequest();
+        request.setBody(body);
+        request.setParentId(McpArgumentValidator.optionalLong(arguments, "parentId"));
+        List<Long> mentionedUserIds = McpArgumentValidator.optionalLongList(arguments, "mentionedUserIds", 100);
+        if (mentionedUserIds != null) {
+            request.setMentionedUserIds(mentionedUserIds);
+        }
+        return taskCommentService.create(taskKey, userId, request);
+    }
+
+    private Object getTask(JsonNode rawArguments, Long userId) {
+        JsonNode arguments = McpArgumentValidator.object(rawArguments);
+        McpArgumentValidator.fields(arguments, "taskKey");
+        String taskKey = McpArgumentValidator.requiredText(arguments, "taskKey", 32);
+        return taskQueryService.getByKeyOrThrow(taskKey, userId);
+    }
+
     private String taskDescription(JsonNode arguments) {
         String description = McpArgumentValidator.optionalText(arguments, "description", 100_000);
         if (description == null) {
@@ -320,26 +376,85 @@ public class McpToolRegistry {
         }
     }
 
-    private Object addTaskComment(JsonNode rawArguments, Long userId) {
+    private Object listProjectTasks(JsonNode rawArguments, Long userId) {
         JsonNode arguments = McpArgumentValidator.object(rawArguments);
-        McpArgumentValidator.fields(arguments, "taskKey", "body", "parentId", "mentionedUserIds");
-        String taskKey = McpArgumentValidator.requiredText(arguments, "taskKey", 32);
-        String body = McpArgumentValidator.requiredText(arguments, "body", 100_000);
-        CreateTaskCommentRequest request = new CreateTaskCommentRequest();
-        request.setBody(body);
-        request.setParentId(McpArgumentValidator.optionalLong(arguments, "parentId"));
-        List<Long> mentionedUserIds = McpArgumentValidator.optionalLongList(arguments, "mentionedUserIds", 100);
-        if (mentionedUserIds != null) {
-            request.setMentionedUserIds(mentionedUserIds);
+        McpArgumentValidator.fields(arguments, "projectId", "cursor", "limit", "status", "assigneeId");
+        Long projectId = requiredLong(arguments, "projectId");
+        Long afterId = optionalCursor(arguments, "cursor");
+        Integer requestedLimit = McpArgumentValidator.optionalInteger(arguments, "limit", 1, 200);
+        int limit = requestedLimit == null ? 100 : requestedLimit;
+        String status = McpArgumentValidator.optionalText(arguments, "status", 32);
+        if (status != null && !STATUSES.contains(status)) {
+            throw new McpInvalidParamsException("status 不受支持");
         }
-        return taskCommentService.create(taskKey, userId, request);
+        Long assigneeId = McpArgumentValidator.optionalLong(arguments, "assigneeId");
+        if (assigneeId != null && assigneeId <= 0) {
+            throw new McpInvalidParamsException("assigneeId 必须是正整数");
+        }
+
+        List<TaskListItemResponse> fetched = taskQueryService.listProjectTasksForMcp(
+                projectId, afterId, limit, status, assigneeId, userId);
+        boolean hasMore = fetched.size() > limit;
+        List<TaskListItemResponse> items = hasMore ? fetched.subList(0, limit) : fetched;
+        ObjectNode result = objectMapper.createObjectNode();
+        ArrayNode taskItems = result.putArray("items");
+        for (TaskListItemResponse item : items) {
+            ObjectNode task = taskItems.addObject();
+            putNullable(task, "id", item.getId());
+            putNullable(task, "taskKey", item.getTaskKey());
+            putNullable(task, "title", item.getTitle());
+            putNullable(task, "status", item.getStatus());
+            putNullable(task, "progressPercent", item.getProgressPercent());
+            putNullable(task, "assigneeId", item.getAssigneeId());
+            putNullable(task, "assigneeDisplayName", item.getAssigneeDisplayName());
+            putNullable(task, "updatedAt", formatBeijingTime(item.getUpdatedAt()));
+        }
+        result.put("hasMore", hasMore);
+        putNullable(result, "nextCursor", hasMore ? String.valueOf(items.get(items.size() - 1).getId()) : null);
+        return result;
     }
 
-    private Object getTask(JsonNode rawArguments, Long userId) {
+    private Object listTaskChanges(JsonNode rawArguments, Long userId) {
         JsonNode arguments = McpArgumentValidator.object(rawArguments);
-        McpArgumentValidator.fields(arguments, "taskKey");
-        String taskKey = McpArgumentValidator.requiredText(arguments, "taskKey", 32);
-        return taskQueryService.getByKeyOrThrow(taskKey, userId);
+        McpArgumentValidator.fields(arguments, "projectId", "from", "to", "fields", "cursor", "limit");
+        Long projectId = requiredLong(arguments, "projectId");
+        OffsetDateTime from = requiredOffsetDateTime(arguments, "from");
+        OffsetDateTime to = requiredOffsetDateTime(arguments, "to");
+        if (!from.toInstant().isBefore(to.toInstant())) {
+            throw new McpInvalidParamsException("from 必须早于 to");
+        }
+        LocalDateTime fromShanghai = from.toInstant().atZone(BeijingTime.ZONE_ID).toLocalDateTime();
+        LocalDateTime toShanghai = to.toInstant().atZone(BeijingTime.ZONE_ID).toLocalDateTime();
+        List<String> fields = optionalTaskChangeFields(arguments);
+        Long afterId = optionalCursor(arguments, "cursor");
+        Integer requestedLimit = McpArgumentValidator.optionalInteger(arguments, "limit", 1, 200);
+        int limit = requestedLimit == null ? 100 : requestedLimit;
+
+        List<TaskChangeRecord> fetched = taskActivityService.listProjectTaskChangesForMcp(
+                projectId, fromShanghai, toShanghai, fields, afterId, limit, userId);
+        boolean hasMore = fetched.size() > limit;
+        List<TaskChangeRecord> items = hasMore ? fetched.subList(0, limit) : fetched;
+        ObjectNode result = objectMapper.createObjectNode();
+        ArrayNode changes = result.putArray("items");
+        for (TaskChangeRecord change : items) {
+            ObjectNode item = changes.addObject();
+            putNullable(item, "taskId", change.getTaskId());
+            putNullable(item, "taskKey", change.getTaskKey());
+            putNullable(item, "field", change.getField());
+            putNullable(item, "oldValue", change.getOldValue());
+            putNullable(item, "newValue", change.getNewValue());
+            putNullable(item, "changedAt", formatBeijingTime(change.getChangedAt()));
+            ObjectNode actor = item.putObject("actor");
+            putNullable(actor, "id", change.getActorId());
+            putNullable(actor, "displayName", change.getActorDisplayName());
+        }
+        result.put("hasMore", hasMore);
+        putNullable(result, "nextCursor", hasMore ? String.valueOf(items.get(items.size() - 1).getId()) : null);
+        result.put("timezone", BeijingTime.ZONE_ID.getId());
+        result.put("from", normalizeBeijingTime(from));
+        result.put("to", normalizeBeijingTime(to));
+        result.put("historyNote", "来源：task_activities。旧 progressPercent 记录受两分钟窗口合并，被合并的中间值无法还原。此实现对 status、progressPercent 逐次写入记录。");
+        return result;
     }
 
     private Object listDocuments(JsonNode rawArguments, Long userId) {
@@ -611,6 +726,75 @@ public class McpToolRegistry {
         return value;
     }
 
+    private static Long optionalCursor(JsonNode object, String name) {
+        String value = McpArgumentValidator.optionalText(object, name, 20);
+        if (value == null) {
+            return null;
+        }
+        try {
+            long cursor = Long.parseLong(value);
+            if (cursor > 0) {
+                return cursor;
+            }
+        } catch (NumberFormatException ignored) {
+            // MCP 参数错误用于无效游标。
+        }
+        throw new McpInvalidParamsException(name + " 必须是正整数游标");
+    }
+
+    private static OffsetDateTime requiredOffsetDateTime(JsonNode object, String name) {
+        String value = McpArgumentValidator.requiredText(object, name, 64);
+        try {
+            return OffsetDateTime.parse(value);
+        } catch (DateTimeParseException e) {
+            throw new McpInvalidParamsException(name + " 必须是包含时区偏移的 ISO-8601 时间");
+        }
+    }
+
+    private static List<String> optionalTaskChangeFields(JsonNode object) {
+        JsonNode value = object.get("fields");
+        if (value == null) {
+            return List.of("progressPercent", "status");
+        }
+        if (!value.isArray() || value.isEmpty() || value.size() > 2) {
+            throw new McpInvalidParamsException("fields 必须包含 progressPercent、status 中的至少一项");
+        }
+        Set<String> seen = new HashSet<>();
+        List<String> fields = new ArrayList<>();
+        for (JsonNode field : value) {
+            if (!field.isTextual()
+                    || !Set.of("progressPercent", "status").contains(field.textValue())
+                    || !seen.add(field.textValue())) {
+                throw new McpInvalidParamsException("fields 支持 progressPercent、status，且不接受重复项");
+            }
+            fields.add(field.textValue());
+        }
+        return List.copyOf(fields);
+    }
+
+    private static String normalizeBeijingTime(OffsetDateTime value) {
+        return value.toInstant().atZone(BeijingTime.ZONE_ID).toOffsetDateTime()
+                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+    }
+
+    private static String formatBeijingTime(LocalDateTime value) {
+        return value == null ? null : BeijingTime.atOffset(value).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+    }
+
+    private static void putNullable(ObjectNode object, String field, Object value) {
+        if (value == null) {
+            object.putNull(field);
+        } else if (value instanceof String text) {
+            object.put(field, text);
+        } else if (value instanceof Integer number) {
+            object.put(field, number);
+        } else if (value instanceof Long number) {
+            object.put(field, number);
+        } else {
+            throw new IllegalArgumentException("不支持的 MCP 输出类型: " + value.getClass().getName());
+        }
+    }
+
     private static String optionalEnum(JsonNode object, String name, Set<String> allowed) {
         String value = McpArgumentValidator.optionalText(object, name, 32);
         if (value != null && !allowed.contains(value)) {
@@ -636,6 +820,12 @@ public class McpToolRegistry {
     private ObjectNode listProjectsDefinition() {
         return tool("list_projects", "查询项目列表", "获取当前认证用户可访问的全部项目，返回结果保持项目排序。",
                 objectSchema(), true, true);
+    }
+
+    private ObjectNode getMemberIdDefinition() {
+        return tool("get_member_id", "查询成员 ID", "根据成员 username 查询成员 ID；username 字段按完全相等条件匹配。",
+                objectSchema(Map.of("username", stringSchema("成员姓名，对应 Linear Lite 成员 username 字段", 1, 64)),
+                        "username"), true, true);
     }
 
     private ObjectNode createTaskDefinition() {
@@ -684,6 +874,39 @@ public class McpToolRegistry {
         return tool("get_task", "获取任务信息", "按对外任务 ID 获取任务详情。",
                 objectSchema(Map.of("taskKey", stringSchema("对外任务 ID，例如 ENG-1", 1, 32)), "taskKey"),
                 true, true);
+    }
+
+    private ObjectNode listProjectTasksDefinition() {
+        Map<String, ObjectNode> properties = new LinkedHashMap<>();
+        properties.put("projectId", integerSchema("项目 ID"));
+        properties.put("cursor", stringSchema("前页 nextCursor 值", 1, 20));
+        properties.put("limit", integerRangeSchema("每页任务数；省略值为 100", 1, 200));
+        properties.put("status", enumSchema("任务状态筛选；省略参数代表各状态", STATUSES));
+        properties.put("assigneeId", integerSchema("负责人 ID 筛选；省略参数代表全部负责人"));
+        return tool("list_project_tasks", "枚举项目任务",
+                "项目任务分页快照，覆盖各状态、各负责人和 0% 任务；status 与 assigneeId 参数控制筛选。游标按任务 ID 递增；hasMore=true 时传 nextCursor 读取后页，hasMore=false 表示终页。",
+                objectSchema(properties, "projectId"), true, true);
+    }
+
+    private ObjectNode listTaskChangesDefinition() {
+        Map<String, ObjectNode> properties = new LinkedHashMap<>();
+        properties.put("projectId", integerSchema("项目 ID"));
+        properties.put("from", dateTimeSchema("范围起点，含边界；ISO-8601 时间须带时区偏移"));
+        properties.put("to", dateTimeSchema("范围终点，不含边界；ISO-8601 时间须带时区偏移"));
+        ObjectNode fields = objectMapper.createObjectNode();
+        fields.put("type", "array");
+        fields.put("minItems", 1);
+        fields.put("maxItems", 2);
+        fields.put("description", "变化字段；省略参数代表 progressPercent、status");
+        ObjectNode field = fields.putObject("items");
+        field.put("type", "string");
+        field.putArray("enum").add("progressPercent").add("status");
+        properties.put("fields", fields);
+        properties.put("cursor", stringSchema("前页 nextCursor 值", 1, 20));
+        properties.put("limit", integerRangeSchema("每页变化数；省略值为 100", 1, 200));
+        return tool("list_task_changes", "读取任务状态变化",
+                "项目 progressPercent/status 活动查询；from 含边界、to 不含边界，时间转为 Asia/Shanghai。hasMore=true 时传 nextCursor 读取后页。日报规则：根据同项目当前快照，纳入 progressPercent 大于 0 且 status 或 progressPercent 存在变化的任务；当前 0% 任务排除，含 status 变化；0% 升至正数且存在进度变化记录时纳入。描述、assigneeId、updatedAt 变化不代表进度变化。历史完整性见结果 historyNote。",
+                objectSchema(properties, "projectId", "from", "to"), true, true);
     }
 
     private ObjectNode createDocumentDefinition() {

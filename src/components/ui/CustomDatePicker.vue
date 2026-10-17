@@ -1,5 +1,10 @@
+<script lang="ts">
+// 页面只保留一个展开的日期面板。
+let activeDatePickerCloser: (() => void) | null = null
+</script>
+
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted, useSlots } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, useSlots, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const props = withDefaults(
@@ -8,16 +13,17 @@ const props = withDefaults(
     placeholder?: string
     ariaLabel?: string
     triggerClass?: string
-    /** 多个日历同时存在时用于面板 aria id，避免重复 */
+    /** 可覆盖面板 aria id；缺省时按组件实例生成 */
     panelDomId?: string
   }>(),
-  { placeholder: '', ariaLabel: '', triggerClass: '', panelDomId: 'date-picker-panel' }
+  { placeholder: '', ariaLabel: '', triggerClass: '', panelDomId: '' }
 )
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
 const { t, locale } = useI18n()
+const defaultPanelId = `${useId()}-date-picker-panel`
 
 const isOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
@@ -39,7 +45,7 @@ const weekdayLabels = computed(() => [
 const localeTag = computed(() => locale.value)
 const slots = useSlots()
 const hasTriggerSlot = computed(() => typeof slots.trigger === 'function')
-const resolvedPanelId = computed(() => props.panelDomId || 'date-picker-panel')
+const resolvedPanelId = computed(() => props.panelDomId || defaultPanelId)
 
 const displayText = computed(() => {
   if (!props.modelValue) return resolvedPlaceholder.value
@@ -75,6 +81,10 @@ function updatePanelPosition() {
 }
 
 function open() {
+  if (activeDatePickerCloser && activeDatePickerCloser !== close) {
+    activeDatePickerCloser()
+  }
+  activeDatePickerCloser = close
   isOpen.value = true
   nextTick(() => {
     updatePanelPosition()
@@ -104,6 +114,7 @@ function focusTrigger() {
 
 function close() {
   isOpen.value = false
+  if (activeDatePickerCloser === close) activeDatePickerCloser = null
 }
 
 function toggleOpen() {
@@ -230,6 +241,7 @@ watch(isOpen, (open) => {
 
 onMounted(() => document.addEventListener('click', handleClickOutside))
 onUnmounted(() => {
+  close()
   document.removeEventListener('click', handleClickOutside)
   if (removeListeners) removeListeners()
 })

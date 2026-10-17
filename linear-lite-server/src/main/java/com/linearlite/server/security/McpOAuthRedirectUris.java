@@ -3,8 +3,9 @@ package com.linearlite.server.security;
 import java.net.URI;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
-/** Restricts public OAuth clients to ChatGPT callbacks and native-app loopback listeners. */
+    /** Restricts public OAuth clients to supported browser callbacks and native-app loopback listeners. */
 public final class McpOAuthRedirectUris {
 
     private McpOAuthRedirectUris() {
@@ -18,9 +19,10 @@ public final class McpOAuthRedirectUris {
         }
         if ("https".equalsIgnoreCase(uri.getScheme())) {
             String path = uri.getRawPath();
-            return "chatgpt.com".equalsIgnoreCase(uri.getHost()) && uri.getPort() == -1
+            return uri.getPort() == -1 && (("chatgpt.com".equalsIgnoreCase(uri.getHost())
                     && ("/connector_platform_oauth_redirect".equals(path)
-                    || path != null && path.matches("/connector/oauth/[A-Za-z0-9_-]+"));
+                    || path != null && path.matches("/connector/oauth/[A-Za-z0-9_-]+")))
+                    || "vscode.dev".equalsIgnoreCase(uri.getHost()) && "/redirect".equals(path));
         }
         return "http".equalsIgnoreCase(uri.getScheme()) && isLoopback(uri.getHost())
                 && uri.getPort() > 0 && uri.getPort() <= 65535;
@@ -44,6 +46,27 @@ public final class McpOAuthRedirectUris {
                     && requestUri.getHost().equalsIgnoreCase(registeredUri.getHost())
                     && Objects.equals(requestUri.getRawPath(), registeredUri.getRawPath());
         });
+    }
+
+    public static boolean isAllowedRegistrationSet(Set<String> redirectUris) {
+        if (redirectUris == null || redirectUris.isEmpty() || redirectUris.stream().anyMatch(uri -> !isAllowed(uri))) {
+            return false;
+        }
+        Set<String> schemes = redirectUris.stream()
+                .map(uri -> URI.create(uri).getScheme().toLowerCase())
+                .collect(Collectors.toSet());
+        if (schemes.size() == 1) {
+            return true;
+        }
+        return redirectUris.size() == 2
+                && redirectUris.contains("https://vscode.dev/redirect")
+                && redirectUris.stream().anyMatch(uri -> {
+                    URI parsed = URI.create(uri);
+                    return "http".equalsIgnoreCase(parsed.getScheme())
+                            && "127.0.0.1".equals(parsed.getHost())
+                            && parsed.getPort() == 33418
+                            && (parsed.getRawPath() == null || parsed.getRawPath().isEmpty());
+                });
     }
 
     private static boolean isLoopback(String host) {
