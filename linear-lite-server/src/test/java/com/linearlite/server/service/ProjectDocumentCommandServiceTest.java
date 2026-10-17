@@ -21,10 +21,17 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -47,7 +54,8 @@ class ProjectDocumentCommandServiceTest {
     @BeforeEach
     void setUp() {
         service = new ProjectDocumentCommandService(documentMapper, favoriteMapper, revisionMapper, accessGuard,
-                collaborationService, nodeClient, queryService, new ObjectMapper(), eventPublisher);
+                collaborationService, nodeClient, queryService, new ObjectMapper(), eventPublisher,
+                immediateTransactionManager());
     }
 
     @Test
@@ -67,6 +75,50 @@ class ProjectDocumentCommandServiceTest {
         assertEquals("文档", inserted.getValue().getTitle());
         assertEquals(1L, inserted.getValue().getVersion());
         verify(collaborationService).createInitialState(inserted.getValue(), "[]");
+    }
+
+    @Test
+    void createCommitsCollaborationStateBeforeLoadingNodeSnapshot() {
+        AtomicBoolean transactionActive = new AtomicBoolean();
+        AtomicBoolean committed = new AtomicBoolean();
+        PlatformTransactionManager transactionManager = new PlatformTransactionManager() {
+            @Override
+            public TransactionStatus getTransaction(TransactionDefinition definition) {
+                transactionActive.set(true);
+                return new SimpleTransactionStatus();
+            }
+
+            @Override
+            public void commit(TransactionStatus status) {
+                transactionActive.set(false);
+                committed.set(true);
+            }
+
+            @Override
+            public void rollback(TransactionStatus status) {
+                transactionActive.set(false);
+            }
+        };
+        ProjectDocumentCommandService transactionalService = new ProjectDocumentCommandService(
+                documentMapper, favoriteMapper, revisionMapper, accessGuard, collaborationService,
+                nodeClient, queryService, new ObjectMapper(), eventPublisher, transactionManager);
+        when(documentMapper.selectList(any())).thenReturn(List.of());
+        when(documentMapper.insert(any(ProjectDocument.class))).thenAnswer(invocation -> {
+            ProjectDocument document = invocation.getArgument(0);
+            document.setId(11L);
+            return 1;
+        });
+        when(documentMapper.selectById(11L)).thenAnswer(invocation -> document(11L, 4L, 1L));
+        when(queryService.toResponse(any(ProjectDocument.class), eq(false))).thenAnswer(invocation -> {
+            assertFalse(transactionActive.get());
+            assertTrue(committed.get());
+            return null;
+        });
+
+        transactionalService.create(4L,
+                new CreateProjectDocumentRequest(null, "文档", null, null, null, "BLOCKNOTE"), 7L);
+
+        assertTrue(committed.get());
     }
 
     @Test
@@ -153,6 +205,21 @@ class ProjectDocumentCommandServiceTest {
         document.setCreatorId(7L);
         document.setLastEditorId(7L);
         return document;
+    }
+
+    private PlatformTransactionManager immediateTransactionManager() {
+        return new PlatformTransactionManager() {
+            @Override
+            public TransactionStatus getTransaction(TransactionDefinition definition) {
+                return new SimpleTransactionStatus();
+            }
+
+            @Override
+            public void commit(TransactionStatus status) { }
+
+            @Override
+            public void rollback(TransactionStatus status) { }
+        };
     }
 
     private ProjectDocumentCollabState state(Long id, String epoch, Long commitSeq) {

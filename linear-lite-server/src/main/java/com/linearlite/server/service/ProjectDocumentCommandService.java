@@ -58,36 +58,6 @@ public class ProjectDocumentCommandService {
             ObjectMapper objectMapper,
             ApplicationEventPublisher eventPublisher,
             PlatformTransactionManager transactionManager) {
-        this(documentMapper, favoriteMapper, revisionMapper, projectAccessGuard, collaborationService,
-                nodeClient, queryService, objectMapper, eventPublisher,
-                new TransactionTemplate(transactionManager));
-    }
-
-    public ProjectDocumentCommandService(
-            ProjectDocumentMapper documentMapper,
-            ProjectDocumentFavoriteMapper favoriteMapper,
-            ProjectDocumentRevisionMapper revisionMapper,
-            ProjectAccessGuard projectAccessGuard,
-            DocumentCollaborationService collaborationService,
-            CollaborationNodeClient nodeClient,
-            ProjectDocumentQueryService queryService,
-            ObjectMapper objectMapper,
-            ApplicationEventPublisher eventPublisher) {
-        this(documentMapper, favoriteMapper, revisionMapper, projectAccessGuard, collaborationService,
-                nodeClient, queryService, objectMapper, eventPublisher, (TransactionTemplate) null);
-    }
-
-    private ProjectDocumentCommandService(
-            ProjectDocumentMapper documentMapper,
-            ProjectDocumentFavoriteMapper favoriteMapper,
-            ProjectDocumentRevisionMapper revisionMapper,
-            ProjectAccessGuard projectAccessGuard,
-            DocumentCollaborationService collaborationService,
-            CollaborationNodeClient nodeClient,
-            ProjectDocumentQueryService queryService,
-            ObjectMapper objectMapper,
-            ApplicationEventPublisher eventPublisher,
-            TransactionTemplate transactionTemplate) {
         this.documentMapper = documentMapper;
         this.favoriteMapper = favoriteMapper;
         this.revisionMapper = revisionMapper;
@@ -97,26 +67,32 @@ public class ProjectDocumentCommandService {
         this.queryService = queryService;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
-        this.transactionTemplate = transactionTemplate;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.transitionCoordinator = new DocumentCollaborationTransitionCoordinator(collaborationService, nodeClient);
     }
 
-    @Transactional(rollbackFor = Exception.class)
     public ProjectDocumentResponse create(Long projectId, CreateProjectDocumentRequest request, Long userId) {
-        return createInternal(projectId, request, userId, null);
+        ProjectDocument document = executeCreateTransaction(projectId, request, userId, null);
+        return toResponse(document, userId);
     }
 
-    /** Creates the row first, then resolves its final body before snapshots and indexing are published. */
-    @Transactional(rollbackFor = Exception.class)
+    /** Creates the row and initial collaboration state atomically, then reads the Node projection after commit. */
     public ProjectDocumentResponse createWithContentFactory(
             Long projectId, CreateProjectDocumentRequest request, Long userId, LongFunction<String> contentFactory) {
         if (contentFactory == null) {
             throw new IllegalArgumentException("正文工厂不能为空");
         }
-        return createInternal(projectId, request, userId, contentFactory);
+        ProjectDocument document = executeCreateTransaction(projectId, request, userId, contentFactory);
+        return toResponse(document, userId);
     }
 
-    private ProjectDocumentResponse createInternal(
+    private ProjectDocument executeCreateTransaction(
+            Long projectId, CreateProjectDocumentRequest request, Long userId, LongFunction<String> contentFactory) {
+        return Objects.requireNonNull(transactionTemplate.execute(
+                status -> createInternal(projectId, request, userId, contentFactory)));
+    }
+
+    private ProjectDocument createInternal(
             Long projectId, CreateProjectDocumentRequest request, Long userId, LongFunction<String> contentFactory) {
         projectAccessGuard.requireMember(projectId, userId);
         String format = requireFormat(request == null ? null : request.contentFormat());
@@ -137,7 +113,7 @@ public class ProjectDocumentCommandService {
                 if (!format.equals(existing.getContentFormat())) {
                     throw new IllegalArgumentException("外部绑定文档类型与请求不一致");
                 }
-                return toResponse(existing, userId);
+                return existing;
             }
         }
         String title = requireTitle(request == null ? null : request.title());
@@ -174,7 +150,7 @@ public class ProjectDocumentCommandService {
         if (contentFactory != null) content = requireBlockNoteJson(contentFactory.apply(document.getId()));
         collaborationService.createInitialState(document, content);
         publishUpsert(document.getId());
-        return toResponse(requireDocument(document.getId()), userId);
+        return requireDocument(document.getId());
     }
 
     public ProjectDocumentResponse update(Long documentId, UpdateProjectDocumentRequest request, Long userId) {
