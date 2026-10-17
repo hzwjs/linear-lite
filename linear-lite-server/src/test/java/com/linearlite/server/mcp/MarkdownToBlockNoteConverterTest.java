@@ -4,7 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashSet;
+import java.util.Set;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -70,6 +74,34 @@ class MarkdownToBlockNoteConverterTest {
     }
 
     @Test
+    void emitsCanonicalDocumentSchemaShapesForCollaborationEncoding() throws Exception {
+        JsonNode blocks = objectMapper.readTree(converter.convert("""
+                # 标题
+
+                > 引用
+
+                ```java
+                class Demo {}
+                ```
+
+                | 名称 | 值 |
+                | --- | --- |
+                | A | B |
+
+                ![拓扑](mcp-image:diagram)
+                """, java.util.Map.of("diagram", 31L)));
+
+        assertEquals(Set.of("backgroundColor", "textColor", "textAlignment", "level", "isToggleable"),
+                fieldNames(blocks.get(0).path("props")));
+        assertFalse(blocks.get(0).path("props").path("isToggleable").asBoolean());
+        assertEquals(Set.of("backgroundColor", "textColor"), fieldNames(blocks.get(1).path("props")));
+        assertEquals(Set.of("language"), fieldNames(blocks.get(2).path("props")));
+        assertEquals(Set.of("textColor"), fieldNames(blocks.get(3).path("props")));
+        assertEquals(Set.of("imageAssetId", "altText", "caption"), fieldNames(blocks.get(4).path("props")));
+        assertFalse(blocks.get(4).has("content"));
+    }
+
+    @Test
     void rejectsExternalMarkdownImages() {
         assertThrows(McpInvalidParamsException.class,
                 () -> converter.imageReferences("![diagram](https://example.com/diagram.png)"));
@@ -81,5 +113,11 @@ class MarkdownToBlockNoteConverterTest {
                 () -> converter.convert("![diagram](mcp-image:missing)", java.util.Map.of()));
         assertThrows(McpInvalidParamsException.class,
                 () -> converter.convert("text", java.util.Map.of("unused", 31L)));
+    }
+
+    private Set<String> fieldNames(JsonNode node) {
+        Set<String> names = new HashSet<>();
+        node.fieldNames().forEachRemaining(names::add);
+        return names;
     }
 }

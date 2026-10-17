@@ -503,12 +503,9 @@ public class MarkdownToBlockNoteConverter {
         block.put("id", UUID.randomUUID().toString());
         block.put("type", "documentImage");
         ObjectNode props = block.putObject("props");
-        props.put("backgroundColor", "default");
-        props.put("textColor", "default");
-        props.put("textAlignment", "left");
         props.put("imageAssetId", assetId);
+        props.put("altText", "");
         props.put("caption", caption);
-        block.putArray("content");
         block.putArray("children");
         return block;
     }
@@ -541,6 +538,21 @@ public class MarkdownToBlockNoteConverter {
         props.put("textColor", "default");
         props.put("textAlignment", "left");
         extraProps.forEach(props::put);
+        // 初始正文须与协作服务的文档 schema 形状一致，避免 Yjs 编码丢弃无效字段。
+        switch (type) {
+            case "heading" -> props.put("isToggleable", false);
+            case "quote" -> props.remove("textAlignment");
+            case "table" -> {
+                props.remove("backgroundColor");
+                props.remove("textAlignment");
+            }
+            case "codeBlock" -> {
+                props.remove("backgroundColor");
+                props.remove("textColor");
+                props.remove("textAlignment");
+            }
+            default -> { }
+        }
         block.set("content", content);
         block.putArray("children");
         return block;
