@@ -10,6 +10,7 @@ import { parseRoomName, roomName, type CollaborationConfig, type ContentFormat, 
 
 type RoomRuntime = RoomState & {
   stateBase64: string
+  persistedCounters: Record<string, number>
   lastEditorId: number
   validationState: Y.Doc
   persistenceBlocked?: boolean
@@ -101,6 +102,16 @@ export class CollaborationNode {
         const binary = Buffer.from(stored.stateBase64, 'base64')
         runtime.stateBase64 = stored.stateBase64
         return new Uint8Array(binary)
+      },
+      connected: async ({ documentName, connection }) => {
+        const runtime = this.requireRuntime(documentName)
+        connection.sendStateless(JSON.stringify({
+          event: 'saved',
+          epoch: runtime.epoch,
+          counters: runtime.persistedCounters,
+          version: runtime.version,
+          commitSeq: runtime.commitSeq,
+        }))
       },
       beforeHandleMessage: async ({ documentName, context }) => {
         this.assertRoomNotFenced(documentName)
@@ -497,6 +508,7 @@ export class CollaborationNode {
         ? this.transitionFences.get(runtime.documentId)?.transitionId
         : requestedTransitionId ?? undefined
       const state = Y.encodeStateAsUpdate(document)
+      const counters = this.counters(document)
       const stateBase64 = Buffer.from(state).toString('base64')
       if (stateBase64 === runtime.stateBase64 && !transitionId) return { commitSeq: runtime.commitSeq, version: runtime.version }
       const projection = materializeAndInspect(runtime.contentFormat, state)
@@ -510,10 +522,10 @@ export class CollaborationNode {
           stateBase64,
           content: projection.content,
           editorId: runtime.lastEditorId,
-          counters: this.counters(state),
+          counters,
           transitionId,
         })
-        return this.recordPersisted(document, runtime, state, stateBase64, saved)
+        return this.recordPersisted(document, runtime, stateBase64, saved, counters)
       } catch (error) {
         if (this.isTransitionConflict(error)) throw error
         let transitionCanonical: Awaited<ReturnType<JavaCollaborationClient['loadState']>> | undefined
@@ -521,10 +533,10 @@ export class CollaborationNode {
           try {
             const canonical = await this.java.loadState(runtime.documentId, runtime.epoch, transitionId)
             if (canonical.stateBase64 === stateBase64) {
-              return this.recordPersisted(document, runtime, state, stateBase64, {
+              return this.recordPersisted(document, runtime, stateBase64, {
                 commitSeq: canonical.commitSeq,
                 version: canonical.version,
-              })
+              }, counters)
             }
             transitionCanonical = canonical
           } catch (readError) {
@@ -547,17 +559,18 @@ export class CollaborationNode {
   private recordPersisted(
     document: Document,
     runtime: RoomRuntime,
-    state: Uint8Array,
     stateBase64: string,
     saved: { commitSeq: number; version: number },
+    counters: Record<string, number>,
   ): { commitSeq: number; version: number } {
     runtime.commitSeq = saved.commitSeq
     runtime.version = saved.version
     runtime.stateBase64 = stateBase64
+    runtime.persistedCounters = counters
     document.broadcastStateless(JSON.stringify({
       event: 'saved',
       epoch: runtime.epoch,
-      counters: this.counters(state),
+      counters,
       version: saved.version,
       commitSeq: saved.commitSeq,
     }))
@@ -618,9 +631,8 @@ export class CollaborationNode {
     if (fence.inFlight !== 0) throw this.httpError(500, 'ROOM_DRAIN_COUNTER_MISMATCH')
   }
 
-  private counters(state: Uint8Array): Record<string, number> {
-    const vector = Y.decodeStateVector(Y.encodeStateVectorFromUpdate(state))
-    return Object.fromEntries(Array.from(vector, ([clientId, clock]) => [String(clientId), clock]))
+  private counters(document: Y.Doc): Record<string, number> {
+    return Object.fromEntries(document.getMap<number>('session-counters').entries())
   }
 
   private getOrCreateRuntime(state: RoomState, stateBase64: string): RoomRuntime {
@@ -636,6 +648,7 @@ export class CollaborationNode {
     const runtime: RoomRuntime = {
       ...state,
       stateBase64,
+      persistedCounters: this.counters(validationState),
       lastEditorId: 0,
       validationState,
     }

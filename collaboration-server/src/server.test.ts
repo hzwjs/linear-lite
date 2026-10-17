@@ -17,6 +17,84 @@ const config: CollaborationConfig = {
   persistenceDebounceMs: 10,
 }
 
+describe('save acknowledgement', () => {
+  it('broadcasts the persisted session counter instead of Yjs client clocks', async () => {
+    const node = new CollaborationNode(config)
+    const document = new Y.Doc() as Y.Doc & { broadcastStateless(payload: string): void }
+    const sessionId = 'session-737-edit'
+    document.getText('html').insert(0, '<p>edited</p>')
+    document.getMap<number>('session-counters').set(sessionId, 2)
+    let broadcast = ''
+    let storedCounters: Record<string, number> = {}
+    document.broadcastStateless = (payload) => { broadcast = payload }
+    const runtime = {
+      documentId: 737,
+      epoch: 'epoch-737',
+      roomName: 'doc:737:epoch:epoch-737',
+      contentFormat: 'HTML' as const,
+      commitSeq: 1,
+      version: 1,
+      stateBase64: '',
+      lastEditorId: 7,
+    }
+    const internal = node as unknown as {
+      persistDocument(
+        document: Y.Doc,
+        roomRuntime: typeof runtime,
+      ): Promise<{ commitSeq: number; version: number }>
+      java: { storeState(input: { counters: Record<string, number> }): Promise<{ commitSeq: number; version: number }> }
+    }
+    let enteredStore!: () => void
+    const storeStarted = new Promise<void>((resolve) => { enteredStore = resolve })
+    let finishStore!: (value: { commitSeq: number; version: number }) => void
+    const storeResult = new Promise<{ commitSeq: number; version: number }>((resolve) => { finishStore = resolve })
+    internal.java.storeState = async (input) => {
+      storedCounters = input.counters
+      enteredStore()
+      return storeResult
+    }
+
+    const saving = internal.persistDocument(document, runtime)
+    await storeStarted
+    document.getMap<number>('session-counters').set(sessionId, 3)
+    finishStore({ commitSeq: 2, version: 2 })
+    await saving
+
+    assert.deepEqual(storedCounters, { [sessionId]: 2 })
+    assert.deepEqual(JSON.parse(broadcast).counters, { [sessionId]: 2 })
+    document.destroy()
+  })
+
+  it('replays committed counters when a client reconnects', async () => {
+    const node = new CollaborationNode(config)
+    const sessionId = 'session-737-edit'
+    const room = 'doc:737:epoch:epoch-737'
+    const snapshot = new Y.Doc()
+    snapshot.getMap<number>('session-counters').set(sessionId, 2)
+    const stateBase64 = Buffer.from(Y.encodeStateAsUpdate(snapshot)).toString('base64')
+    snapshot.destroy()
+    const internal = node as unknown as {
+      getOrCreateRuntime(state: {
+        documentId: number; epoch: string; roomName: string; contentFormat: 'HTML'; commitSeq: number; version: number
+      }, stateBase64: string): { validationState: Y.Doc }
+    }
+    const runtime = internal.getOrCreateRuntime({
+      documentId: 737, epoch: 'epoch-737', roomName: room, contentFormat: 'HTML', commitSeq: 17, version: 33,
+    }, stateBase64)
+    let broadcast = ''
+
+    await node.httpServer.configuration.connected?.({
+      documentName: room,
+      connection: { sendStateless: (payload: string) => { broadcast = payload } },
+    } as never)
+
+    assert.deepEqual(JSON.parse(broadcast), {
+      event: 'saved', epoch: 'epoch-737', counters: { [sessionId]: 2 }, version: 33, commitSeq: 17,
+    })
+    runtime.validationState.destroy()
+  })
+})
+
 describe('collaboration transition fence', () => {
   it('accepts delete close-room transitions and rejects unsupported operations', () => {
     const node = new CollaborationNode(config)
