@@ -24,6 +24,7 @@ import { blockToNode } from '@blocknote/core'
 import { Fragment, Slice } from '@tiptap/pm/model'
 import type * as Y from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
+import { i18n } from '../i18n'
 import { createDocumentSchema, DOCUMENT_IMAGE_CONFIG, MENTION_CONFIG, SUPPORTED_CODE_BLOCK_LANGUAGES } from '../../collaboration-schema'
 import type { HighlighterGeneric, LanguageInput } from '@shikijs/types'
 import { parseBlockNoteStoredBlocks } from '../utils/blockNoteDescription'
@@ -128,6 +129,57 @@ function getBlockContentText(block: any): string {
       return ''
     })
     .join('')
+}
+
+function syncCodeBlockCopyButtons(root: HTMLElement, layer: HTMLElement) {
+  const activeBlockIds = new Set<string>()
+  for (const content of root.querySelectorAll<HTMLElement>(
+    '.bn-block-content[data-content-type="codeBlock"]'
+  )) {
+    const host = content.closest<HTMLElement>('.bn-block-outer[data-id]')
+    const blockId = host?.dataset.id
+    if (!host || !blockId) continue
+    activeBlockIds.add(blockId)
+    let button = layer.querySelector<HTMLButtonElement>(
+      `.bn-code-block-copy[data-block-id="${blockId}"]`
+    )
+    if (!button) {
+      button = document.createElement('button')
+      button.type = 'button'
+      button.dataset.blockId = blockId
+      button.className = 'bn-code-block-copy'
+      button.setAttribute('aria-label', i18n.global.t('editor.codeBlock.copyAria'))
+      button.title = i18n.global.t('editor.codeBlock.copyAria')
+      button.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4.5V2.75A1.25 1.25 0 0 1 6.25 1.5h6A1.25 1.25 0 0 1 13.5 2.75v8A1.25 1.25 0 0 1 12.25 12H10.5"/><rect x="2.5" y="4.5" width="8" height="10" rx="1.25"/></svg>'
+      button.addEventListener('mousedown', (event) => event.preventDefault())
+      button.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        const currentHost = root.querySelector<HTMLElement>(
+          `.bn-block-outer[data-id="${blockId}"]`
+        )
+        const code = currentHost?.querySelector('pre')?.textContent ?? ''
+        if (!navigator.clipboard?.writeText) return
+        void navigator.clipboard.writeText(code).then(() => {
+          if (!button?.isConnected) return
+          button.dataset.copied = 'true'
+          button.setAttribute('aria-label', i18n.global.t('editor.codeBlock.copiedAria'))
+          button.title = i18n.global.t('editor.codeBlock.copiedAria')
+          window.setTimeout(() => {
+            if (!button?.isConnected) return
+            delete button.dataset.copied
+            button.setAttribute('aria-label', i18n.global.t('editor.codeBlock.copyAria'))
+            button.title = i18n.global.t('editor.codeBlock.copyAria')
+          }, 1500)
+        }).catch(() => undefined)
+      })
+      layer.append(button)
+    }
+    positionCodeBlockCopyButton(root, host, button)
+  }
+  for (const button of layer.querySelectorAll<HTMLButtonElement>('.bn-code-block-copy[data-block-id]')) {
+    if (!activeBlockIds.has(button.dataset.blockId ?? '')) button.remove()
+  }
 }
 
 let mermaidHydrationSeq = 0
@@ -439,6 +491,13 @@ function positionMermaidPreviewZoomButton(root: HTMLElement, host: HTMLElement, 
   const rootRect = root.getBoundingClientRect()
   const hostRect = host.getBoundingClientRect()
   button.style.left = `${hostRect.right - rootRect.left - 54}px`
+  button.style.top = `${hostRect.top - rootRect.top + 8}px`
+}
+
+function positionCodeBlockCopyButton(root: HTMLElement, host: HTMLElement, button: HTMLElement) {
+  const rootRect = root.getBoundingClientRect()
+  const hostRect = host.getBoundingClientRect()
+  button.style.left = `${hostRect.right - rootRect.left - 38}px`
   button.style.top = `${hostRect.top - rootRect.top + 8}px`
 }
 
@@ -1290,10 +1349,12 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       if (hydrationTimer != null) window.clearTimeout(hydrationTimer)
       hydrationTimer = window.setTimeout(() => {
         hydrationTimer = undefined
+        syncCodeBlockCopyButtons(root, layer)
         hydrate()
       }, 80)
     }
     hydrate()
+    syncCodeBlockCopyButtons(root, layer)
     // BlockNote 后续构建节点并更新 data-language；两类变化都由观察器驱动，禁止定时轮询。
     const observer = new MutationObserver(queueHydrate)
     observer.observe(root, {
@@ -1302,9 +1363,12 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
       attributes: true,
       attributeFilter: ['data-id', 'data-content-type', 'data-language'],
     })
+    const repositionCopyButtons = () => syncCodeBlockCopyButtons(root, layer)
+    window.addEventListener('resize', repositionCopyButtons)
     return () => {
       if (hydrationTimer != null) window.clearTimeout(hydrationTimer)
       observer.disconnect()
+      window.removeEventListener('resize', repositionCopyButtons)
     }
   }, [editor])
 
@@ -1594,7 +1658,7 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
             {imagePasteNotice}
           </div>
         ) : null}
-        <div ref={mermaidLayerRef} className="bn-mermaid-preview-layer" aria-hidden="false" />
+        <div ref={mermaidLayerRef} className="bn-mermaid-preview-layer bn-code-copy-layer" aria-hidden="false" />
       </div>
     </DocumentImageContext.Provider>
   )

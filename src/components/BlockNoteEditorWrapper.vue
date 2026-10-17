@@ -587,6 +587,62 @@ defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmen
   color: rgba(255, 255, 255, 0.95);
 }
 
+.bn-mermaid-editor-root {
+  position: relative;
+}
+
+.bn-code-copy-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.blocknote-editor-wrap .bn-code-block-copy {
+  position: absolute;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.blocknote-editor-wrap .bn-code-block-copy:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.98);
+}
+
+.blocknote-editor-wrap .bn-code-block-copy:focus-visible {
+  outline: 2px solid var(--color-focus, #7aa7ff);
+  outline-offset: 2px;
+}
+
+.blocknote-editor-wrap .bn-code-block-copy svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+}
+
+.blocknote-editor-wrap .bn-code-block-copy[data-copied="true"] svg {
+  display: none;
+}
+
+.blocknote-editor-wrap .bn-code-block-copy[data-copied="true"]::before {
+  content: '✓';
+  font-size: 16px;
+  line-height: 1;
+}
+
 /* ── Slash `/` 建议菜单（`@` 成员共用 MemberListDropdownPanel 带 .task-row-assignee-panel，不套此规则）
       BlockNote 0.48 item 结构：MantineGroup[role="option"].bn-suggestion-menu-item
         ├── .bn-mt-suggestion-menu-item-section[data-position="left"]  (icon + background)

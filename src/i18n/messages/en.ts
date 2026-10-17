@@ -427,6 +427,7 @@ const en = {
     codeBlock: {
       languageAria: 'Code block language',
       copyAria: 'Copy code',
+      copiedAria: 'Code copied',
       languages: {
         plainText: 'Plain text',
         javascript: 'JavaScript',

@@ -427,6 +427,7 @@ const zhCN = {
     codeBlock: {
       languageAria: '代码块语言',
       copyAria: '复制代码',
+      copiedAria: '已复制代码',
       languages: {
         plainText: '纯文本',
         javascript: 'JavaScript',
