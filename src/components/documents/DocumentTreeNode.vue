@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Archive, ChevronRight, Code2, FileText, MoreHorizontal, Plus, Star } from 'lucide-vue-next'
+import { Archive, ChevronRight, Code2, FileText, MoreHorizontal, Plus, Star, Upload } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { htmlDocumentPath } from '../../utils/htmlDocument'
@@ -24,6 +24,7 @@ const emit = defineEmits<{
   select: [documentId: number]
   toggle: [documentId: number]
   createChild: [parentDocumentId: number]
+  importMarkdown: [parentDocumentId: number]
   archive: [documentId: number]
   toggleFavorite: [node: ProjectDocumentTreeNode]
   move: [payload: { documentId: number; parentDocumentId: number | null; previousSiblingId: number | null }]
@@ -279,6 +280,18 @@ function onDocumentKeydown(event: KeyboardEvent) {
         <button type="button" role="menuitem" @click="menuOpen = false; emit('createChild', node.id)">
           <Plus aria-hidden="true" />{{ t('documents.newChild') }}
         </button>
+        <a
+          role="menuitem"
+          :href="`/projects/${node.projectId}/documents/html/new?parentDocumentId=${node.id}`"
+          target="_blank"
+          rel="noopener noreferrer"
+          @click="menuOpen = false"
+        >
+          <Code2 aria-hidden="true" />{{ t('documents.html.new') }}
+        </a>
+        <button type="button" role="menuitem" @click="menuOpen = false; emit('importMarkdown', node.id)">
+          <Upload aria-hidden="true" />{{ t('documents.markdown.import') }}
+        </button>
         <button type="button" role="menuitem" class="danger" @click="menuOpen = false; emit('archive', node.id)">
           <Archive aria-hidden="true" />{{ t('documents.archive') }}
         </button>
@@ -307,6 +320,7 @@ function onDocumentKeydown(event: KeyboardEvent) {
         @select="emit('select', $event)"
         @toggle="emit('toggle', $event)"
         @create-child="emit('createChild', $event)"
+        @import-markdown="emit('importMarkdown', $event)"
         @archive="emit('archive', $event)"
         @toggle-favorite="emit('toggleFavorite', $event)"
         @move="emit('move', $event)"
@@ -440,17 +454,21 @@ function onDocumentKeydown(event: KeyboardEvent) {
   box-shadow: var(--shadow-popover);
 }
 
-.document-tree-row__menu button {
+.document-tree-row__menu button,
+.document-tree-row__menu a {
   display: flex;
   width: 100%;
   align-items: center;
   gap: 8px;
   padding: 7px 8px;
   border-radius: var(--radius-sm);
+  color: inherit;
+  text-decoration: none;
   text-align: left;
 }
 
-.document-tree-row__menu button:hover { background: var(--color-bg-hover); }
+.document-tree-row__menu button:hover,
+.document-tree-row__menu a:hover { background: var(--color-bg-hover); }
 .document-tree-row__menu svg { width: 14px; height: 14px; }
 .document-tree-row__menu .danger {
   margin-top: 4px;

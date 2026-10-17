@@ -105,9 +105,10 @@ describe('DocumentTree keyboard interaction', () => {
   })
 
   it('keeps structural movement out of the document actions menu', async () => {
+    const onImportMarkdown = vi.fn()
     const host = document.createElement('div')
     document.body.appendChild(host)
-    const app = createApp(DocumentTree, { projectId: 7, nodes, activeId: 1, moving: false })
+    const app = createApp(DocumentTree, { projectId: 7, nodes, activeId: 1, moving: false, onImportMarkdown })
     app.use(i18n)
     app.mount(host)
     await nextTick()
@@ -115,7 +116,12 @@ describe('DocumentTree keyboard interaction', () => {
     ;(host.querySelector('[aria-label="Actions for Root"]') as HTMLButtonElement).click()
     await nextTick()
     const menuLabels = Array.from(host.querySelectorAll<HTMLElement>('[role="menuitem"]')).map((item) => item.textContent?.trim())
-    expect(menuLabels).toEqual(['Add to favorites', 'New child document', 'Archive'])
+    expect(menuLabels).toEqual(['Add to favorites', 'New child document', 'New HTML document', 'Import Markdown files', 'Archive'])
+    const htmlLink = host.querySelector<HTMLAnchorElement>('[role="menuitem"][href*="/documents/html/new"]')!
+    expect(htmlLink.getAttribute('href')).toBe('/projects/7/documents/html/new?parentDocumentId=1')
+    expect(htmlLink.target).toBe('_blank')
+    ;(Array.from(host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((item) => item.textContent?.includes('Import Markdown'))!).click()
+    expect(onImportMarkdown).toHaveBeenCalledWith(1)
     app.unmount()
   })
 

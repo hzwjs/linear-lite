@@ -15,6 +15,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [documentId: number]
   createChild: [parentDocumentId: number]
+  importMarkdown: [parentDocumentId: number]
   archive: [documentId: number]
   toggleFavorite: [node: ProjectDocumentTreeNode]
   move: [payload: { documentId: number; parentDocumentId: number | null; previousSiblingId: number | null }]
@@ -154,6 +155,7 @@ function onNavigateKey(payload: { event: KeyboardEvent; documentId: number }) {
         @select="emit('select', $event)"
         @toggle="toggle"
         @create-child="emit('createChild', $event)"
+        @import-markdown="emit('importMarkdown', $event)"
         @archive="emit('archive', $event)"
         @toggle-favorite="emit('toggleFavorite', $event)"
         @move="emit('move', $event)"

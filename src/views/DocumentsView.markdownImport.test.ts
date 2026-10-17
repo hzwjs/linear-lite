@@ -109,6 +109,21 @@ describe('DocumentsView Markdown import', () => {
     expect(host.textContent).not.toContain('Offline')
   })
 
+  it('imports a Markdown file under the document selected from its actions menu', async () => {
+    const { host } = await mount()
+    ;(host.querySelector('[aria-label="Actions for Root"]') as HTMLButtonElement).click()
+    await nextTick()
+    const importButton = Array.from(host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+      .find((item) => item.textContent?.includes('Import Markdown'))!
+    importButton.click()
+    const file = new File(['# Child'], 'child.md')
+    const input = host.querySelector('input[type="file"]') as HTMLInputElement
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+    await settle()
+    expect(documentApi.importMarkdown).toHaveBeenCalledWith(7, 1, file, [])
+  })
+
   it('rejects unsupported and oversized files without sending upload requests', async () => {
     const { host } = await mount()
     const large = new File(['large'], 'large.md'); Object.defineProperty(large, 'size', { value: 5 * 1024 * 1024 + 1 })

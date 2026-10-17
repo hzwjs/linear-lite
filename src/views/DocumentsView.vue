@@ -30,6 +30,7 @@ const archiveOpen = ref(false)
 const creating = ref(false)
 const moving = ref(false)
 const markdownInput = ref<HTMLInputElement | null>(null)
+const markdownImportParentId = ref<number | null>(null)
 const imageInput = ref<HTMLInputElement | null>(null)
 const imageDirectoryInput = ref<HTMLInputElement | null>(null)
 const fileDragging = ref(false)
@@ -251,8 +252,16 @@ function onFileDrop(event: DragEvent) {
 function onMarkdownSelected(event: Event) {
   const input = event.target as HTMLInputElement
   const files = Array.from(input.files ?? [])
+  const parentDocumentId = markdownImportParentId.value
+  markdownImportParentId.value = null
   input.value = ''
-  void importMarkdownFiles(files, null)
+  void importMarkdownFiles(files, parentDocumentId)
+}
+
+function openMarkdownPicker(parentDocumentId: number | null) {
+  if (importing.value || creating.value || moving.value || store.loadingTree || store.treeError != null) return
+  markdownImportParentId.value = parentDocumentId
+  markdownInput.value?.click()
 }
 
 async function importMarkdownItem(item: MarkdownImport): Promise<number | null> {
@@ -458,7 +467,7 @@ onBeforeUnmount(() => {
           </div>
           <a class="documents-sidebar__new" :href="`/projects/${projectId}/documents/html/new`" target="_blank" rel="noopener noreferrer" :aria-label="t('documents.html.new')" :title="t('documents.html.new')"><Code2 aria-hidden="true" /> HTML</a>
           <button type="button" class="documents-sidebar__new" :disabled="importing || creating || moving || store.loadingTree || !!store.treeError"
-            :aria-label="t('documents.markdown.import')" :title="t('documents.markdown.requirements')" @click="markdownInput?.click()">
+            :aria-label="t('documents.markdown.import')" :title="t('documents.markdown.requirements')" @click="openMarkdownPicker(null)">
             <Loader2 v-if="importing" class="spin" aria-hidden="true" /><Upload v-else aria-hidden="true" /> MD
           </button>
           <input ref="markdownInput" type="file" accept=".md,.png,.jpg,.jpeg,.gif" multiple hidden @change="onMarkdownSelected" />
@@ -563,6 +572,7 @@ onBeforeUnmount(() => {
             :file-drop-parent-id="fileDragging ? fileDropParentId : null"
             @select="openDocument"
             @create-child="createDocument"
+            @import-markdown="openMarkdownPicker"
             @archive="archiveDocument"
             @toggle-favorite="store.toggleFavorite"
             @move="moveDocument"
