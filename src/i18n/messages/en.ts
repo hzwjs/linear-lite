@@ -331,6 +331,8 @@ const en = {
     filterSectionTitle: 'Filter',
     addFilterPlaceholder: 'Add filter…',
     filterSubmenuAria: 'Filter submenu',
+    titleFilterPlaceholder: 'Enter title keywords',
+    clearTitleFilter: 'Clear title filter',
     labelsLoadFailed: 'Failed to load labels',
     labelsNeedProject: 'Select a project first',
     noLabelsMatch: 'No labels match',
@@ -343,6 +345,7 @@ const en = {
     assigneeCount: 'assignees',
     filterOp: {
       is: 'is',
+      contains: 'contains',
       includeAnyOf: 'include any of'
     },
     activeFilterChipsAria: 'Active filters',
@@ -354,9 +357,9 @@ const en = {
     filterButtonAriaActive: 'Filter ({n} active)',
     orderAscTitle: 'Ascending: older, smaller, A→Z',
     orderDescTitle: 'Descending: newer, larger, Z→A',
-    noTasksMatchSearchOnly: 'No issues match your search.',
+    noTasksMatchSearchOnly: 'No issue title contains this keyword.',
     noTasksMatchIssueFiltersOnly: 'No issues match status / priority / assignee / label filters.',
-    noTasksMatchSearchAndFilters: 'No issues match both your search and filters.',
+    noTasksMatchSearchAndFilters: 'No issue title contains this keyword and matches the other filters.',
     filterByStatus: 'Filter by status',
     filterByPriority: 'Filter by priority',
     assigneeQuickFilter: 'Quick assignee filter',

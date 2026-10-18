@@ -309,9 +309,9 @@ export const useTaskStore = defineStore('taskStore', () => {
 
   const filteredTasks = computed(() => {
     let result = [...tasks.value].sort((a, b) => b.updatedAt - a.updatedAt)
-    if (searchQuery.value) {
-      const q = searchQuery.value.toLowerCase()
-      result = result.filter((t) => t.title.toLowerCase().includes(q))
+    const titleQuery = searchQuery.value.trim().toLowerCase()
+    if (titleQuery) {
+      result = result.filter((t) => t.title.toLowerCase().includes(titleQuery))
     }
     const statusList = filterStatusList.value
     if (statusList.length > 0) {
@@ -804,6 +804,7 @@ export const useTaskStore = defineStore('taskStore', () => {
   }
 
   function clearIssueFilters() {
+    searchQuery.value = ''
     filterStatusList.value = []
     filterPriorityList.value = []
     filterAssigneeList.value = []

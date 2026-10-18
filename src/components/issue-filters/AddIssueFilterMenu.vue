@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleDashed,
   Tag,
+  Type as TypeIcon,
   User as UserIcon
 } from 'lucide-vue-next'
 import type { User, Status, Priority } from '../../types/domain'
@@ -29,7 +30,7 @@ import {
 } from 'lucide-vue-next'
 import { getInitials, getAvatarColorByUsername } from '../../utils/avatar'
 
-type SubKey = 'status' | 'priority' | 'assignee' | 'labels'
+type SubKey = 'title' | 'status' | 'priority' | 'assignee' | 'labels'
 
 const props = defineProps<{
   projectId: number | null
@@ -60,7 +61,7 @@ const subMenuStyle = computed(() => {
   if (!itemEl || !menuEl) return { display: 'none' }
   const menuRect = menuEl.getBoundingClientRect()
   const itemRect = itemEl.getBoundingClientRect()
-  const subWidth = activeSub.value === 'assignee' ? 268 : 180
+  const subWidth = activeSub.value === 'assignee' || activeSub.value === 'title' ? 268 : 180
   let left = menuRect.left - subWidth - 4
   if (left < 8) left = menuRect.right + 4
   return {
@@ -104,6 +105,7 @@ function onSubLeave() {
 type DimRow = { key: SubKey; label: string; icon: Component }
 
 const allDimensions = computed<DimRow[]>(() => [
+  { key: 'title', label: t('common.title'), icon: TypeIcon },
   { key: 'status', label: t('common.status'), icon: CircleDashed },
   { key: 'priority', label: t('common.priority'), icon: BarChart3 },
   { key: 'assignee', label: t('common.assignee'), icon: UserIcon },
@@ -311,12 +313,31 @@ defineExpose({
       <div
         v-if="activeSub != null"
         class="filter-submenu"
-        :class="{ 'filter-submenu--assignee-panel': activeSub === 'assignee' }"
+        :class="{
+          'filter-submenu--assignee-panel': activeSub === 'assignee',
+          'filter-submenu--title-panel': activeSub === 'title'
+        }"
         data-filter-submenu
         :style="subMenuStyle"
         @mouseenter="onSubEnter"
         @mouseleave="onSubLeave"
       >
+        <div v-if="activeSub === 'title'" class="filter-title-wrap">
+          <label class="filter-title-label" for="issue-title-filter-input">
+            {{ t('boardView.filterOp.contains') }}
+          </label>
+          <input
+            id="issue-title-filter-input"
+            v-model="store.searchQuery"
+            type="search"
+            maxlength="200"
+            class="filter-title-input"
+            :placeholder="t('boardView.titleFilterPlaceholder')"
+            :aria-label="t('boardView.titleFilterPlaceholder')"
+            autocomplete="off"
+            @click.stop
+          />
+        </div>
         <template v-if="activeSub === 'status'">
           <ul class="filter-submenu-list">
             <li
@@ -534,6 +555,38 @@ defineExpose({
   display: flex;
   flex-direction: column;
   padding: 0;
+}
+
+.filter-submenu--title-panel {
+  padding: 10px;
+}
+
+.filter-title-wrap {
+  display: grid;
+  gap: 6px;
+}
+
+.filter-title-label {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.filter-title-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  outline: none;
+  font: inherit;
+  font-size: 13px;
+}
+
+.filter-title-input:focus {
+  border-color: var(--color-status-done, #6366f1);
 }
 
 .filter-assignee-wrap {

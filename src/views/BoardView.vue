@@ -21,6 +21,7 @@ import {
   Plus,
   SlidersHorizontal,
   Tag,
+  Type as TypeIcon,
   User as UserIcon
 } from 'lucide-vue-next'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
@@ -151,6 +152,7 @@ function syncAssigneeFilterMeta() {
 
 const activeFilterCount = computed(() => {
   let n = 0
+  if (store.searchQuery.trim().length > 0) n++
   if (store.filterStatusList.length > 0) n++
   if (store.filterPriorityList.length > 0) n++
   if (store.filterAssigneeList.length > 0) n++
@@ -160,6 +162,7 @@ const activeFilterCount = computed(() => {
 
 const hasActiveFilters = computed(
   () =>
+    store.searchQuery.trim().length > 0 ||
     store.filterStatusList.length > 0 ||
     store.filterPriorityList.length > 0 ||
     store.filterAssigneeList.length > 0 ||
@@ -769,6 +772,20 @@ function onClickOutsideDisplay(event: MouseEvent) {
 
     <div v-if="!isEditorOpen && hasActiveFilters" class="filter-bar">
       <div class="filter-bar-conditions">
+        <div v-if="store.searchQuery.trim()" class="filter-condition">
+          <TypeIcon class="filter-condition-icon" />
+          <span class="filter-condition-dim">{{ t('common.title') }}</span>
+          <span class="filter-condition-op">{{ t('boardView.filterOp.contains') }}</span>
+          <span class="filter-condition-value">{{ store.searchQuery.trim() }}</span>
+          <button
+            type="button"
+            class="filter-condition-remove"
+            :aria-label="t('boardView.clearTitleFilter')"
+            @click="store.searchQuery = ''"
+          >
+            <X class="icon-12" />
+          </button>
+        </div>
         <div v-if="store.filterStatusList.length > 0" class="filter-condition">
           <Circle class="filter-condition-icon" />
           <span class="filter-condition-dim">{{ t('common.status') }}</span>

@@ -331,6 +331,8 @@ const zhCN = {
     filterSectionTitle: '筛选',
     addFilterPlaceholder: '添加筛选条件…',
     filterSubmenuAria: '筛选子菜单',
+    titleFilterPlaceholder: '输入标题关键词',
+    clearTitleFilter: '清除标题筛选',
     labelsLoadFailed: '标签列表加载失败',
     labelsNeedProject: '请先选择项目',
     noLabelsMatch: '没有匹配的标签',
@@ -343,6 +345,7 @@ const zhCN = {
     assigneeCount: '位负责人',
     filterOp: {
       is: 'is',
+      contains: '包含',
       includeAnyOf: 'include any of'
     },
     activeFilterChipsAria: '已生效的筛选条件',
@@ -354,9 +357,9 @@ const zhCN = {
     filterButtonAriaActive: '筛选（{n} 项条件生效）',
     orderAscTitle: '升序：较早、较小、A→Z',
     orderDescTitle: '降序：较晚、较大、Z→A',
-    noTasksMatchSearchOnly: '没有任务匹配当前搜索。',
+    noTasksMatchSearchOnly: '没有任务标题包含当前关键词。',
     noTasksMatchIssueFiltersOnly: '没有任务符合当前筛选条件（状态 / 优先级 / 负责人 / 标签）。',
-    noTasksMatchSearchAndFilters: '没有任务同时匹配当前搜索与筛选条件。',
+    noTasksMatchSearchAndFilters: '没有任务标题包含当前关键词并符合其他筛选条件。',
     filterByStatus: '按状态筛选',
     filterByPriority: '按优先级筛选',
     assigneeQuickFilter: '负责人快速筛选',
