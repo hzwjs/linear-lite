@@ -20,6 +20,7 @@ import org.commonmark.node.ListItem;
 import org.commonmark.node.Node;
 import org.commonmark.node.OrderedList;
 import org.commonmark.node.Paragraph;
+import org.commonmark.node.SoftLineBreak;
 import org.commonmark.node.StrongEmphasis;
 import org.commonmark.node.Text;
 import org.commonmark.node.ThematicBreak;
@@ -247,7 +248,8 @@ public class MarkdownToBlockNoteConverter {
     private void appendBlock(Node node, ArrayNode blocks, Map<String, Long> imageAssetIds,
                              Set<String> usedImageRefs, boolean taskDescription) {
         if (node instanceof DetailsBlock details) {
-            ArrayNode title = objectMapper.createArrayNode().add(textNode(details.title, Map.of()));
+            ArrayNode title = objectMapper.createArrayNode();
+            appendText(title, details.title, Map.of());
             ObjectNode toggle = block("toggleListItem", title, Map.of());
             for (Node child = details.getFirstChild(); child != null; child = child.getNext())
                 appendBlock(child, toggle.withArray("children"), imageAssetIds, usedImageRefs, taskDescription);
@@ -402,9 +404,9 @@ public class MarkdownToBlockNoteConverter {
                               boolean insideLink, boolean taskDescription) {
         for (Node current = node; current != null; current = current.getNext()) {
             if (current instanceof Text text) {
-                content.add(textNode(text.getLiteral(), styles));
+                appendText(content, text.getLiteral(), styles);
             } else if (current instanceof Code code) {
-                content.add(textNode(code.getLiteral(), Map.of("code", true)));
+                appendText(content, code.getLiteral(), merge(styles, "code"));
             } else if (current instanceof Emphasis emphasis) {
                 appendInline(emphasis.getFirstChild(), content, merge(styles, "italic"), blockType,
                         extraProps, blocks, imageAssetIds, usedImageRefs, insideLink, taskDescription);
@@ -419,13 +421,24 @@ public class MarkdownToBlockNoteConverter {
                 linkNode.put("type", "link");
                 linkNode.put("href", link.getDestination());
                 ArrayNode linkContent = linkNode.putArray("content");
+                // 同址相邻链接在编辑器中属于同一链接范围，文本仍遵循样式分段规则。
+                if (!content.isEmpty()) {
+                    var previous = content.get(content.size() - 1);
+                    if ("link".equals(previous.path("type").asText())
+                            && link.getDestination().equals(previous.path("href").asText())) {
+                        linkNode = (ObjectNode) previous;
+                        linkContent = (ArrayNode) linkNode.get("content");
+                    }
+                }
                 appendInline(link.getFirstChild(), linkContent, styles, blockType,
                         extraProps, blocks, imageAssetIds, usedImageRefs, true, taskDescription);
-                content.add(linkNode);
-            } else if (current instanceof HardLineBreak) {
-                content.add(textNode("\n", styles));
+                if (!linkContent.isEmpty() && (content.isEmpty() || content.get(content.size() - 1) != linkNode)) {
+                    content.add(linkNode);
+                }
+            } else if (current instanceof HardLineBreak || current instanceof SoftLineBreak) {
+                appendText(content, "\n", styles);
             } else if (current instanceof HtmlInline html) {
-                content.add(textNode(html.getLiteral(), styles));
+                appendText(content, html.getLiteral(), styles);
             } else if (current instanceof Image image) {
                 if (insideLink) {
                     throw new McpInvalidParamsException("图片不能嵌入 Markdown 链接");
@@ -562,7 +575,7 @@ public class MarkdownToBlockNoteConverter {
         ObjectNode block = block("codeBlock", objectMapper.createArrayNode(), Map.of());
         block.with("props").put("language", info == null ? "" : info.trim());
         ArrayNode content = block.putArray("content");
-        content.add(textNode(literal == null ? "" : literal, Map.of()));
+        appendText(content, literal == null ? "" : literal, Map.of());
         return block;
     }
 
@@ -573,6 +586,21 @@ public class MarkdownToBlockNoteConverter {
         ObjectNode styleNode = text.putObject("styles");
         styles.forEach(styleNode::put);
         return text;
+    }
+
+    private void appendText(ArrayNode content, String value, Map<String, Boolean> styles) {
+        if (value.isEmpty()) return;
+        ObjectNode text = textNode(value, styles);
+        // ProseMirror 合并同样式相邻文本；在生成源头采用同一分段规则，保留换行与样式边界。
+        if (!content.isEmpty()) {
+            var previous = content.get(content.size() - 1);
+            if ("text".equals(previous.path("type").asText())
+                    && previous.path("styles").equals(text.path("styles"))) {
+                ((ObjectNode) previous).put("text", previous.path("text").asText() + value);
+                return;
+            }
+        }
+        content.add(text);
     }
 
     private Map<String, Boolean> merge(Map<String, Boolean> styles, String key) {
