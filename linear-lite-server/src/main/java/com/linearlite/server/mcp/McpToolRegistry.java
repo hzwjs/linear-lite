@@ -849,12 +849,6 @@ public class McpToolRegistry {
         properties.put("clearPlannedStart", booleanSchema("是否清空计划开始时间"));
         properties.put("labels", labelsSchema());
         ObjectNode schema = objectSchema(properties, "taskKey");
-        schema.set("allOf", objectMapper.createArrayNode());
-        // 服务端同时校验互斥字段，schema 负责向 MCP 客户端声明更新语义。
-        addMutualExclusion(schema, "parentId", "clearParent");
-        addMutualExclusion(schema, "assigneeId", "clearAssignee");
-        addMutualExclusion(schema, "dueDate", "clearDueDate");
-        addMutualExclusion(schema, "plannedStartDate", "clearPlannedStart");
         return tool("update_task", "更新任务",
                 "按 taskKey 更新任务；未提供的字段保持不变。description 接受 Markdown，写入时转为 BlockNote；不要传入序列化的 BlockNote JSON。",
                 schema, false, false);
@@ -950,13 +944,9 @@ public class McpToolRegistry {
     }
 
     private ObjectNode getDocumentInputSchema() {
-        ObjectNode schema = objectSchema(Map.of(
+        return objectSchema(Map.of(
                 "documentId", integerSchema("文档 ID"),
                 "title", stringSchema("文档精确标题", 1, 256)));
-        ArrayNode oneOf = schema.putArray("oneOf");
-        oneOf.add(objectSchema(Map.of("documentId", integerSchema("文档 ID")), "documentId"));
-        oneOf.add(objectSchema(Map.of("title", stringSchema("文档精确标题", 1, 256)), "title"));
-        return schema;
     }
 
     private ObjectNode updateDocumentDefinition() {
@@ -1238,15 +1228,6 @@ public class McpToolRegistry {
         ArrayNode enumNode = schema.putArray("enum");
         values.stream().sorted().forEach(enumNode::add);
         return schema;
-    }
-
-    private void addMutualExclusion(ObjectNode schema, String first, String second) {
-        ObjectNode exclusion = objectMapper.createObjectNode();
-        ObjectNode forbidden = exclusion.putObject("not");
-        ArrayNode required = forbidden.putArray("required");
-        required.add(first);
-        required.add(second);
-        schema.withArray("allOf").add(exclusion);
     }
 
     @FunctionalInterface
