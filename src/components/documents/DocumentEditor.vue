@@ -28,6 +28,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   updateTitle: [title: string]
+  commitTitle: []
   updateContent: [content: string]
   archive: []
   history: []
@@ -448,6 +449,7 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
           :readonly="saveState === 'conflict'"
           @input="emit('updateTitle', ($event.target as HTMLInputElement).value)"
           @keydown="handleTitleKeydown"
+          @blur="emit('commitTitle')"
         />
         <h1 class="document-editor__print-title">{{ document.title }}</h1>
         <p v-if="updatedMetadata" class="document-editor__updated">{{ updatedMetadata }}</p>

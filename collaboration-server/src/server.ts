@@ -233,7 +233,16 @@ export class CollaborationNode {
     if (request.method === 'POST' && route === 'metadata') {
       const metadata = await this.readJson<{ epoch: string; version: number; title: string; editorId: number }>(request)
       const name = roomName(documentId, metadata.epoch)
-      instance.documents.get(name)?.broadcastStateless(JSON.stringify({ event: 'metadata', ...metadata }))
+      await this.roomLocks.run(String(documentId), async () => {
+        const runtime = this.runtime.get(name)
+        if (runtime && (runtime.epoch !== metadata.epoch || metadata.version < runtime.version)) return
+        if (runtime && metadata.version > runtime.version) {
+          // 标题保存会推进文档版本，但不改 Yjs 状态；房间缓存版本必须跟随持久版本单调前进。
+          runtime.version = metadata.version
+          runtime.lastEditorId = metadata.editorId
+        }
+        instance.documents.get(name)?.broadcastStateless(JSON.stringify({ event: 'metadata', ...metadata }))
+      })
       this.respond(response, 204)
       return
     }

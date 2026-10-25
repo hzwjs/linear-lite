@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { documentApi } from '../services/api/documents'
+import { documentApi, getDocumentConflict } from '../services/api/documents'
 import { documentCollaborationApi } from '../services/api/documentCollaboration'
 import { useDocumentFavoriteStore } from './documentFavoriteStore'
 import type {
@@ -8,8 +8,6 @@ import type {
   ProjectDocument,
   ProjectDocumentTreeNode
 } from '../types/document'
-
-const AUTOSAVE_DELAY_MS = 800
 
 export const useDocumentStore = defineStore('documentStore', () => {
   const treeNodes = ref<ProjectDocumentTreeNode[]>([])
@@ -24,22 +22,17 @@ export const useDocumentStore = defineStore('documentStore', () => {
   const conflictVersion = ref<number | null>(null)
   const favoritePendingIds = ref(new Set<number>())
 
-  let saveTimer: ReturnType<typeof setTimeout> | null = null
   let editSequence = 0
   let acknowledgedTitle = ''
   let activeSavePromise: Promise<void> | null = null
+  let commitRequested = false
   let treeLoadSequence = 0
   let visibleTreeLoadSequence = 0
   let documentLoadSequence = 0
 
-  function cancelScheduledSave() {
-    if (saveTimer != null) clearTimeout(saveTimer)
-    saveTimer = null
-  }
-
   function resetEditorState() {
-    cancelScheduledSave()
     editSequence = 0
+    commitRequested = false
     saveState.value = 'idle'
     conflictVersion.value = null
   }
@@ -125,7 +118,6 @@ export const useDocumentStore = defineStore('documentStore', () => {
 
   async function loadDocument(documentId: number) {
     const sequence = ++documentLoadSequence
-    cancelScheduledSave()
     // 路由已切换时立即撤下旧正文，禁止在新请求期间显示另一文档的数据。
     activeDocument.value = null
     resetEditorState()
@@ -156,14 +148,6 @@ export const useDocumentStore = defineStore('documentStore', () => {
     return document
   }
 
-  function scheduleSave(delay = AUTOSAVE_DELAY_MS) {
-    cancelScheduledSave()
-    saveTimer = setTimeout(() => {
-      saveTimer = null
-      void saveNow()
-    }, delay)
-  }
-
   function updateDraft(patch: { title?: string; content?: string }) {
     const document = activeDocument.value
     if (!document || saveState.value === 'conflict') return
@@ -173,21 +157,18 @@ export const useDocumentStore = defineStore('documentStore', () => {
     activeDocument.value = nextDocument
     editSequence += 1
     if (nextDocument.title.trim().length === 0) {
-      // 空标题由前端拦截，避免自动保存把必填校验错误反复提交到服务端。
-      cancelScheduledSave()
+      // 空标题在前端拦截，避免提交必填校验错误。
       saveState.value = 'invalid'
       error.value = null
       return
     }
     saveState.value = 'dirty'
-    scheduleSave()
   }
 
   async function performSave(): Promise<void> {
     const document = activeDocument.value
     if (!document || saveState.value === 'conflict' || saveState.value === 'invalid' ||
       saveState.value === 'idle' || saveState.value === 'saved') return
-    cancelScheduledSave()
     const submittedId = document.id
     const submittedSequence = editSequence
     const expectedTitle = acknowledgedTitle
@@ -208,34 +189,43 @@ export const useDocumentStore = defineStore('documentStore', () => {
         saveState.value = 'invalid'
       } else {
         saveState.value = changedDuringRequest ? 'dirty' : 'saved'
-        if (changedDuringRequest) scheduleSave(0)
       }
     } catch (cause) {
       if (activeDocument.value?.id !== submittedId) return
       if (cause != null && typeof cause === 'object' && 'response' in cause &&
         (cause as { response?: { status?: unknown } }).response?.status === 409) {
-        conflictVersion.value = null
+        const conflict = getDocumentConflict(cause)
+        conflictVersion.value = conflict === null ? null : conflict.currentVersion
         saveState.value = 'conflict'
       } else {
         error.value = cause instanceof Error ? cause.message : String(cause)
         saveState.value = 'failed'
       }
-    } finally {
-      // 请求期间积累的快照只在旧请求完全退出后进入下一条串行请求。
-      if (saveState.value === 'dirty') scheduleSave(0)
     }
   }
 
+  // 标题仅在输入框失焦或导航提交时保存；输入停顿不会提交草稿。
   function saveNow(): Promise<void> {
+    commitRequested = true
     if (activeSavePromise) return activeSavePromise
-    activeSavePromise = performSave().finally(() => {
+    activeSavePromise = drainSaveRequests().finally(() => {
       activeSavePromise = null
     })
     return activeSavePromise
   }
 
+  async function drainSaveRequests() {
+    while (commitRequested) {
+      commitRequested = false
+      await performSave()
+      if (saveState.value !== 'dirty') {
+        commitRequested = false
+        return
+      }
+    }
+  }
+
   async function flushSaves() {
-    cancelScheduledSave()
     if (saveState.value !== 'dirty' && saveState.value !== 'saving' && saveState.value !== 'failed') return
     await saveNow()
   }

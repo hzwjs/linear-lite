@@ -634,6 +634,7 @@ onBeforeUnmount(() => {
           :mention-documents="store.treeNodes.map((node) => ({ id: node.id, title: node.title, projectId: node.projectId }))"
           :favorite-pending="store.favoritePendingIds.has(store.activeDocument.id)"
           @update-title="store.updateDraft({ title: $event })"
+          @commit-title="store.saveNow"
           @archive="archiveDocument(store.activeDocument.id)"
           @history="openHistory"
           @reload="store.reloadAfterConflict"

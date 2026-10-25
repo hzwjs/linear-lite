@@ -33,7 +33,7 @@ function document(overrides: Partial<ProjectDocument> = {}): ProjectDocument {
   }
 }
 
-describe('documentStore autosave', () => {
+describe('documentStore title saves', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.useFakeTimers()
@@ -46,7 +46,7 @@ describe('documentStore autosave', () => {
     vi.mocked(documentApi.removeFavorite).mockReset()
   })
 
-  it('saves title metadata against the acknowledged title while a newer title is in flight', async () => {
+  it('keeps a paused title draft local until commit and serializes a newer committed title', async () => {
     let resolveFirst!: (value: DocumentTitleUpdate) => void
     vi.mocked(documentCollaborationApi.updateTitle)
       .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve }))
@@ -57,18 +57,23 @@ describe('documentStore autosave', () => {
 
     store.updateDraft({ title: 'First' })
     await vi.advanceTimersByTimeAsync(800)
+    expect(documentCollaborationApi.updateTitle).not.toHaveBeenCalled()
+    expect(store.saveState).toBe('dirty')
+
+    const saving = store.saveNow()
     expect(documentCollaborationApi.updateTitle).toHaveBeenNthCalledWith(1, 8, 'Spec', 'First')
 
     store.updateDraft({ title: 'Second' })
+    void store.saveNow()
     resolveFirst(titleUpdate('First', 2))
-    await vi.runAllTimersAsync()
+    await saving
 
     expect(documentCollaborationApi.updateTitle).toHaveBeenNthCalledWith(2, 8, 'First', 'Second')
     expect(store.activeDocument?.version).toBe(3)
     expect(store.saveState).toBe('saved')
   })
 
-  it('stops writes on 409 and preserves the local draft', async () => {
+  it('stops writes after a version conflict and preserves the local draft', async () => {
     vi.mocked(documentCollaborationApi.updateTitle).mockRejectedValue({
       isAxiosError: true,
       response: { status: 409, data: { data: { currentVersion: 4 } } }
@@ -78,23 +83,22 @@ describe('documentStore autosave', () => {
     await store.loadDocument(8)
 
     store.updateDraft({ title: 'Local draft' })
-    await vi.advanceTimersByTimeAsync(800)
+    await store.saveNow()
 
     expect(store.saveState).toBe('conflict')
-    expect(store.conflictVersion).toBeNull()
+    expect(store.conflictVersion).toBe(4)
     expect(store.activeDocument?.title).toBe('Local draft')
     store.updateDraft({ title: 'Blocked edit' })
-    await vi.runAllTimersAsync()
     expect(documentCollaborationApi.updateTitle).toHaveBeenCalledTimes(1)
   })
 
-  it('does not autosave a draft with an empty title', async () => {
+  it('does not commit a draft with an empty title', async () => {
     vi.mocked(documentCollaborationApi.updateTitle).mockResolvedValue(titleUpdate('   ', 2))
     const store = useDocumentStore()
     store.activeDocument = document()
 
     store.updateDraft({ title: '   ' })
-    await vi.advanceTimersByTimeAsync(800)
+    await store.saveNow()
 
     expect(documentCollaborationApi.updateTitle).not.toHaveBeenCalled()
     expect(store.saveState).toBe('invalid')
@@ -130,7 +134,7 @@ describe('documentStore autosave', () => {
     await store.loadDocument(8)
 
     store.updateDraft({ title: 'Draft' })
-    await vi.advanceTimersByTimeAsync(800)
+    await store.saveNow()
 
     expect(store.saveState).toBe('failed')
     expect(store.error).toBe('Network unavailable')

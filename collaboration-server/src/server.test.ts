@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { describe, it } from 'node:test'
 import * as Y from 'yjs'
 import { CollaborationNode } from './server.js'
-import type { CollaborationConfig } from './types.js'
+import { roomName, type CollaborationConfig } from './types.js'
 
 const config: CollaborationConfig = {
   host: '127.0.0.1',
@@ -92,6 +92,50 @@ describe('save acknowledgement', () => {
       event: 'saved', epoch: 'epoch-737', counters: { [sessionId]: 2 }, version: 33, commitSeq: 17,
     })
     runtime.validationState.destroy()
+  })
+})
+
+describe('document title metadata', () => {
+  it('advances the collaboration runtime version and ignores stale metadata', async () => {
+    const node = new CollaborationNode({ ...config, port: 0 })
+    await node.listen()
+    const documentId = 738
+    const epoch = 'epoch-738'
+    const room = roomName(documentId, epoch)
+    const validationState = new Y.Doc()
+    const runtime = {
+      epoch,
+      version: 1,
+      lastEditorId: 7,
+      validationState,
+    }
+    const internal = node as unknown as {
+      runtime: Map<string, typeof runtime>
+    }
+    internal.runtime.set(room, runtime)
+
+    try {
+      const address = node.httpServer.httpServer.address() as AddressInfo
+      const baseUrl = `http://127.0.0.1:${address.port}/internal/collaboration/documents/${documentId}/metadata`
+      const postMetadata = (version: number, editorId: number) => fetch(baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Collaboration-Internal-Key': config.internalKey,
+        },
+        body: JSON.stringify({ epoch, version, title: `Title ${version}`, editorId }),
+      })
+
+      assert.equal((await postMetadata(2, 8)).status, 204)
+      assert.equal(runtime.version, 2)
+      assert.equal(runtime.lastEditorId, 8)
+
+      assert.equal((await postMetadata(1, 9)).status, 204)
+      assert.equal(runtime.version, 2)
+      assert.equal(runtime.lastEditorId, 8)
+    } finally {
+      await node.destroy()
+    }
   })
 })
 
