@@ -7,6 +7,7 @@ import com.linearlite.server.security.LinearLiteUserDetails;
 import com.linearlite.server.security.McpOAuthAuthorizationCodeAuthenticationProvider;
 import com.linearlite.server.security.McpOAuthRefreshTokenAuthenticationProvider;
 import com.linearlite.server.security.McpOAuthRefreshTokenStore;
+import com.linearlite.server.security.McpOAuthTokenRevocationAuthenticationProvider;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.OctetSequenceKey;
@@ -38,6 +39,7 @@ import org.springframework.security.oauth2.server.authorization.authentication.O
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationValidator;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2RefreshTokenAuthenticationProvider;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2TokenRevocationAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.security.oauth2.server.authorization.token.DelegatingOAuth2TokenGenerator;
 import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
@@ -86,6 +88,7 @@ public class McpOAuthServerConfiguration {
             throw new IllegalStateException("mcp.enabled must be true when MCP OAuth is enabled.");
         }
         properties.validateForAuthorizationServer();
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         OAuth2AuthorizationServerConfigurer authorizationServerConfigurer = new OAuth2AuthorizationServerConfigurer();
         http.securityMatcher(authorizationServerConfigurer.getEndpointsMatcher())
                 .with(authorizationServerConfigurer, authorizationServer -> authorizationServer
@@ -113,7 +116,6 @@ public class McpOAuthServerConfiguration {
                                     }
                                 })))
                         .tokenEndpoint(endpoint -> endpoint.authenticationProviders(providers -> {
-                            TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
                             for (int index = 0; index < providers.size(); index++) {
                                 if (providers.get(index) instanceof OAuth2AuthorizationCodeAuthenticationProvider codeProvider) {
                                     providers.set(index, new McpOAuthAuthorizationCodeAuthenticationProvider(
@@ -125,6 +127,11 @@ public class McpOAuthServerConfiguration {
                             providers.add(new McpOAuthRefreshTokenAuthenticationProvider(
                                     authorizationService, refreshTokenStore, tokenGenerator, oauthProperties,
                                     transactionTemplate));
+                        }))
+                        .tokenRevocationEndpoint(endpoint -> endpoint.authenticationProviders(providers -> {
+                            providers.removeIf(OAuth2TokenRevocationAuthenticationProvider.class::isInstance);
+                            providers.add(0, new McpOAuthTokenRevocationAuthenticationProvider(
+                                    refreshTokenStore, authorizationService, transactionTemplate));
                         }))
                         .authorizationServerMetadataEndpoint(endpoint -> endpoint
                                 .authorizationServerMetadataCustomizer(metadata -> {

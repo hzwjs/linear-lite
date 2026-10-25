@@ -149,6 +149,28 @@ public final class McpOAuthRefreshTokenStore {
                 new OAuth2RefreshToken(nextTokenValue, issuedAt, expiresAt));
     }
 
+    public Revocation revoke(String presentedToken, String registeredClientId, Instant revokedAt) {
+        String presentedHash = hash(presentedToken);
+        List<Family> families = jdbc.query("""
+                        SELECT f.family_id, f.authorization_id, f.registered_client_id, f.resource, f.scopes,
+                               f.expires_at, f.revoked_at
+                        FROM mcp_oauth_refresh_token_family f
+                        JOIN mcp_oauth_refresh_token t ON t.family_id = f.family_id
+                        WHERE t.token_hash = ?
+                        FOR UPDATE
+                        """,
+                FAMILY_MAPPER, presentedHash);
+        if (families.isEmpty()) {
+            return null;
+        }
+        Family family = families.get(0);
+        if (!registeredClientId.equals(family.registeredClientId())) {
+            return null;
+        }
+        revokeFamily(family.familyId(), revokedAt);
+        return new Revocation(family.authorizationId());
+    }
+
     private void revokeFamily(String familyId, Instant revokedAt) {
         Timestamp timestamp = Timestamp.from(revokedAt);
         jdbc.update("UPDATE mcp_oauth_refresh_token_family SET revoked_at = COALESCE(revoked_at, ?) WHERE family_id = ?",
@@ -208,8 +230,11 @@ public final class McpOAuthRefreshTokenStore {
         }
     }
 
-    private record Family(String familyId, String authorizationId, String registeredClientId,
-                          String resource, String scopes, Instant expiresAt, Instant revokedAt) {
+    public record Revocation(String authorizationId) {
+    }
+
+    record Family(String familyId, String authorizationId, String registeredClientId,
+                  String resource, String scopes, Instant expiresAt, Instant revokedAt) {
     }
 
     private record TokenRow(String familyId, Instant expiresAt, Instant consumedAt, Instant revokedAt) {
