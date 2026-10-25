@@ -52,6 +52,14 @@ public class R2StorageConfig {
             }
 
             @Override
+            public String uploadTaskCommentImage(
+                    java.io.InputStream content, long contentLength, String fileName, String contentType,
+                    long taskId, long maxBytes) {
+                throwDisabled();
+                return null;
+            }
+
+            @Override
             public ImageUploadResponse uploadProjectDocumentAttachment(
                     java.io.InputStream content, long contentLength, String fileName, String contentType,
                     long projectId, long documentId, long maxBytes) {

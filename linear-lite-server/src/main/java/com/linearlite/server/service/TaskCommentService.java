@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Service
 public class TaskCommentService {
@@ -47,6 +48,8 @@ public class TaskCommentService {
     private final ProjectMemberMapper projectMemberMapper;
     private final UserMapper userMapper;
     private final NotificationSseBroadcaster notificationSseBroadcaster;
+    @Autowired
+    private TaskCommentAttachmentService commentAttachmentService;
 
     public TaskCommentService(
             TaskPermissionGuard taskPermissionGuard,
@@ -80,6 +83,11 @@ public class TaskCommentService {
         List<TaskCommentResponse> out = new ArrayList<>();
         for (TaskComment c : rows) {
             out.add(toResponse(c, currentUserId, namesById.getOrDefault(c.getAuthorId(), "?"), now));
+        }
+        if (commentAttachmentService != null) {
+            Map<Long, List<com.linearlite.server.dto.TaskCommentImageResponse>> images = commentAttachmentService
+                    .listByComments(rows.stream().map(TaskComment::getId).toList());
+            out.forEach(comment -> comment.setImages(images.getOrDefault(comment.getId(), List.of())));
         }
         return out;
     }
@@ -166,6 +174,58 @@ public class TaskCommentService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    public TaskCommentResponse createWithImages(String taskKey, Long userId, CreateTaskCommentRequest req,
+            List<TaskCommentImageDraft> drafts) {
+        TaskCommentResponse response = create(taskKey, userId, req);
+        if (!drafts.isEmpty()) {
+            Long taskId = commentAttachmentService.taskId(taskKey, userId);
+            commentAttachmentService.bind(response.getId(), taskId, drafts);
+            response.setImages(commentAttachmentService.list(response.getId()));
+        }
+        return response;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public TaskCommentResponse createMcp(String taskKey, Long userId, CreateTaskCommentRequest req,
+            List<TaskCommentImageDraft> drafts, String operationId, String requestHash) {
+        TaskCommentResponse replay = findMcpReplay(taskKey, userId, operationId, requestHash);
+        if (replay != null) return replay;
+        TaskCommentResponse created = createWithImages(taskKey, userId, req, drafts);
+        TaskComment row = taskCommentMapper.selectById(created.getId());
+        row.setSourceType("mcp_task_comment");
+        row.setExternalRef(operationKey(userId, taskKey, operationId) + requestHash);
+        taskCommentMapper.updateById(row);
+        return created;
+    }
+
+    public TaskCommentResponse findMcpReplay(String taskKey, Long userId, String operationId, String requestHash) {
+        Task task = requireTaskForMember(taskKey, userId);
+        String operationKey = operationKey(userId, taskKey, operationId);
+        TaskComment existing = taskCommentMapper.selectOne(new LambdaQueryWrapper<TaskComment>()
+                .eq(TaskComment::getTaskId, task.getId()).eq(TaskComment::getSourceType, "mcp_task_comment")
+                .likeRight(TaskComment::getExternalRef, operationKey));
+        if (existing == null) return null;
+        if (!(operationKey + requestHash).equals(existing.getExternalRef())) {
+            throw new ConflictOperationException("IDEMPOTENCY_CONFLICT: operationId 已用于不同的评论内容");
+        }
+        return listByTaskKey(taskKey, userId).stream().filter(row -> row.getId().equals(existing.getId()))
+                .findFirst().orElseThrow(() -> new ResourceNotFoundException("幂等评论不存在"));
+    }
+
+    private String operationKey(Long userId, String taskKey, String operationId) {
+        return hash(userId + "|" + taskKey + "|" + operationId).substring(0, 63) + ":";
+    }
+
+    private static String hash(String value) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 不可用", e);
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
     public void delete(String taskKey, Long commentId, Long currentUserId) {
         Task task = requireTaskForMember(taskKey, currentUserId);
         TaskComment c = taskCommentMapper.selectById(commentId);
@@ -183,6 +243,7 @@ public class TaskCommentService {
                 new LambdaQueryWrapper<InAppNotification>().eq(InAppNotification::getCommentId, commentId));
         commentMentionMapper.delete(
                 new LambdaQueryWrapper<CommentMention>().eq(CommentMention::getCommentId, commentId));
+        if (commentAttachmentService != null) commentAttachmentService.deleteCommentBindings(commentId);
         taskCommentMapper.deleteById(commentId);
     }
 

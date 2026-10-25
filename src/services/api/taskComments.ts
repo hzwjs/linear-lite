@@ -15,7 +15,8 @@ function toComment(raw: CommentDto): CommentDto {
     rootId,
     depth,
     createdAt: raw.createdAt,
-    deletable: raw.deletable
+    deletable: raw.deletable,
+    images: raw.images
   }
 }
 

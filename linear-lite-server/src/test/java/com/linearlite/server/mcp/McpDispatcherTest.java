@@ -80,6 +80,7 @@ class McpDispatcherTest {
                 taskQueryService,
                 taskActivityService,
                 mock(TaskCommentService.class),
+                mock(McpTaskCommentImageContentService.class),
                 projectDocumentCommandService,
                 projectDocumentQueryService,
                 documentPatchService,
@@ -100,39 +101,44 @@ class McpDispatcherTest {
     }
 
     @Test
-    void listsAllSixteenToolsInStableOrder() throws Exception {
+    void listsAllSeventeenToolsInStableOrder() throws Exception {
         McpDispatcher.DispatchResponse response = dispatch(
                 request("2", "tools/list", "{}"), null, null, null, null, 7L);
 
         JsonNode tools = response.body().path("result").path("tools");
-        assertEquals(16, tools.size());
+        assertEquals(17, tools.size());
         assertEquals("get_profile", tools.get(0).path("name").asText());
         assertEquals("list_projects", tools.get(1).path("name").asText());
-        assertEquals("list_project_tasks", tools.get(7).path("name").asText());
-        assertEquals("list_task_changes", tools.get(8).path("name").asText());
-        assertEquals("list_documents", tools.get(9).path("name").asText());
-        assertEquals("get_document", tools.get(10).path("name").asText());
-        assertEquals("get_document_blocks", tools.get(11).path("name").asText());
-        assertEquals("create_document", tools.get(12).path("name").asText());
-        assertEquals("update_document", tools.get(13).path("name").asText());
-        assertEquals("patch_document", tools.get(14).path("name").asText());
-        assertEquals("get_member_id", tools.get(15).path("name").asText());
-        assertTrue(tools.get(15).path("inputSchema").path("properties").has("username"));
+        assertEquals("list_task_comments", tools.get(6).path("name").asText());
+        JsonNode addComment = tools.get(5);
+        assertTrue(addComment.path("annotations").path("idempotentHint").asBoolean());
+        assertTrue(addComment.path("inputSchema").path("required").toString().contains("operationId"));
+        assertTrue(tools.get(6).path("annotations").path("readOnlyHint").asBoolean());
+        assertEquals("list_project_tasks", tools.get(8).path("name").asText());
+        assertEquals("list_task_changes", tools.get(9).path("name").asText());
+        assertEquals("list_documents", tools.get(10).path("name").asText());
+        assertEquals("get_document", tools.get(11).path("name").asText());
+        assertEquals("get_document_blocks", tools.get(12).path("name").asText());
+        assertEquals("create_document", tools.get(13).path("name").asText());
+        assertEquals("update_document", tools.get(14).path("name").asText());
+        assertEquals("patch_document", tools.get(15).path("name").asText());
+        assertEquals("get_member_id", tools.get(16).path("name").asText());
+        assertTrue(tools.get(16).path("inputSchema").path("properties").has("username"));
         assertTrue(tools.get(3).path("inputSchema").path("properties").has("projectId"));
-        assertEquals("array", tools.get(12).path("inputSchema").path("properties").path("images").path("type").asText());
-        assertEquals(8, tools.get(12).path("inputSchema").path("properties").path("images").path("maxItems").asInt());
-        JsonNode imageSchema = tools.get(12).path("inputSchema").path("properties").path("images").path("items");
-        assertTrue(tools.get(12).path("inputSchema").path("properties").path("images")
+        assertEquals("array", tools.get(13).path("inputSchema").path("properties").path("images").path("type").asText());
+        assertEquals(8, tools.get(13).path("inputSchema").path("properties").path("images").path("maxItems").asInt());
+        JsonNode imageSchema = tools.get(13).path("inputSchema").path("properties").path("images").path("items");
+        assertTrue(tools.get(13).path("inputSchema").path("properties").path("images")
                 .path("description").asText().contains("mcp-image:<ref>"));
         assertEquals(2, imageSchema.path("oneOf").size());
         assertEquals(false, imageSchema.path("oneOf").get(0).path("additionalProperties").asBoolean());
         assertEquals(false, imageSchema.path("oneOf").get(1).path("additionalProperties").asBoolean());
-        assertTrue(tools.get(13).path("inputSchema").path("properties").has("images"));
-        assertTrue(tools.get(12).path("description").asText().contains("GFM 表格"));
+        assertTrue(tools.get(14).path("inputSchema").path("properties").has("images"));
         assertTrue(tools.get(13).path("description").asText().contains("GFM 表格"));
-        assertTrue(tools.get(14).path("inputSchema").path("properties").has("operations"));
-        assertEquals(50, tools.get(14).path("inputSchema").path("properties").path("operations").path("maxItems").asInt());
-        JsonNode patchOperations = tools.get(14).path("inputSchema").path("properties").path("operations")
+        assertTrue(tools.get(14).path("description").asText().contains("GFM 表格"));
+        assertTrue(tools.get(15).path("inputSchema").path("properties").has("operations"));
+        assertEquals(50, tools.get(15).path("inputSchema").path("properties").path("operations").path("maxItems").asInt());
+        JsonNode patchOperations = tools.get(15).path("inputSchema").path("properties").path("operations")
                 .path("items").path("oneOf");
         assertEquals(8, patchOperations.size());
         assertEquals("insert_table_row", patchOperations.get(5).path("properties").path("op").path("enum").get(0).asText());
@@ -143,8 +149,8 @@ class McpDispatcherTest {
         McpDispatcher.DispatchResponse response = dispatch(
                 request("read-contract", "tools/list", "{}"), null, null, null, null, 9L);
         JsonNode tools = response.body().path("result").path("tools");
-        JsonNode taskList = tools.get(7);
-        JsonNode changes = tools.get(8);
+        JsonNode taskList = tools.get(8);
+        JsonNode changes = tools.get(9);
 
         assertEquals("list_project_tasks", taskList.path("name").asText());
         assertTrue(taskList.path("annotations").path("readOnlyHint").asBoolean());

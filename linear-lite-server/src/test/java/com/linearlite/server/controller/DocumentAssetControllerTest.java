@@ -4,6 +4,7 @@ import com.linearlite.server.config.R2StorageProperties;
 import com.linearlite.server.dto.DocumentAssetDescriptor;
 import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.service.ProjectDocumentAttachmentService;
+import com.linearlite.server.service.TaskCommentAttachmentService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -12,6 +13,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
+import com.linearlite.server.dto.AttachmentDownload;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -24,6 +28,7 @@ import static org.mockito.Mockito.when;
 class DocumentAssetControllerTest {
 
     @Mock private ProjectDocumentAttachmentService attachmentService;
+    @Mock private TaskCommentAttachmentService taskCommentAttachmentService;
 
     private final R2StorageProperties storageProperties = new R2StorageProperties();
     private DocumentAssetController controller;
@@ -31,7 +36,7 @@ class DocumentAssetControllerTest {
     @BeforeEach
     void setUp() {
         storageProperties.setEnabled(true);
-        controller = new DocumentAssetController(attachmentService, storageProperties);
+        controller = new DocumentAssetController(attachmentService, storageProperties, taskCommentAttachmentService);
     }
 
     @Test
@@ -49,6 +54,23 @@ class DocumentAssetControllerTest {
     }
 
     @Test
+    void servesBoundCommentImageInlineThroughCookieScopedAssetRoute() throws Exception {
+        when(taskCommentAttachmentService.resolve(91L, 31L, 5L)).thenReturn(
+                new AttachmentDownload(new ByteArrayInputStream(new byte[]{1, 2, 3}), "image.png", "image/png", 3L));
+
+        var response = controller.taskCommentImage(request(null), 91L, 31L);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        response.getBody().writeTo(bytes);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("private, no-store", response.getHeaders().getCacheControl());
+        assertEquals("Cookie", response.getHeaders().getFirst(HttpHeaders.VARY));
+        assertEquals("image/png", response.getHeaders().getContentType().toString());
+        assertEquals(3, bytes.size());
+        verify(taskCommentAttachmentService).resolve(91L, 31L, 5L);
+    }
+
+    @Test
     void returnsNotModifiedWhenEtagMatchesWithoutOpeningStream() {
         when(attachmentService.resolveAsset(11L, 31L, "hash", "original", 5L))
                 .thenReturn(new DocumentAssetDescriptor("key", "image/png", 42L, "\"sha256:hash\""));
@@ -63,7 +85,7 @@ class DocumentAssetControllerTest {
     @Test
     void returnsServiceUnavailableWhenStorageDisabled() {
         storageProperties.setEnabled(false);
-        controller = new DocumentAssetController(attachmentService, storageProperties);
+        controller = new DocumentAssetController(attachmentService, storageProperties, taskCommentAttachmentService);
 
         var response = controller.asset(request(null), 11L, 31L, "hash", "original");
 

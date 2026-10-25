@@ -11,6 +11,11 @@ public interface ObjectStorageService {
 
     ImageUploadResponse uploadAttachment(MultipartFile file, long taskId);
 
+    /** 上传私有任务评论图片对象，只返回对象键，不生成可公开访问的 URL。 */
+    String uploadTaskCommentImage(
+            InputStream content, long contentLength, String fileName, String contentType,
+            long taskId, long maxBytes);
+
     ImageUploadResponse uploadProjectDocumentAttachment(
             InputStream content, long contentLength, String fileName, String contentType,
             long projectId, long documentId, long maxBytes);

@@ -7,8 +7,8 @@ import type { CommentDto, CommentSubmitPayload } from '../../types/comment'
 import { toApiError } from '../../services/api/index'
 import { getActivityAvatarLabel } from '../../utils/taskActivity'
 import { getAvatarColorByUsername } from '../../utils/avatar'
+import { renderTaskCommentMarkdown, taskCommentImageHtml } from '../../utils/markdown'
 import { renderBody } from '../../utils/blockNoteHtml'
-import { renderMarkdown } from '../../utils/markdown'
 import { runMermaidIn } from '../../utils/mermaidHydrate'
 import { buildCommentThreads } from '../../utils/commentThread'
 import BlockNoteEditorWrapper from '../BlockNoteEditorWrapper.vue'
@@ -49,6 +49,17 @@ const deleteSubmittingId = ref<number | null>(null)
 const commentEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
 const inlineReplyEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
 const commentThreads = computed(() => buildCommentThreads(props.comments, Number.MAX_SAFE_INTEGER))
+
+function renderCommentBody(comment: CommentDto): string {
+  const imageByRef = new Map(comment.images.map((image) => [image.ref, image]))
+  return renderBody(comment.body,
+    (markdown) => renderTaskCommentMarkdown(markdown, comment.id, comment.images),
+    (url, alt) => {
+      if (!url.startsWith('mcp-image:')) return null
+      const image = imageByRef.get(url.slice('mcp-image:'.length))
+      return image ? taskCommentImageHtml(comment.id, image.id, alt) : null
+    })
+}
 
 async function hydrateCommentsMermaid() {
   await nextTick()
@@ -197,7 +208,7 @@ watch(
               <Trash2 :size="14" aria-hidden="true" />
             </button>
           </div>
-          <div class="task-comment-body markdown-body" v-html="renderBody(thread.root.body, renderMarkdown)" />
+          <div class="task-comment-body markdown-body" v-html="renderCommentBody(thread.root)" />
         </div>
       </div>
       <div v-if="thread.replies.length" class="task-comment-replies">
@@ -233,7 +244,7 @@ watch(
               <span v-if="replyContextAuthorName(reply, thread.root)" class="task-comment-reply-context">
                 {{ t('taskEditor.reply') }} {{ replyContextAuthorName(reply, thread.root) }}
               </span>
-              <span class="task-comment-reply-content" v-html="renderBody(reply.body, renderMarkdown)" />
+              <span class="task-comment-reply-content" v-html="renderCommentBody(reply)" />
             </div>
           </div>
         </div>

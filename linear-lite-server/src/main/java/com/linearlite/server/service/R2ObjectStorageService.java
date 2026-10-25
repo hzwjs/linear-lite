@@ -66,6 +66,23 @@ public class R2ObjectStorageService implements ObjectStorageService {
     }
 
     @Override
+    public String uploadTaskCommentImage(
+            InputStream content, long contentLength, String fileName, String contentType,
+            long taskId, long maxBytes) {
+        if (content == null || contentLength <= 0 || contentLength > maxBytes) {
+            throw new IllegalArgumentException("评论图片为空或超过大小限制");
+        }
+        String normalizedType = normalizeContentType(contentType);
+        if (!isSupportedCommentImageType(normalizedType)) {
+            throw new IllegalArgumentException("评论图片仅支持 PNG、JPEG、GIF 或 WebP");
+        }
+        String key = "task-comment-attachments/" + taskId + "/"
+                + UUID.randomUUID() + "-" + sanitizeFilename(fileName, "image.png");
+        storageClient.putObject(properties.getBucket(), key, normalizedType, content, contentLength);
+        return key;
+    }
+
+    @Override
     public ImageUploadResponse uploadProjectDocumentAttachment(
             InputStream content, long contentLength, String fileName, String contentType,
             long projectId, long documentId, long maxBytes) {
@@ -148,6 +165,13 @@ public class R2ObjectStorageService implements ObjectStorageService {
                 || contentType.equals("image/webp")
                 || contentType.equals("image/gif")
                 || contentType.equals("image/svg+xml");
+    }
+
+    private static boolean isSupportedCommentImageType(String contentType) {
+        return contentType.equals("image/png")
+                || contentType.equals("image/jpeg")
+                || contentType.equals("image/gif")
+                || contentType.equals("image/webp");
     }
 
     private static String sanitizeFilename(String originalFilename, String fallback) {

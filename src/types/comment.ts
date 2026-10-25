@@ -8,6 +8,16 @@ export interface CommentDto {
   depth: number
   createdAt: string
   deletable: boolean
+  images: CommentImageDto[]
+}
+
+export interface CommentImageDto {
+  id: number
+  ref: string
+  fileName: string
+  contentType: string
+  fileSize: number
+  sourceAttachmentId: number | null
 }
 
 export interface CommentSubmitPayload {

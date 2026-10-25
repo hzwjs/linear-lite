@@ -36,6 +36,7 @@ function comment(overrides: Partial<CommentDto>): CommentDto {
     depth: 0,
     createdAt: '2026-04-10T00:00:00.000Z',
     deletable: true,
+    images: [],
     ...overrides
   }
 }
@@ -79,6 +80,20 @@ describe('CommentThreadList', () => {
         mentionedUserIds: [],
         parentId: null
       })
+    } finally {
+      view.app.unmount()
+    }
+  })
+
+  it('renders a comment image only through its bound image route', () => {
+    const view = mountComments([comment({
+      body: '![receipt](mcp-image:receipt)',
+      images: [{ id: 31, ref: 'receipt', fileName: 'receipt.png', contentType: 'image/png', fileSize: 64, sourceAttachmentId: null }]
+    })])
+    try {
+      const image = view.host.querySelector<HTMLImageElement>('.task-comment-body img')
+      expect(image?.getAttribute('src')).toBe('/api/document-assets/task-comments/10/31')
+      expect(image?.alt).toBe('receipt')
     } finally {
       view.app.unmount()
     }

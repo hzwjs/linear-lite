@@ -413,6 +413,23 @@ CREATE INDEX idx_task_comments_parent_id ON task_comments (parent_id);
 CREATE INDEX idx_task_comments_root_id ON task_comments (root_id);
 CREATE UNIQUE INDEX uk_task_comments_source_ref ON task_comments (source_type, external_ref, task_id);
 
+-- 评论图片资源绑定；新上传内容使用私有对象键，已有任务图片通过 source_attachment_id 引用。
+CREATE TABLE IF NOT EXISTS task_comment_attachments (
+    id                   BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    comment_id           BIGINT       NOT NULL COMMENT '逻辑关联 task_comments.id',
+    task_id              BIGINT       NOT NULL COMMENT '逻辑关联 tasks.id',
+    ref                  VARCHAR(64)  NOT NULL COMMENT '评论正文 mcp-image:<ref> 的资源标识',
+    source_attachment_id BIGINT       DEFAULT NULL COMMENT '已有任务图片的 task_attachments.id',
+    object_key           VARCHAR(512) DEFAULT NULL COMMENT '新上传评论图片的私有对象键',
+    file_name            VARCHAR(256) NOT NULL,
+    content_type         VARCHAR(128) NOT NULL,
+    file_size            BIGINT       NOT NULL,
+    created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_task_comment_attachments_ref (comment_id, ref),
+    KEY idx_task_comment_attachments_source (source_attachment_id),
+    KEY idx_task_comment_attachments_task (task_id, comment_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- 评论中的 @ 提及（逻辑关联 task_comments.id / users.id）
 CREATE TABLE IF NOT EXISTS comment_mentions (
     id                   BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,

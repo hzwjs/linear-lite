@@ -262,7 +262,8 @@ describe('TaskEditor comments adapter', () => {
       deletable: false,
       parentId: null,
       rootId: null,
-      depth: 0
+      depth: 0,
+      images: []
     })
     vi.mocked(taskApi.list).mockResolvedValue([])
     vi.mocked(projectApi.listMembers).mockResolvedValue([{ id: 2, username: 'Alice' }])
@@ -317,7 +318,8 @@ describe('TaskEditor comments adapter', () => {
         deletable: true,
         parentId: null,
         rootId: null,
-        depth: 0
+        depth: 0,
+        images: []
       }
     ])
     const view = await mountEditor(createTask())
@@ -405,7 +407,8 @@ describe('TaskEditor comments adapter', () => {
         deletable: true,
         parentId: null,
         rootId: null,
-        depth: 0
+        depth: 0,
+        images: []
       }
     ])
     vi.spyOn(window, 'confirm').mockReturnValue(true)

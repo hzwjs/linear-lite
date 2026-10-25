@@ -1,6 +1,7 @@
 import { marked, type Tokens } from 'marked'
 import DOMPurify from 'dompurify'
 import { normalizeMermaidDiagramSource } from './mermaidSource'
+import type { CommentImageDto } from '../types/comment'
 
 function escMermaidSource(s: string): string {
   return s
@@ -65,4 +66,24 @@ export function renderMarkdown(md: string): string {
   if (!md || !md.trim()) return ''
   const raw = marked.parse(md.trim()) as string
   return DOMPurify.sanitize(raw, { ALLOWED_TAGS, ALLOWED_ATTR })
+}
+
+/** Renders only image refs bound to this comment; raw remote image destinations stay hidden. */
+export function renderTaskCommentMarkdown(md: string, commentId: number, images: CommentImageDto[]): string {
+  if (!md || !md.trim()) return ''
+  const byRef = new Map(images.map((image) => [image.ref, image]))
+  const renderer = new marked.Renderer()
+  renderer.image = ({ href, title, text }: Tokens.Image): string => {
+    if (!href?.startsWith('mcp-image:')) return ''
+    const image = byRef.get(href.slice('mcp-image:'.length))
+    return image ? taskCommentImageHtml(commentId, image.id, text ?? '', title) : ''
+  }
+  const raw = marked.parse(md.trim(), { renderer }) as string
+  return DOMPurify.sanitize(raw, { ALLOWED_TAGS, ALLOWED_ATTR })
+}
+
+export function taskCommentImageHtml(commentId: number, imageId: number, altText: string, title?: string | null): string {
+  const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+  const safeTitle = title ? ` title="${escape(title)}"` : ''
+  return `<img src="/api/document-assets/task-comments/${commentId}/${imageId}" alt="${escape(altText)}"${safeTitle}>`
 }

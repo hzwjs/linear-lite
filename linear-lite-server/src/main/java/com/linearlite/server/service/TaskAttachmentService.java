@@ -12,7 +12,9 @@ import com.linearlite.server.mapper.TaskAttachmentMapper;
 import com.linearlite.server.time.BeijingTime;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -25,6 +27,8 @@ public class TaskAttachmentService {
     private final ObjectStorageService objectStorageService;
     private final R2StorageProperties r2StorageProperties;
     private final long maxDownloadBytes;
+    @Autowired
+    private TaskCommentAttachmentService commentAttachmentService;
 
     public TaskAttachmentService(TaskQueryService taskQueryService,
                                 TaskAttachmentMapper taskAttachmentMapper,
@@ -96,14 +100,15 @@ public class TaskAttachmentService {
         return new AttachmentDownload(stream, fileName, contentType, fileSize);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void delete(String taskKey, Long attachmentId, Long userId) {
         Task task = taskQueryService.getByKeyOrThrow(taskKey, userId);
-        TaskAttachment attachment = taskAttachmentMapper.selectOne(
-                new LambdaQueryWrapper<TaskAttachment>()
-                        .eq(TaskAttachment::getId, attachmentId)
-                        .eq(TaskAttachment::getTaskId, task.getId()));
+        TaskAttachment attachment = taskAttachmentMapper.selectByIdForUpdate(attachmentId, task.getId());
         if (attachment == null) {
             throw new ResourceNotFoundException("附件不存在: " + attachmentId);
+        }
+        if (commentAttachmentService != null && commentAttachmentService.isTaskAttachmentReferenced(attachmentId)) {
+            throw new com.linearlite.server.exception.ConflictOperationException("此附件已绑定评论图片，不能删除");
         }
         taskAttachmentMapper.deleteById(attachmentId);
         try {

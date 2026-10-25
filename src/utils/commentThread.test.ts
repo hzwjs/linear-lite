@@ -12,7 +12,8 @@ function comment(partial: Partial<CommentDto> & Pick<CommentDto, 'id'>): Comment
     rootId: partial.rootId ?? null,
     depth: partial.depth ?? 0,
     createdAt: partial.createdAt ?? '2026-04-11T10:00:00.000Z',
-    deletable: partial.deletable ?? true
+    deletable: partial.deletable ?? true,
+    images: partial.images ?? []
   }
 }
 

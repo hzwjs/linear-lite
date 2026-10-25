@@ -4,6 +4,8 @@ import com.linearlite.server.config.R2StorageProperties;
 import com.linearlite.server.dto.DocumentAssetDescriptor;
 import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.service.ProjectDocumentAttachmentService;
+import com.linearlite.server.service.TaskCommentAttachmentService;
+import com.linearlite.server.dto.AttachmentDownload;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * 文档图片资源端点：正文只保存 assetId，图片通过本端点的不可变地址渲染。
@@ -29,12 +32,33 @@ public class DocumentAssetController {
 
     private final ProjectDocumentAttachmentService attachmentService;
     private final R2StorageProperties storageProperties;
+    private final TaskCommentAttachmentService taskCommentAttachmentService;
 
+    @Autowired
     public DocumentAssetController(
             ProjectDocumentAttachmentService attachmentService,
-            R2StorageProperties storageProperties) {
+            R2StorageProperties storageProperties,
+            TaskCommentAttachmentService taskCommentAttachmentService) {
         this.attachmentService = attachmentService;
         this.storageProperties = storageProperties;
+        this.taskCommentAttachmentService = taskCommentAttachmentService;
+    }
+
+    @GetMapping("/task-comments/{commentId}/{imageId}")
+    public ResponseEntity<StreamingResponseBody> taskCommentImage(HttpServletRequest request,
+            @PathVariable Long commentId, @PathVariable Long imageId) {
+        if (!storageProperties.isEnabled()) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        AttachmentDownload image = taskCommentAttachmentService.resolve(commentId, imageId, userId(request));
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.CACHE_CONTROL, "private, no-store");
+        headers.set(HttpHeaders.VARY, HttpHeaders.COOKIE);
+        headers.setContentType(MediaType.parseMediaType(image.contentTypeOrDefault()));
+        headers.set(HttpHeaders.CONTENT_DISPOSITION, "inline");
+        if (image.contentLengthOrDefault() >= 0) headers.setContentLength(image.contentLengthOrDefault());
+        StreamingResponseBody body = output -> {
+            try (var input = image.stream()) { input.transferTo(output); }
+        };
+        return new ResponseEntity<>(body, headers, HttpStatus.OK);
     }
 
     @GetMapping("/{documentId}/{assetId}/{contentHash}/{variant}")

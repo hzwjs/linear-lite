@@ -1,6 +1,8 @@
 package com.linearlite.server.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.ArrayList;
 
 public class TaskCommentResponse {
 
@@ -13,6 +15,7 @@ public class TaskCommentResponse {
     private int depth;
     private LocalDateTime createdAt;
     private boolean deletable;
+    private List<TaskCommentImageResponse> images = new ArrayList<>();
 
     public Long getId() {
         return id;
@@ -85,4 +88,7 @@ public class TaskCommentResponse {
     public void setDeletable(boolean deletable) {
         this.deletable = deletable;
     }
+
+    public List<TaskCommentImageResponse> getImages() { return images; }
+    public void setImages(List<TaskCommentImageResponse> images) { this.images = images == null ? List.of() : images; }
 }

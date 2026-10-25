@@ -121,7 +121,7 @@ class TaskAttachmentServiceTest {
         att.setId(50L);
         att.setTaskId(1L);
         att.setObjectKey("attachments/1/xyz.pdf");
-        when(taskAttachmentMapper.selectOne(any())).thenReturn(att);
+        when(taskAttachmentMapper.selectByIdForUpdate(50L, 1L)).thenReturn(att);
 
         taskAttachmentService.delete("ENG-1", 50L, 10L);
 
@@ -134,7 +134,7 @@ class TaskAttachmentServiceTest {
         Task task = new Task();
         task.setId(1L);
         when(taskQueryService.getByKeyOrThrow("ENG-1", 10L)).thenReturn(task);
-        when(taskAttachmentMapper.selectOne(any())).thenReturn(null);
+        when(taskAttachmentMapper.selectByIdForUpdate(999L, 1L)).thenReturn(null);
 
         assertThrows(ResourceNotFoundException.class,
                 () -> taskAttachmentService.delete("ENG-1", 999L, 10L));

@@ -67,7 +67,7 @@ public class McpToolRegistry {
     private static final int MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024;
     private static final int MAX_TOTAL_IMAGE_BASE64_CHARS = 4 * ((MAX_TOTAL_IMAGE_BYTES + 2) / 3);
     private static final Set<String> READ_TOOLS = Set.of(
-            "list_projects", "get_task", "list_project_tasks", "list_task_changes",
+            "list_projects", "get_task", "list_project_tasks", "list_task_changes", "list_task_comments",
             "list_documents", "get_document", "get_document_blocks", "get_member_id");
     private static final Set<String> WRITE_TOOLS = Set.of(
             "create_project", "create_task", "update_task", "add_task_comment",
@@ -81,6 +81,7 @@ public class McpToolRegistry {
     private final TaskQueryService taskQueryService;
     private final TaskActivityService taskActivityService;
     private final TaskCommentService taskCommentService;
+    private final McpTaskCommentImageContentService taskCommentImageContentService;
     private final ProjectDocumentCommandService projectDocumentCommandService;
     private final ProjectDocumentQueryService projectDocumentQueryService;
     private final McpDocumentPatchService documentPatchService;
@@ -99,6 +100,7 @@ public class McpToolRegistry {
             TaskQueryService taskQueryService,
             TaskActivityService taskActivityService,
             TaskCommentService taskCommentService,
+            McpTaskCommentImageContentService taskCommentImageContentService,
             ProjectDocumentCommandService projectDocumentCommandService,
             ProjectDocumentQueryService projectDocumentQueryService,
             McpDocumentPatchService documentPatchService,
@@ -111,6 +113,7 @@ public class McpToolRegistry {
         this.taskQueryService = taskQueryService;
         this.taskActivityService = taskActivityService;
         this.taskCommentService = taskCommentService;
+        this.taskCommentImageContentService = taskCommentImageContentService;
         this.projectDocumentCommandService = projectDocumentCommandService;
         this.projectDocumentQueryService = projectDocumentQueryService;
         this.documentPatchService = documentPatchService;
@@ -123,6 +126,7 @@ public class McpToolRegistry {
         registered.put("create_task", this::createTask);
         registered.put("update_task", this::updateTask);
         registered.put("add_task_comment", this::addTaskComment);
+        registered.put("list_task_comments", this::listTaskComments);
         registered.put("get_task", this::getTask);
         registered.put("list_project_tasks", this::listProjectTasks);
         registered.put("list_task_changes", this::listTaskChanges);
@@ -142,6 +146,7 @@ public class McpToolRegistry {
                 createTaskDefinition(),
                 updateTaskDefinition(),
                 addTaskCommentDefinition(),
+                listTaskCommentsDefinition(),
                 getTaskDefinition(),
                 listProjectTasksDefinition(),
                 listTaskChangesDefinition(),
@@ -319,17 +324,19 @@ public class McpToolRegistry {
 
     private Object addTaskComment(JsonNode rawArguments, Long userId) {
         JsonNode arguments = McpArgumentValidator.object(rawArguments);
-        McpArgumentValidator.fields(arguments, "taskKey", "body", "parentId", "mentionedUserIds");
+        McpArgumentValidator.fields(arguments, "taskKey", "operationId", "body", "parentId", "mentionedUserIds", "images");
         String taskKey = McpArgumentValidator.requiredText(arguments, "taskKey", 32);
+        String operationId = McpArgumentValidator.requiredText(arguments, "operationId", 128);
         String body = McpArgumentValidator.requiredText(arguments, "body", 100_000);
-        CreateTaskCommentRequest request = new CreateTaskCommentRequest();
-        request.setBody(body);
-        request.setParentId(McpArgumentValidator.optionalLong(arguments, "parentId"));
         List<Long> mentionedUserIds = McpArgumentValidator.optionalLongList(arguments, "mentionedUserIds", 100);
-        if (mentionedUserIds != null) {
-            request.setMentionedUserIds(mentionedUserIds);
-        }
-        return taskCommentService.create(taskKey, userId, request);
+        return taskCommentImageContentService.create(taskKey, userId, operationId, body,
+                McpArgumentValidator.optionalLong(arguments, "parentId"), mentionedUserIds, arguments.get("images"));
+    }
+
+    private Object listTaskComments(JsonNode rawArguments, Long userId) {
+        JsonNode arguments = McpArgumentValidator.object(rawArguments);
+        McpArgumentValidator.fields(arguments, "taskKey");
+        return taskCommentService.listByTaskKey(McpArgumentValidator.requiredText(arguments, "taskKey", 32), userId);
     }
 
     private Object getTask(JsonNode rawArguments, Long userId) {
@@ -855,13 +862,32 @@ public class McpToolRegistry {
     }
 
     private ObjectNode addTaskCommentDefinition() {
-        return tool("add_task_comment", "发表评论", "向指定任务发表评论，可创建评论回复并 @ 项目成员。",
-                objectSchema(Map.of(
+        Map<String, ObjectNode> properties = new LinkedHashMap<>(Map.of(
                         "taskKey", stringSchema("对外任务 ID，例如 ENG-1", 1, 32),
                         "body", stringSchema("评论正文", 1, 100_000),
                         "parentId", integerSchema("父评论 ID"),
-                        "mentionedUserIds", integerArraySchema("被提及的项目成员 ID", 100)),
-                        "taskKey", "body"), false, false);
+                        "mentionedUserIds", integerArraySchema("被提及的项目成员 ID", 100)));
+        properties.put("operationId", stringSchema("本次写入的幂等 ID；重复请求须复用", 1, 128));
+        properties.put("images", commentImagesSchema());
+        return tool("add_task_comment", "发表评论", "发表评论或回复；Markdown 图片用 mcp-image:<ref> 引用 images。images 可上传图片，或引用本任务已有附件 attachmentId。最多 8 张，单张 6 MiB，总量 12 MiB。",
+                objectSchema(properties, "taskKey", "operationId", "body"), false, true);
+    }
+
+    private ObjectNode listTaskCommentsDefinition() {
+        return tool("list_task_comments", "读取任务评论", "读取任务评论及图片绑定元数据。",
+                objectSchema(Map.of("taskKey", stringSchema("对外任务 ID", 1, 32)), "taskKey"), true, true);
+    }
+
+    private ObjectNode commentImagesSchema() {
+        ObjectNode array = objectMapper.createObjectNode(); array.put("type", "array"); array.put("maxItems", 8);
+        ObjectNode item = objectMapper.createObjectNode(); item.put("type", "object");
+        ArrayNode choices = item.putArray("oneOf");
+        choices.add(objectSchema(Map.of("ref", stringSchema("Markdown 图片 ref", 1, 64),
+                "fileName", stringSchema("图片文件名", 1, 255), "contentType", stringSchema("图片 MIME 类型", 1, 128),
+                "dataBase64", stringSchema("图片 Base64", 1, MAX_IMAGE_BASE64_CHARS)), "ref", "fileName", "contentType", "dataBase64"));
+        choices.add(objectSchema(Map.of("ref", stringSchema("Markdown 图片 ref", 1, 64),
+                "attachmentId", integerSchema("同一任务的已有图片附件 ID")), "ref", "attachmentId"));
+        array.set("items", item); return array;
     }
 
     private ObjectNode getTaskDefinition() {

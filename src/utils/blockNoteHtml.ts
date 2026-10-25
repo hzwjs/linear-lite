@@ -74,14 +74,14 @@ function inlinesToPlainText(content: InlineContent[]): string {
     .join('')
 }
 
-function listItemHtml(block: Block): string {
+function listItemHtml(block: Block, resolveImage?: (url: string, alt: string) => string | null): string {
   const liContent = inlinesToHtml(block.content)
   const children = asArr(block.children)
-  const liNested = children.length ? blocksToHtml(children) : ''
+  const liNested = children.length ? blocksToHtml(children, resolveImage) : ''
   return `<li>${liContent}${liNested}</li>`
 }
 
-function blocksToHtml(blocks: Block[]): string {
+function blocksToHtml(blocks: Block[], resolveImage?: (url: string, alt: string) => string | null): string {
   let html = ''
   let i = 0
   const list = asArr(blocks)
@@ -91,12 +91,12 @@ function blocksToHtml(blocks: Block[]): string {
     const type = block.type
     const content = inlinesToHtml(block.content)
     const childList = asArr(block.children)
-    const nestedHtml = childList.length ? blocksToHtml(childList) : ''
+    const nestedHtml = childList.length ? blocksToHtml(childList, resolveImage) : ''
 
     if (type === 'bulletListItem') {
       const items: string[] = []
       while (i < list.length && list[i]!.type === 'bulletListItem') {
-        items.push(listItemHtml(list[i]!))
+        items.push(listItemHtml(list[i]!, resolveImage))
         i++
       }
       html += `<ul>${items.join('')}</ul>`
@@ -106,7 +106,7 @@ function blocksToHtml(blocks: Block[]): string {
     if (type === 'numberedListItem') {
       const items: string[] = []
       while (i < list.length && list[i]!.type === 'numberedListItem') {
-        items.push(listItemHtml(list[i]!))
+        items.push(listItemHtml(list[i]!, resolveImage))
         i++
       }
       html += `<ol>${items.join('')}</ol>`
@@ -145,8 +145,8 @@ function blocksToHtml(blocks: Block[]): string {
         const imageUrl = block.props.url
         if (typeof imageUrl === 'string' && imageUrl.trim()) {
           const caption = typeof block.props.caption === 'string' ? block.props.caption : ''
-          // 评论正文持久化为 BlockNote JSON；图片块必须在回显转换中保留，提交后才能继续显示。
-          html += `<img src="${esc(imageUrl)}" alt="${esc(caption)}">`
+          const resolved = resolveImage ? resolveImage(imageUrl, caption) : `<img src="${esc(imageUrl)}" alt="${esc(caption)}">`
+          if (resolved) html += resolved
         }
         break
       }
@@ -203,7 +203,8 @@ export function bodyToPlainText(body: string): string {
  * Renders a body string that may be either BlockNote JSON or legacy Markdown.
  * Returns safe HTML suitable for v-html.
  */
-export function renderBody(body: string, renderMarkdown: (s: string) => string): string {
+export function renderBody(body: string, renderMarkdown: (s: string) => string,
+  resolveImage?: (url: string, alt: string) => string | null): string {
   if (!body?.trim()) return ''
 
   const blocks = parseBlockNoteStoredBlocks(body.trim())
@@ -211,7 +212,7 @@ export function renderBody(body: string, renderMarkdown: (s: string) => string):
     return renderMarkdown(body)
   }
 
-  const raw = blocksToHtml(blocks as Block[])
+  const raw = blocksToHtml(blocks as Block[], resolveImage)
   return DOMPurify.sanitize(raw, { ALLOWED_TAGS, ALLOWED_ATTR })
 }
 
