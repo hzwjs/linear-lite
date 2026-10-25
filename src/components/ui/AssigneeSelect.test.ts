@@ -1,21 +1,27 @@
 import { createApp, nextTick } from 'vue'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createI18n } from 'vue-i18n'
-import type { User } from '../../types/domain'
+import type { AssigneeOption } from '../../types/domain'
 import AssigneeSelect from './AssigneeSelect.vue'
 
-const users: User[] = [
-  { id: 1, username: '李明' },
-  { id: 2, username: '黄志文' }
+const assignees: AssigneeOption[] = [
+  { key: 'user:1', name: '李明', principalType: 'human' },
+  { key: 'user:2', name: '黄志文', principalType: 'human' },
+  { key: 'external:1', name: '李明', principalType: 'external' }
 ]
 
-async function mountSelect(modelValue: string | number = '', selectUsers: User[] = users) {
+async function mountSelect(
+  modelValue: string | null = '',
+  selectAssignees: AssigneeOption[] = assignees,
+  selectedName?: { key: string; name: string }
+) {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const onUpdate = vi.fn()
   const app = createApp(AssigneeSelect, {
     modelValue,
-    users: selectUsers,
+    assignees: selectAssignees,
+    selectedName,
     'onUpdate:modelValue': onUpdate
   })
   app.use(createI18n({
@@ -24,7 +30,7 @@ async function mountSelect(modelValue: string | number = '', selectUsers: User[]
     messages: {
       'zh-CN': {
         common: { assignee: '负责人', unassigned: '未分配' },
-        assigneeSelect: { searchPlaceholder: '搜索负责人…', noResults: '没有匹配的成员' }
+        assigneeSelect: { searchPlaceholder: '搜索负责人…', noResults: '没有匹配的成员', external: '外部' }
       }
     }
   }))
@@ -38,6 +44,25 @@ afterEach(() => {
 })
 
 describe('AssigneeSelect', () => {
+  it('does not mount the member search panel until opened and releases it on close', async () => {
+    const view = await mountSelect()
+    const trigger = view.host.querySelector<HTMLButtonElement>('.assignee-trigger')!
+    expect(document.querySelector('.assignee-popover')).toBeNull()
+
+    trigger.click()
+    await nextTick()
+    expect(document.querySelector('.assignee-popover')).not.toBeNull()
+    expect(document.activeElement).toBe(document.querySelector('.assignee-search-input'))
+
+    document.querySelector<HTMLInputElement>('.assignee-search-input')!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+    )
+    await nextTick()
+    expect(document.querySelector('.assignee-popover')).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+    view.app.unmount()
+  })
+
   it('opens with focused search and filters the member list', async () => {
     const view = await mountSelect()
     view.host.querySelector<HTMLButtonElement>('.assignee-trigger')!.click()
@@ -65,13 +90,13 @@ describe('AssigneeSelect', () => {
     search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     await nextTick()
 
-    expect(view.onUpdate).toHaveBeenCalledWith(1)
+    expect(view.onUpdate).toHaveBeenCalledWith('user:1')
     expect(document.activeElement).toBe(trigger)
     view.app.unmount()
   })
 
   it('does not emit when the current assignee is selected again', async () => {
-    const view = await mountSelect(2)
+    const view = await mountSelect('user:2')
     view.host.querySelector<HTMLButtonElement>('.assignee-trigger')!.click()
     await nextTick()
 
@@ -83,16 +108,33 @@ describe('AssigneeSelect', () => {
     view.app.unmount()
   })
 
-  it('never exposes the local Pi as a task assignee', async () => {
+  it('separates an external person with the same name from a system user', async () => {
     const view = await mountSelect('', [
-      ...users,
-      { id: 3, username: 'Pi', principalType: 'agent', agentKey: 'pi' },
+      ...assignees,
+      { key: 'user:3', name: 'Pi', principalType: 'agent' }
     ])
     view.host.querySelector<HTMLButtonElement>('.assignee-trigger')!.click()
     await nextTick()
 
     const labels = [...document.querySelectorAll('.assignee-option-label')].map((node) => node.textContent)
-    expect(labels).toEqual(['未分配', '李明', '黄志文'])
+    expect(labels).toEqual(['未分配', '李明', '黄志文', '李明'])
+    const externalBadge = document.querySelector('.assignee-option-type')
+    expect(externalBadge?.textContent).toBe('外部')
+    view.app.unmount()
+  })
+
+  it('uses the DTO name only for the matching canonical key', async () => {
+    const view = await mountSelect('external:missing', [], { key: 'external:missing', name: '导入负责人' })
+    expect(view.host.querySelector('.assignee-trigger-label')?.textContent).toBe('导入负责人')
+    view.app.unmount()
+  })
+
+  it('does not use a different key name when the selected option name is empty', async () => {
+    const view = await mountSelect('external:missing', [
+      { key: 'external:missing', name: '' },
+      { key: 'external:other', name: '其他负责人' }
+    ], { key: 'external:missing', name: 'DTO 负责人' })
+    expect(view.host.querySelector('.assignee-trigger-label')?.textContent).toBe('')
     view.app.unmount()
   })
 

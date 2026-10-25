@@ -41,8 +41,7 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.project_id,
               t.parent_id,
               t.creator_id,
-              t.assignee_id,
-              t.assignee_display_name,
+              t.assignee_key,
               t.due_date,
               t.planned_start_date,
               t.progress_percent,
@@ -80,8 +79,7 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.project_id,
               t.parent_id,
               t.creator_id,
-              t.assignee_id,
-              t.assignee_display_name,
+              t.assignee_key,
               t.due_date,
               t.planned_start_date,
               t.progress_percent,
@@ -116,8 +114,7 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.title AS title,
               t.status AS status,
               t.progress_percent AS progressPercent,
-              t.assignee_id AS assigneeId,
-              t.assignee_display_name AS assigneeDisplayName,
+              t.assignee_key AS assigneeKey,
               t.updated_at AS updatedAt
             FROM tasks t
             WHERE t.project_id = #{projectId}
@@ -127,8 +124,8 @@ public interface TaskMapper extends BaseMapper<Task> {
               <if test="status != null">
                 AND t.status = #{status}
               </if>
-              <if test="assigneeId != null">
-                AND t.assignee_id = #{assigneeId}
+              <if test="assigneeKey != null">
+                AND t.assignee_key = #{assigneeKey}
               </if>
             ORDER BY t.id ASC
             LIMIT #{fetchLimit}
@@ -138,7 +135,7 @@ public interface TaskMapper extends BaseMapper<Task> {
             @Param("projectId") Long projectId,
             @Param("afterId") Long afterId,
             @Param("status") String status,
-            @Param("assigneeId") Long assigneeId,
+            @Param("assigneeKey") String assigneeKey,
             @Param("fetchLimit") int fetchLimit);
 
     @Select("""
@@ -167,7 +164,7 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.priority AS priority,
               t.project_id AS projectId,
               p.name AS projectName,
-              t.assignee_id AS assigneeId,
+              CAST(SUBSTRING_INDEX(t.assignee_key, ':', -1) AS UNSIGNED) AS recipientUserId,
               u.username AS assigneeUsername,
               u.email AS assigneeEmail,
               t.progress_percent AS progressPercent,
@@ -175,7 +172,7 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.completed_at AS completedAt
             FROM tasks t
             JOIN projects p ON p.id = t.project_id
-            JOIN users u ON u.id = t.assignee_id
+            JOIN users u ON t.assignee_key = CONCAT('user:', u.id)
             WHERE t.project_id IN
             <foreach collection="projectIds" item="pid" open="(" separator="," close=")">
               #{pid}

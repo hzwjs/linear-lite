@@ -28,16 +28,19 @@ public class TaskQueryService {
     private final TaskFavoriteMapper taskFavoriteMapper;
     private final LabelService labelService;
     private final TaskPermissionGuard taskPermissionGuard;
+    private final AssigneeService assigneeService;
 
     public TaskQueryService(
             TaskMapper taskMapper,
             TaskFavoriteMapper taskFavoriteMapper,
             LabelService labelService,
-            TaskPermissionGuard taskPermissionGuard) {
+            TaskPermissionGuard taskPermissionGuard,
+            AssigneeService assigneeService) {
         this.taskMapper = taskMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
         this.labelService = labelService;
         this.taskPermissionGuard = taskPermissionGuard;
+        this.assigneeService = assigneeService;
     }
 
     public List<Task> listByProjectId(Long projectId, Boolean topLevelOnly, Long parentId, Long userId) {
@@ -59,7 +62,7 @@ public class TaskQueryService {
     }
 
     public List<TaskListItemResponse> listProjectTasksForMcp(
-            Long projectId, Long afterId, int limit, String status, Long assigneeId, Long userId) {
+            Long projectId, Long afterId, int limit, String status, String assigneeKey, Long userId) {
         if (projectId == null || projectId <= 0) {
             throw new IllegalArgumentException("projectId 必须是正整数");
         }
@@ -69,11 +72,11 @@ public class TaskQueryService {
         if (limit < 1 || limit > 200) {
             throw new IllegalArgumentException("limit 必须在 1 到 200 之间");
         }
-        if (assigneeId != null && assigneeId <= 0) {
-            throw new IllegalArgumentException("assigneeId 必须是正整数");
-        }
+        if (assigneeKey != null) assigneeService.requireProjectAssignee(projectId, assigneeKey);
         taskPermissionGuard.requireProjectMember(projectId, userId);
-        return taskMapper.selectMcpProjectTasks(projectId, afterId, status, assigneeId, limit + 1);
+        List<TaskListItemResponse> tasks = taskMapper.selectMcpProjectTasks(projectId, afterId, status, assigneeKey, limit + 1);
+        assigneeService.fillTaskNames(tasks, projectId);
+        return tasks;
     }
 
     public List<TaskListItemResponse> listItemsByProjectId(Long projectId, Boolean topLevelOnly, Long parentId, Long userId) {
@@ -90,6 +93,7 @@ public class TaskQueryService {
             taskPermissionGuard.requireProjectMember(projectId, userId);
             return response;
         }
+        assigneeService.fillTaskNames(response, projectId);
         enrichListItems(response, projectId, userId, topLevelOnly, parentId);
         return response;
     }
@@ -131,6 +135,7 @@ public class TaskQueryService {
         if (tasks == null || tasks.isEmpty()) {
             return;
         }
+        assigneeService.fillTaskNamesByProject(tasks);
         fillSubIssueCounts(tasks, computeSubIssueCountsFromLoadedTasks);
         fillFavoriteState(tasks, userId);
         labelService.fillLabelsForTasks(tasks);

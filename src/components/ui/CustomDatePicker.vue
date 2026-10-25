@@ -272,7 +272,7 @@ defineExpose({ open, close, toggleOpen })
     </button>
     <Teleport to="body">
       <div
-        v-show="isOpen"
+        v-if="isOpen"
         :id="resolvedPanelId"
         ref="panelRef"
         class="custom-date-picker-panel"

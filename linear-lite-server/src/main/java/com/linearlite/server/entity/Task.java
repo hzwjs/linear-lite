@@ -5,13 +5,14 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.linearlite.server.dto.TaskLabelResponse;
+import com.linearlite.server.service.AssigneeService;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
 @TableName("tasks")
-public class Task {
+public class Task implements AssigneeService.TaskProjectAssignee {
 
     @TableId(type = IdType.AUTO)
     private Long id;
@@ -25,9 +26,10 @@ public class Task {
     /** 父任务 ID，null 表示顶层任务 */
     private Long parentId;
     private Long creatorId;
-    private Long assigneeId;
-    /** 导入或外部处理人展示名；与 assignee_id 互斥，有系统负责人时应为 null */
-    private String assigneeDisplayName;
+    private String assigneeKey;
+    /** 负责人名由负责人目录解析，仅响应时填充。 */
+    @TableField(exist = false)
+    private String assigneeName;
     private LocalDate dueDate;
     /** 计划开始日期 */
     private LocalDate plannedStartDate;
@@ -122,20 +124,20 @@ public class Task {
         this.creatorId = creatorId;
     }
 
-    public Long getAssigneeId() {
-        return assigneeId;
+    public String getAssigneeKey() {
+        return assigneeKey;
     }
 
-    public void setAssigneeId(Long assigneeId) {
-        this.assigneeId = assigneeId;
+    public void setAssigneeKey(String assigneeKey) {
+        this.assigneeKey = assigneeKey;
     }
 
-    public String getAssigneeDisplayName() {
-        return assigneeDisplayName;
+    public String getAssigneeName() {
+        return assigneeName;
     }
 
-    public void setAssigneeDisplayName(String assigneeDisplayName) {
-        this.assigneeDisplayName = assigneeDisplayName;
+    public void setAssigneeName(String assigneeName) {
+        this.assigneeName = assigneeName;
     }
 
     public LocalDate getDueDate() {

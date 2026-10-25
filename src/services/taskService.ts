@@ -25,7 +25,7 @@ export const taskService = {
       description: data.description,
       status: data.status,
       priority: data.priority,
-      assigneeId: data.assigneeId ?? null
+      assigneeKey: data.assigneeKey ?? null
     })
     return mutation.task
   },
@@ -39,7 +39,7 @@ export const taskService = {
       description: updates.description,
       status: updates.status,
       priority: updates.priority,
-      assigneeId: updates.assigneeId
+      assigneeKey: updates.assigneeKey
     })
     return mutation.task
   },

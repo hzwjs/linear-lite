@@ -10,6 +10,8 @@ import com.linearlite.server.dto.UserSummaryDto;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.service.LabelService;
+import com.linearlite.server.service.AssigneeService;
+import com.linearlite.server.dto.AssigneeOption;
 import com.linearlite.server.service.ProjectService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
@@ -34,10 +36,12 @@ public class ProjectController {
 
     private final ProjectService projectService;
     private final LabelService labelService;
+    private final AssigneeService assigneeService;
 
-    public ProjectController(ProjectService projectService, LabelService labelService) {
+    public ProjectController(ProjectService projectService, LabelService labelService, AssigneeService assigneeService) {
         this.projectService = projectService;
         this.labelService = labelService;
+        this.assigneeService = assigneeService;
     }
 
     /**
@@ -60,6 +64,15 @@ public class ProjectController {
         Long userId = (Long) httpRequest.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
         List<UserSummaryDto> members = projectService.listMembers(projectId, userId);
         return ResponseEntity.ok(ApiResponse.success(members));
+    }
+
+    @GetMapping("/{id}/assignees")
+    public ResponseEntity<ApiResponse<List<AssigneeOption>>> listAssignees(
+            HttpServletRequest httpRequest,
+            @PathVariable("id") Long projectId) {
+        Long userId = (Long) httpRequest.getAttribute(JwtAuthFilter.REQUEST_ATTR_USER_ID);
+        projectService.listMembers(projectId, userId);
+        return ResponseEntity.ok(ApiResponse.success(assigneeService.listProjectAssignees(projectId)));
     }
 
     /**

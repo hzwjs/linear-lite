@@ -1,14 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { Task, User } from '../types/domain'
-import { assigneeDisplayLabel, resolveAssigneeUser, taskHasAssignableDisplay } from './taskAssigneeDisplay'
-
-const users: User[] = [
-  { id: 1, username: 'alice' },
-  { id: 2, username: 'bob' }
-]
+import type { Task } from '../types/domain'
+import { assigneeDisplayLabel } from './taskAssigneeDisplay'
 
 describe('taskAssigneeDisplay', () => {
-  it('prefers system username over display name', () => {
+  it('uses the display value resolved by the service', () => {
     const task: Task = {
       id: 'ENG-1',
       title: 't',
@@ -16,14 +11,13 @@ describe('taskAssigneeDisplay', () => {
       priority: 'medium',
       createdAt: 0,
       updatedAt: 0,
-      assigneeId: 1,
-      assigneeDisplayName: 'should be ignored'
+      assigneeKey: 'user:1',
+      assigneeName: 'alice'
     }
-    expect(resolveAssigneeUser(task, users)?.username).toBe('alice')
-    expect(assigneeDisplayLabel(task, users, '—')).toBe('alice')
+    expect(assigneeDisplayLabel(task, '—')).toBe('alice')
   })
 
-  it('uses assigneeDisplayName when no system user', () => {
+  it('uses the unassigned label when the service returns no owner', () => {
     const task: Task = {
       id: 'ENG-2',
       title: 't',
@@ -31,10 +25,35 @@ describe('taskAssigneeDisplay', () => {
       priority: 'medium',
       createdAt: 0,
       updatedAt: 0,
-      assigneeId: null,
-      assigneeDisplayName: '  导入名  '
+      assigneeKey: null,
+      assigneeName: null
     }
-    expect(assigneeDisplayLabel(task, users, 'Unassigned')).toBe('导入名')
-    expect(taskHasAssignableDisplay(task, users)).toBe(true)
+    expect(assigneeDisplayLabel(task, 'Unassigned')).toBe('Unassigned')
+  })
+
+  it('does not present an owner with no resolved name as unassigned', () => {
+    const task: Task = {
+      id: 'ENG-3',
+      title: 't',
+      status: 'todo',
+      priority: 'medium',
+      createdAt: 0,
+      updatedAt: 0,
+      assigneeKey: 'external:3',
+      assigneeName: null
+    }
+    expect(assigneeDisplayLabel(task, 'Unassigned')).toBe('')
+  })
+
+  it('treats an omitted key as the same unassigned value as null', () => {
+    const task: Task = {
+      id: 'ENG-4',
+      title: 't',
+      status: 'todo',
+      priority: 'medium',
+      createdAt: 0,
+      updatedAt: 0
+    }
+    expect(assigneeDisplayLabel(task, 'Unassigned')).toBe('Unassigned')
   })
 })

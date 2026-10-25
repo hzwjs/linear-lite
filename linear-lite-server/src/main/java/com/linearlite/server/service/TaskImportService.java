@@ -3,6 +3,7 @@ package com.linearlite.server.service;
 import com.linearlite.server.dto.TaskImportRequest;
 import com.linearlite.server.dto.TaskImportResponse;
 import com.linearlite.server.dto.TaskImportRowRequest;
+import com.linearlite.server.dto.TaskAssigneeImport;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.exception.ResourceNotFoundException;
@@ -24,7 +25,6 @@ import java.util.Set;
 public class TaskImportService {
 
     private static final int TASK_IMPORT_MAX_ROWS = 800;
-    private static final int ASSIGNEE_DISPLAY_NAME_MAX_LEN = 128;
     private static final Set<String> ALLOWED_STATUSES = Set.of(
             "backlog", "todo", "in_progress", "in_review", "done", "canceled", "duplicate");
     private static final Set<String> ALLOWED_PRIORITIES = Set.of("low", "medium", "high", "urgent");
@@ -37,6 +37,7 @@ public class TaskImportService {
     private final TaskSequenceService taskSequenceService;
     private final TaskActivityService taskActivityService;
     private final TaskHierarchyCompletionService taskHierarchyCompletionService;
+    private final AssigneeService assigneeService;
 
     public TaskImportService(
             ProjectMapper projectMapper,
@@ -44,13 +45,15 @@ public class TaskImportService {
             TaskPermissionGuard taskPermissionGuard,
             TaskSequenceService taskSequenceService,
             TaskActivityService taskActivityService,
-            TaskHierarchyCompletionService taskHierarchyCompletionService) {
+            TaskHierarchyCompletionService taskHierarchyCompletionService,
+            AssigneeService assigneeService) {
         this.projectMapper = projectMapper;
         this.taskMapper = taskMapper;
         this.taskPermissionGuard = taskPermissionGuard;
         this.taskSequenceService = taskSequenceService;
         this.taskActivityService = taskActivityService;
         this.taskHierarchyCompletionService = taskHierarchyCompletionService;
+        this.assigneeService = assigneeService;
     }
 
     @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
@@ -116,13 +119,7 @@ public class TaskImportService {
             task.setPriority(defaultPriority(row.getPriority()));
             task.setProjectId(request.getProjectId());
             task.setCreatorId(creatorId);
-            Long assigneeId = row.getAssigneeId();
-            task.setAssigneeId(assigneeId);
-            if (assigneeId != null) {
-                task.setAssigneeDisplayName(null);
-            } else {
-                task.setAssigneeDisplayName(truncateAssigneeDisplayName(trimToNull(row.getAssigneeDisplayName())));
-            }
+            task.setAssigneeKey(resolveAssignee(request.getProjectId(), row.getAssignee()));
             task.setDueDate(row.getDueDate());
             task.setPlannedStartDate(row.getPlannedStartDate());
             task.setProgressPercent(clampProgressPercent(row.getProgressPercent()));
@@ -197,6 +194,28 @@ public class TaskImportService {
                 throw new IllegalArgumentException("Progress must be between 0 and 100: " + p);
             }
         }
+        TaskAssigneeImport assignee = row.getAssignee();
+        if (assignee != null) {
+            if ("reference".equals(assignee.getKind())) {
+                if (assignee.getKey() == null || assignee.getDisplayName() != null) {
+                    throw new IllegalArgumentException("导入负责人引用格式无效");
+                }
+            } else if ("external".equals(assignee.getKind())) {
+                if (trimToNull(assignee.getDisplayName()) == null || assignee.getKey() != null) {
+                    throw new IllegalArgumentException("导入外部负责人格式无效");
+                }
+            } else {
+                throw new IllegalArgumentException("导入负责人类型无效");
+            }
+        }
+    }
+
+    private String resolveAssignee(Long projectId, TaskAssigneeImport assignee) {
+        if (assignee == null) return null;
+        if ("reference".equals(assignee.getKind())) {
+            return assigneeService.requireProjectAssignee(projectId, assignee.getKey());
+        }
+        return assigneeService.registerExternal(projectId, assignee.getDisplayName());
     }
 
     private void validateNoImportCycles(Map<String, TaskImportRowRequest> rowByImportId) {
@@ -239,16 +258,6 @@ public class TaskImportService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
-    }
-
-    private static String truncateAssigneeDisplayName(String value) {
-        if (value == null) {
-            return null;
-        }
-        if (value.length() <= ASSIGNEE_DISPLAY_NAME_MAX_LEN) {
-            return value;
-        }
-        return value.substring(0, ASSIGNEE_DISPLAY_NAME_MAX_LEN);
     }
 
     private static int clampProgressPercent(Integer value) {

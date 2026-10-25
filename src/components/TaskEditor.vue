@@ -11,6 +11,8 @@ import { useNotificationStore } from '../store/notificationStore'
 import { useTaskStore } from '../store/taskStore'
 import { useFavoriteStore } from '../store/favoriteStore'
 import { useProjectStore } from '../store/projectStore'
+import { useAssigneeStore } from '../store/assigneeStore'
+import { userIdFromAssigneeKey } from '../utils/assigneeKey'
 import { useIssuePanelStore } from '../store/issuePanelStore'
 import { useRouter } from 'vue-router'
 import { projectApi } from '../services/api/project'
@@ -125,6 +127,7 @@ const notificationStore = useNotificationStore()
 const store = useTaskStore()
 const favoriteStore = useFavoriteStore()
 const projectStore = useProjectStore()
+const assigneeStore = useAssigneeStore()
 const issuePanelStore = useIssuePanelStore()
 const router = useRouter()
 const { t } = useI18n()
@@ -144,13 +147,7 @@ function onDescriptionUploadStateChange(state: { hasPending: boolean; hasFailed:
 }
 const formStatus = ref<Status>('todo')
 const formPriority = ref<Priority>('medium')
-const formAssigneeId = ref<string | number>('')
-
-const importedAssigneeOnlyLabel = computed(() => {
-  if (props.mode !== 'edit' || !props.task) return ''
-  if (props.task.assigneeId != null) return ''
-  return props.task.assigneeDisplayName?.trim() ?? ''
-})
+const formAssigneeKey = ref('')
 const formPlannedStartDate = ref('') // YYYY-MM-DD
 const formDueDate = ref('') // YYYY-MM-DD for input[type=date]
 /** 0–100，与后端 progressPercent 一致 */
@@ -165,6 +162,15 @@ const taskLabelComboboxRef = ref<{
 const descriptionSectionRef = ref<HTMLElement | null>(null)
 const isDescriptionFullscreen = ref(false)
 const userList = ref<User[]>([])
+const assignees = computed(() => {
+  const projectId = effectiveProjectId.value
+  return projectId == null ? [] : assigneeStore.optionsByProject[projectId] ?? []
+})
+const selectedTaskAssignee = computed(() => {
+  const task = props.task
+  if (task?.assigneeKey == null || task.assigneeName == null) return undefined
+  return { key: task.assigneeKey, name: task.assigneeName }
+})
 const saveStatus = ref<'idle' | 'saving' | 'saved' | 'failed'>('idle')
 const progressStatusHint = ref('')
 let progressStatusHintTimer: ReturnType<typeof setTimeout> | null = null
@@ -205,8 +211,8 @@ const canStopAgent = computed(() => {
   return Boolean(status?.executionId && status.jobStatus && cancellableAgentJobStatuses.has(status.jobStatus))
 })
 const canPrepareLocalPi = computed(() =>
-  props.mode === 'edit' && props.task?.assigneeId != null &&
-  Number(authStore.currentUser?.id) === Number(props.task.assigneeId)
+  props.mode === 'edit' && userIdFromAssigneeKey(props.task?.assigneeKey) != null &&
+  userIdFromAssigneeKey(props.task?.assigneeKey) === Number(authStore.currentUser?.id)
 )
 const canSubmitLocalPiTurn = computed(() =>
   agentStatus.value?.sessionStatus === 'waiting_input' && !isAgentExecutionActive.value
@@ -254,7 +260,7 @@ function activityDisplayIcon(item: TaskActivityDisplayItem): Component | null {
         default: return BarChart3
       }
     case 'labels': return Tag
-    case 'assigneeId': return UserRound
+    case 'assigneeKey': return UserRound
     case 'dueDate':
     case 'plannedStartDate': return CalendarDays
     case 'progressPercent': return BarChart3
@@ -434,7 +440,7 @@ const subIssueFormTitle = ref('')
 const subIssueFormDescription = ref('')
 const subIssueFormStatus = ref<Status>('backlog')
 const subIssueFormPriority = ref<Priority>('medium')
-const subIssueFormAssigneeId = ref<string | number>('')
+const subIssueFormAssigneeKey = ref('')
 const subIssueFormPlannedStartDate = ref('')
 const subIssueFormDueDate = ref('')
 const subIssueSaving = ref(false)
@@ -448,10 +454,7 @@ const subIssueCountDisplay = computed(() => {
 })
 
 function subIssueAssigneeLabel(task: Task): string {
-  const externalName = task.assigneeDisplayName?.trim()
-  if (externalName) return externalName
-  if (task.assigneeId == null) return ''
-  return userList.value.find((user) => user.id === task.assigneeId)?.username?.trim() ?? ''
+  return task.assigneeName?.trim() ?? ''
 }
 
 function subIssueAssigneeInitial(task: Task): string {
@@ -786,7 +789,7 @@ function openSubIssueForm() {
   subIssueFormDescription.value = ''
   subIssueFormStatus.value = 'todo'
   subIssueFormPriority.value = props.task?.priority ?? 'medium'
-  subIssueFormAssigneeId.value = ''
+  subIssueFormAssigneeKey.value = ''
   subIssueFormPlannedStartDate.value = ''
   subIssueFormDueDate.value = ''
   nextTick(() => subIssueTitleInputRef.value?.focus())
@@ -813,7 +816,7 @@ async function submitSubIssue() {
       description: subIssueFormDescription.value.trim() || undefined,
       status: subIssueFormStatus.value,
       priority: subIssueFormPriority.value,
-      assigneeId: subIssueFormAssigneeId.value === '' ? null : Number(subIssueFormAssigneeId.value),
+      assigneeKey: subIssueFormAssigneeKey.value || null,
       plannedStartDate: parseDateInputValue(subIssueFormPlannedStartDate.value),
       dueDate: parseDateInputValue(subIssueFormDueDate.value),
       parentId: parentNumericId
@@ -1039,7 +1042,7 @@ watch(
 )
 
 watch(
-  [() => props.task?.id, () => props.task?.assigneeId, () => props.mode],
+  [() => props.task?.id, () => props.task?.assigneeKey, () => props.mode],
   () => {
     // 负责人切换会创建或关闭 Pi execution，必须立即切换面板的执行定位。
     loadAgentStatus()
@@ -1053,7 +1056,11 @@ async function loadProjectMembers(projectId: number | null) {
     return
   }
   try {
-    userList.value = await projectApi.listMembers(projectId)
+    const [members] = await Promise.all([
+      projectApi.listMembers(projectId),
+      assigneeStore.fetchProjectAssignees(projectId)
+    ])
+    userList.value = members
   } catch (e) {
     console.error('Failed to load project members:', e)
     userList.value = []
@@ -1256,7 +1263,7 @@ function loadForm(options?: { preserveDescription?: boolean }) {
     }
     formStatus.value = props.task.status
     formPriority.value = props.task.priority
-    formAssigneeId.value = props.task.assigneeId ?? ''
+    formAssigneeKey.value = props.task.assigneeKey ?? ''
     formPlannedStartDate.value = toDateInputValue(props.task.plannedStartDate ?? undefined)
     formDueDate.value = toDateInputValue(props.task.dueDate ?? undefined)
     formProgressPercent.value = clampTaskProgress(props.task.progressPercent ?? 0)
@@ -1271,7 +1278,7 @@ function loadForm(options?: { preserveDescription?: boolean }) {
       }
       formStatus.value = draft.status
       formPriority.value = draft.priority
-      formAssigneeId.value = draft.assigneeId == null ? '' : draft.assigneeId
+      formAssigneeKey.value = draft.assigneeKey ?? ''
       formPlannedStartDate.value = draft.plannedStartDate
       formDueDate.value = draft.dueDate
       formProgressPercent.value = clampTaskProgress(draft.progressPercent)
@@ -1283,7 +1290,7 @@ function loadForm(options?: { preserveDescription?: boolean }) {
     formDescription.value = ''
     formStatus.value = props.defaultStatus ?? 'todo'
     formPriority.value = 'medium'
-    formAssigneeId.value = ''
+    formAssigneeKey.value = ''
     formPlannedStartDate.value = todayDateInputValue()
     formDueDate.value = ''
     formProgressPercent.value = 0
@@ -1318,20 +1325,12 @@ watch(formStatus, () => syncFormProgressFromStatus())
 function getPayload() {
   const plannedStartMs = parseDateInputValue(formPlannedStartDate.value)
   const dueDateMs = parseDateInputValue(formDueDate.value)
-  const rawAssignee = formAssigneeId.value
-  const assigneeId =
-    rawAssignee === '' || rawAssignee == null
-      ? null
-      : (() => {
-          const n = Number(rawAssignee)
-          return Number.isFinite(n) ? n : null
-        })()
   return {
     title: formTitle.value.trim(),
     description: descriptionForSave(formDescription.value),
     status: formStatus.value,
     priority: formPriority.value,
-    assigneeId,
+    assigneeKey: formAssigneeKey.value || null,
     plannedStartDate: plannedStartMs,
     dueDate: dueDateMs,
     progressPercent: clampTaskProgress(formProgressPercent.value)
@@ -1350,7 +1349,7 @@ function isPayloadEqual(
     description?: string
     status: Status
     priority: Priority
-    assigneeId: number | null
+    assigneeKey: string | null
     plannedStartDate?: number
     dueDate?: number
     progressPercent: number
@@ -1360,7 +1359,7 @@ function isPayloadEqual(
     description?: string
     status: Status
     priority: Priority
-    assigneeId?: number | null
+    assigneeKey?: string | null
     plannedStartDate?: number | null
     dueDate?: number | null
     progressPercent?: number
@@ -1371,7 +1370,7 @@ function isPayloadEqual(
     descriptionForSave(a.description) === descriptionForSave(b.description) &&
     a.status === b.status &&
     a.priority === b.priority &&
-    (a.assigneeId ?? null) === (b.assigneeId ?? null) &&
+    (a.assigneeKey ?? null) === (b.assigneeKey ?? null) &&
     dueDateKey(a.plannedStartDate) === dueDateKey(b.plannedStartDate ?? undefined) &&
     dueDateKey(a.dueDate) === dueDateKey(b.dueDate ?? undefined) &&
     a.progressPercent === clampTaskProgress(b.progressPercent ?? 0)
@@ -1385,7 +1384,7 @@ function formSaveSignature(): string {
     payload.description ?? '',
     payload.status,
     payload.priority,
-    payload.assigneeId,
+    payload.assigneeKey,
     dueDateKey(payload.plannedStartDate),
     dueDateKey(payload.dueDate),
     payload.progressPercent,
@@ -1407,7 +1406,7 @@ function isFormDirty(): boolean {
     description: props.task.description,
     status: props.task.status,
     priority: props.task.priority,
-    assigneeId: props.task.assigneeId ?? null,
+    assigneeKey: props.task.assigneeKey ?? null,
     plannedStartDate: props.task.plannedStartDate ?? null,
     dueDate: props.task.dueDate ?? null,
     progressPercent: props.task.progressPercent ?? 0
@@ -1421,7 +1420,7 @@ function isFormDirty(): boolean {
 async function performAutoSave() {
   if (props.mode !== 'edit' || !props.task) return
   const payload = getPayload()
-  const previousAssigneeId = props.task.assigneeId ?? null
+  const previousAssigneeKey = props.task.assigneeKey ?? null
   if (!payload.title) return
   if (!isFormDirty()) return
   if (descriptionUploadState.value.hasPending || descriptionUploadState.value.hasFailed) return
@@ -1443,10 +1442,9 @@ async function performAutoSave() {
       description: payload.description,
       status: payload.status,
       priority: payload.priority,
-      assigneeId: payload.assigneeId,
+      assigneeKey: payload.assigneeKey,
       clearAssignee:
-        payload.assigneeId === null &&
-        (props.task.assigneeId != null || !!(props.task.assigneeDisplayName?.trim())),
+        payload.assigneeKey === null && props.task.assigneeKey != null,
       plannedStartDate: payload.plannedStartDate,
       clearPlannedStart,
       dueDate: payload.dueDate,
@@ -1460,7 +1458,7 @@ async function performAutoSave() {
     formLabels.value = safeArray(merged.labels).map((l) => ({ id: l.id, name: l.name }))
     lastAcknowledgedSave = { taskId: props.task.id, signature: formSaveSignature() }
     clearTaskEditDraft(props.task.id)
-    if (previousAssigneeId !== (merged.assigneeId ?? null)) {
+    if (previousAssigneeKey !== (merged.assigneeKey ?? null)) {
       // 负责人变更会在服务端创建或关闭 Pi execution；保存响应写回任务后立即刷新执行状态，避免漏掉首个 watcher。
       await nextTick()
       await loadAgentStatus()
@@ -1498,7 +1496,7 @@ function persistFormDraftIfNeeded() {
     description: payload.description ?? '',
     status: payload.status,
     priority: payload.priority,
-    assigneeId: payload.assigneeId,
+    assigneeKey: payload.assigneeKey,
     plannedStartDate: formPlannedStartDate.value,
     dueDate: formDueDate.value,
     progressPercent: payload.progressPercent
@@ -1572,7 +1570,7 @@ function onDescriptionBlur() {
     description: props.task.description,
     status: props.task.status,
     priority: props.task.priority,
-    assigneeId: props.task.assigneeId ?? null,
+    assigneeKey: props.task.assigneeKey ?? null,
     plannedStartDate: props.task.plannedStartDate ?? null,
     dueDate: props.task.dueDate ?? null,
     progressPercent: props.task.progressPercent ?? 0
@@ -1591,7 +1589,7 @@ watch(
     formDescription.value,
     formStatus.value,
     formPriority.value,
-    formAssigneeId.value,
+    formAssigneeKey.value,
     formPlannedStartDate.value,
     formDueDate.value,
     formProgressPercent.value,
@@ -1848,11 +1846,11 @@ async function toggleDescriptionFullscreen() {
                 <div class="prop-item prop-item--assignee">
                   <AssigneeSelect
                     id="task-assignee"
-                    v-model="formAssigneeId"
-                    :users="userList"
+                    v-model="formAssigneeKey"
+                    :assignees="assignees"
+                    :selected-name="selectedTaskAssignee"
                     :placeholder="t('common.unassigned')"
                     :aria-label="t('common.assignee')"
-                    :external-label="importedAssigneeOnlyLabel"
                     trigger-class="prop-trigger prop-trigger--avatar"
                     trigger-mode="avatar"
                   />
@@ -2158,8 +2156,8 @@ async function toggleDescriptionFullscreen() {
                       trigger-class="linear-inline-trigger"
                     />
                     <AssigneeSelect
-                      v-model="subIssueFormAssigneeId"
-                      :users="userList"
+                      v-model="subIssueFormAssigneeKey"
+                      :assignees="assignees"
                       :placeholder="t('common.unassigned')"
                       :aria-label="t('common.assignee')"
                       trigger-class="linear-inline-trigger"
@@ -2307,16 +2305,13 @@ async function toggleDescriptionFullscreen() {
               <div class="prop-assignee-stack">
                 <AssigneeSelect
                   id="task-assignee-sidebar"
-                  v-model="formAssigneeId"
-                  :users="userList"
+                  v-model="formAssigneeKey"
+                  :assignees="assignees"
+                  :selected-name="selectedTaskAssignee"
                   :placeholder="t('common.unassigned')"
                   :aria-label="t('common.assignee')"
-                  :external-label="importedAssigneeOnlyLabel"
                   trigger-class="prop-trigger prop-trigger--linear"
                 />
-                <p v-if="importedAssigneeOnlyLabel" class="external-assignee-hint">
-                  {{ t('taskEditor.importedAssigneeLine', { name: importedAssigneeOnlyLabel }) }}
-                </p>
               </div>
             </div>
           </section>
@@ -3928,12 +3923,6 @@ async function toggleDescriptionFullscreen() {
 .prop-row-help--progress {
   margin: -2px 0 0 0;
   color: var(--color-text-secondary);
-}
-.external-assignee-hint {
-  margin: 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  line-height: 1.35;
 }
 .prop-row-name {
   flex: 0 0 auto;

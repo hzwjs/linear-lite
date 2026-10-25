@@ -9,11 +9,11 @@ const { t } = useI18n()
 const rows = computed(() => props.breakdown.slice(0, 8))
 
 function displayName(item: AssigneeCount): string {
-  return item.assigneeId === null ? t('analytics.unassigned') : item.assigneeName
+  return item.assigneeKey === null ? t('analytics.unassigned') : item.assigneeName
 }
 
 function initials(item: AssigneeCount): string {
-  if (item.assigneeId === null) return '—'
+  if (item.assigneeKey === null) return '—'
   return item.assigneeName.slice(0, 1).toUpperCase()
 }
 
@@ -33,7 +33,7 @@ function completionWidth(item: AssigneeCount): string {
     </header>
 
     <div v-if="rows.length" class="assignee-list">
-      <div v-for="item in rows" :key="item.assigneeId === null ? 'unassigned' : item.assigneeId" class="assignee-row">
+      <div v-for="item in rows" :key="item.assigneeKey ?? 'unassigned'" class="assignee-row">
         <span class="assignee-avatar" aria-hidden="true">{{ initials(item) }}</span>
         <div class="assignee-main">
           <div class="assignee-copy">

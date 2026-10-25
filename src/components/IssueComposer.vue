@@ -3,8 +3,8 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTaskStore } from '../store/taskStore'
 import { useProjectStore } from '../store/projectStore'
-import type { Priority, Status, User } from '../types/domain'
-import { projectApi } from '../services/api/project'
+import type { Priority, Status } from '../types/domain'
+import { useAssigneeStore } from '../store/assigneeStore'
 import { parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { randomClientId } from '../utils/clientId'
 import { attachmentsApi } from '../services/api/attachments'
@@ -49,6 +49,7 @@ const emit = defineEmits<{
 
 const store = useTaskStore()
 const projectStore = useProjectStore()
+const assigneeStore = useAssigneeStore()
 const { t } = useI18n()
 
 const title = ref('')
@@ -56,7 +57,7 @@ const description = ref('')
 const descriptionUploadState = ref({ hasPending: false, hasFailed: false })
 const status = ref<Status>('todo')
 const priority = ref<Priority>('medium')
-const assigneeId = ref<string | number>('')
+const assigneeKey = ref('')
 const plannedStartDate = ref('')
 const dueDate = ref('')
 type ComposerLabel = { id?: number; name: string }
@@ -64,7 +65,10 @@ const labels = ref<ComposerLabel[]>([])
 const labelInput = ref('')
 const createMore = ref(false)
 const isSaving = ref(false)
-const userList = ref<User[]>([])
+const assignees = computed(() => {
+  const projectId = projectStore.activeProjectId
+  return projectId == null ? [] : assigneeStore.optionsByProject[projectId] ?? []
+})
 const descriptionEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
 const composerAttachmentInputRef = ref<HTMLInputElement | null>(null)
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024
@@ -135,7 +139,7 @@ function resetForm() {
   description.value = ''
   status.value = props.defaultStatus ?? 'todo'
   priority.value = 'medium'
-  assigneeId.value = ''
+  assigneeKey.value = ''
   plannedStartDate.value = todayDateInputValue()
   dueDate.value = ''
   labels.value = []
@@ -224,15 +228,11 @@ watch(
 
 async function loadProjectMembers() {
   const projectId = projectStore.activeProjectId
-  if (projectId == null) {
-    userList.value = []
-    return
-  }
+  if (projectId == null) return
   try {
-    userList.value = await projectApi.listMembers(projectId)
+    await assigneeStore.fetchProjectAssignees(projectId)
   } catch (error) {
     console.error('Failed to load project members:', error)
-    userList.value = []
   }
 }
 
@@ -256,20 +256,12 @@ async function handleCreate() {
   const dueDateMs = parseDateInputValue(dueDate.value)
 
   try {
-    const rawAssignee = assigneeId.value
-    const assigneeIdForApi =
-      rawAssignee === '' || rawAssignee == null
-        ? null
-        : (() => {
-            const n = Number(rawAssignee)
-            return Number.isFinite(n) ? n : null
-          })()
     const task = await store.createTask({
       title: title.value.trim(),
       description: descriptionForSave(description.value) || undefined,
       status: status.value,
       priority: priority.value,
-      assigneeId: assigneeIdForApi,
+      assigneeKey: assigneeKey.value || null,
       plannedStartDate: plannedStartMs,
       dueDate: dueDateMs,
       labels: labels.value.map((label) => (label.id != null ? { id: label.id, name: label.name } : { name: label.name })),
@@ -414,8 +406,8 @@ async function handleCreate() {
             <AssigneeSelect
               class="composer-property composer-property--assignee"
               id="composer-assignee"
-              v-model="assigneeId"
-              :users="userList"
+              v-model="assigneeKey"
+              :assignees="assignees"
               :placeholder="t('common.unassigned')"
               :aria-label="t('common.assignee')"
               trigger-class="composer-trigger"

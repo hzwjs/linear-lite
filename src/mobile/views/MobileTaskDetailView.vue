@@ -9,14 +9,15 @@ import {
 } from '../../components/icons/PriorityIcons'
 import { attachmentsApi } from '../../services/api/attachments'
 import type { TaskAttachment } from '../../services/api/types'
-import { projectApi } from '../../services/api/project'
 import { taskCommentsApi } from '../../services/api/taskComments'
 import { useFavoriteStore } from '../../store/favoriteStore'
 import { useProjectStore } from '../../store/projectStore'
 import { useTaskStore } from '../../store/taskStore'
-import type { Priority, Status, Task, User } from '../../types/domain'
+import { useAssigneeStore } from '../../store/assigneeStore'
+import type { Priority, Status, Task } from '../../types/domain'
 import type { CommentDto } from '../../types/comment'
 import { getInitials, getAvatarColorByUsername } from '../../utils/avatar'
+import { assigneeDisplayLabel } from '../../utils/taskAssigneeDisplay'
 import { renderBody } from '../../utils/blockNoteHtml'
 import { formatBeijingDate, BEIJING_TIME_ZONE } from '../../utils/beijingTime'
 import { renderMarkdown } from '../../utils/markdown'
@@ -30,9 +31,9 @@ const emit = defineEmits<{ back: []; 'open-task': [task: Task] }>()
 const taskStore = useTaskStore()
 const favoriteStore = useFavoriteStore()
 const projectStore = useProjectStore()
+const assigneeStore = useAssigneeStore()
 const loading = ref(true)
 const loadError = ref('')
-const users = ref<User[]>([])
 const subtasks = ref<Task[]>([])
 const comments = ref<CommentDto[]>([])
 const attachments = ref<TaskAttachment[]>([])
@@ -58,7 +59,11 @@ const projectName = computed(() => {
 })
 const assigneeName = computed(() => {
   if (!task.value) return '未分配'
-  return users.value.find((user) => user.id === task.value?.assigneeId)?.username || task.value.assigneeDisplayName || '未分配'
+  return assigneeDisplayLabel(task.value, '未分配')
+})
+const assignees = computed(() => {
+  const projectId = task.value?.projectId ?? projectStore.activeProjectId
+  return projectId == null ? [] : assigneeStore.optionsByProject[projectId] ?? []
 })
 const hasLongDescription = computed(() => description.value.trim().length > 170)
 const descriptionHtml = computed(() => renderBody(description.value, renderMarkdown))
@@ -90,7 +95,7 @@ async function runAction(action: () => Promise<unknown>, fallbackMessage: string
   }
 }
 
-async function updateField(patch: { status?: Status; priority?: Priority; assigneeId?: number; clearAssignee?: boolean; dueDate?: number; clearDueDate?: boolean }) {
+async function updateField(patch: { status?: Status; priority?: Priority; assigneeKey?: string; clearAssignee?: boolean; dueDate?: number; clearDueDate?: boolean }) {
   if (!task.value) return
   const taskId = task.value.id
   savingField.value = true
@@ -185,7 +190,7 @@ async function loadTask() {
     description.value = loaded.description || ''
     if (loaded.projectId && projectStore.activeProjectId !== loaded.projectId) projectStore.setActiveProject(loaded.projectId)
     const projectId = loaded.projectId ?? projectStore.activeProjectId
-    users.value = projectId ? await projectApi.listMembers(projectId).catch(() => []) : []
+    if (projectId != null) await assigneeStore.fetchProjectAssignees(projectId).catch(() => {})
     subtasks.value = loaded.numericId ? await taskStore.fetchSubIssues(loaded.numericId, projectId).catch(() => []) : []
     const [nextComments, nextAttachments] = await Promise.all([
       taskCommentsApi.list(loaded.id).catch(() => []),
@@ -254,7 +259,7 @@ onMounted(loadTask)
 
       <section class="mobile-detail-section mobile-detail-work-section">
         <h2>子任务 <span>{{ subtasks.length }}</span></h2>
-        <div v-if="subtasks.length" class="mobile-subtask-list"><MobileTaskRow v-for="subtask in subtasks" :key="subtask.id" :task="subtask" :users="users" @open="emit('open-task', $event)" /></div>
+        <div v-if="subtasks.length" class="mobile-subtask-list"><MobileTaskRow v-for="subtask in subtasks" :key="subtask.id" :task="subtask" @open="emit('open-task', $event)" /></div>
         <p v-else class="mobile-section-empty">暂无子任务</p>
       </section>
 
@@ -286,7 +291,7 @@ onMounted(loadTask)
       <div class="mobile-detail-sheet-fields">
         <label><span><MobileStatusGlyph :status="task?.status || 'todo'" :size="19" />状态</span><select :value="task?.status" @change="updateField({ status: ($event.target as HTMLSelectElement).value as Status })"><option value="backlog">待规划</option><option value="todo">待处理</option><option value="in_progress">进行中</option><option value="in_review">待评审</option><option value="done">已完成</option><option value="canceled">已取消</option><option value="duplicate">重复</option></select></label>
         <label><span><component :is="priorityIcons[task?.priority || 'medium']" :size="17" class="mobile-priority-icon" />优先级</span><select :value="task?.priority" @change="updateField({ priority: ($event.target as HTMLSelectElement).value as Priority })"><option value="low">低</option><option value="medium">中</option><option value="high">高</option><option value="urgent">紧急</option></select></label>
-        <label><span><UserRound :size="18" />负责人</span><select :value="task?.assigneeId ?? ''" @change="($event.target as HTMLSelectElement).value ? updateField({ assigneeId: Number(($event.target as HTMLSelectElement).value) }) : updateField({ clearAssignee: true })"><option value="">未分配</option><option v-for="user in users" :key="user.id" :value="user.id">{{ user.username }}</option></select></label>
+        <label><span><UserRound :size="18" />负责人</span><select :value="task?.assigneeKey ?? ''" @change="($event.target as HTMLSelectElement).value ? updateField({ assigneeKey: ($event.target as HTMLSelectElement).value }) : updateField({ clearAssignee: true })"><option value="">未分配</option><option v-for="assignee in assignees" :key="assignee.key" :value="assignee.key">{{ assignee.name }}{{ assignee.principalType === 'external' ? ' · 外部' : '' }}</option></select></label>
         <label><span><CalendarDays :size="18" />截止日期</span><span class="mobile-date-control"><span>{{ localizedDate(task?.dueDate) }}</span><input type="date" lang="zh-CN" aria-label="选择截止日期" :value="toDateInput(task?.dueDate)" @change="($event.target as HTMLInputElement).value ? updateField({ dueDate: new Date(`${($event.target as HTMLInputElement).value}T23:59:59`).getTime() }) : updateField({ clearDueDate: true })"></span></label>
       </div>
     </MobileBottomSheet>

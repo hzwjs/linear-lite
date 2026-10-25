@@ -17,7 +17,7 @@ public class TaskVO {
     private Long projectId;
     private Long parentId;
     private Long creatorId;
-    private Long assigneeId;
+    private String assigneeKey;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Integer subIssueCount;
@@ -95,12 +95,12 @@ public class TaskVO {
         this.creatorId = creatorId;
     }
 
-    public Long getAssigneeId() {
-        return assigneeId;
+    public String getAssigneeKey() {
+        return assigneeKey;
     }
 
-    public void setAssigneeId(Long assigneeId) {
-        this.assigneeId = assigneeId;
+    public void setAssigneeKey(String assigneeKey) {
+        this.assigneeKey = assigneeKey;
     }
 
     public LocalDateTime getCreatedAt() {

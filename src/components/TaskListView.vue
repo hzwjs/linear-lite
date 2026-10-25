@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onUnmounted, computed, onMounted } from 'vue'
+import { ref, watch, onUnmounted, computed, onMounted, nextTick, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   PriorityUrgentIcon,
@@ -27,13 +27,13 @@ import {
   Calendar
 } from 'lucide-vue-next'
 import CommandPalette, { type CommandItem } from './CommandPalette.vue'
-import type { Task, Status, Priority } from '../types/domain'
-import type { User } from '../types/domain'
+import type { AssigneeOption, Task, Status, Priority } from '../types/domain'
 import type { TaskLabelWriteItem } from '../services/api/types'
 import { toLabelWriteItem } from '../utils/taskLabelWrite'
 import { useTaskStore } from '../store/taskStore'
 import { useProjectStore } from '../store/projectStore'
 import { useAuthStore } from '../store/authStore'
+import { useAssigneeStore } from '../store/assigneeStore'
 import { projectApi } from '../services/api/project'
 import { getStatusLabel, getPriorityLabel } from '../utils/enumLabels'
 import { parseDateInputValue, formatDateInputValue, todayDateInputValue } from '../utils/taskDate'
@@ -43,16 +43,19 @@ import { filterVisibleTaskRows, type TaskGroup, type TaskRow } from '../utils/ta
 import type { VisibleProperty } from '../utils/viewPreference'
 import { getSubtaskProgressDisplay } from '../utils/subtaskProgress'
 import { assigneeDisplayLabel } from '../utils/taskAssigneeDisplay'
+import { userAssigneeKey } from '../utils/assigneeKey'
 import { copyTextToClipboard } from '../utils/clipboard'
 import TaskRowStatusPicker from './TaskRowStatusPicker.vue'
 import TaskRowAssigneePicker from './TaskRowAssigneePicker.vue'
 import TaskRowInlineDateCell from './TaskRowInlineDateCell.vue'
 import TaskRowProgressCell from './TaskRowProgressCell.vue'
+import TaskListWindowRows from './TaskListWindowRows.vue'
 
 const props = defineProps<{
   groups: TaskGroup[]
+  grouped: boolean
+  expandGroupsOnEntry: boolean
   projectId?: number | null
-  users?: User[]
   visibleProperties?: VisibleProperty[]
   selectedTaskId?: string | null
   openingTaskId?: string | null
@@ -62,6 +65,7 @@ const emit = defineEmits<{
   rowClick: [task: Task]
   createInStatus: [status?: Status]
   addSubIssue: [task: Task]
+  bulkStatusChange: [taskIds: string[], status: Status]
 }>()
 
 const subtaskExpanded = defineModel<Record<string, boolean>>('subtaskExpanded', { default: () => ({}) })
@@ -69,8 +73,33 @@ const subtaskExpanded = defineModel<Record<string, boolean>>('subtaskExpanded', 
 const store = useTaskStore()
 const projectStore = useProjectStore()
 const authStore = useAuthStore()
+const assigneeStore = useAssigneeStore()
 const { t } = useI18n()
-const expandedGroupKey = ref<string | null>(null)
+const collapsedGroupKeys = ref(new Set<string>())
+const scrollRef = ref<HTMLElement | null>(null)
+const taskRowHeight = 42
+const groupHeaderHeight = 50
+const pinnedTaskId = ref<string | null>(null)
+const groupWindowRefs = new Map<string, InstanceType<typeof TaskListWindowRows>>()
+
+function setGroupWindowRef(key: string, instance: Element | ComponentPublicInstance | null) {
+  if (instance == null) groupWindowRefs.delete(key)
+  else groupWindowRefs.set(key, instance as InstanceType<typeof TaskListWindowRows>)
+}
+
+function trackInteractionRow(event: Event) {
+  const target = event.target
+  if (!(target instanceof Element)) return
+  const row = target.closest<HTMLElement>('[data-task-id]')
+  if (row && scrollRef.value?.contains(row)) {
+    pinnedTaskId.value = row.dataset.taskId ?? null
+  } else if (event.type === 'pointerdown' && scrollRef.value?.contains(target)) {
+    // 拖动滚动条不改变焦点，保留原交互行；焦点进入其他控件时释放。
+    return
+  } else if (!target.closest('.task-row-status-panel, .assignee-popover, .custom-date-picker-panel')) {
+    pinnedTaskId.value = null
+  }
+}
 const rowHoveredId = ref<string | null>(null)
 /** 复制成功后的短暂反馈（图标与提示文案） */
 const copyFeedbackTaskId = ref<string | null>(null)
@@ -106,9 +135,10 @@ const ALL_STATUSES: Status[] = [
   'duplicate'
 ]
 
-const sortedPickerUsers = computed(() => {
-  const list = [...(props.users ?? [])]
-  list.sort((a, b) => a.username.localeCompare(b.username, undefined, { sensitivity: 'base' }))
+const sortedPickerAssignees = computed<AssigneeOption[]>(() => {
+  const projectId = props.projectId ?? projectStore.activeProjectId
+  const list = [...(projectId == null ? [] : assigneeStore.optionsByProject[projectId] ?? [])]
+  list.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
   return list
 })
 
@@ -172,8 +202,8 @@ async function bulkUpdateAll(updater: (taskKey: string) => Promise<unknown>): Pr
   await Promise.allSettled(ids.map((id) => updater(id)))
 }
 
-async function applyBulkAssignUser(userId: number) {
-  await bulkUpdateAll((id) => store.updateTask(id, { assigneeId: userId }))
+async function applyBulkAssign(assigneeKey: string) {
+  await bulkUpdateAll((id) => store.updateTask(id, { assigneeKey }))
   closeBulkPalette()
   clearSelection()
 }
@@ -187,13 +217,14 @@ async function applyBulkUnassign() {
 async function applyBulkAssignToMe() {
   const uid = authStore.currentUser?.id
   if (uid == null) return
-  await bulkUpdateAll((id) => store.updateTask(id, { assigneeId: uid }))
+  await bulkUpdateAll((id) => store.updateTask(id, { assigneeKey: userAssigneeKey(uid) }))
   closeBulkPalette()
   clearSelection()
 }
 
-async function applyBulkStatus(status: Status) {
-  await bulkUpdateAll((id) => store.transitionTask(id, status))
+function applyBulkStatus(status: Status) {
+  // 工作区承接批量保存及结果反馈，覆盖筛选清空后列表卸载的情况。
+  emit('bulkStatusChange', [...selectedTaskIds.value], status)
   closeBulkPalette()
   clearSelection()
 }
@@ -258,15 +289,15 @@ const bulkPaletteCommands = computed<CommandItem[]>(() => {
         }
       }
     ]
-    for (const u of sortedPickerUsers.value) {
-      const name = u.username
+    for (const assignee of sortedPickerAssignees.value) {
+      const name = assignee.name
       rows.push({
-        id: `bulk-assign-${u.id}`,
+        id: `bulk-assign-${assignee.key}`,
         label: name,
         keywords: [name.toLowerCase()],
         icon: UserIcon,
         run: () => {
-          void applyBulkAssignUser(u.id)
+          void applyBulkAssign(assignee.key)
         }
       })
     }
@@ -467,10 +498,14 @@ function onKeydown(e: KeyboardEvent) {
 
 onMounted(() => {
   document.addEventListener('keydown', onKeydown, true)
+  document.addEventListener('pointerdown', trackInteractionRow, true)
+  document.addEventListener('focusin', trackInteractionRow, true)
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown, true)
+  document.removeEventListener('pointerdown', trackInteractionRow, true)
+  document.removeEventListener('focusin', trackInteractionRow, true)
   if (copyFeedbackClearTimer != null) {
     clearTimeout(copyFeedbackClearTimer)
     copyFeedbackClearTimer = null
@@ -487,63 +522,84 @@ const priorityIcons: Record<Priority, typeof PriorityUrgentIcon> = {
   low: PriorityLowIcon
 }
 
-/**
- * 展开分组的锚点：优先选中（上次处理）任务所在的分组，找不到（未选中/被筛选掉）才回退到排序后的首个分组。
- * 单一规则：展开的分组跟随当前选中任务，而不是固定的排序首组。
- */
-function preferredGroupKey(): string | null {
-  const selectedId = props.selectedTaskId
-  if (selectedId != null) {
-    for (const group of props.groups) {
-      if (group.tasks.some((t) => t.id === selectedId)) return group.key
-      if (group.rows?.some((row) => row.task.id === selectedId)) return group.key
-    }
-  }
-  return props.groups[0]?.key ?? null
-}
-
-function resetExpandedGroup() {
-  // 项目进入后只展开一个分组（避免首屏同时铺开所有分组），但展开谁跟随上次处理的任务。
-  expandedGroupKey.value = preferredGroupKey()
-}
-
 function isGroupExpanded(groupKey: string): boolean {
-  return expandedGroupKey.value === groupKey
+  return !props.grouped || !collapsedGroupKeys.value.has(groupKey)
 }
 
 function toggle(groupKey: string) {
-  expandedGroupKey.value = isGroupExpanded(groupKey) ? null : groupKey
+  const next = new Set(collapsedGroupKeys.value)
+  if (next.has(groupKey)) next.delete(groupKey)
+  else next.add(groupKey)
+  collapsedGroupKeys.value = next
+}
+
+function resetGroupExpansion() {
+  const selectedGroup = props.groups.find(group => group.rows != null
+    ? group.rows.some(row => row.task.id === props.selectedTaskId)
+    : group.tasks.some(task => task.id === props.selectedTaskId))
+  const preferredKey = selectedGroup?.key ?? props.groups[0]?.key
+  collapsedGroupKeys.value = props.expandGroupsOnEntry || !props.grouped
+    ? new Set()
+    : new Set(props.groups.filter(group => group.key !== preferredKey).map(group => group.key))
 }
 
 watch(
-  () => props.projectId,
-  () => resetExpandedGroup(),
+  () => [props.projectId, props.grouped, props.expandGroupsOnEntry],
+  resetGroupExpansion,
   { immediate: true }
 )
-
 watch(
-  () => props.groups.map((group) => group.key),
-  (groupKeys) => {
-    // 首次任务加载通常发生在 projectId 之后；此时补上默认展开分组。
-    if (expandedGroupKey.value == null || !groupKeys.includes(expandedGroupKey.value)) {
-      expandedGroupKey.value = preferredGroupKey()
+  () => props.groups.map(group => group.key),
+  (keys, previousKeys) => {
+    const collapsed = new Set([...collapsedGroupKeys.value].filter(key => keys.includes(key)))
+    if (props.grouped && !props.expandGroupsOnEntry) {
+      for (const key of keys) {
+        if (!previousKeys.includes(key)) collapsed.add(key)
+      }
     }
-  },
-  { immediate: true }
+    collapsedGroupKeys.value = collapsed
+    if (props.grouped && !props.expandGroupsOnEntry && keys.every(key => collapsed.has(key))) {
+      resetGroupExpansion()
+    }
+  }
 )
 
-// 选中任务变化（打开任务/上下键导航跨组）时，展开其所在分组，保证「继续处理同组任务」时看到的是同组列表。
+async function locateTask(taskId: string, focus = true): Promise<boolean> {
+  const group = props.groups.find((candidate) => candidate.rows != null
+    ? candidate.rows.some((row) => row.task.id === taskId)
+    : candidate.tasks.some((task) => task.id === taskId))
+  if (!group) return false
+  collapsedGroupKeys.value.delete(group.key)
+  const row = group.rows?.find((candidate) => candidate.task.id === taskId)
+  if (row?.subtaskExpandPath) {
+    const expanded = { ...subtaskExpanded.value }
+    for (const id of row.subtaskExpandPath) expanded[id] = true
+    subtaskExpanded.value = expanded
+  }
+  await nextTick()
+  if (!(await groupWindowRefs.get(group.key)?.ensureTaskVisible(taskId))) return false
+  const element = Array.from(scrollRef.value?.querySelectorAll<HTMLElement>('[data-task-id]') ?? [])
+    .find((candidate) => candidate.dataset.taskId === taskId)
+  if (!element) return false
+  // 排序保持生效，通过定位展示更新后的行，避免冻结旧顺序。
+  element.scrollIntoView({ block: 'nearest' })
+  if (focus) element.focus({ preventScroll: true })
+  return true
+}
+
+defineExpose({ locateTask })
+
 watch(
   () => props.selectedTaskId,
   (taskId) => {
     if (taskId == null) return
-    const key = preferredGroupKey()
-    if (key != null) expandedGroupKey.value = key
-  }
+    void locateTask(taskId, false)
+  },
+  { immediate: true, flush: 'post' }
 )
 
 function assigneeName(task: Task): string {
-  return assigneeDisplayLabel(task, props.users, t('common.unassigned'))
+  return assigneeDisplayLabel(task, t('common.unassigned'))
 }
 
 function updatedText(task: Task): string {
@@ -562,24 +618,24 @@ function isOverdue(task: Task): boolean {
   return task.dueDate < Date.now()
 }
 
-function statusLabel(s: Status): string {
-  return getStatusLabel(s)
-}
-
 async function onStatusPicked(task: Task, next: Status) {
-  await store.transitionTask(task.id, next)
+  try {
+    await store.transitionTask(task.id, next)
+  } catch {
+    // 状态保存结果由工作区统一反馈，失败时 store 恢复服务端确认的状态。
+  }
 }
 
 async function onAssigneePicked(
   task: Task,
-  userId: number | null,
+  assigneeKey: string | null,
   opts: { clearAssignee: boolean }
 ) {
   try {
     if (opts.clearAssignee) {
       await store.updateTask(task.id, { clearAssignee: true })
-    } else if (userId != null) {
-      await store.updateTask(task.id, { assigneeId: userId })
+    } else if (assigneeKey != null) {
+      await store.updateTask(task.id, { assigneeKey })
     }
   } catch {
     /* store.error */
@@ -627,25 +683,40 @@ function setHoveredId(id: string | null) {
 }
 
 /** 每组用于渲染的行（含子任务时带 depth/parentTitle） */
-function groupListRows(group: TaskGroup): TaskRow[] {
-  if (group.rows?.length) return group.rows
-  return group.tasks.map((t) => ({ task: t, depth: 0 }))
-}
+const groupRowsByKey = computed(() => {
+  const rowsByKey = new Map<string, TaskRow[]>()
+  for (const group of props.groups) {
+    rowsByKey.set(group.key, group.rows != null ? group.rows : group.tasks.map(task => ({ task, depth: 0 })))
+  }
+  return rowsByKey
+})
+const visibleRowsByGroup = computed(() => new Map([...groupRowsByKey.value].map(([key, rows]) => [
+  key, filterVisibleTaskRows(rows, subtaskExpanded.value)
+])))
+const groupLayoutKey = computed(() => props.groups.map(group =>
+  `${group.key}:${isGroupExpanded(group.key) ? visibleGroupRows(group).length : 0}`
+).join('|'))
+const expandableTaskIdsByGroup = computed(() => {
+  const index = new Map<string, Set<string>>()
+  for (const [key, rows] of groupRowsByKey.value) {
+    const ids = new Set<string>()
+    rows.forEach((row, position) => {
+      if ((row.task.subIssueCount ?? 0) > 0) ids.add(row.task.id)
+      const next = rows[position + 1]
+      const path = next?.subtaskExpandPath
+      if (next?.depth === row.depth + 1 && path?.[path.length - 1] === row.task.id) ids.add(row.task.id)
+    })
+    index.set(key, ids)
+  }
+  return index
+})
 
 function visibleGroupRows(group: TaskGroup): TaskRow[] {
-  return filterVisibleTaskRows(groupListRows(group), subtaskExpanded.value)
+  return visibleRowsByGroup.value.get(group.key) ?? []
 }
 
 function hasExpandableSubtasksInGroup(task: Task, group: TaskGroup): boolean {
-  if ((task.subIssueCount ?? 0) > 0) return true
-  const rows = groupListRows(group)
-  const idx = rows.findIndex((r) => r.task.id === task.id)
-  if (idx === -1) return false
-  const cur = rows[idx]!
-  const next = rows[idx + 1]
-  if (!next || next.depth !== cur.depth + 1) return false
-  const path = next.subtaskExpandPath
-  return path != null && path.length > 0 && path[path.length - 1] === task.id
+  return expandableTaskIdsByGroup.value.get(group.key)?.has(task.id) === true
 }
 
 /** 与 filterVisibleTaskRows 一致：凡出现在子行 path 中的父 id 都需展开，避免仅靠 subIssueCount/邻行判断漏掉多级祖先 */
@@ -655,9 +726,7 @@ function hasExpandableSubtasksInGroup(task: Task, group: TaskGroup): boolean {
  * subIssueCount 显示展开钮；此时若不占位，仅带箭头的行会与分组头对齐，而其它行更靠右。
  */
 const listHasExpandableSubtasks = computed(() =>
-  props.groups.some((g) => {
-    return groupListRows(g).some((row) => hasExpandableSubtasksInGroup(row.task, g))
-  })
+  [...expandableTaskIdsByGroup.value.values()].some(ids => ids.size > 0)
 )
 
 function isSubtasksExpanded(taskId: string): boolean {
@@ -722,10 +791,10 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
 </script>
 
 <template>
-  <div class="list-view">
-    <div class="list-view-scroll">
+  <div class="list-view" :style="{ '--task-row-height': `${taskRowHeight}px` }">
+    <div ref="scrollRef" class="list-view-scroll">
       <div v-for="group in groups" :key="group.key" class="group">
-        <div class="group-header">
+        <div v-if="grouped" class="group-header">
           <button
             type="button"
             class="group-toggle"
@@ -737,20 +806,31 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
             }}</span>
             <span class="group-title">{{ group.label }}</span>
             <span class="group-count">{{ visibleGroupRows(group).length }}</span>
-            <button
-              type="button"
-              class="group-create"
-              :aria-label="t('taskList.createIssueInGroup')"
-              @click.stop="onCreateInStatus(group.key === 'todo' || group.key === 'in_progress' || group.key === 'done' ? (group.key as Status) : undefined)"
-            >
-              +
-            </button>
+          </button>
+          <button
+            type="button"
+            class="group-create"
+            :aria-label="t('taskList.createIssueInGroup')"
+            @click.stop="onCreateInStatus(group.key === 'todo' || group.key === 'in_progress' || group.key === 'done' ? (group.key as Status) : undefined)"
+          >
+            +
           </button>
         </div>
-        <div v-show="isGroupExpanded(group.key)" class="group-rows">
+        <TaskListWindowRows
+          v-if="isGroupExpanded(group.key)"
+          :ref="instance => setGroupWindowRef(group.key, instance)"
+          class="group-rows"
+          :rows="visibleGroupRows(group)"
+          :scroll-root="scrollRef"
+          :row-height="taskRowHeight"
+          :layout-key="groupLayoutKey"
+          :top-inset="grouped ? groupHeaderHeight : 0"
+          :pinned-task-id="pinnedTaskId"
+        >
+          <template #default="{ row, index, total }">
           <div
-            v-for="row in visibleGroupRows(group)"
             :key="row.task.id"
+            :data-task-id="row.task.id"
             class="task-row"
             :class="{
               overdue: isOverdue(row.task),
@@ -760,6 +840,9 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
             :aria-busy="props.openingTaskId === row.task.id"
             :style="{ paddingLeft: row.depth > 0 ? `calc(var(--task-row-pad-left) + ${row.depth * 20}px)` : undefined }"
             tabindex="0"
+            role="listitem"
+            :aria-posinset="index + 1"
+            :aria-setsize="total"
             @mouseenter="setHoveredId(row.task.id)"
             @mouseleave="setHoveredId(null)"
             @click="onRowClick(row.task)"
@@ -906,18 +989,12 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
               </div>
             </div>
             <div class="task-row-trailing">
-              <template v-if="show('status')">
-                <span class="task-meta-slot task-meta-slot-status">
-                  <span class="task-meta task-meta-status" :class="row.task.status">{{ statusLabel(row.task.status) }}</span>
-                </span>
-              </template>
               <template v-if="show('assignee')">
                 <span class="task-meta-slot task-meta-slot-assignee">
                   <span class="task-meta task-meta-assignee">
                     <TaskRowAssigneePicker
                       :task-id="row.task.id"
                       :task="row.task"
-                      :users="users"
                       :tooltip="assigneeName(row.task)"
                       @pick="(uid, o) => onAssigneePicked(row.task, uid, o)"
                     />
@@ -966,7 +1043,8 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
               +
             </button>
           </div>
-        </div>
+          </template>
+        </TaskListWindowRows>
       </div>
     </div>
     <Teleport to="body">
@@ -1165,8 +1243,8 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 42px;
-  height: 42px;
+  min-height: var(--task-row-height);
+  height: var(--task-row-height);
   padding: 0 16px 0 var(--task-row-pad-left);
   cursor: pointer;
   border-bottom: 1px solid var(--list-row-border);
@@ -1469,9 +1547,6 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
   justify-content: flex-end;
   min-width: 0;
 }
-.task-meta-slot-status {
-  min-width: 88px;
-}
 .task-meta-slot-assignee {
   width: 30px;
 }
@@ -1538,21 +1613,6 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
   font-size: var(--font-size-caption);
   white-space: nowrap;
   min-width: 0;
-}
-.task-meta-status.backlog,
-.task-meta-status.todo {
-  color: var(--color-text-secondary);
-}
-.task-meta-status.in_progress,
-.task-meta-status.in_review {
-  color: var(--color-status-in-progress);
-}
-.task-meta-status.done {
-  color: var(--color-status-done);
-}
-.task-meta-status.canceled,
-.task-meta-status.duplicate {
-  color: var(--color-text-muted);
 }
 .task-meta.overdue {
   color: var(--color-status-warning);

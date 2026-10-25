@@ -24,9 +24,8 @@ export interface Task {
   priority: Priority
   projectId?: number
   creatorId?: number
-  assigneeId?: number | null
-  /** 导入或外部处理人展示名；有系统 assigneeId 时通常为空 */
-  assigneeDisplayName?: string | null
+  assigneeKey?: string | null
+  assigneeName?: string | null
   dueDate?: number | null // 截止日期，毫秒时间戳
   /** 计划开始日期，毫秒时间戳 */
   plannedStartDate?: number | null
@@ -45,6 +44,13 @@ export interface Task {
   favorited?: boolean
   /** 项目级标签，按名称排序 */
   labels?: TaskLabel[]
+}
+
+export interface AssigneeOption {
+  key: string
+  name: string
+  avatarUrl?: string
+  principalType?: 'human' | 'agent' | 'external'
 }
 
 export interface TaskActivity {

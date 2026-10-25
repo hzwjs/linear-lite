@@ -287,8 +287,7 @@ describe('taskImport helpers', () => {
         description: 'Parent description',
         status: 'todo',
         priority: 'high',
-        assigneeId: 1,
-        assigneeDisplayName: null,
+        assignee: { kind: 'reference', key: 'user:1' },
         dueDate: '2026-03-20T00:00:00',
         plannedStartDate: '2026-03-18T00:00:00',
         progressPercent: 0
@@ -301,8 +300,7 @@ describe('taskImport helpers', () => {
         description: '',
         status: 'in_progress',
         priority: 'medium',
-        assigneeId: 2,
-        assigneeDisplayName: null,
+        assignee: { kind: 'reference', key: 'user:2' },
         dueDate: null,
         plannedStartDate: null,
         progressPercent: 40
@@ -310,7 +308,7 @@ describe('taskImport helpers', () => {
     ])
   })
 
-  it('sets assigneeDisplayName when owner is not a system user', () => {
+  it('marks an unmatched import owner as external', () => {
     const preview = buildTaskImportPreview(
       [
         {
@@ -332,7 +330,6 @@ describe('taskImport helpers', () => {
 
     expect(preview.rowErrors).toEqual([])
     expect(preview.rows).toHaveLength(1)
-    expect(preview.rows[0]?.assigneeId).toBeNull()
-    expect(preview.rows[0]?.assigneeDisplayName).toBe('外部姓名')
+    expect(preview.rows[0]?.assignee).toEqual({ kind: 'external', displayName: '外部姓名' })
   })
 })

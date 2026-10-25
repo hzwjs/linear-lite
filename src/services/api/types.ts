@@ -18,8 +18,8 @@ export interface ApiTask {
   priority: string
   projectId: number
   creatorId?: number
-  assigneeId?: number | null
-  assigneeDisplayName?: string | null
+  assigneeKey?: string | null
+  assigneeName?: string | null
   dueDate?: string | null
   plannedStartDate?: string | null
   progressPercent?: number | null
@@ -95,7 +95,7 @@ export interface CreateTaskRequest {
   description?: string
   status: string
   priority: string
-  assigneeId?: number | null
+  assigneeKey?: string | null
   dueDate?: string | null // YYYY-MM-DD
   /** 父任务数据库 id（Long），非 task_key */
   parentId?: number | null
@@ -111,7 +111,7 @@ export interface UpdateTaskRequest {
   description?: string
   status?: string
   priority?: string
-  assigneeId?: number | null
+  assigneeKey?: string | null
   /** true 时清空指派人 */
   clearAssignee?: boolean
   dueDate?: string | null // YYYY-MM-DD
@@ -137,8 +137,7 @@ export interface TaskImportRowRequest {
   description?: string
   status: string
   priority: string
-  assigneeId?: number | null
-  assigneeDisplayName?: string | null
+  assignee: { kind: 'reference'; key: string } | { kind: 'external'; displayName: string } | null
   dueDate?: string | null
   plannedStartDate?: string | null
   progressPercent?: number | null

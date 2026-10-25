@@ -6,6 +6,9 @@ import { useTaskStore } from '../store/taskStore'
 import { useProjectStore } from '../store/projectStore'
 import { useViewModeStore } from '../store/viewModeStore'
 import { useIssuePanelStore } from '../store/issuePanelStore'
+import TaskStatusNavigation from '../components/TaskStatusNavigation.vue'
+import { useAssigneeStore } from '../store/assigneeStore'
+import type { TaskScope } from '../utils/taskScope'
 import AddIssueFilterMenu from '../components/issue-filters/AddIssueFilterMenu.vue'
 import CustomSelect from '../components/ui/CustomSelect.vue'
 import type { CustomSelectOption } from '../components/ui/CustomSelect.vue'
@@ -25,7 +28,7 @@ import {
   User as UserIcon
 } from 'lucide-vue-next'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
-import type { CompletedVisibility, GroupBy, OrderBy, ViewType, VisibleProperty } from '../utils/viewPreference'
+import type { GroupBy, OrderBy, ViewType, VisibleProperty } from '../utils/viewPreference'
 import {
   readProjectBoard,
   writeProjectBoard,
@@ -57,6 +60,9 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const users = ref<User[]>([])
+const assigneeStore = useAssigneeStore()
+const assignees = computed(() => projectStore.activeProjectId == null
+  ? [] : assigneeStore.optionsByProject[projectStore.activeProjectId] ?? [])
 const filterPopoverOpen = ref(false)
 const displayPopoverOpen = ref(false)
 const filterTriggerRef = ref<HTMLElement | null>(null)
@@ -76,17 +82,12 @@ let boardPrefsSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 function buildBoardSnapshot(): ProjectBoardSnapshot {
   const vc = viewModeStore.viewConfig
-  const normMapObj: Record<number, string> = {}
-  store.filterAssigneeUsernameNormMap.forEach((v, k) => {
-    normMapObj[k] = v
-  })
   return {
     filters: {
       searchQuery: store.searchQuery,
       filterStatusList: [...store.filterStatusList],
       filterPriorityList: [...store.filterPriorityList],
       filterAssigneeList: [...store.filterAssigneeList],
-      filterAssigneeUsernameNormMap: normMapObj,
       filterLabelIds: [...store.filterLabelIds]
     },
     view: {
@@ -103,9 +104,6 @@ function applyBoardSnapshot(snap: ProjectBoardSnapshot) {
     store.filterStatusList = [...snap.filters.filterStatusList]
     store.filterPriorityList = [...snap.filters.filterPriorityList]
     store.filterAssigneeList = [...snap.filters.filterAssigneeList]
-    store.filterAssigneeUsernameNormMap = new Map(
-      Object.entries(snap.filters.filterAssigneeUsernameNormMap).map(([k, v]) => [Number(k), v])
-    )
     store.filterLabelIds = [...snap.filters.filterLabelIds]
     viewModeStore.hydrateViewConfig(snap.view)
   } finally {
@@ -136,18 +134,6 @@ function scheduleSaveBoardPrefs() {
     boardPrefsSaveTimer = null
     flushSaveProjectBoard(pid)
   }, 280)
-}
-
-function syncAssigneeFilterMeta() {
-  const list = store.filterAssigneeList
-  const newMap = new Map<number, string>()
-  for (const item of list) {
-    if (typeof item === 'number') {
-      const u = users.value.find((x) => x.id === item)
-      if (u) newMap.set(item, u.username.trim().toLowerCase())
-    }
-  }
-  store.filterAssigneeUsernameNormMap = newMap
 }
 
 const activeFilterCount = computed(() => {
@@ -204,14 +190,13 @@ const assigneeFilterLabel = computed(() => {
   if (list.length === 1) {
     const item = list[0]
     if (item === 'unassigned') return t('common.unassigned')
-    return users.value.find((u) => u.id === item)?.username ?? String(item)
+    return assignees.value.find((option) => option.key === item)?.name ?? item
   }
   return `${list.length} ${t('boardView.assigneeCount')}`
 })
 
 function clearAssigneeFilter() {
   store.filterAssigneeList = []
-  store.filterAssigneeUsernameNormMap = new Map()
 }
 
 const filterButtonAria = computed(() =>
@@ -241,16 +226,12 @@ function onDisplayPanelKeydownCapture(e: KeyboardEvent) {
 }
 
 const groupBy = computed({
-  get: () => viewModeStore.viewConfig.groupBy,
+  get: () => viewModeStore.groupBy,
   set: (value) => viewModeStore.setGroupBy(value as GroupBy)
 })
 const orderBy = computed({
   get: () => viewModeStore.viewConfig.orderBy,
   set: (value) => viewModeStore.setOrderBy(value as OrderBy)
-})
-const completedVisibility = computed({
-  get: () => viewModeStore.viewConfig.completedVisibility,
-  set: (value) => viewModeStore.setCompletedVisibility(value as CompletedVisibility)
 })
 const showEmptyGroups = computed({
   get: () => viewModeStore.viewConfig.showEmptyGroups,
@@ -258,11 +239,11 @@ const showEmptyGroups = computed({
 })
 
 const groupingOptions = computed<CustomSelectOption[]>(() => [
+  { value: 'none', label: t('common.none') },
   { value: 'status', label: t('common.status') },
   { value: 'priority', label: t('common.priority') },
   { value: 'assignee', label: t('common.assignee') },
-  { value: 'project', label: t('common.project') },
-  { value: 'none', label: t('common.none') }
+  { value: 'project', label: t('common.project') }
 ])
 const orderOptions = computed<CustomSelectOption[]>(() => [
   { value: 'updatedAt', label: t('common.updated') },
@@ -271,13 +252,9 @@ const orderOptions = computed<CustomSelectOption[]>(() => [
   { value: 'dueDate', label: t('common.dueDate') },
   { value: 'title', label: t('common.title') }
 ])
-const completedOptions = computed<CustomSelectOption[]>(() => [
-  { value: 'all', label: t('common.all') },
-  { value: 'open_only', label: t('boardView.openOnly') }
-])
 const visiblePropertyOptions = computed<Array<{ value: VisibleProperty; label: string }>>(() => [
   { value: 'id', label: t('boardView.id') },
-  { value: 'status', label: t('common.status') },
+  ...(viewModeStore.viewType === 'list' ? [] : [{ value: 'status' as const, label: t('common.status') }]),
   { value: 'priority', label: t('common.priority') },
   { value: 'assignee', label: t('common.assignee') },
   { value: 'project', label: t('common.project') },
@@ -360,9 +337,18 @@ async function loadProjectMembers(projectId: number | null) {
   }
 }
 
+async function loadProjectAssignees(projectId: number | null) {
+  if (projectId == null) return
+  try {
+    await assigneeStore.fetchProjectAssignees(projectId)
+  } catch (error) {
+    console.error('Failed to load project assignees:', error)
+  }
+}
+
 onMounted(async () => {
   store.fetchTasks()
-  await loadProjectMembers(projectStore.activeProjectId)
+  await Promise.all([loadProjectMembers(projectStore.activeProjectId), loadProjectAssignees(projectStore.activeProjectId)])
 })
 
 watch(
@@ -370,6 +356,7 @@ watch(
   (id) => {
     if (id != null) store.fetchTasks()
     loadProjectMembers(id)
+    loadProjectAssignees(id)
   }
 )
 
@@ -401,7 +388,6 @@ watch(
     fsl: store.filterStatusList,
     fpl: store.filterPriorityList,
     fal: store.filterAssigneeList,
-    fanm: store.filterAssigneeUsernameNormMap,
     fl: store.filterLabelIds,
     vc: viewModeStore.viewConfig
   }),
@@ -412,7 +398,6 @@ watch(
   { deep: true }
 )
 
-watch(users, () => syncAssigneeFilterMeta(), { deep: true })
 
 watch(filterPopoverOpen, (open) => {
   if (!open) return
@@ -486,30 +471,11 @@ function toggleOrderDirection() {
   )
 }
 
-// Scope tab: All issues / Active / Backlog (Linear command bar)
-type ScopeTab = 'all' | 'active' | 'backlog'
-const scopeTab = computed({
-  get(): ScopeTab {
-    if (viewModeStore.viewConfig.completedVisibility === 'open_only') return 'active'
-    if (store.filterStatusList.length === 1 && store.filterStatusList[0] === 'backlog') return 'backlog'
-    return 'all'
-  },
-  set(tab: ScopeTab) {
-    if (tab === 'active') {
-      store.filterStatusList = []
-      viewModeStore.setCompletedVisibility('open_only')
-    } else if (tab === 'backlog') {
-      store.filterStatusList = ['backlog']
-      viewModeStore.setCompletedVisibility('all')
-    } else {
-      store.filterStatusList = []
-      viewModeStore.setCompletedVisibility('all')
-    }
-  }
-})
+const scopeTab = computed(() => viewModeStore.viewConfig.scope)
 
-function setScopeTab(tab: ScopeTab) {
-  scopeTab.value = tab
+function setScopeTab(scope: TaskScope) {
+  store.filterStatusList = []
+  viewModeStore.setScope(scope)
 }
 
 function closeFilterPopover() {
@@ -607,13 +573,38 @@ function onClickOutsideDisplay(event: MouseEvent) {
             <AddIssueFilterMenu
               ref="addIssueFilterMenuRef"
               :project-id="projectStore.activeProjectId"
-              :users="users"
+              :assignees="assignees"
             />
             <div v-if="activeFilterCount > 0" class="popover-section popover-section-clear">
               <button type="button" class="btn-clear-issue-filters" @click="clearIssueFiltersPanel">
                 {{ t('boardView.clearIssueFilters') }}
               </button>
             </div>
+
+          </div>
+        </div>
+        <div ref="displayTriggerRef" class="popover-anchor popover-anchor-right">
+          <button
+            type="button"
+            class="command-btn"
+            :class="{ active: displayPopoverOpen }"
+            :aria-label="t('common.display')"
+            aria-haspopup="true"
+            :aria-expanded="displayPopoverOpen"
+            :title="t('common.display')"
+            @click="displayPopoverOpen = !displayPopoverOpen"
+          >
+            <SlidersHorizontal class="icon-14" />
+            <span class="command-label">{{ t('common.display') }}</span>
+          </button>
+          <div
+            v-show="displayPopoverOpen"
+            ref="displayPopoverRef"
+            class="popover popover-display"
+            role="dialog"
+            :aria-label="t('boardView.displayOptions')"
+            @keydown.capture="onDisplayPanelKeydownCapture"
+          >
             <div class="popover-divider" role="separator" />
             <h3 class="popover-section-title">{{ t('boardView.viewSectionTitle') }}</h3>
             <div class="popover-section">
@@ -633,16 +624,6 @@ function onClickOutsideDisplay(event: MouseEvent) {
                 :options="orderOptions"
                 :placeholder="t('boardView.sort')"
                 :aria-label="t('boardView.orderTasks')"
-                trigger-class="popover-select"
-              />
-            </div>
-            <div class="popover-section">
-              <label class="popover-label">{{ t('boardView.completed') }}</label>
-              <CustomSelect
-                v-model="completedVisibility"
-                :options="completedOptions"
-                :placeholder="t('boardView.completed')"
-                :aria-label="t('boardView.completedVisibility')"
                 trigger-class="popover-select"
               />
             </div>
@@ -669,35 +650,12 @@ function onClickOutsideDisplay(event: MouseEvent) {
                     : t('boardView.orderDesc')
                 }}</span>
               </button>
-              <label class="filter-check">
+              <label v-if="groupBy !== 'none'" class="filter-check">
                 <input v-model="showEmptyGroups" type="checkbox" />
                 <span>{{ t('boardView.emptyGroups') }}</span>
               </label>
             </div>
-          </div>
-        </div>
-        <div ref="displayTriggerRef" class="popover-anchor popover-anchor-right">
-          <button
-            type="button"
-            class="command-btn"
-            :class="{ active: displayPopoverOpen }"
-            :aria-label="t('common.display')"
-            aria-haspopup="true"
-            :aria-expanded="displayPopoverOpen"
-            :title="t('common.display')"
-            @click="displayPopoverOpen = !displayPopoverOpen"
-          >
-            <SlidersHorizontal class="icon-14" />
-            <span class="command-label">{{ t('common.display') }}</span>
-          </button>
-          <div
-            v-show="displayPopoverOpen"
-            ref="displayPopoverRef"
-            class="popover popover-display"
-            role="dialog"
-            :aria-label="t('boardView.displayOptions')"
-            @keydown.capture="onDisplayPanelKeydownCapture"
-          >
+            <div class="popover-divider" role="separator" />
             <div class="popover-section">
               <span class="popover-label">{{ t('boardView.showOnIssue') }}</span>
             </div>
@@ -769,6 +727,14 @@ function onClickOutsideDisplay(event: MouseEvent) {
         </div>
       </div>
     </div>
+
+    <TaskStatusNavigation
+      v-if="!isEditorOpen"
+      :statistics="store.statusStatistics"
+      :selected-statuses="store.filterStatusList"
+      :loading="store.isLoading"
+      @select="store.filterStatusList = $event == null ? [] : [$event]"
+    />
 
     <div v-if="!isEditorOpen && hasActiveFilters" class="filter-bar">
       <div class="filter-bar-conditions">
@@ -1300,8 +1266,13 @@ function onClickOutsideDisplay(event: MouseEvent) {
   gap: 4px;
 }
 .popover-display {
-  min-width: 180px;
+  width: min(240px, calc(100vw - 24px));
+  max-height: calc(100dvh - var(--header-height) - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
+.popover-display :deep(.custom-select),
+.popover-display :deep(.custom-select-trigger) { width: 100%; min-width: 0; }
 .popover-section {
   margin-bottom: 8px;
 }

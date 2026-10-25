@@ -3,6 +3,7 @@ package com.linearlite.server.service;
 import com.linearlite.server.dto.AnalyticsQuery;
 import com.linearlite.server.dto.AnalyticsSummaryResponse;
 import com.linearlite.server.dto.TaskSnapshotPageResponse;
+import com.linearlite.server.dto.TaskSnapshotItem;
 import com.linearlite.server.mapper.AnalyticsMapper;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,5 +61,22 @@ class AnalyticsServiceTest {
 
         assertEquals("day", response.getMeta().getBucketUnit());
         assertEquals(7, response.getTrend().size());
+    }
+
+    @Test
+    void rejectsSnapshotWhenAssignedPrincipalCannotBeResolved() {
+        AnalyticsQuery query = new AnalyticsQuery();
+        query.setProjectId(7L);
+        query.setGranularity("week");
+        query.setFrom("2026-07-27T00:00:00");
+        query.setTo("2026-08-02T23:59:59");
+        query.setTaskListScope("overdue");
+        when(projectMemberMapper.selectCount(any())).thenReturn(1L);
+        TaskSnapshotItem item = new TaskSnapshotItem();
+        item.setAssigneeKey("external:7");
+        when(analyticsMapper.selectOverdueTaskSnapshot(7L, 50, 0)).thenReturn(List.of(item));
+
+        assertThrows(IllegalStateException.class, () -> new AnalyticsService(analyticsMapper, projectMemberMapper)
+                .getTaskSnapshot(7L, 11L, query, 1, 50));
     }
 }

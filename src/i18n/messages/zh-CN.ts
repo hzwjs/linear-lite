@@ -322,6 +322,8 @@ const zhCN = {
     backAria: '返回'
   },
   boardView: {
+    statusNavigation: '任务状态导航',
+    allStatuses: '全部状态',
     newIssue: '新建任务',
     searchIssues: '搜索任务编号、序号、标题和描述...',
     allIssues: '全部任务',
@@ -453,6 +455,7 @@ const zhCN = {
     filterPlaceholder: '输入以筛选…'
   },
   assigneeSelect: {
+    external: '外部',
     searchPlaceholder: '搜索负责人…',
     noResults: '没有匹配的成员'
   },
@@ -659,6 +662,14 @@ const zhCN = {
     mentionInIssue: '在 {key} 中提及你'
   },
   taskList: {
+    bulkStatusSaving: '保存 {n} 项任务的状态…',
+    bulkStatusSaved: '{saved} 项任务的状态保存为「{status}」',
+    bulkStatusPartialFailure: '状态保存成功 {saved} 项，失败 {failed} 项',
+    statusSaving: '保存 {key} 的状态…',
+    statusSaved: '{key} 状态保存为「{status}」',
+    statusSavedOutsideView: '{key} 状态保存为「{status}」，任务移出当前列表',
+    statusSaveFailed: '{key} 状态保存失败，请重试',
+    openTask: '查看任务',
     changeStatus: '更改状态',
     createIssueInGroup: '在分组中创建任务',
     copyTitle: '复制标题',
@@ -716,7 +727,7 @@ const zhCN = {
     urgent: '紧急'
   },
   fieldLabel: {
-    assigneeId: '负责人',
+    assigneeKey: '负责人',
     progressPercent: '进度',
     dueDate: '截止日期',
     plannedStartDate: '计划开始',

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { CalendarDays, ChevronRight } from 'lucide-vue-next'
-import type { Priority, Task, User } from '../../types/domain'
+import type { Priority, Task } from '../../types/domain'
 import {
   PriorityHighIcon,
   PriorityLowIcon,
@@ -11,9 +11,10 @@ import {
 import { getInitials, getAvatarColorByUsername } from '../../utils/avatar'
 import { getPriorityLabel } from '../../utils/enumLabels'
 import { getTaskDueState } from '../../utils/taskDueState'
+import { assigneeDisplayLabel } from '../../utils/taskAssigneeDisplay'
 import MobileStatusGlyph from './MobileStatusGlyph.vue'
 
-const props = defineProps<{ task: Task; users: User[] }>()
+const props = defineProps<{ task: Task }>()
 defineEmits<{ open: [task: Task] }>()
 
 const priorityIcons = {
@@ -23,8 +24,7 @@ const priorityIcons = {
   low: PriorityLowIcon
 } satisfies Record<Priority, typeof PriorityUrgentIcon>
 
-const assignee = computed(() => props.users.find((user) => user.id === props.task.assigneeId))
-const assigneeName = computed(() => assignee.value?.username || props.task.assigneeDisplayName || '未分配')
+const assigneeName = computed(() => assigneeDisplayLabel(props.task, '未分配'))
 const avatarColor = computed(() => getAvatarColorByUsername(assigneeName.value))
 const dueState = computed(() => getTaskDueState(props.task.dueDate))
 const dueLabel = computed(() => {
@@ -41,7 +41,7 @@ const dueLabel = computed(() => {
       <span class="mobile-task-title">{{ task.title }}</span>
       <span class="mobile-task-key">{{ task.id }}</span>
     </span>
-    <span v-if="assigneeName !== '未分配'" class="mobile-avatar mobile-avatar--small" :style="avatarColor" :aria-label="`负责人：${assigneeName}`">
+    <span v-if="task.assigneeKey != null" class="mobile-avatar mobile-avatar--small" :style="avatarColor" :aria-label="`负责人：${assigneeName}`">
       {{ getInitials(assigneeName) }}
     </span>
     <component

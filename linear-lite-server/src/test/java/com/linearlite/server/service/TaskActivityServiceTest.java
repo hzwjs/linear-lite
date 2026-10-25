@@ -166,22 +166,12 @@ class TaskActivityServiceTest {
     }
 
     @Test
-    void recordAssigneeChangeStoresUsernamesInsteadOfIds() {
-        User oldAssignee = new User();
-        oldAssignee.setId(4L);
-        oldAssignee.setUsername("alice");
-
-        User newAssignee = new User();
-        newAssignee.setId(5L);
-        newAssignee.setUsername("bob");
-
-        when(userMapper.selectBatchIds(List.of(4L, 5L))).thenReturn(List.of(oldAssignee, newAssignee));
-
-        taskActivityService.recordAssigneeChange(9L, 2L, 4L, 5L);
+    void recordAssigneeChangeStoresResolvedNames() {
+        taskActivityService.recordAssigneeChange(9L, 2L, "user:4", "external:8", "alice", "bob");
 
         ArgumentCaptor<TaskActivity> captor = ArgumentCaptor.forClass(TaskActivity.class);
         verify(taskActivityMapper).insert(captor.capture());
-        assertEquals("assigneeId", captor.getValue().getFieldName());
+        assertEquals("assigneeKey", captor.getValue().getFieldName());
         assertEquals("alice", captor.getValue().getOldValue());
         assertEquals("bob", captor.getValue().getNewValue());
     }

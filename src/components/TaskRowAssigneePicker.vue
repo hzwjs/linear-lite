@@ -1,40 +1,40 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { Task, User } from '../types/domain'
+import type { AssigneeOption, Task } from '../types/domain'
 import AssigneeSelect from './ui/AssigneeSelect.vue'
+import { useAssigneeStore } from '../store/assigneeStore'
 
 const props = defineProps<{
   taskId: string
   task: Task
-  users?: User[]
   tooltip?: string
 }>()
 
 const emit = defineEmits<{
-  pick: [userId: number | null, options: { clearAssignee: boolean }]
+  pick: [assigneeKey: string | null, options: { clearAssignee: boolean }]
 }>()
 
 const { t } = useI18n()
-const value = computed(() => props.task.assigneeId ?? '')
-const externalLabel = computed(() =>
-  props.task.assigneeId == null ? props.task.assigneeDisplayName?.trim() ?? '' : ''
-)
+const assigneeStore = useAssigneeStore()
+const assignees = computed<AssigneeOption[]>(() => {
+  const projectId = props.task.projectId
+  return projectId == null ? [] : assigneeStore.optionsByProject[projectId] ?? []
+})
+const value = computed(() => props.task.assigneeKey ?? '')
 
-function pick(value: string | number) {
-  const userId = value === '' ? null : Number(value)
-  const currentId = props.task.assigneeId ?? null
-  const hasImportedAssignee = currentId == null && !!externalLabel.value
-  if (userId === currentId && !hasImportedAssignee) return
-  emit('pick', userId, { clearAssignee: userId == null })
+function pick(value: string) {
+  const assigneeKey = value === '' ? null : value
+  if (assigneeKey === (props.task.assigneeKey ?? null)) return
+  emit('pick', assigneeKey, { clearAssignee: assigneeKey == null })
 }
 </script>
 
 <template>
   <AssigneeSelect
     :model-value="value"
-    :users="users ?? []"
-    :external-label="externalLabel"
+    :assignees="assignees"
+    :selected-name="task.assigneeKey != null && task.assigneeName != null ? { key: task.assigneeKey, name: task.assigneeName } : undefined"
     :placeholder="t('common.unassigned')"
     :aria-label="t('taskList.changeAssignee')"
     :tooltip="tooltip"

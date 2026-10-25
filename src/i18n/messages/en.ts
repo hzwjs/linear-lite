@@ -322,6 +322,8 @@ const en = {
     backAria: 'Back'
   },
   boardView: {
+    statusNavigation: 'Status navigation',
+    allStatuses: 'All statuses',
     newIssue: 'New issue',
     searchIssues: 'Search task IDs, numbers, titles, and descriptions...',
     allIssues: 'All issues',
@@ -453,6 +455,7 @@ const en = {
     filterPlaceholder: 'Type to filter…'
   },
   assigneeSelect: {
+    external: 'External',
     searchPlaceholder: 'Search assignees…',
     noResults: 'No matching members'
   },
@@ -659,6 +662,14 @@ const en = {
     mentionInIssue: 'Mentioned you on {key}'
   },
   taskList: {
+    bulkStatusSaving: 'Saving status for {n} tasks…',
+    bulkStatusSaved: 'Saved {saved} task statuses as {status}',
+    bulkStatusPartialFailure: 'Status saved for {saved} tasks; {failed} failed',
+    statusSaving: 'Saving status for {key}…',
+    statusSaved: '{key} status saved as {status}',
+    statusSavedOutsideView: '{key} status saved as {status}; task left the current list',
+    statusSaveFailed: 'Failed to save status for {key}. Try again.',
+    openTask: 'View task',
     changeStatus: 'Change status',
     createIssueInGroup: 'Create issue in group',
     copyTitle: 'Copy title',
@@ -716,7 +727,7 @@ const en = {
     urgent: 'Urgent'
   },
   fieldLabel: {
-    assigneeId: 'assignee',
+    assigneeKey: 'assignee',
     progressPercent: 'progress',
     dueDate: 'due date',
     plannedStartDate: 'planned start',

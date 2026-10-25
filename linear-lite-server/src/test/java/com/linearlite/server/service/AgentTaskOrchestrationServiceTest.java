@@ -44,7 +44,7 @@ class AgentTaskOrchestrationServiceTest {
         task.setId(10L);
         task.setTaskKey("LINEAR-LITE-101");
         task.setProjectId(6L);
-        task.setAssigneeId(7L);
+        task.setAssigneeKey("user:7");
         task.setStatus("done");
         when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-101", 7L)).thenReturn(task);
 
@@ -72,7 +72,7 @@ class AgentTaskOrchestrationServiceTest {
         task.setId(10L);
         task.setTaskKey("LINEAR-LITE-101");
         task.setProjectId(6L);
-        task.setAssigneeId(7L);
+        task.setAssigneeKey("user:7");
         when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-101", 7L)).thenReturn(task);
         when(sessionMapper.selectOne(any())).thenReturn(null);
 
@@ -88,7 +88,7 @@ class AgentTaskOrchestrationServiceTest {
         task.setId(10L);
         task.setTaskKey("LINEAR-LITE-101");
         task.setProjectId(6L);
-        task.setAssigneeId(7L);
+        task.setAssigneeKey("user:7");
         task.setStatus("done");
         when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-101", 7L)).thenReturn(task);
 
@@ -116,7 +116,7 @@ class AgentTaskOrchestrationServiceTest {
         task.setId(10L);
         task.setTaskKey("LINEAR-LITE-101");
         task.setProjectId(6L);
-        task.setAssigneeId(7L);
+        task.setAssigneeKey("user:7");
         when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-101", 7L)).thenReturn(task);
 
         AgentTaskSession session = new AgentTaskSession();
@@ -146,7 +146,7 @@ class AgentTaskOrchestrationServiceTest {
     void cancelsOnlyTaskTheHumanUserCanAccess() {
         Task task = new Task();
         task.setId(10L);
-        task.setAssigneeId(7L);
+        task.setAssigneeKey("user:7");
         when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-84", 7L)).thenReturn(task);
         AgentTaskSession session = new AgentTaskSession();
         session.setId(20L);
@@ -177,7 +177,7 @@ class AgentTaskOrchestrationServiceTest {
     void refusesOldExecutionIdWithoutChangingTheCurrentSession() {
         Task task = new Task();
         task.setId(10L);
-        task.setAssigneeId(7L);
+        task.setAssigneeKey("user:7");
         when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-84", 7L)).thenReturn(task);
         AgentTaskSession session = new AgentTaskSession();
         session.setId(20L);
@@ -218,7 +218,7 @@ class AgentTaskOrchestrationServiceTest {
         task.setProjectId(30L);
         task.setTitle("按项目身份领取任务");
         task.setDescription("查询广州明天的天气");
-        task.setAssigneeId(7L);
+        task.setAssigneeKey("user:7");
 
         Project project = new Project();
         project.setId(30L);
@@ -243,7 +243,7 @@ class AgentTaskOrchestrationServiceTest {
     void taskStatusIgnoresLegacyNonTurnJobsWhenTheSessionIsIdle() {
         Task task = new Task();
         task.setId(10L);
-        task.setAssigneeId(7L);
+        task.setAssigneeKey("user:7");
         when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-96", 7L)).thenReturn(task);
         AgentTaskSession session = new AgentTaskSession();
         session.setId(20L);
@@ -265,7 +265,7 @@ class AgentTaskOrchestrationServiceTest {
     void convertsExpiredRunningJobIntoVisibleStalledState() {
         Task task = new Task();
         task.setId(10L);
-        task.setAssigneeId(7L);
+        task.setAssigneeKey("user:7");
         when(taskPermissionGuard.requireTaskAccessByKey("LINEAR-LITE-1026", 7L)).thenReturn(task);
 
         AgentTaskSession session = new AgentTaskSession();

@@ -2,7 +2,7 @@ package com.linearlite.server.dto;
 
 public class AssigneeCount {
 
-    private Long assigneeId;
+    private String assigneeKey;
     private String assigneeName;
     private int totalCount;
     private int completedCount;
@@ -11,20 +11,20 @@ public class AssigneeCount {
     public AssigneeCount() {
     }
 
-    public AssigneeCount(Long assigneeId, String assigneeName, int totalCount, int completedCount, int inProgressCount) {
-        this.assigneeId = assigneeId;
+    public AssigneeCount(String assigneeKey, String assigneeName, int totalCount, int completedCount, int inProgressCount) {
+        this.assigneeKey = assigneeKey;
         this.assigneeName = assigneeName;
         this.totalCount = totalCount;
         this.completedCount = completedCount;
         this.inProgressCount = inProgressCount;
     }
 
-    public Long getAssigneeId() {
-        return assigneeId;
+    public String getAssigneeKey() {
+        return assigneeKey;
     }
 
-    public void setAssigneeId(Long assigneeId) {
-        this.assigneeId = assigneeId;
+    public void setAssigneeKey(String assigneeKey) {
+        this.assigneeKey = assigneeKey;
     }
 
     public String getAssigneeName() {

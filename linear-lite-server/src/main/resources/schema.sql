@@ -220,19 +220,26 @@ CREATE TABLE IF NOT EXISTS project_task_seq (
     next_number  BIGINT NOT NULL COMMENT '下一个可分配任务序号（从 1 开始）'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS external_assignees (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    project_id BIGINT NOT NULL,
+    display_name VARCHAR(128) NOT NULL,
+    UNIQUE KEY uk_external_assignees_project_name (project_id, display_name),
+    KEY idx_external_assignees_project (project_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- 任务表（task_key 为对外展示的任务 ID，格式：项目 identifier + '-' + 项目内序号，如 ENG-1, PROD-2）
 CREATE TABLE IF NOT EXISTS tasks (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     task_key    VARCHAR(32)  NOT NULL UNIQUE COMMENT '带项目前缀的任务 ID，如 ENG-1',
     title       VARCHAR(256) NOT NULL,
-    description TEXT         DEFAULT NULL,
+    description MEDIUMTEXT   DEFAULT NULL,
     status      VARCHAR(32)  NOT NULL DEFAULT 'backlog',
     priority    VARCHAR(16)  DEFAULT 'medium',
     project_id  BIGINT       NOT NULL,
     parent_id   BIGINT       DEFAULT NULL COMMENT '父任务 ID，NULL 表示顶层任务',
     creator_id  BIGINT       NOT NULL,
-    assignee_id BIGINT       DEFAULT NULL,
-    assignee_display_name VARCHAR(128) DEFAULT NULL COMMENT '导入或外部处理人展示名，无系统用户时使用',
+    assignee_key VARCHAR(64) DEFAULT NULL COMMENT 'user:<users.id> 或 external:<external_assignees.id>',
     due_date    DATE         DEFAULT NULL COMMENT '预计完成/截止日期',
     planned_start_date DATE   DEFAULT NULL COMMENT '计划开始日期',
     progress_percent TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '完成进度 0–100',
@@ -245,14 +252,14 @@ CREATE INDEX idx_tasks_project_id ON tasks (project_id);
 CREATE INDEX idx_tasks_parent_id  ON tasks (parent_id);
 CREATE INDEX idx_tasks_task_key ON tasks (task_key);
 CREATE INDEX idx_tasks_creator_id  ON tasks (creator_id);
-CREATE INDEX idx_tasks_assignee_id ON tasks (assignee_id);
+CREATE INDEX idx_tasks_assignee_key ON tasks (assignee_key);
 
 -- 统计模块复合索引（仅索引，无外键）
 CREATE INDEX idx_tasks_project_created_at ON tasks (project_id, created_at);
 CREATE INDEX idx_tasks_project_completed_at ON tasks (project_id, completed_at);
 CREATE INDEX idx_tasks_project_due_date ON tasks (project_id, due_date);
 CREATE INDEX idx_tasks_project_status ON tasks (project_id, status);
-CREATE INDEX idx_tasks_project_assignee ON tasks (project_id, assignee_id);
+CREATE INDEX idx_tasks_project_assignee ON tasks (project_id, assignee_key);
 CREATE INDEX idx_tasks_project_priority ON tasks (project_id, priority);
 
 CREATE TABLE IF NOT EXISTS agent_task_sessions (
@@ -353,8 +360,8 @@ CREATE TABLE IF NOT EXISTS task_activities (
     user_id     BIGINT       NOT NULL,
     action_type VARCHAR(32)  NOT NULL,
     field_name  VARCHAR(64)  DEFAULT NULL,
-    old_value   TEXT         DEFAULT NULL,
-    new_value   TEXT         DEFAULT NULL,
+    old_value   MEDIUMTEXT         DEFAULT NULL,
+    new_value   MEDIUMTEXT         DEFAULT NULL,
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -712,3 +719,72 @@ CREATE TABLE IF NOT EXISTS mcp_oauth_refresh_token (
     CONSTRAINT fk_mcp_oauth_refresh_token_family
         FOREIGN KEY (family_id) REFERENCES mcp_oauth_refresh_token_family (family_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+/*
+旧库负责人升级脚本，仅在停用全部旧写入服务并完成备份后执行一次。
+执行前先查看本段核对SQL，预期 name_only_tasks=58、external_identities=4、unmapped_tasks=0、user_tasks=2190。
+核对通过后执行本段DDL/DML。该脚本是文档归档，不参与应用启动。
+
+SELECT
+    SUM(assignee_id IS NOT NULL) AS user_tasks,
+    SUM(assignee_id IS NULL AND NULLIF(TRIM(assignee_display_name), '') IS NOT NULL) AS name_only_tasks,
+    (SELECT COUNT(*) FROM (
+        SELECT project_id, TRIM(assignee_display_name)
+        FROM tasks
+        WHERE assignee_id IS NULL AND NULLIF(TRIM(assignee_display_name), '') IS NOT NULL
+        GROUP BY project_id, TRIM(assignee_display_name)
+    ) identities) AS external_identities,
+    SUM(assignee_id IS NOT NULL AND NULLIF(TRIM(assignee_display_name), '') IS NOT NULL) AS conflicting_tasks
+FROM tasks;
+
+SELECT COUNT(*) AS unmapped_tasks
+FROM tasks t
+LEFT JOIN (
+    SELECT project_id, TRIM(assignee_display_name) AS display_name
+    FROM tasks
+    WHERE assignee_id IS NULL AND NULLIF(TRIM(assignee_display_name), '') IS NOT NULL
+    GROUP BY project_id, TRIM(assignee_display_name)
+) e ON e.project_id = t.project_id AND e.display_name = TRIM(t.assignee_display_name)
+WHERE t.assignee_id IS NULL AND NULLIF(TRIM(t.assignee_display_name), '') IS NOT NULL AND e.project_id IS NULL;
+
+SELECT COUNT(*) AS user_tasks_without_user
+FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id
+WHERE t.assignee_id IS NOT NULL AND u.id IS NULL;
+
+SELECT COUNT(*) AS user_tasks_without_project_membership
+FROM tasks t LEFT JOIN project_members pm ON pm.project_id = t.project_id AND pm.user_id = t.assignee_id
+WHERE t.assignee_id IS NOT NULL AND pm.user_id IS NULL;
+
+CREATE TABLE external_assignees (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    project_id BIGINT NOT NULL,
+    display_name VARCHAR(128) NOT NULL,
+    UNIQUE KEY uk_external_assignees_project_name (project_id, display_name),
+    KEY idx_external_assignees_project (project_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO external_assignees (project_id, display_name)
+SELECT project_id, TRIM(assignee_display_name)
+FROM tasks
+WHERE assignee_id IS NULL AND NULLIF(TRIM(assignee_display_name), '') IS NOT NULL
+GROUP BY project_id, TRIM(assignee_display_name);
+
+ALTER TABLE tasks ADD COLUMN assignee_key VARCHAR(64) DEFAULT NULL
+    COMMENT 'user:<users.id> 或 external:<external_assignees.id>';
+
+UPDATE tasks t
+SET t.assignee_key = CONCAT('user:', t.assignee_id)
+WHERE t.assignee_id IS NOT NULL;
+
+UPDATE tasks t
+JOIN external_assignees e
+  ON e.project_id = t.project_id AND e.display_name = TRIM(t.assignee_display_name)
+SET t.assignee_key = CONCAT('external:', e.id)
+WHERE t.assignee_id IS NULL AND NULLIF(TRIM(t.assignee_display_name), '') IS NOT NULL;
+
+UPDATE task_activities SET field_name = 'assigneeKey' WHERE field_name = 'assigneeId';
+CREATE INDEX idx_tasks_assignee_key ON tasks (assignee_key);
+CREATE INDEX idx_tasks_project_assignee_key ON tasks (project_id, assignee_key);
+ALTER TABLE tasks DROP INDEX idx_tasks_assignee_id, DROP INDEX idx_tasks_project_assignee,
+    DROP COLUMN assignee_id, DROP COLUMN assignee_display_name;
+*/

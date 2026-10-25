@@ -15,7 +15,8 @@ public class TaskResponse {
     private Long projectId;
     private Long parentId;
     private Long creatorId;
-    private Long assigneeId;
+    private String assigneeKey;
+    private String assigneeName;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Integer subIssueCount;
@@ -85,12 +86,20 @@ public class TaskResponse {
         this.creatorId = creatorId;
     }
 
-    public Long getAssigneeId() {
-        return assigneeId;
+    public String getAssigneeKey() {
+        return assigneeKey;
     }
 
-    public void setAssigneeId(Long assigneeId) {
-        this.assigneeId = assigneeId;
+    public void setAssigneeKey(String assigneeKey) {
+        this.assigneeKey = assigneeKey;
+    }
+
+    public String getAssigneeName() {
+        return assigneeName;
+    }
+
+    public void setAssigneeName(String assigneeName) {
+        this.assigneeName = assigneeName;
     }
 
     public LocalDateTime getCreatedAt() {

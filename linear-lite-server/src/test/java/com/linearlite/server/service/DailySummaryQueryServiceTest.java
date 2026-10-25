@@ -43,7 +43,7 @@ class DailySummaryQueryServiceTest {
         today.setTaskKey("ENG-1");
         today.setTitle("今天到期");
         today.setProjectId(10L);
-        today.setAssigneeId(7L);
+        today.setRecipientUserId(7L);
         today.setAssigneeEmail("a@example.com");
         today.setDueDate(LocalDate.of(2026, 7, 24));
         today.setProgressPercent(65);
@@ -53,7 +53,7 @@ class DailySummaryQueryServiceTest {
         overdue.setTaskKey("ENG-2");
         overdue.setTitle("已逾期");
         overdue.setProjectId(10L);
-        overdue.setAssigneeId(7L);
+        overdue.setRecipientUserId(7L);
         overdue.setAssigneeEmail("a@example.com");
         overdue.setDueDate(LocalDate.of(2026, 7, 20));
         overdue.setProgressPercent(null);
@@ -63,7 +63,7 @@ class DailySummaryQueryServiceTest {
         completed.setTaskKey("ENG-3");
         completed.setTitle("当天完成");
         completed.setProjectId(10L);
-        completed.setAssigneeId(7L);
+        completed.setRecipientUserId(7L);
         completed.setStatus("done");
         completed.setCompletedAt(LocalDateTime.of(2026, 7, 24, 16, 0));
 

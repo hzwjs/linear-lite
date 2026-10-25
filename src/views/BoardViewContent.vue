@@ -20,6 +20,7 @@ import {
   computed,
   ref,
   watch,
+  nextTick,
   onUnmounted,
   defineAsyncComponent,
   type Component,
@@ -28,6 +29,8 @@ import {
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useTaskStore } from '../store/taskStore'
+import type { TaskStatusUpdate } from '../store/taskStore'
+import { X } from 'lucide-vue-next'
 import { useProjectStore } from '../store/projectStore'
 import { useViewModeStore } from '../store/viewModeStore'
 import { useOverlayStore } from '../store/overlayStore'
@@ -35,7 +38,7 @@ import { useIssuePanelStore } from '../store/issuePanelStore'
 import TaskCard from '../components/TaskCard.vue'
 import TaskListView from '../components/TaskListView.vue'
 import type { User } from '../types/domain'
-import type { Status } from '../types/domain'
+import type { Status, Task } from '../types/domain'
 import { getPriorityLabel, getStatusLabel } from '../utils/enumLabels'
 import { buildTaskGroups, filterVisibleTaskRows, getAdjacentTaskIds } from '../utils/taskView'
 import { buildTaskRoute, getRouteTaskId } from '../utils/taskRoute'
@@ -75,6 +78,16 @@ const router = useRouter()
 const { t } = useI18n()
 const listSubtaskExpanded = ref<Record<string, boolean>>({})
 const openingTaskId = ref<string | null>(null)
+const listRef = ref<InstanceType<typeof TaskListView> | null>(null)
+interface BulkStatusSummary {
+  status: Status
+  total: number
+  saved: number
+  failed: number
+}
+const statusFeedback = ref<(TaskStatusUpdate & { summary?: BulkStatusSummary }) | null>(null)
+const bulkStatusTaskIds = new Set<string>()
+let feedbackTimer: ReturnType<typeof setTimeout> | null = null
 const taskEditorRef = ref<
   ComponentPublicInstance & { flushPendingSave?: () => Promise<void> }
  | null
@@ -89,7 +102,7 @@ const editorMode = computed<'create' | 'edit'>(() => (routeTaskId.value ? 'edit'
 
 const viewType = computed(() => viewModeStore.viewType)
 const taskGroups = computed(() =>
-  buildTaskGroups(store.filteredTasks, viewModeStore.viewConfig, props.users, {
+  buildTaskGroups(store.filteredTasks, viewModeStore.effectiveViewConfig, props.users, {
     searchActive: store.searchQuery.trim().length > 0,
     taskFiltersActive:
       store.filterStatusList.length > 0 ||
@@ -101,7 +114,7 @@ const taskGroups = computed(() =>
 const localizedTaskGroups = computed(() =>
   taskGroups.value.map((group) => {
     let label = group.label
-    switch (viewModeStore.viewConfig.groupBy) {
+    switch (viewModeStore.groupBy) {
       case 'status':
         label = getStatusLabel(group.key)
         break
@@ -115,7 +128,11 @@ const localizedTaskGroups = computed(() =>
         if (group.key === 'none') label = t('common.noProject')
         break
       case 'none':
-        label = t('boardView.allIssues')
+        label = t({
+          all: 'boardView.allIssues',
+          active: 'boardView.active',
+          backlog: 'boardView.backlog'
+        }[viewModeStore.viewConfig.scope])
         break
       default:
         break
@@ -134,6 +151,91 @@ const adjacentTaskIds = computed(() =>
   getAdjacentTaskIds(flatTaskIds.value, store.currentTaskId)
 )
 
+const feedbackTaskInView = computed(() => {
+  const taskId = statusFeedback.value?.task.id
+  return taskGroups.value.some((group) => group.rows != null
+    ? group.rows.some((row) => row.task.id === taskId)
+    : group.tasks.some((task) => task.id === taskId))
+})
+const statusFeedbackMessage = computed(() => {
+  const feedback = statusFeedback.value
+  if (!feedback) return ''
+  if (feedback.summary) {
+    const summary = feedback.summary
+    if (feedback.outcome === 'saving') return t('taskList.bulkStatusSaving', { n: summary.total })
+    return t(summary.failed > 0 ? 'taskList.bulkStatusPartialFailure' : 'taskList.bulkStatusSaved', {
+      saved: summary.saved,
+      failed: summary.failed,
+      status: getStatusLabel(summary.status)
+    })
+  }
+  if (feedback.outcome === 'saving') return t('taskList.statusSaving', { key: feedback.task.id })
+  if (feedback.outcome === 'failed') return t('taskList.statusSaveFailed', { key: feedback.task.id })
+  return t(feedbackTaskInView.value ? 'taskList.statusSaved' : 'taskList.statusSavedOutsideView', {
+    key: feedback.task.id,
+    status: getStatusLabel(feedback.task.status)
+  })
+})
+
+function dismissStatusFeedback() {
+  statusFeedback.value = null
+  if (feedbackTimer != null) clearTimeout(feedbackTimer)
+  feedbackTimer = null
+}
+
+watch(() => projectStore.activeProjectId, dismissStatusFeedback)
+watch(() => store.lastStatusUpdate, (update) => {
+  if (!update || update.task.projectId !== projectStore.activeProjectId) return
+  if (bulkStatusTaskIds.has(update.task.id)) return
+  statusFeedback.value = update
+})
+
+async function changeBulkStatus(taskIds: string[], status: Status) {
+  const projectId = projectStore.activeProjectId
+  const tasks = store.tasks.filter(task => taskIds.includes(task.id))
+  const first = tasks[0]
+  if (!first) return
+  tasks.forEach(task => bulkStatusTaskIds.add(task.id))
+  const summary: BulkStatusSummary = { status, total: tasks.length, saved: 0, failed: 0 }
+  statusFeedback.value = { task: first, outcome: 'saving', summary }
+  const results = await Promise.allSettled(tasks.map(task => store.transitionTask(task.id, status)))
+  // 保存 lane 在回写确认状态后发布逐项结果；汇总在同轮更新结束后替代它们。
+  await nextTick()
+  tasks.forEach(task => bulkStatusTaskIds.delete(task.id))
+  if (projectStore.activeProjectId !== projectId) return
+  const failedTasks: Task[] = []
+  const savedTasks: Task[] = []
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') savedTasks.push(result.value)
+    else failedTasks.push(tasks[index]!)
+  })
+  summary.saved = savedTasks.length
+  summary.failed = failedTasks.length
+  // 失败项留在用户的操作位置，成功项遵守当前排序与筛选。
+  const ordered = [...failedTasks, ...savedTasks]
+  statusFeedback.value = {
+    task: ordered[0]!, outcome: summary.failed > 0 ? 'failed' : 'saved', summary
+  }
+}
+watch([statusFeedback, isEditorOpen, viewType], async ([feedback, editorOpen, layout]) => {
+  if (feedbackTimer != null) clearTimeout(feedbackTimer)
+  feedbackTimer = null
+  if (layout !== 'list') { dismissStatusFeedback(); return }
+  if (!feedback || editorOpen || feedback.outcome === 'saving') return
+  await nextTick()
+  if (feedback !== statusFeedback.value || isEditorOpen.value) return
+  if (feedbackTaskInView.value) {
+    issuePanelStore.setSelectedTask(feedback.task.id)
+    await listRef.value?.locateTask(feedback.task.id)
+  } else if (issuePanelStore.selectedTaskId) {
+    await listRef.value?.locateTask(issuePanelStore.selectedTaskId)
+  }
+  // 离开筛选结果的操作反馈保留到用户关闭，避免空列表时丢失去向。
+  if (feedback.outcome === 'saved' && feedbackTaskInView.value) {
+    feedbackTimer = setTimeout(dismissStatusFeedback, 6000)
+  }
+}, { flush: 'post' })
+
 const emptyFilterHint = computed(() => {
   const hasSearch = store.searchQuery.trim().length > 0
   const hasIssueFilters =
@@ -143,6 +245,7 @@ const emptyFilterHint = computed(() => {
     store.filterLabelIds.length > 0
   if (hasSearch && hasIssueFilters) return t('boardView.noTasksMatchSearchAndFilters')
   if (hasSearch) return t('boardView.noTasksMatchSearchOnly')
+  if (!hasIssueFilters) return t('boardView.noTasksMatchFilters')
   return t('boardView.noTasksMatchIssueFiltersOnly')
 })
 
@@ -196,7 +299,7 @@ function handleCreated(taskId: string) {
 }
 
 function createStatusDefault(groupKey: string): Status | undefined {
-  if (viewModeStore.viewConfig.groupBy !== 'status') return undefined
+  if (viewModeStore.groupBy !== 'status') return undefined
   if (groupKey === 'todo' || groupKey === 'in_progress' || groupKey === 'done') {
     return groupKey
   }
@@ -205,14 +308,21 @@ function createStatusDefault(groupKey: string): Status | undefined {
 
 function onWorkspaceKeydown(event: KeyboardEvent) {
   if (viewType.value !== 'list') return
+  if (event.defaultPrevented) return
+  const target = event.target
+  if (target instanceof Element && target.closest('button, input, select, textarea, [role="slider"], [contenteditable="true"]')) return
   if (event.key === 'ArrowDown') {
     event.preventDefault()
     issuePanelStore.moveSelection(flatTaskIds.value, 1)
+    const taskId = issuePanelStore.selectedTaskId
+    if (taskId) void listRef.value?.locateTask(taskId)
     return
   }
   if (event.key === 'ArrowUp') {
     event.preventDefault()
     issuePanelStore.moveSelection(flatTaskIds.value, -1)
+    const taskId = issuePanelStore.selectedTaskId
+    if (taskId) void listRef.value?.locateTask(taskId)
     return
   }
   if (event.key === 'Enter' && issuePanelStore.selectedTaskId) {
@@ -250,7 +360,18 @@ watch(
 )
 watch(
   flatTaskIds,
-  (taskIds) => {
+  (taskIds, previousTaskIds) => {
+    const selected = issuePanelStore.selectedTaskId
+    const update = store.lastStatusUpdate
+    const selectedStatusChanged = update?.task.id === selected &&
+      update?.task.projectId === projectStore.activeProjectId
+    if (selected && selectedStatusChanged && previousTaskIds && !taskIds.includes(selected)) {
+      const index = previousTaskIds.indexOf(selected)
+      if (index >= 0) {
+        issuePanelStore.setSelectedTask(taskIds[Math.min(index, taskIds.length - 1)] ?? null)
+        return
+      }
+    }
     issuePanelStore.syncSelection(taskIds)
   },
   { immediate: true }
@@ -259,10 +380,11 @@ watch(
 function clearFilters() {
   store.searchQuery = ''
   store.clearIssueFilters()
-  viewModeStore.setCompletedVisibility('all')
+  viewModeStore.setScope('all')
 }
 
 onUnmounted(() => {
+  dismissStatusFeedback()
   overlayStore.remove(DRAWER_OVERLAY_ID)
   overlayStore.remove(COMPOSER_OVERLAY_ID)
 })
@@ -306,7 +428,7 @@ onUnmounted(() => {
       <p>{{ t('boardView.noTasks') }}</p>
       <button class="btn-create" @click="() => openCreateEditor()">{{ t('boardView.createFirstTask') }}</button>
     </div>
-    <div v-else-if="store.isFilterEmpty" class="empty-state">
+    <div v-else-if="store.isFilterEmpty || (viewType === 'list' && !taskGroups.some(group => group.tasks.length > 0))" class="empty-state">
       <p>{{ emptyFilterHint }}</p>
       <button type="button" class="btn-text" @click="clearFilters">
         {{ t('boardView.clearFilters') }}
@@ -338,7 +460,6 @@ onUnmounted(() => {
                 v-for="task in group.tasks"
                 :key="task.id"
                 :task="task"
-                :users="users"
                 :visible-properties="viewModeStore.visibleProperties"
                 :selected="issuePanelStore.selectedTaskId === task.id"
                 :opening="openingTaskId === task.id"
@@ -350,22 +471,36 @@ onUnmounted(() => {
         </div>
         <div v-else-if="viewType === 'list'" class="list-wrap">
           <TaskListView
+            ref="listRef"
             v-model:subtask-expanded="listSubtaskExpanded"
             :project-id="projectStore.activeProjectId"
             :groups="localizedTaskGroups"
-            :users="users"
+            :grouped="viewModeStore.groupBy !== 'none'"
+            :expand-groups-on-entry="viewModeStore.viewConfig.scope === 'active'"
             :visible-properties="viewModeStore.visibleProperties"
             :selected-task-id="issuePanelStore.selectedTaskId"
             :opening-task-id="openingTaskId"
             @row-click="openEditEditor"
             @create-in-status="openCreateEditor"
             @add-sub-issue="(task) => openCreateEditor(undefined, task.numericId)"
+            @bulk-status-change="changeBulkStatus"
           />
         </div>
         <div v-else-if="viewType === 'gantt'" class="gantt-wrap">
           <GanttChart />
         </div>
       </section>
+    </div>
+    <div
+      v-if="statusFeedback && !isEditorOpen && viewType === 'list'"
+      class="status-feedback"
+      :class="{ 'status-feedback--error': statusFeedback.outcome === 'failed' }"
+      :role="statusFeedback.outcome === 'failed' ? 'alert' : 'status'"
+      :aria-busy="statusFeedback.outcome === 'saving'"
+    >
+      <span>{{ statusFeedbackMessage }}</span>
+      <button type="button" @click="openEditEditor(statusFeedback.task)">{{ t('taskList.openTask') }}</button>
+      <button type="button" :aria-label="t('common.close')" @click="dismissStatusFeedback"><X :size="14" /></button>
     </div>
   </main>
 
@@ -379,6 +514,42 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.status-feedback {
+  --feedback-inset: 12px;
+  position: absolute;
+  inset-inline: var(--feedback-inset);
+  bottom: var(--feedback-inset);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--feedback-inset);
+  width: fit-content;
+  max-width: calc(100% - var(--feedback-inset) * 2);
+  margin-inline: auto;
+  padding: 10px var(--feedback-inset);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-popover);
+  font-size: var(--font-size-caption);
+}
+.status-feedback span { min-width: 0; overflow-wrap: anywhere; }
+.status-feedback--error { color: var(--color-danger); }
+.status-feedback button {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: var(--control-padding-y);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.status-feedback button:hover { background: var(--color-bg-hover); }
+.status-feedback button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .board-content {
   flex: 1;
   min-height: 0;

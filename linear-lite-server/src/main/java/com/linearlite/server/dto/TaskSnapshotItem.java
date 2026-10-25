@@ -9,7 +9,7 @@ public class TaskSnapshotItem {
     private String title;
     private String status;
     private String priority;
-    private Long assigneeId;
+    private String assigneeKey;
     private String assigneeName;
     private String createdAt;
     private String completedAt;
@@ -47,12 +47,12 @@ public class TaskSnapshotItem {
         this.priority = priority;
     }
 
-    public Long getAssigneeId() {
-        return assigneeId;
+    public String getAssigneeKey() {
+        return assigneeKey;
     }
 
-    public void setAssigneeId(Long assigneeId) {
-        this.assigneeId = assigneeId;
+    public void setAssigneeKey(String assigneeKey) {
+        this.assigneeKey = assigneeKey;
     }
 
     public String getAssigneeName() {

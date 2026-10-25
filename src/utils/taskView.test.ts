@@ -9,7 +9,7 @@ const tasks: Task[] = [
     title: 'Gamma',
     status: 'done',
     priority: 'low',
-    assigneeId: 2,
+    assigneeKey: 'user:2', assigneeName: 'bob',
     projectId: 20,
     createdAt: 3,
     updatedAt: 30,
@@ -20,7 +20,7 @@ const tasks: Task[] = [
     title: 'Alpha',
     status: 'todo',
     priority: 'urgent',
-    assigneeId: 1,
+    assigneeKey: 'user:1', assigneeName: 'alice',
     projectId: 10,
     dueDate: 50,
     createdAt: 1,
@@ -31,11 +31,22 @@ const tasks: Task[] = [
     title: 'Beta',
     status: 'in_progress',
     priority: 'high',
-    assigneeId: null,
+    assigneeKey: null,
     projectId: 10,
     dueDate: 20,
     createdAt: 2,
     updatedAt: 20
+  },
+  {
+    id: 'ENG-4',
+    title: 'Delta',
+    status: 'in_review',
+    priority: 'medium',
+    assigneeKey: 'user:2', assigneeName: 'bob',
+    projectId: 20,
+    dueDate: 35,
+    createdAt: 4,
+    updatedAt: 40
   }
 ]
 
@@ -47,11 +58,12 @@ const users: User[] = [
 const baseConfig: ViewConfig = {
   layout: 'list',
   groupBy: 'status',
+  listGroupBy: 'none',
   orderBy: 'updatedAt',
   orderDirection: 'desc',
   visibleProperties: ['priority'],
   showEmptyGroups: false,
-  completedVisibility: 'all',
+  scope: 'all',
   showSubIssues: false,
   nestedSubIssues: true
 }
@@ -60,10 +72,11 @@ describe('buildTaskGroups', () => {
   it('groups by status with stable order', () => {
     const groups = buildTaskGroups(tasks, baseConfig, users)
 
-    expect(groups.map((group) => group.key)).toEqual(['todo', 'in_progress', 'done'])
+    expect(groups.map((group) => group.key)).toEqual(['todo', 'in_progress', 'in_review', 'done'])
     expect(groups[0]?.tasks.map((task) => task.id)).toEqual(['ENG-1'])
     expect(groups[1]?.tasks.map((task) => task.id)).toEqual(['ENG-2'])
-    expect(groups[2]?.tasks.map((task) => task.id)).toEqual(['ENG-3'])
+    expect(groups[2]?.tasks.map((task) => task.id)).toEqual(['ENG-4'])
+    expect(groups[3]?.tasks.map((task) => task.id)).toEqual(['ENG-3'])
   })
 
   it('can group by assignee label', () => {
@@ -80,18 +93,92 @@ describe('buildTaskGroups', () => {
     )
 
     expect(groups).toHaveLength(1)
-    expect(groups[0]?.tasks.map((task) => task.id)).toEqual(['ENG-2', 'ENG-1', 'ENG-3'])
+    expect(groups[0]?.tasks.map((task) => task.id)).toEqual(['ENG-2', 'ENG-4', 'ENG-1', 'ENG-3'])
+  })
+
+  it('sorts active tasks by priority across todo, in-progress, and review statuses', () => {
+    const groups = buildTaskGroups(
+      tasks,
+      {
+        ...baseConfig,
+        groupBy: 'none',
+        scope: 'active',
+        orderBy: 'priority',
+        orderDirection: 'asc'
+      },
+      users
+    )
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.tasks.map((task) => [task.id, task.status])).toEqual([
+      ['ENG-1', 'todo'],
+      ['ENG-2', 'in_progress'],
+      ['ENG-4', 'in_review']
+    ])
+  })
+
+  it('sorts active tasks by due date in both directions across statuses', () => {
+    const ascending = buildTaskGroups(
+      tasks,
+      {
+        ...baseConfig,
+        groupBy: 'none',
+        scope: 'active',
+        orderBy: 'dueDate',
+        orderDirection: 'asc'
+      },
+      users
+    )
+    const descending = buildTaskGroups(
+      tasks,
+      {
+        ...baseConfig,
+        groupBy: 'none',
+        scope: 'active',
+        orderBy: 'dueDate',
+        orderDirection: 'desc'
+      },
+      users
+    )
+
+    expect(ascending[0]?.tasks.map((task) => task.id)).toEqual(['ENG-2', 'ENG-4', 'ENG-1'])
+    expect(descending[0]?.tasks.map((task) => task.id)).toEqual(['ENG-1', 'ENG-4', 'ENG-2'])
+  })
+
+  it('keeps the configured cross-status order after a task changes status', () => {
+    const changedTasks = tasks.map((task) =>
+      task.id === 'ENG-1' ? { ...task, status: 'in_review' as const, updatedAt: 25 } : task
+    )
+    const groups = buildTaskGroups(
+      changedTasks,
+      {
+        ...baseConfig,
+        groupBy: 'none',
+        scope: 'active',
+        orderBy: 'updatedAt',
+        orderDirection: 'desc'
+      },
+      users
+    )
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.tasks.map((task) => task.id)).toEqual(['ENG-4', 'ENG-1', 'ENG-2'])
+    expect(groups[0]?.tasks.map((task) => task.status)).toEqual([
+      'in_review',
+      'in_review',
+      'in_progress'
+    ])
   })
 
   it('can hide completed issues', () => {
     const groups = buildTaskGroups(
       tasks,
-      { ...baseConfig, groupBy: 'status', completedVisibility: 'open_only' },
+      { ...baseConfig, groupBy: 'status', scope: 'active' },
       users
     )
 
-    expect(groups.map((group) => group.key)).toEqual(['todo', 'in_progress'])
-    expect(groups.flatMap((group) => group.tasks.map((task) => task.id))).toEqual(['ENG-1', 'ENG-2'])
+    expect(groups.map((group) => group.key)).toEqual(['todo', 'in_progress', 'in_review'])
+    expect(groups.flatMap((group) => group.tasks.map((task) => task.id))).toEqual(['ENG-1', 'ENG-2', 'ENG-4'])
   })
 
   it('open_only excludes backlog (待规划) as well as terminal statuses', () => {
@@ -102,7 +189,7 @@ describe('buildTaskGroups', () => {
         title: 'Backlog item',
         status: 'backlog',
         priority: 'medium',
-        assigneeId: null,
+        assigneeKey: null,
         projectId: 10,
         createdAt: 4,
         updatedAt: 40
@@ -110,12 +197,12 @@ describe('buildTaskGroups', () => {
     ]
     const groups = buildTaskGroups(
       withBacklog,
-      { ...baseConfig, groupBy: 'status', completedVisibility: 'open_only' },
+      { ...baseConfig, groupBy: 'status', scope: 'active' },
       users
     )
 
-    expect(groups.map((group) => group.key)).toEqual(['todo', 'in_progress'])
-    expect(groups.flatMap((group) => group.tasks.map((task) => task.id))).toEqual(['ENG-1', 'ENG-2'])
+    expect(groups.map((group) => group.key)).toEqual(['todo', 'in_progress', 'in_review'])
+    expect(groups.flatMap((group) => group.tasks.map((task) => task.id))).toEqual(['ENG-1', 'ENG-2', 'ENG-4'])
   })
 
   it('can include empty status groups when configured', () => {
@@ -144,7 +231,7 @@ describe('buildTaskGroups', () => {
       users
     )
 
-    expect(groups[0]?.tasks.map((task) => task.id)).toEqual(['ENG-3', 'ENG-1', 'ENG-2'])
+    expect(groups[0]?.tasks.map((task) => task.id)).toEqual(['ENG-3', 'ENG-1', 'ENG-4', 'ENG-2'])
   })
 
   it('when showSubIssues, rows include subtaskExpandPath for nested list collapse', () => {
@@ -185,6 +272,121 @@ describe('buildTaskGroups', () => {
     expect(expanded.map((r) => r.task.id)).toEqual(['ENG-1', 'ENG-2'])
   })
 
+  it('shows active children as flat rows when their done or backlog parents are out of scope', () => {
+    const withFilteredParents: Task[] = [
+      {
+        id: 'ENG-10',
+        numericId: 110,
+        title: 'Done parent',
+        status: 'done',
+        priority: 'high',
+        createdAt: 1,
+        updatedAt: 1
+      },
+      {
+        id: 'ENG-11',
+        numericId: 111,
+        title: 'Todo child',
+        status: 'todo',
+        priority: 'medium',
+        parentId: '110',
+        createdAt: 2,
+        updatedAt: 2
+      },
+      {
+        id: 'ENG-20',
+        numericId: 120,
+        title: 'Backlog parent',
+        status: 'backlog',
+        priority: 'high',
+        createdAt: 3,
+        updatedAt: 3
+      },
+      {
+        id: 'ENG-21',
+        numericId: 121,
+        title: 'Review child',
+        status: 'in_review',
+        priority: 'low',
+        parentId: '120',
+        createdAt: 4,
+        updatedAt: 4
+      }
+    ]
+    const groups = buildTaskGroups(
+      withFilteredParents,
+      {
+        ...baseConfig,
+        groupBy: 'none',
+        scope: 'active',
+        showSubIssues: true
+      },
+      users
+    )
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.tasks.map((task) => task.id)).toEqual(['ENG-21', 'ENG-11'])
+    expect(groups[0]?.rows?.map((row) => [row.task.id, row.depth])).toEqual([
+      ['ENG-21', 0],
+      ['ENG-11', 0]
+    ])
+  })
+
+  it('keeps same-status children nested and places different-status children in their own group once', () => {
+    const withMixedStatusChildren: Task[] = [
+      {
+        id: 'ENG-30',
+        numericId: 130,
+        title: 'Todo parent',
+        status: 'todo',
+        priority: 'high',
+        createdAt: 1,
+        updatedAt: 1,
+        subIssueCount: 2
+      },
+      {
+        id: 'ENG-31',
+        numericId: 131,
+        title: 'Todo child',
+        status: 'todo',
+        priority: 'medium',
+        parentId: '130',
+        createdAt: 2,
+        updatedAt: 2
+      },
+      {
+        id: 'ENG-32',
+        numericId: 132,
+        title: 'Review child',
+        status: 'in_review',
+        priority: 'low',
+        parentId: '130',
+        createdAt: 3,
+        updatedAt: 3
+      }
+    ]
+    const groups = buildTaskGroups(
+      withMixedStatusChildren,
+      {
+        ...baseConfig,
+        groupBy: 'status',
+        scope: 'active',
+        showSubIssues: true
+      },
+      users
+    )
+    const todoRows = groups.find((group) => group.key === 'todo')?.rows ?? []
+    const reviewRows = groups.find((group) => group.key === 'in_review')?.rows ?? []
+    const visibleIds = [...todoRows, ...reviewRows].map((row) => row.task.id)
+
+    expect(todoRows.map((row) => [row.task.id, row.depth])).toEqual([
+      ['ENG-30', 0],
+      ['ENG-31', 1]
+    ])
+    expect(reviewRows.map((row) => [row.task.id, row.depth])).toEqual([['ENG-32', 0]])
+    expect(visibleIds).toHaveLength(new Set(visibleIds).size)
+  })
+
   it('when taskFiltersActive, subtasks that pass the filter are grouped (not dropped as non-top-level)', () => {
     const withSubs: Task[] = [
       {
@@ -193,7 +395,7 @@ describe('buildTaskGroups', () => {
         title: 'Parent',
         status: 'todo',
         priority: 'high',
-        assigneeId: 1,
+        assigneeKey: 'user:1', assigneeName: 'alice',
         createdAt: 1,
         updatedAt: 1
       },
@@ -204,12 +406,12 @@ describe('buildTaskGroups', () => {
         status: 'todo',
         priority: 'high',
         parentId: '101',
-        assigneeId: 2,
+        assigneeKey: 'user:2', assigneeName: 'bob',
         createdAt: 2,
         updatedAt: 2
       }
     ]
-    const filtered = withSubs.filter((t) => t.assigneeId === 2)
+    const filtered = withSubs.filter((t) => t.assigneeKey === 'user:2')
     const groups = buildTaskGroups(filtered, baseConfig, users, { taskFiltersActive: true })
     expect(groups).toHaveLength(1)
     expect(groups[0]?.tasks.map((t) => t.id)).toEqual(['ENG-2'])
@@ -223,7 +425,7 @@ describe('buildTaskGroups', () => {
         title: 'Parent',
         status: 'todo',
         priority: 'high',
-        assigneeId: 1,
+        assigneeKey: 'user:1', assigneeName: 'alice',
         createdAt: 1,
         updatedAt: 1,
         subIssueCount: 1
@@ -235,12 +437,12 @@ describe('buildTaskGroups', () => {
         status: 'todo',
         priority: 'high',
         parentId: '101',
-        assigneeId: 1,
+        assigneeKey: 'user:1', assigneeName: 'alice',
         createdAt: 2,
         updatedAt: 2
       }
     ]
-    const filtered = withSubs.filter((t) => t.assigneeId === 1)
+    const filtered = withSubs.filter((t) => t.assigneeKey === 'user:1')
     const groups = buildTaskGroups(
       filtered,
       { ...baseConfig, showSubIssues: true },

@@ -59,8 +59,8 @@ public class DailySummaryDispatchService {
 
         // 汇总到用户后发送，确保同一用户当天只收到一封跨项目邮件。
         Map<Long, List<DailySummaryTaskDto>> tasksByAssignee = tasks.stream()
-                .filter(t -> t.getAssigneeId() != null)
-                .collect(Collectors.groupingBy(DailySummaryTaskDto::getAssigneeId));
+                .filter(t -> t.getRecipientUserId() != null)
+                .collect(Collectors.groupingBy(DailySummaryTaskDto::getRecipientUserId));
 
         for (Map.Entry<Long, List<DailySummaryTaskDto>> entry : tasksByAssignee.entrySet()) {
             DailySummaryTaskDto first = entry.getValue().get(0);

@@ -4,7 +4,6 @@ import {
   getStoredViewConfig,
   setStoredViewConfig,
   normalizeViewConfig,
-  type CompletedVisibility,
   type GroupBy,
   type OrderBy,
   type OrderDirection,
@@ -12,6 +11,7 @@ import {
   type ViewType,
   type VisibleProperty
 } from '../utils/viewPreference'
+import type { TaskScope } from '../utils/taskScope'
 
 /**
  * 视图模式（Board/List）响应式状态，与 Command Palette 及 BoardView 共享；
@@ -29,6 +29,14 @@ export const useViewModeStore = defineStore('viewModeStore', () => {
   )
 
   const viewType = computed(() => viewConfig.value.layout)
+  const isList = computed(() => viewConfig.value.layout === 'list')
+  const groupBy = computed(() =>
+    isList.value ? viewConfig.value.listGroupBy : viewConfig.value.groupBy
+  )
+  const effectiveViewConfig = computed<ViewConfig>(() => ({
+    ...viewConfig.value,
+    groupBy: groupBy.value
+  }))
   const visibleProperties = computed(() => [...viewConfig.value.visibleProperties].sort())
 
   function setView(v: ViewType) {
@@ -41,7 +49,7 @@ export const useViewModeStore = defineStore('viewModeStore', () => {
   function setGroupBy(groupBy: GroupBy) {
     viewConfig.value = {
       ...viewConfig.value,
-      groupBy
+      ...(isList.value ? { listGroupBy: groupBy } : { groupBy })
     }
   }
 
@@ -72,10 +80,10 @@ export const useViewModeStore = defineStore('viewModeStore', () => {
     }
   }
 
-  function setCompletedVisibility(completedVisibility: CompletedVisibility) {
+  function setScope(scope: TaskScope) {
     viewConfig.value = {
       ...viewConfig.value,
-      completedVisibility
+      scope
     }
   }
 
@@ -107,6 +115,8 @@ export const useViewModeStore = defineStore('viewModeStore', () => {
 
   return {
     viewConfig,
+    effectiveViewConfig,
+    groupBy,
     viewType,
     visibleProperties,
     setView,
@@ -114,7 +124,7 @@ export const useViewModeStore = defineStore('viewModeStore', () => {
     setOrderBy,
     setOrderDirection,
     toggleVisibleProperty,
-    setCompletedVisibility,
+    setScope,
     setShowEmptyGroups,
     setShowSubIssues,
     setNestedSubIssues,

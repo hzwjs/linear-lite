@@ -27,10 +27,14 @@
 
   /* 状态色 */
   --color-status-done: #475569;
-  --color-status-in-progress: #c9a227;
+  --color-status-todo: var(--color-text-secondary);
+  --color-status-in-progress: #2563eb;
+  --color-status-in-review: var(--color-attention);
+  --color-status-duplicate: #78728c;
   --color-status-warning: #c94a4a;
   --color-danger: var(--color-status-warning);
   --color-success: #166534;
+  --color-attention: #a16207;
 
   /* 标签色板：只用于标签语义点，避免把强调色扩散到普通控件 */
   --label-color-red: #dc5a5f;

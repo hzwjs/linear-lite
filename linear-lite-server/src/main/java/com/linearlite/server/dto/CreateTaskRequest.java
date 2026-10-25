@@ -15,7 +15,7 @@ public class CreateTaskRequest {
     private String description;
     private String status;
     private String priority;
-    private Long assigneeId;
+    private String assigneeKey;
     private LocalDate dueDate;
     private LocalDate plannedStartDate;
     /** 完成进度 0–100，缺省为 0 */
@@ -71,12 +71,12 @@ public class CreateTaskRequest {
         this.priority = priority;
     }
 
-    public Long getAssigneeId() {
-        return assigneeId;
+    public String getAssigneeKey() {
+        return assigneeKey;
     }
 
-    public void setAssigneeId(Long assigneeId) {
-        this.assigneeId = assigneeId;
+    public void setAssigneeKey(String assigneeKey) {
+        this.assigneeKey = assigneeKey;
     }
 
     public LocalDate getDueDate() {

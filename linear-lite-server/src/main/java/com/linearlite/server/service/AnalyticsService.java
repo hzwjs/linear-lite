@@ -85,6 +85,7 @@ public class AnalyticsService {
         // 区间内各维度分布
         List<StatusCount> statusBreakdown = analyticsMapper.selectStatusBreakdown(projectId, from, to);
         List<AssigneeCount> assigneeBreakdown = analyticsMapper.selectAssigneeBreakdown(projectId, from, to);
+        validateAssigneeCounts(assigneeBreakdown);
         List<PriorityCount> priorityBreakdown = analyticsMapper.selectPriorityBreakdown(projectId, from, to);
 
         AnalyticsSummaryResponse response = new AnalyticsSummaryResponse();
@@ -134,7 +135,25 @@ public class AnalyticsService {
             default -> throw new IllegalArgumentException("不支持的 taskListScope: " + query.getTaskListScope());
         }
 
+        validateSnapshotAssignees(items);
+
         return new TaskSnapshotPageResponse(items, total, safePage, cappedPageSize);
+    }
+
+    private static void validateAssigneeCounts(List<AssigneeCount> rows) {
+        for (AssigneeCount row : rows) {
+            if (row.getAssigneeKey() != null && (row.getAssigneeName() == null || row.getAssigneeName().isBlank())) {
+                throw new IllegalStateException("负责人不存在或不属于当前项目: " + row.getAssigneeKey());
+            }
+        }
+    }
+
+    private static void validateSnapshotAssignees(List<TaskSnapshotItem> rows) {
+        for (TaskSnapshotItem row : rows) {
+            if (row.getAssigneeKey() != null && (row.getAssigneeName() == null || row.getAssigneeName().isBlank())) {
+                throw new IllegalStateException("负责人不存在或不属于当前项目: " + row.getAssigneeKey());
+            }
+        }
     }
 
     // -------- 趋势构建 --------

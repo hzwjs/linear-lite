@@ -1,6 +1,6 @@
 import type { Priority, Status } from '../types/domain'
 
-const STORAGE_KEY_PREFIX = 'linear-lite.taskEditDraft.v1:'
+const STORAGE_KEY_PREFIX = 'linear-lite.taskEditDraft.v2:'
 
 export interface TaskEditDraftStored {
   savedAt: number
@@ -8,7 +8,7 @@ export interface TaskEditDraftStored {
   description: string
   status: Status
   priority: Priority
-  assigneeId: number | null
+  assigneeKey: string | null
   plannedStartDate: string
   dueDate: string
   progressPercent: number

@@ -16,9 +16,9 @@ public class UpdateTaskRequest {
     private String description;
     private String status;
     private String priority;
-    /** 指派人 ID；与 clearAssignee 二选一：传具体 ID 时设为该用户 */
-    private Long assigneeId;
-    /** 为 true 时清空指派人（将 assignee_id 置为 null） */
+    /** 负责人键；与 clearAssignee 二选一。 */
+    private String assigneeKey;
+    /** 为 true 时清空负责人。 */
     private Boolean clearAssignee;
     private LocalDate dueDate;
     /** 为 true 时清空截止日期 */
@@ -79,12 +79,12 @@ public class UpdateTaskRequest {
         this.priority = priority;
     }
 
-    public Long getAssigneeId() {
-        return assigneeId;
+    public String getAssigneeKey() {
+        return assigneeKey;
     }
 
-    public void setAssigneeId(Long assigneeId) {
-        this.assigneeId = assigneeId;
+    public void setAssigneeKey(String assigneeKey) {
+        this.assigneeKey = assigneeKey;
     }
 
     public Boolean getClearAssignee() {

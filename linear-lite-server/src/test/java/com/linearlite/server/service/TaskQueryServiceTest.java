@@ -25,8 +25,31 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 
 class TaskQueryServiceTest {
+
+    @Test
+    void commonUserEnrichmentResolvesAssigneeNameForMutationResponses() {
+        AssigneeService assigneeService = mock(AssigneeService.class);
+        doAnswer(invocation -> {
+            List<Task> tasks = invocation.getArgument(0);
+            tasks.forEach(task -> task.setAssigneeName("External Sam"));
+            return null;
+        }).when(assigneeService).fillTaskNamesByProject(anyList());
+        TaskQueryService service = new TaskQueryService(
+                mock(TaskMapper.class), mock(TaskFavoriteMapper.class), mock(LabelService.class),
+                mock(TaskPermissionGuard.class), assigneeService);
+        Task task = new Task();
+        task.setProjectId(3L);
+        task.setAssigneeKey("external:7");
+
+        service.enrichForUser(List.of(task), 9L);
+
+        assertEquals("External Sam", task.getAssigneeName());
+    }
 
     @Test
     void listItemsOmitsDescriptionAndComputesCountsFromLoadedProjectTasks() throws Exception {
@@ -95,7 +118,8 @@ class TaskQueryServiceTest {
                 taskMapper,
                 taskFavoriteMapper,
                 labelService,
-                permissionGuard);
+                permissionGuard,
+                mock(AssigneeService.class));
 
         List<TaskListItemResponse> list = service.listItemsByProjectId(7L, false, null, 9L);
 
@@ -124,8 +148,8 @@ class TaskQueryServiceTest {
                 task(5L, "ENG-5", null, "done"),
                 task(6L, "ENG-6", null, "canceled"),
                 task(7L, "ENG-7", null, "duplicate"));
-        allStates.get(0).setAssigneeId(4L);
-        allStates.get(4).setAssigneeId(5L);
+        allStates.get(0).setAssigneeKey("user:4");
+        allStates.get(4).setAssigneeKey("external:5");
         allStates.get(4).setProgressPercent(0);
         TaskMapper taskMapper = proxy(TaskMapper.class, invocation -> {
             if ("selectMcpProjectTasks".equals(invocation.getMethod().getName())) {
@@ -150,8 +174,8 @@ class TaskQueryServiceTest {
         assertEquals(List.of("backlog", "todo", "in_progress", "in_review", "done", "canceled", "duplicate"),
                 result.stream().map(TaskListItemResponse::getStatus).toList());
         assertEquals(0, result.get(4).getProgressPercent());
-        assertEquals(4L, result.get(0).getAssigneeId());
-        assertEquals(5L, result.get(4).getAssigneeId());
+        assertEquals("user:4", result.get(0).getAssigneeKey());
+        assertEquals("external:5", result.get(4).getAssigneeKey());
         assertEquals(7L, queryArgs.get()[0]);
         assertNull(queryArgs.get()[1]);
         assertNull(queryArgs.get()[2]);
@@ -213,7 +237,8 @@ class TaskQueryServiceTest {
                 taskMapper,
                 taskFavoriteMapper,
                 labelService,
-                permissionGuard);
+                permissionGuard,
+                mock(AssigneeService.class));
 
         List<TaskListItemResponse> list = service.listItemsByProjectId(7L, false, null, 9L);
 
@@ -247,7 +272,8 @@ class TaskQueryServiceTest {
                 taskMapper,
                 taskFavoriteMapper,
                 labelService,
-                permissionGuard);
+                permissionGuard,
+                mock(AssigneeService.class));
 
         assertThrows(ForbiddenOperationException.class, () -> service.listItemsByProjectId(7L, false, null, 9L));
     }
@@ -275,7 +301,7 @@ class TaskQueryServiceTest {
         LabelMapper labelMapper = proxy(LabelMapper.class,
                 invocation -> defaultValue(invocation.getMethod().getReturnType()));
         LabelService labelService = new LabelService(labelMapper, taskLabelMapper, projectMemberMapper);
-        return new TaskQueryService(taskMapper, favoriteMapper, labelService, permissionGuard);
+        return new TaskQueryService(taskMapper, favoriteMapper, labelService, permissionGuard, mock(AssigneeService.class));
     }
 
     private static ProjectMemberMapper projectMemberMapper(long memberCount) {

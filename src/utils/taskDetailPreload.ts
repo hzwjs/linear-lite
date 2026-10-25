@@ -12,15 +12,20 @@ export interface TaskDetailSnapshot {
   attachments: TaskAttachment[]
 }
 
+const DETAIL_CACHE_VERSION = 'v2'
 const snapshots = new Map<string, TaskDetailSnapshot>()
 const pending = new Map<string, Promise<TaskDetailSnapshot>>()
 
+function cacheKey(taskId: string): string {
+  return `${DETAIL_CACHE_VERSION}:${taskId}`
+}
+
 export function readTaskDetailSnapshot(taskId: string): TaskDetailSnapshot | undefined {
-  return snapshots.get(taskId)
+  return snapshots.get(cacheKey(taskId))
 }
 
 export function invalidateTaskDetailSnapshot(taskId: string): void {
-  snapshots.delete(taskId)
+  snapshots.delete(cacheKey(taskId))
 }
 
 /**
@@ -31,9 +36,10 @@ export function preloadTaskDetail(
   task: Task,
   fetchSubIssues: (parentNumericId: number) => Promise<Task[]>
 ): Promise<TaskDetailSnapshot> {
-  const cached = snapshots.get(task.id)
+  const key = cacheKey(task.id)
+  const cached = snapshots.get(key)
   if (cached) return Promise.resolve(cached)
-  const current = pending.get(task.id)
+  const current = pending.get(key)
   if (current) return current
 
   const request = (async () => {
@@ -58,10 +64,10 @@ export function preloadTaskDetail(
       attachmentsApi.list(task.id)
     ])
     const snapshot = { subIssueRows, activities, comments, attachments }
-    snapshots.set(task.id, snapshot)
+    snapshots.set(key, snapshot)
     return snapshot
   })()
 
-  pending.set(task.id, request)
-  return request.finally(() => pending.delete(task.id))
+  pending.set(key, request)
+  return request.finally(() => pending.delete(key))
 }

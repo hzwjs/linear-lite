@@ -1,7 +1,8 @@
 import { createApp, nextTick } from 'vue'
+import { createPinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { i18n } from '../i18n'
-import type { Task, User } from '../types/domain'
+import type { AssigneeOption, Task } from '../types/domain'
 import { getAvatarColorByUsername } from '../utils/avatar'
 import TaskRowAssigneePicker from './TaskRowAssigneePicker.vue'
 
@@ -15,16 +16,17 @@ function styleSignature(style: { background?: string; color?: string }): string 
   return `${bg}|${fg}`
 }
 
-async function mountPicker(task: Task, users: User[]) {
+async function mountPicker(task: Task, assignees: AssigneeOption[]) {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const app = createApp(TaskRowAssigneePicker, {
     taskId: task.id,
     task,
-    users,
+    assignees,
     onPick: vi.fn()
   })
   app.use(i18n)
+  app.use(createPinia())
   app.mount(host)
   await nextTick()
   return {
@@ -52,10 +54,10 @@ describe('TaskRowAssigneePicker', () => {
       priority: 'low',
       createdAt: 0,
       updatedAt: 0,
-      assigneeId: 101
+      assigneeKey: 'user:101', assigneeName: '黄志文'
     }
-    const users: User[] = [{ id: 101, username: '黄志文' }]
-    const view = await mountPicker(task, users)
+    const assignees: AssigneeOption[] = [{ key: 'user:101', name: '黄志文', principalType: 'human' }]
+    const view = await mountPicker(task, assignees)
     try {
       const avatar = view.host.querySelector('.assignee-trigger .assignee-avatar') as HTMLElement
       expect(avatar).toBeTruthy()

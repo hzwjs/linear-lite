@@ -19,7 +19,6 @@ import java.util.Objects;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @Service
 public class TaskActivityService {
@@ -99,15 +98,14 @@ public class TaskActivityService {
         taskActivityMapper.insert(activity);
     }
 
-    public void recordAssigneeChange(Long taskId, Long userId, Long oldAssigneeId, Long newAssigneeId) {
-        List<Long> ids = Stream.of(oldAssigneeId, newAssigneeId).filter(id -> id != null).distinct().toList();
-        Map<Long, String> namesById = resolveUserNames(ids);
+    public void recordAssigneeChange(Long taskId, Long userId, String oldAssigneeKey, String newAssigneeKey,
+                                     String oldAssigneeName, String newAssigneeName) {
         recordFieldChange(
                 taskId,
                 userId,
-                "assigneeId",
-                oldAssigneeId == null ? null : namesById.getOrDefault(oldAssigneeId, "Unknown"),
-                newAssigneeId == null ? null : namesById.getOrDefault(newAssigneeId, "Unknown"));
+                "assigneeKey",
+                oldAssigneeKey == null ? null : oldAssigneeName,
+                newAssigneeKey == null ? null : newAssigneeName);
     }
 
     public List<TaskActivityResponse> listByTaskKey(String taskKey, Long userId, int limit) {

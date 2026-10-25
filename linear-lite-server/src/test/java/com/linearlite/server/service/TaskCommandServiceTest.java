@@ -55,6 +55,8 @@ class TaskCommandServiceTest {
     @Mock
     private TaskHierarchyCompletionService taskHierarchyCompletionService;
     @Mock
+    private AssigneeService assigneeService;
+    @Mock
     private ApplicationEventPublisher eventPublisher;
     private TaskCommandService taskCommandService;
 
@@ -70,13 +72,16 @@ class TaskCommandServiceTest {
                 labelService,
                 taskQueryService,
                 taskStatusService,
-                taskHierarchyCompletionService
+                taskHierarchyCompletionService,
+                assigneeService
         );
         taskCommandService.setEventPublisher(eventPublisher);
         org.mockito.Mockito.lenient().when(taskHierarchyCompletionService.completeEligibleAncestors(
                 anyLong(), anyLong(), any())).thenReturn(List.of());
         org.mockito.Mockito.lenient().when(taskHierarchyCompletionService.completeEligibleParentChain(
                 anyLong(), anyLong(), any())).thenReturn(List.of());
+        org.mockito.Mockito.lenient().when(assigneeService.requireProjectAssignee(anyLong(), org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
     }
 
     @Test
@@ -98,7 +103,7 @@ class TaskCommandServiceTest {
         when(taskMapper.selectById(99L)).thenReturn(inserted);
 
         Task result = taskCommandService.create(
-                1L, 7L, null, "Title", "Desc", "todo", "high", 2L,
+                1L, 7L, null, "Title", "Desc", "todo", "high", "user:2",
                 null, null, 50, Collections.emptyList()).task();
 
         assertEquals("ENG-9", result.getTaskKey());
@@ -157,7 +162,8 @@ class TaskCommandServiceTest {
         existing.setDescription("Old desc");
         existing.setStatus("todo");
         existing.setPriority("medium");
-        existing.setAssigneeId(1L);
+        existing.setAssigneeKey("user:1");
+        existing.setAssigneeName("alice");
         existing.setDueDate(null);
         existing.setProjectId(1L);
 
@@ -168,7 +174,8 @@ class TaskCommandServiceTest {
         updated.setDescription("Old desc");
         updated.setStatus("in_progress");
         updated.setPriority("high");
-        updated.setAssigneeId(2L);
+        updated.setAssigneeKey("user:2");
+        updated.setAssigneeName("bob");
         updated.setDueDate(null);
         updated.setProjectId(1L);
 
@@ -176,7 +183,8 @@ class TaskCommandServiceTest {
         request.setTitle("New title");
         request.setStatus("in_progress");
         request.setPriority("high");
-        request.setAssigneeId(2L);
+        request.setAssigneeKey("user:2");
+        when(assigneeService.requireProjectAssignee(1L, "user:2")).thenReturn("user:2");
 
         when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
         when(taskMapper.selectById(21L)).thenReturn(updated);
@@ -189,7 +197,7 @@ class TaskCommandServiceTest {
                 org.mockito.ArgumentMatchers.eq(21L), org.mockito.ArgumentMatchers.eq("in_progress"),
                 org.mockito.ArgumentMatchers.eq(0), org.mockito.ArgumentMatchers.eq(7L), any());
         verify(taskActivityService).recordFieldChange(21L, 7L, "priority", "medium", "high");
-        verify(taskActivityService).recordAssigneeChange(21L, 7L, 1L, 2L);
+        verify(taskActivityService).recordAssigneeChange(21L, 7L, "user:1", "user:2", "alice", "bob");
         verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.TASK, 21L));
     }
@@ -296,7 +304,7 @@ class TaskCommandServiceTest {
                 () -> taskCommandService.update("ENG-31", request, 7L));
     }
 
-    private static Task task(Long id, String taskKey, Long assigneeId) {
+    private static Task task(Long id, String taskKey, String assigneeKey) {
         Task task = new Task();
         task.setId(id);
         task.setTaskKey(taskKey);
@@ -304,7 +312,7 @@ class TaskCommandServiceTest {
         task.setStatus("todo");
         task.setPriority("medium");
         task.setProjectId(1L);
-        task.setAssigneeId(assigneeId);
+        task.setAssigneeKey(assigneeKey);
         return task;
     }
 }

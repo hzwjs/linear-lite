@@ -10,7 +10,7 @@ import {
   Type as TypeIcon,
   User as UserIcon
 } from 'lucide-vue-next'
-import type { User, Status, Priority } from '../../types/domain'
+import type { AssigneeOption, Status, Priority } from '../../types/domain'
 import { useTaskStore } from '../../store/taskStore'
 import { projectApi } from '../../services/api/project'
 import { getStatusLabel, getPriorityLabel } from '../../utils/enumLabels'
@@ -34,7 +34,7 @@ type SubKey = 'title' | 'status' | 'priority' | 'assignee' | 'labels'
 
 const props = defineProps<{
   projectId: number | null
-  users: User[]
+  assignees: AssigneeOption[]
 }>()
 
 defineEmits<{ clear: [] }>()
@@ -143,14 +143,8 @@ function selectPriority(val: Priority) {
   store.toggleFilterPriority(val)
 }
 
-function selectAssignee(val: number | 'unassigned') {
-  if (val === 'unassigned') {
-    store.toggleFilterAssignee('unassigned')
-  } else {
-    const u = props.users.find((x) => x.id === val)
-    const norm = u?.username?.trim().toLowerCase() ?? undefined
-    store.toggleFilterAssignee(val, norm)
-  }
+function selectAssignee(val: string | 'unassigned') {
+  store.toggleFilterAssignee(val)
 }
 
 function isStatusChecked(val: Status): boolean {
@@ -161,23 +155,23 @@ function isPriorityChecked(val: Priority): boolean {
   return store.filterPriorityList.includes(val)
 }
 
-function isAssigneeChecked(val: number | 'unassigned'): boolean {
+function isAssigneeChecked(val: string | 'unassigned'): boolean {
   return store.filterAssigneeList.includes(val)
 }
 
 /** 与 TaskRowAssigneePicker 一致：搜索成员 + 彩色 initials 头像 */
 const assigneeSearch = ref('')
 
-const sortedAssigneeUsers = computed(() => {
-  const list = [...props.users]
-  list.sort((a, b) => a.username.localeCompare(b.username, undefined, { sensitivity: 'base' }))
+const sortedAssignees = computed(() => {
+  const list = [...props.assignees]
+  list.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
   return list
 })
 
-const filteredAssigneeUsers = computed(() => {
+const filteredAssignees = computed(() => {
   const q = assigneeSearch.value.trim().toLowerCase()
-  if (!q) return sortedAssigneeUsers.value
-  return sortedAssigneeUsers.value.filter((u) => u.username.toLowerCase().includes(q))
+  if (!q) return sortedAssignees.value
+  return sortedAssignees.value.filter((assignee) => assignee.name.toLowerCase().includes(q))
 })
 
 const showAssigneeUnassignedRow = computed(() => {
@@ -397,28 +391,29 @@ defineExpose({
                 <Check v-if="isAssigneeChecked('unassigned')" class="filter-assignee-check" :size="16" />
               </li>
               <li
-                v-for="user in filteredAssigneeUsers"
-                :key="user.id"
+                v-for="assignee in filteredAssignees"
+                :key="assignee.key"
                 class="filter-assignee-row"
-                :class="{ selected: isAssigneeChecked(user.id) }"
-                @click="selectAssignee(user.id)"
+                :class="{ selected: isAssigneeChecked(assignee.key) }"
+                @click="selectAssignee(assignee.key)"
               >
                 <span class="filter-assignee-row-inner">
                   <img
-                    v-if="user.avatar_url"
-                    :src="user.avatar_url"
-                    :alt="user.username"
+                    v-if="assignee.avatarUrl"
+                    :src="assignee.avatarUrl"
+                    :alt="assignee.name"
                     class="filter-assignee-avatar-img"
                   />
                   <span
                     v-else
                     class="filter-assignee-avatar fallback"
-                    :style="getAvatarColorByUsername(user.username)"
-                    >{{ getInitials(user.username) }}</span
+                    :style="getAvatarColorByUsername(assignee.name)"
+                    >{{ getInitials(assignee.name) }}</span
                   >
-                  <span class="filter-assignee-label">{{ user.username }}</span>
+                  <span class="filter-assignee-label">{{ assignee.name }}</span>
+                  <span v-if="assignee.principalType === 'external'" class="filter-assignee-type">{{ t('assigneeSelect.external') }}</span>
                 </span>
-                <Check v-if="isAssigneeChecked(user.id)" class="filter-assignee-check" :size="16" />
+                <Check v-if="isAssigneeChecked(assignee.key)" class="filter-assignee-check" :size="16" />
               </li>
             </ul>
           </div>
@@ -681,6 +676,11 @@ defineExpose({
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.filter-assignee-type {
+  color: var(--color-text-muted);
+  font-size: 10px;
 }
 
 .filter-assignee-check {

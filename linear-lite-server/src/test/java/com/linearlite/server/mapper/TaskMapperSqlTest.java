@@ -25,14 +25,14 @@ class TaskMapperSqlTest {
     @Test
     void mcpProjectTaskQueryUsesProjectScopeAndStableKeysetOrder() throws NoSuchMethodException {
         Select select = TaskMapper.class.getMethod("selectMcpProjectTasks",
-                Long.class, Long.class, String.class, Long.class, int.class).getAnnotation(Select.class);
+                Long.class, Long.class, String.class, String.class, int.class).getAnnotation(Select.class);
         String sql = String.join(" ", select.value());
 
         assertTrue(sql.contains("t.project_id = #{projectId}"));
         assertTrue(sql.contains("t.id &gt; #{afterId}"));
         assertTrue(sql.contains("ORDER BY t.id ASC"));
         assertTrue(sql.contains("t.progress_percent AS progressPercent"));
-        assertTrue(sql.contains("t.assignee_display_name AS assigneeDisplayName"));
+        assertTrue(sql.contains("t.assignee_key AS assigneeKey"));
         assertTrue(sql.contains("LIMIT #{fetchLimit}"));
     }
 

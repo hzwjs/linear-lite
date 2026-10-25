@@ -1,6 +1,6 @@
 import { api, unwrap } from './index'
 import type { ApiResponse } from './types'
-import type { Project, User } from '../../types/domain'
+import type { AssigneeOption, Project, User } from '../../types/domain'
 
 export interface GitLabRepository {
   id: number
@@ -194,5 +194,11 @@ export const projectApi = {
           ...(u.agent_key != null && { agentKey: u.agent_key })
         }))
       )
+  },
+
+  listAssignees(projectId: number): Promise<AssigneeOption[]> {
+    return api
+      .get<ApiResponse<AssigneeOption[]>>(`/projects/${projectId}/assignees`)
+      .then((res) => asArray(unwrap(res)))
   }
 }

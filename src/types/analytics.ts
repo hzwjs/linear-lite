@@ -25,7 +25,7 @@ export interface StatusCount {
 }
 
 export interface AssigneeCount {
-  assigneeId: number | null
+  assigneeKey: string | null
   assigneeName: string
   totalCount: number
   completedCount: number
@@ -64,7 +64,7 @@ export interface TaskSnapshotItem {
   title: string
   status: string
   priority: string
-  assigneeId: number | null
+  assigneeKey: string | null
   assigneeName: string
   createdAt: string
   completedAt: string | null

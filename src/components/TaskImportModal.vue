@@ -142,12 +142,11 @@ function goBack() {
 }
 
 function previewAssigneeLabel(row: TaskImportPreviewRow) {
-  if (row.assigneeId != null) {
-    const u = props.users.find((x) => x.id === row.assigneeId)
-    if (u) return u.username
-    return String(row.assigneeId)
+  if (row.assignee?.kind === 'reference') {
+    const userId = Number(row.assignee.key.slice('user:'.length))
+    return props.users.find((user) => user.id === userId)?.username ?? row.assignee.key
   }
-  if (row.assigneeDisplayName?.trim()) return row.assigneeDisplayName.trim()
+  if (row.assignee?.kind === 'external') return row.assignee.displayName.trim()
   return t('common.unassigned')
 }
 

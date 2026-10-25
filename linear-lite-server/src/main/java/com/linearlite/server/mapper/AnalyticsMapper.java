@@ -31,13 +31,15 @@ public interface AnalyticsMapper {
 
     // -------- 区间内负责人分布 --------
 
-    @Select("SELECT t.assignee_id AS assigneeId, COALESCE(u.username, '未分配') AS assigneeName, " +
+    @Select("SELECT t.assignee_key AS assigneeKey, CASE WHEN t.assignee_key IS NULL THEN '未分配' " +
+            "WHEN t.assignee_key LIKE 'user:%' THEN u.username WHEN t.assignee_key LIKE 'external:%' THEN e.display_name END AS assigneeName, " +
             "COUNT(*) AS totalCount, " +
             "SUM(CASE WHEN t.status IN ('done', 'canceled', 'duplicate') THEN 1 ELSE 0 END) AS completedCount, " +
             "SUM(CASE WHEN t.status = 'in_progress' THEN 1 ELSE 0 END) AS inProgressCount " +
-            "FROM tasks t LEFT JOIN users u ON t.assignee_id = u.id " +
+            "FROM tasks t LEFT JOIN users u ON t.assignee_key = CONCAT('user:', u.id) " +
+            "LEFT JOIN external_assignees e ON t.assignee_key = CONCAT('external:', e.id) AND e.project_id = t.project_id " +
             "WHERE t.project_id = #{projectId} AND t.created_at >= #{from} AND t.created_at < #{to} " +
-            "GROUP BY t.assignee_id, u.username ORDER BY totalCount DESC")
+            "GROUP BY t.assignee_key, u.username, e.display_name ORDER BY totalCount DESC")
     List<AssigneeCount> selectAssigneeBreakdown(@Param("projectId") Long projectId, @Param("from") String from, @Param("to") String to);
 
     // -------- 区间内优先级分布 --------
@@ -47,9 +49,10 @@ public interface AnalyticsMapper {
 
     // -------- 任务明细分页 --------
 
-    @Select("SELECT t.task_key AS taskKey, t.title, t.status, t.priority, t.assignee_id AS assigneeId, " +
-            "COALESCE(u.username, '') AS assigneeName, t.created_at AS createdAt, t.completed_at AS completedAt, t.due_date AS dueDate " +
-            "FROM tasks t LEFT JOIN users u ON t.assignee_id = u.id " +
+    @Select("SELECT t.task_key AS taskKey, t.title, t.status, t.priority, t.assignee_key AS assigneeKey, " +
+            "CASE WHEN t.assignee_key LIKE 'user:%' THEN u.username WHEN t.assignee_key LIKE 'external:%' THEN e.display_name END AS assigneeName, t.created_at AS createdAt, t.completed_at AS completedAt, t.due_date AS dueDate " +
+            "FROM tasks t LEFT JOIN users u ON t.assignee_key = CONCAT('user:', u.id) " +
+            "LEFT JOIN external_assignees e ON t.assignee_key = CONCAT('external:', e.id) AND e.project_id = t.project_id " +
             "WHERE t.project_id = #{projectId} AND t.created_at >= #{from} AND t.created_at < #{to} " +
             "ORDER BY t.created_at DESC LIMIT #{limit} OFFSET #{offset}")
     List<TaskSnapshotItem> selectTaskSnapshot(@Param("projectId") Long projectId,
@@ -61,9 +64,10 @@ public interface AnalyticsMapper {
     @Select("SELECT COUNT(*) FROM tasks WHERE project_id = #{projectId} AND created_at >= #{from} AND created_at < #{to}")
     int countTaskSnapshot(@Param("projectId") Long projectId, @Param("from") String from, @Param("to") String to);
 
-    @Select("SELECT t.task_key AS taskKey, t.title, t.status, t.priority, t.assignee_id AS assigneeId, " +
-            "COALESCE(u.username, '') AS assigneeName, t.created_at AS createdAt, t.completed_at AS completedAt, t.due_date AS dueDate " +
-            "FROM tasks t LEFT JOIN users u ON t.assignee_id = u.id " +
+    @Select("SELECT t.task_key AS taskKey, t.title, t.status, t.priority, t.assignee_key AS assigneeKey, " +
+            "CASE WHEN t.assignee_key LIKE 'user:%' THEN u.username WHEN t.assignee_key LIKE 'external:%' THEN e.display_name END AS assigneeName, t.created_at AS createdAt, t.completed_at AS completedAt, t.due_date AS dueDate " +
+            "FROM tasks t LEFT JOIN users u ON t.assignee_key = CONCAT('user:', u.id) " +
+            "LEFT JOIN external_assignees e ON t.assignee_key = CONCAT('external:', e.id) AND e.project_id = t.project_id " +
             "WHERE t.project_id = #{projectId} AND t.completed_at IS NOT NULL " +
             "AND t.completed_at >= #{from} AND t.completed_at < #{to} " +
             "ORDER BY t.completed_at DESC LIMIT #{limit} OFFSET #{offset}")
@@ -77,9 +81,10 @@ public interface AnalyticsMapper {
             "AND completed_at >= #{from} AND completed_at < #{to}")
     int countTaskSnapshotByCompleted(@Param("projectId") Long projectId, @Param("from") String from, @Param("to") String to);
 
-    @Select("SELECT t.task_key AS taskKey, t.title, t.status, t.priority, t.assignee_id AS assigneeId, " +
-            "COALESCE(u.username, '') AS assigneeName, t.created_at AS createdAt, t.completed_at AS completedAt, t.due_date AS dueDate " +
-            "FROM tasks t LEFT JOIN users u ON t.assignee_id = u.id " +
+    @Select("SELECT t.task_key AS taskKey, t.title, t.status, t.priority, t.assignee_key AS assigneeKey, " +
+            "CASE WHEN t.assignee_key LIKE 'user:%' THEN u.username WHEN t.assignee_key LIKE 'external:%' THEN e.display_name END AS assigneeName, t.created_at AS createdAt, t.completed_at AS completedAt, t.due_date AS dueDate " +
+            "FROM tasks t LEFT JOIN users u ON t.assignee_key = CONCAT('user:', u.id) " +
+            "LEFT JOIN external_assignees e ON t.assignee_key = CONCAT('external:', e.id) AND e.project_id = t.project_id " +
             "WHERE t.project_id = #{projectId} AND t.due_date IS NOT NULL " +
             "AND t.due_date >= #{from} AND t.due_date < #{to} " +
             "ORDER BY t.due_date DESC, t.created_at DESC LIMIT #{limit} OFFSET #{offset}")
@@ -93,9 +98,10 @@ public interface AnalyticsMapper {
             "AND due_date >= #{from} AND due_date < #{to}")
     int countTaskSnapshotByDue(@Param("projectId") Long projectId, @Param("from") String from, @Param("to") String to);
 
-    @Select("SELECT t.task_key AS taskKey, t.title, t.status, t.priority, t.assignee_id AS assigneeId, " +
-            "COALESCE(u.username, '') AS assigneeName, t.created_at AS createdAt, t.completed_at AS completedAt, t.due_date AS dueDate " +
-            "FROM tasks t LEFT JOIN users u ON t.assignee_id = u.id " +
+    @Select("SELECT t.task_key AS taskKey, t.title, t.status, t.priority, t.assignee_key AS assigneeKey, " +
+            "CASE WHEN t.assignee_key LIKE 'user:%' THEN u.username WHEN t.assignee_key LIKE 'external:%' THEN e.display_name END AS assigneeName, t.created_at AS createdAt, t.completed_at AS completedAt, t.due_date AS dueDate " +
+            "FROM tasks t LEFT JOIN users u ON t.assignee_key = CONCAT('user:', u.id) " +
+            "LEFT JOIN external_assignees e ON t.assignee_key = CONCAT('external:', e.id) AND e.project_id = t.project_id " +
             "WHERE t.project_id = #{projectId} AND t.due_date IS NOT NULL AND t.due_date < NOW() " +
             "AND t.status NOT IN ('done', 'canceled', 'duplicate') " +
             "ORDER BY t.due_date ASC, t.created_at DESC LIMIT #{limit} OFFSET #{offset}")

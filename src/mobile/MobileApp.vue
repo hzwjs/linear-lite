@@ -9,13 +9,12 @@ FORM: User-approved composition I, explicitly refined by removing its title/coun
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Bell, Check, ListTodo, LogOut, Plus, Search } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
-import { projectApi } from '../services/api/project'
 import { useAuthStore } from '../store/authStore'
 import { useFavoriteStore } from '../store/favoriteStore'
 import { useNotificationStore } from '../store/notificationStore'
 import { useProjectStore } from '../store/projectStore'
 import { useTaskStore } from '../store/taskStore'
-import type { Task, User } from '../types/domain'
+import type { Task } from '../types/domain'
 import { buildTaskRoute, getRouteTaskId } from '../utils/taskRoute'
 import MobileBottomSheet from './components/MobileBottomSheet.vue'
 import MobileHomeView from './views/MobileHomeView.vue'
@@ -38,7 +37,6 @@ const createOpen = ref(false)
 const projectSheetOpen = ref(false)
 const accountSheetOpen = ref(false)
 const focusSearchToken = ref(0)
-const users = ref<User[]>([])
 const initialized = ref(false)
 const createDirty = ref(false)
 
@@ -54,13 +52,9 @@ const routeDocumentContext = computed(() => {
 
 async function loadProjectContext() {
   if (projectStore.activeProjectId == null) {
-    users.value = []
     return
   }
-  await Promise.all([
-    taskStore.fetchTasks(),
-    projectApi.listMembers(projectStore.activeProjectId).then((list) => { users.value = list }).catch(() => { users.value = [] })
-  ])
+  await taskStore.fetchTasks()
 }
 
 async function initialize() {
@@ -170,7 +164,6 @@ onBeforeUnmount(() => window.removeEventListener('popstate', onPopState))
         <template v-else>
           <MobileHomeView
             v-if="activeTab === 'tasks'"
-            :users="users"
             :focus-search-token="focusSearchToken"
             @open-task="openTask"
             @open-projects="projectSheetOpen = true"

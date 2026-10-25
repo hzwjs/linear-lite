@@ -158,7 +158,7 @@ public class TaskController {
                 body.getDescription(),
                 body.getStatus(),
                 body.getPriority(),
-                body.getAssigneeId(),
+                body.getAssigneeKey(),
                 body.getDueDate(),
                 body.getPlannedStartDate(),
                 body.getProgressPercent(),

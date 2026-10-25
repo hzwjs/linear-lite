@@ -164,6 +164,6 @@ function hideTooltip() {
 .tooltip-key { display: block; width: 7px; height: 7px; border-radius: var(--radius-xs); }
 .tooltip-key--created { border: 1px solid var(--color-text-muted); }
 .tooltip-key--completed { background: var(--color-accent); }
-.tooltip-key--due { background: var(--color-status-in-progress); }
+.tooltip-key--due { background: var(--color-attention); }
 
 </style>

@@ -43,6 +43,7 @@ describe('TaskRowStatusPicker', () => {
       expect(trigger).toBeTruthy()
       expect(trigger.className).toContain('task-row-status-trigger--done')
       expect(trigger.getAttribute('aria-label')).toContain('Change status')
+      expect(trigger.title).toBe('Done')
     } finally {
       view.unmount()
     }
@@ -60,6 +61,27 @@ describe('TaskRowStatusPicker', () => {
     } finally {
       doneView.unmount()
       todoView.unmount()
+    }
+  })
+
+  it('mounts status options only while the picker is open', async () => {
+    const view = await mountPicker('todo')
+    try {
+      const trigger = view.host.querySelector<HTMLButtonElement>('.task-row-status-trigger')!
+      expect(document.querySelector('.task-row-status-panel')).toBeNull()
+
+      trigger.click()
+      await nextTick()
+      expect(document.querySelectorAll('.task-row-status-panel .custom-select-option')).toHaveLength(7)
+
+      document.querySelector<HTMLElement>('.task-row-status-panel')!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+      )
+      await nextTick()
+      expect(document.querySelector('.task-row-status-panel')).toBeNull()
+      expect(document.activeElement).toBe(trigger)
+    } finally {
+      view.unmount()
     }
   })
 })

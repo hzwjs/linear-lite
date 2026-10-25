@@ -2,24 +2,19 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { Check, Search, UserRound } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
-import type { User } from '../../types/domain'
+import type { AssigneeOption } from '../../types/domain'
 import { getAvatarColorByUsername, getInitials } from '../../utils/avatar'
 
-type AssigneeValue = string | number | null
-type AssigneeOption = {
-  value: '' | number
-  label: string
-  user?: User
-}
+type AssigneeValue = string | null
 
 const props = withDefaults(
   defineProps<{
     modelValue: AssigneeValue
-    users: User[]
+    assignees: AssigneeOption[]
+    selectedName?: { key: string; name: string }
     placeholder?: string
     ariaLabel?: string
     triggerClass?: string
-    externalLabel?: string
     disabled?: boolean
     variant?: 'default' | 'compact'
     triggerMode?: 'full' | 'avatar'
@@ -29,7 +24,6 @@ const props = withDefaults(
     placeholder: '',
     ariaLabel: '',
     triggerClass: '',
-    externalLabel: '',
     disabled: false,
     variant: 'default',
     triggerMode: 'full',
@@ -38,7 +32,7 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  'update:modelValue': [value: '' | number]
+  'update:modelValue': [value: string]
   'open-change': [open: boolean]
 }>()
 
@@ -52,62 +46,42 @@ const query = ref('')
 const highlightedIndex = ref(0)
 const popoverStyle = ref({ top: '0px', left: '0px' })
 const listboxId = `${useId()}-assignee-listbox`
-const normalizedUsers = computed(() =>
-  props.users.filter(
-    (user, index, users) =>
-      Number.isFinite(user?.id) &&
-      !!user?.username?.trim() &&
-      users.findIndex((candidate) => candidate.id === user.id) === index
-  )
+const selectedAssignee = computed(() =>
+  props.modelValue == null || props.modelValue === ''
+    ? undefined
+    : props.assignees.find((assignee) => assignee.key === props.modelValue)
 )
 
-const selectedId = computed<number | null>(() => {
-  if (props.modelValue === '' || props.modelValue == null) return null
-  const value = Number(props.modelValue)
-  return Number.isFinite(value) ? value : null
+const displayLabel = computed(() => {
+  if (props.modelValue == null || props.modelValue === '') return props.placeholder || t('common.unassigned')
+  if (selectedAssignee.value) return selectedAssignee.value.name
+  if (props.selectedName?.key === props.modelValue) return props.selectedName.name
+  return ''
 })
 
-const selectedUser = computed(() =>
-  selectedId.value == null
-    ? undefined
-    : normalizedUsers.value.find((user) => user.id === selectedId.value)
-)
-
-const selectableUsers = computed(() => normalizedUsers.value.filter((user) => user.principalType !== 'agent'))
-
-const displayLabel = computed(() =>
-  selectedUser.value?.username?.trim() ||
-  props.externalLabel.trim() ||
-  props.placeholder ||
-  t('common.unassigned')
-)
-
 const allOptions = computed<AssigneeOption[]>(() => [
-  { value: '', label: t('common.unassigned') },
-  ...selectableUsers.value.map((user) => ({
-    value: user.id,
-    label: user.principalType === 'agent' ? `${user.username.trim()} · Agent` : user.username.trim(),
-    user
-  }))
+  { key: '', name: t('common.unassigned') },
+  ...props.assignees.filter((assignee) => assignee.principalType !== 'agent')
 ])
 
 const visibleOptions = computed(() => {
   const keyword = query.value.trim().toLocaleLowerCase()
   if (!keyword) return allOptions.value
-  return allOptions.value.filter((option) => option.label.toLocaleLowerCase().includes(keyword))
+  return allOptions.value.filter((option) => option.name.toLocaleLowerCase().includes(keyword))
 })
 
 function optionIsSelected(option: AssigneeOption): boolean {
-  if (option.value === '') return selectedId.value == null && !props.externalLabel.trim()
-  return option.value === selectedId.value
+  return option.key === (props.modelValue ?? '')
+}
+
+function avatarStyle(assignee?: AssigneeOption): { background: string; color: string } | undefined {
+  return assignee && assignee.principalType !== 'external'
+    ? getAvatarColorByUsername(assignee.name)
+    : undefined
 }
 
 function avatarInitial(label: string): string {
   return getInitials(label)
-}
-
-function avatarStyle(user?: User): { background: string; color: string } | undefined {
-  return user ? getAvatarColorByUsername(user.username) : undefined
 }
 
 function syncHighlight() {
@@ -160,7 +134,7 @@ function close(options?: { restoreFocus?: boolean }) {
 }
 
 function selectOption(option: AssigneeOption) {
-  if (!optionIsSelected(option)) emit('update:modelValue', option.value)
+  if (!optionIsSelected(option)) emit('update:modelValue', option.key)
   close({ restoreFocus: true })
 }
 
@@ -255,14 +229,14 @@ onBeforeUnmount(() => {
       @keydown="onTriggerKeydown"
     >
       <span
-        v-if="selectedUser || externalLabel.trim()"
+        v-if="selectedAssignee"
         class="assignee-avatar"
-        :style="avatarStyle(selectedUser)"
+        :style="avatarStyle(selectedAssignee)"
         aria-hidden="true"
       >
         <img
-          v-if="selectedUser?.avatar_url"
-          :src="selectedUser.avatar_url"
+          v-if="selectedAssignee?.avatarUrl"
+          :src="selectedAssignee.avatarUrl"
           alt=""
           class="assignee-avatar-image"
         />
@@ -274,7 +248,7 @@ onBeforeUnmount(() => {
 
     <Teleport to="body">
       <div
-        v-show="isOpen"
+        v-if="isOpen"
         ref="popoverRef"
         class="assignee-popover"
         :style="popoverStyle"
@@ -298,7 +272,7 @@ onBeforeUnmount(() => {
       <div :id="listboxId" class="assignee-options" role="listbox" :aria-label="t('common.assignee')">
         <button
           v-for="(option, index) in visibleOptions"
-          :key="String(option.value)"
+          :key="option.key"
           type="button"
           class="assignee-option"
           :class="{
@@ -311,23 +285,18 @@ onBeforeUnmount(() => {
           @click="selectOption(option)"
         >
           <span
-            v-if="option.user"
+            v-if="option.avatarUrl"
             class="assignee-avatar"
-            :style="avatarStyle(option.user)"
+            :style="{ backgroundImage: `url(${option.avatarUrl})` }"
             aria-hidden="true"
           >
-            <img
-              v-if="option.user.avatar_url"
-              :src="option.user.avatar_url"
-              alt=""
-              class="assignee-avatar-image"
-            />
-            <span v-else>{{ avatarInitial(option.label) }}</span>
+            <img :src="option.avatarUrl" alt="" class="assignee-avatar-image" />
           </span>
-          <span v-else class="assignee-avatar assignee-avatar--neutral" aria-hidden="true">
+          <span v-else class="assignee-avatar" :style="avatarStyle(option)" aria-hidden="true">
             <UserRound />
           </span>
-          <span class="assignee-option-label">{{ option.label }}</span>
+          <span class="assignee-option-label">{{ option.name }}</span>
+          <span v-if="option.principalType === 'external'" class="assignee-option-type">{{ t('assigneeSelect.external') }}</span>
           <Check v-if="optionIsSelected(option)" class="assignee-option-check" aria-hidden="true" />
         </button>
         <p v-if="visibleOptions.length === 0" class="assignee-empty" role="status">
@@ -513,6 +482,11 @@ onBeforeUnmount(() => {
 }
 .assignee-option-label {
   flex: 1;
+}
+.assignee-option-type {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: 10px;
 }
 .assignee-option-check {
   width: 15px;

@@ -44,6 +44,7 @@ public class TaskCommandService {
     private final TaskQueryService taskQueryService;
     private final TaskStatusService taskStatusService;
     private final TaskHierarchyCompletionService taskHierarchyCompletionService;
+    private final AssigneeService assigneeService;
     private ApplicationEventPublisher eventPublisher;
 
     public TaskCommandService(
@@ -56,7 +57,8 @@ public class TaskCommandService {
             LabelService labelService,
             TaskQueryService taskQueryService,
             TaskStatusService taskStatusService,
-            TaskHierarchyCompletionService taskHierarchyCompletionService) {
+            TaskHierarchyCompletionService taskHierarchyCompletionService,
+            AssigneeService assigneeService) {
         this.taskMapper = taskMapper;
         this.projectMapper = projectMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
@@ -67,6 +69,7 @@ public class TaskCommandService {
         this.taskQueryService = taskQueryService;
         this.taskStatusService = taskStatusService;
         this.taskHierarchyCompletionService = taskHierarchyCompletionService;
+        this.assigneeService = assigneeService;
     }
 
     @Autowired
@@ -76,7 +79,7 @@ public class TaskCommandService {
 
     @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public TaskMutationResponse create(Long projectId, Long creatorId, Long parentId, String title, String description,
-                       String status, String priority, Long assigneeId, LocalDate dueDate,
+                       String status, String priority, String assigneeKey, LocalDate dueDate,
                        LocalDate plannedStartDate, Integer progressPercent, List<TaskLabelItemRequest> labels) {
         if (projectId == null) {
             throw new IllegalArgumentException("projectId 不能为空");
@@ -93,6 +96,7 @@ public class TaskCommandService {
             throw new ResourceNotFoundException("项目不存在: " + projectId);
         }
         taskPermissionGuard.requireProjectMember(projectId, creatorId);
+        if (assigneeKey != null) assigneeService.requireProjectAssignee(projectId, assigneeKey);
 
         if (parentId != null) {
             Task parent = taskMapper.selectById(parentId);
@@ -116,7 +120,7 @@ public class TaskCommandService {
         task.setProjectId(projectId);
         task.setParentId(parentId);
         task.setCreatorId(creatorId);
-        task.setAssigneeId(assigneeId);
+        task.setAssigneeKey(assigneeKey);
         task.setDueDate(dueDate);
         task.setPlannedStartDate(plannedStartDate);
         task.setProgressPercent(clampProgressPercent(progressPercent));
@@ -199,21 +203,14 @@ public class TaskCommandService {
             }
         }
         if (Boolean.TRUE.equals(request.getClearAssignee())) {
-            if (existing.getAssigneeId() != null) {
-                wrapper.set("assignee_id", null);
+            if (existing.getAssigneeKey() != null) {
+                wrapper.set("assignee_key", null);
                 hasUpdate = true;
             }
-            if (trimToNull(existing.getAssigneeDisplayName()) != null) {
-                wrapper.set("assignee_display_name", null);
-                hasUpdate = true;
-            }
-        } else if (request.getAssigneeId() != null) {
-            if (!Objects.equals(request.getAssigneeId(), existing.getAssigneeId())) {
-                wrapper.set("assignee_id", request.getAssigneeId());
-                hasUpdate = true;
-            }
-            if (trimToNull(existing.getAssigneeDisplayName()) != null) {
-                wrapper.set("assignee_display_name", null);
+        } else if (request.getAssigneeKey() != null) {
+            String nextAssigneeKey = assigneeService.requireProjectAssignee(existing.getProjectId(), request.getAssigneeKey());
+            if (!Objects.equals(nextAssigneeKey, existing.getAssigneeKey())) {
+                wrapper.set("assignee_key", nextAssigneeKey);
                 hasUpdate = true;
             }
         }
@@ -397,8 +394,10 @@ public class TaskCommandService {
         }
         recordFieldChange(existing.getId(), userId, "title", existing.getTitle(), updated.getTitle());
         recordFieldChange(existing.getId(), userId, "priority", existing.getPriority(), updated.getPriority());
-        if (!equalsNullable(existing.getAssigneeId(), updated.getAssigneeId())) {
-            taskActivityService.recordAssigneeChange(existing.getId(), userId, existing.getAssigneeId(), updated.getAssigneeId());
+        assigneeService.fillTaskNames(List.of(existing, updated), existing.getProjectId());
+        if (!equalsNullable(existing.getAssigneeKey(), updated.getAssigneeKey())) {
+            taskActivityService.recordAssigneeChange(existing.getId(), userId, existing.getAssigneeKey(), updated.getAssigneeKey(),
+                    existing.getAssigneeName(), updated.getAssigneeName());
         }
         recordFieldChange(existing.getId(), userId, "dueDate", stringify(existing.getDueDate()), stringify(updated.getDueDate()));
         recordFieldChange(

@@ -4,14 +4,15 @@ import { ChevronDown, ChevronRight, Search, SlidersHorizontal } from 'lucide-vue
 import { useAuthStore } from '../../store/authStore'
 import { useProjectStore } from '../../store/projectStore'
 import { useTaskStore } from '../../store/taskStore'
-import type { Status, Task, User } from '../../types/domain'
+import type { Status, Task } from '../../types/domain'
+import { userAssigneeKey } from '../../utils/assigneeKey'
 import { getAvatarColorByUsername, getInitials } from '../../utils/avatar'
 import MobileBottomSheet from '../components/MobileBottomSheet.vue'
 import MobileEmptyState from '../components/MobileEmptyState.vue'
 import MobileStatusGlyph from '../components/MobileStatusGlyph.vue'
 import MobileTaskRow from '../components/MobileTaskRow.vue'
 
-const props = defineProps<{ users: User[]; focusSearchToken: number }>()
+const props = defineProps<{ focusSearchToken: number }>()
 const emit = defineEmits<{
   'open-task': [task: Task]
   'open-projects': []
@@ -47,13 +48,10 @@ const statusLabels: Record<Status, string> = {
 const visibleTasks = computed(() => {
   const needle = query.value.trim().toLowerCase()
   const currentUserId = authStore.currentUser?.id
-  const currentUsername = username.value.trim().toLowerCase()
   return taskStore.tasks.filter((task) => {
     if (task.parentId != null) return false
     if (scope.value === 'mine') {
-      const assignedById = currentUserId != null && Number(task.assigneeId) === Number(currentUserId)
-      const assignedByName = task.assigneeId == null && task.assigneeDisplayName?.trim().toLowerCase() === currentUsername
-      if (!assignedById && !assignedByName) return false
+      if (currentUserId == null || task.assigneeKey !== userAssigneeKey(Number(currentUserId))) return false
     }
     if (selectedStatuses.value.length && !selectedStatuses.value.includes(task.status)) return false
     if (needle && !`${task.title} ${task.id}`.toLowerCase().includes(needle)) return false
@@ -151,7 +149,6 @@ watch(() => props.focusSearchToken, async () => {
             v-for="task in group.tasks"
             :key="task.id"
             :task="task"
-            :users="users"
             @open="emit('open-task', $event)"
           />
         </div>

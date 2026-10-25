@@ -163,7 +163,7 @@ describe('getGanttRows', () => {
           dueDate: parseDateInputValue('2026-04-04')
         })
       ],
-      cfg({ completedVisibility: 'open_only' }),
+      cfg({ scope: 'active' }),
       false
     )
     expect(rows.map((r) => r.id)).toEqual(['OPEN'])

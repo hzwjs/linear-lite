@@ -23,8 +23,8 @@ const rangeLabel = computed(() =>
       : `${props.from} — ${props.to}`
 )
 
-function assigneeName(assigneeId: number | null, name: string): string {
-  return assigneeId === null ? t('analytics.unassigned') : name
+function assigneeName(assigneeKey: string | null, name: string): string {
+  return assigneeKey === null ? t('analytics.unassigned') : name
 }
 
 function dueDate(value: string | null): string {
@@ -67,7 +67,7 @@ function dueDate(value: string | null): string {
             </td>
             <td><span class="status-label">{{ t(`status.${item.status}`) }}</span></td>
             <td>{{ t(`priority.${item.priority}`) }}</td>
-            <td>{{ assigneeName(item.assigneeId, item.assigneeName) }}</td>
+            <td>{{ assigneeName(item.assigneeKey, item.assigneeName) }}</td>
             <td class="date-cell">{{ item.createdAt.slice(0, 10) }}</td>
             <td class="date-cell" :class="{ 'date-cell--overdue': metric === 'overdue' }">{{ dueDate(item.dueDate) }}</td>
           </tr>

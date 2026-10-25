@@ -1,4 +1,5 @@
 import type { Priority, Status, User } from '../types/domain'
+import { userAssigneeKey } from './assigneeKey'
 import * as XLSX from 'xlsx'
 import { translate } from './i18n'
 
@@ -24,13 +25,11 @@ export interface TaskImportPreviewRow {
   description: string
   status: Status
   priority: Priority
-  assigneeId: number | null
+  assignee: { kind: 'reference'; key: string } | { kind: 'external'; displayName: string } | null
   dueDate: string | null
   plannedStartDate: string | null
   /** 0–100 */
   progressPercent: number
-  /** 未匹配系统用户时的处理人原文 */
-  assigneeDisplayName: string | null
 }
 
 export interface TaskImportPreviewError {
@@ -273,12 +272,13 @@ export function buildTaskImportPreview(
       })
     }
 
-    let assigneeId: number | null = null
-    let assigneeDisplayName: string | null = null
+    let assignee: TaskImportPreviewRow['assignee'] = null
     if (assigneeInput) {
-      assigneeId = userIdByUsername.get(assigneeInput.toLowerCase()) ?? null
-      if (assigneeId == null) {
-        assigneeDisplayName = truncateAssigneeDisplayName(assigneeInput.trim())
+      const assigneeId = userIdByUsername.get(assigneeInput.toLowerCase())
+      if (assigneeId != null) {
+        assignee = { kind: 'reference', key: userAssigneeKey(assigneeId) }
+      } else {
+        assignee = { kind: 'external', displayName: truncateAssigneeDisplayName(assigneeInput.trim()) }
       }
     }
 
@@ -327,8 +327,7 @@ export function buildTaskImportPreview(
       description,
       status: status ?? 'backlog',
       priority: priority ?? 'medium',
-      assigneeId,
-      assigneeDisplayName,
+      assignee,
       dueDate,
       plannedStartDate,
       progressPercent: progressParse.ok ? progressParse.value : 0

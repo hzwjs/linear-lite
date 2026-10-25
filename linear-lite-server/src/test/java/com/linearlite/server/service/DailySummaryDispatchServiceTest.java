@@ -124,7 +124,7 @@ class DailySummaryDispatchServiceTest {
         task.setTaskId(1L);
         task.setTaskKey("ENG-1");
         task.setProjectId(10L);
-        task.setAssigneeId(7L);
+        task.setRecipientUserId(7L);
         task.setAssigneeUsername("alice");
         task.setAssigneeEmail(null);
 
@@ -143,7 +143,7 @@ class DailySummaryDispatchServiceTest {
         task.setTaskKey(taskKey);
         task.setTitle("修复");
         task.setProjectId(projectId);
-        task.setAssigneeId(7L);
+        task.setRecipientUserId(7L);
         task.setAssigneeUsername("alice");
         task.setAssigneeEmail("a@example.com");
         return task;

@@ -126,7 +126,7 @@ public class AgentTaskOrchestrationService {
         Task task = taskMapper.selectById(job.getTaskId());
         if (session == null || task == null || !ownerUserId.equals(session.getAgentUserId())
                 || (!"waiting_input".equals(session.getStatus()) && !"running".equals(session.getStatus()))
-                || !ownerUserId.equals(task.getAssigneeId())) {
+                || !AssigneeService.userKey(ownerUserId).equals(task.getAssigneeKey())) {
             job.setStatus("canceled");
             job.setFinishedAt(LocalDateTime.now());
             job.setErrorMessage("任务负责人或会话已变化");
@@ -309,7 +309,7 @@ public class AgentTaskOrchestrationService {
     }
 
     private void requireOwner(Task task, Long ownerUserId) {
-        if (ownerUserId == null || !ownerUserId.equals(task.getAssigneeId())) {
+        if (ownerUserId == null || !AssigneeService.userKey(ownerUserId).equals(task.getAssigneeKey())) {
             throw new ConflictOperationException("只有任务负责人可以安排本地 Pi");
         }
     }
@@ -390,7 +390,7 @@ public class AgentTaskOrchestrationService {
         Task task = job == null ? null : taskMapper.selectById(job.getTaskId());
         if (job == null || session == null || !agentUserId.equals(session.getAgentUserId())
                 || !executionId.equals(job.getExecutionId())
-                || task == null || !agentUserId.equals(task.getAssigneeId())
+                || task == null || !AssigneeService.userKey(agentUserId).equals(task.getAssigneeKey())
                 || !executionId.equals(session.getExecutionId())) {
             throw new ConflictOperationException("Agent Job 已过期或不属于当前执行会话");
         }

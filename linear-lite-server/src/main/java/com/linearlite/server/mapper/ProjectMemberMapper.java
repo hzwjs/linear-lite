@@ -10,6 +10,12 @@ import java.util.List;
 
 @Mapper
 public interface ProjectMemberMapper extends BaseMapper<ProjectMember> {
+    @Select("""
+            SELECT u.id AS userId, u.username, u.avatar_url AS avatarUrl, u.principal_type AS principalType
+            FROM project_members pm JOIN users u ON u.id = pm.user_id
+            WHERE pm.project_id = #{projectId} ORDER BY pm.sort_order, u.username
+            """)
+    List<MemberAssigneeRow> selectAssignees(@Param("projectId") Long projectId);
     /** 一次形成搜索权限快照，项目元数据不进入 Qdrant，避免项目改名后索引过期。 */
     @Select("""
             SELECT DISTINCT pm.project_id AS projectId,
@@ -23,5 +29,8 @@ public interface ProjectMemberMapper extends BaseMapper<ProjectMember> {
     List<ProjectPermissionScope> selectSearchPermissionScopes(@Param("userId") Long userId);
 
     record ProjectPermissionScope(Long projectId, String projectIdentifier, String projectName) {
+    }
+
+    record MemberAssigneeRow(Long userId, String username, String avatarUrl, String principalType) {
     }
 }

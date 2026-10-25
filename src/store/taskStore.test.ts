@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { useViewModeStore } from './viewModeStore'
 import { useProjectStore } from './projectStore'
 import { useTaskStore } from './taskStore'
 import { taskApi } from '../services/api/task'
@@ -11,6 +12,11 @@ const mutation = (task: Task): TaskMutationResult => ({
   task,
   autoCompletedAncestors: []
 })
+
+async function flushStatusUpdateEvents() {
+  await Promise.resolve()
+  await Promise.resolve()
+}
 
 vi.mock('../services/api/task', () => ({
   taskApi: {
@@ -29,6 +35,7 @@ describe('taskStore', () => {
   beforeEach(() => {
     localStorage.clear()
     setActivePinia(createPinia())
+    useViewModeStore().setScope('all')
     vi.mocked(taskApi.list).mockReset()
     vi.mocked(taskApi.get).mockReset()
     vi.mocked(taskApi.create).mockReset()
@@ -77,6 +84,68 @@ describe('taskStore', () => {
       subIssueCount: 1,
       completedSubIssueCount: 1
     })
+  })
+
+  it('publishes saving and saved feedback around a confirmed status transition', async () => {
+    const store = useTaskStore()
+    const task: Task = {
+      id: 'ENG-STATUS-SAVE', title: 'Review task', status: 'todo', priority: 'medium',
+      projectId: 1, createdAt: 1, updatedAt: 10
+    }
+    store.tasks = [task]
+    let resolveApi!: (result: TaskMutationResult) => void
+    vi.mocked(taskApi.update).mockReturnValue(new Promise((resolve) => { resolveApi = resolve }))
+
+    const update = store.transitionTask(task.id, 'in_review')
+
+    expect(store.lastStatusUpdate).toMatchObject({
+      outcome: 'saving',
+      task: { id: task.id, status: 'todo', updatedAt: 10 }
+    })
+    resolveApi(mutation({ ...task, status: 'in_review', updatedAt: 200 }))
+    await update
+    await flushStatusUpdateEvents()
+
+    expect(store.lastStatusUpdate).toMatchObject({
+      outcome: 'saved',
+      task: { id: task.id, status: 'in_review', updatedAt: 200 }
+    })
+    expect(store.tasks[0]).toMatchObject({ status: 'in_review', updatedAt: 200 })
+  })
+
+  it('publishes failed status feedback after restoring the acknowledged state', async () => {
+    const store = useTaskStore()
+    const task: Task = {
+      id: 'ENG-STATUS-FAIL', title: 'Review task', status: 'todo', priority: 'medium',
+      createdAt: 1, updatedAt: 10
+    }
+    store.tasks = [task]
+    vi.mocked(taskApi.update).mockRejectedValueOnce(new Error('network'))
+
+    await expect(store.transitionTask(task.id, 'in_review')).rejects.toThrow('network')
+    await flushStatusUpdateEvents()
+
+    expect(store.lastStatusUpdate).toMatchObject({
+      outcome: 'failed',
+      task: { id: task.id, status: 'todo', updatedAt: 10 }
+    })
+    expect(store.tasks[0]).toMatchObject({ status: 'todo', updatedAt: 10 })
+  })
+
+  it('does not publish status feedback for an unrelated title save', async () => {
+    const store = useTaskStore()
+    const task: Task = {
+      id: 'ENG-TITLE-SAVE', title: 'Before', status: 'todo', priority: 'medium',
+      createdAt: 1, updatedAt: 10
+    }
+    store.tasks = [task]
+    vi.mocked(taskApi.update).mockResolvedValueOnce(mutation({ ...task, title: 'After', updatedAt: 200 }))
+
+    await store.updateTask(task.id, { title: 'After' })
+    await flushStatusUpdateEvents()
+
+    expect(store.lastStatusUpdate).toBeNull()
+    expect(store.tasks[0]).toMatchObject({ title: 'After', updatedAt: 200 })
   })
 
   it('invalidates the parent detail snapshot after a child status transition', async () => {
@@ -167,7 +236,7 @@ describe('taskStore', () => {
       title: 'Task',
       status: 'todo',
       priority: 'medium',
-      assigneeId: 1,
+      assigneeKey: 'user:1', assigneeName: 'User 1',
       dueDate: new Date('2026-03-10T00:00:00+08:00').getTime(),
       createdAt: 1,
       updatedAt: 1
@@ -176,12 +245,12 @@ describe('taskStore', () => {
 
     vi.mocked(taskApi.update).mockResolvedValue(mutation({
       ...task,
-      assigneeId: 2,
+      assigneeKey: 'user:2', assigneeName: 'User 2',
       updatedAt: 2
     }))
 
     await store.updateTask('ENG-3', {
-      assigneeId: 2,
+      assigneeKey: 'user:2', assigneeName: 'User 2',
       dueDate: task.dueDate
     })
 

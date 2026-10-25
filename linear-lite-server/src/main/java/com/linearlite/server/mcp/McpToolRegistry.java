@@ -276,30 +276,30 @@ public class McpToolRegistry {
     private Object createTask(JsonNode rawArguments, Long userId) {
         JsonNode arguments = McpArgumentValidator.object(rawArguments);
         McpArgumentValidator.fields(arguments, "projectId", "parentId", "title", "description", "status",
-                "priority", "assigneeId", "dueDate", "plannedStartDate", "progressPercent", "labels");
+                "priority", "assigneeKey", "dueDate", "plannedStartDate", "progressPercent", "labels");
         Long projectId = requiredLong(arguments, "projectId");
         Long parentId = McpArgumentValidator.optionalLong(arguments, "parentId");
         String title = McpArgumentValidator.requiredText(arguments, "title", 256);
         String description = taskDescription(arguments);
         String status = optionalEnum(arguments, "status", STATUSES);
         String priority = optionalEnum(arguments, "priority", PRIORITIES);
-        Long assigneeId = McpArgumentValidator.optionalLong(arguments, "assigneeId");
+        String assigneeKey = McpArgumentValidator.optionalText(arguments, "assigneeKey", 64);
         LocalDate dueDate = McpArgumentValidator.optionalDate(arguments, "dueDate");
         LocalDate plannedStartDate = McpArgumentValidator.optionalDate(arguments, "plannedStartDate");
         Integer progress = McpArgumentValidator.optionalInteger(arguments, "progressPercent", 0, 100);
         List<TaskLabelItemRequest> labels = McpArgumentValidator.optionalLabels(arguments, "labels");
         return taskCommandService.create(
-                projectId, userId, parentId, title, description, status, priority, assigneeId,
+                projectId, userId, parentId, title, description, status, priority, assigneeKey,
                 dueDate, plannedStartDate, progress, labels);
     }
 
     private Object updateTask(JsonNode rawArguments, Long userId) {
         JsonNode arguments = McpArgumentValidator.object(rawArguments);
         McpArgumentValidator.fields(arguments, "taskKey", "title", "parentId", "clearParent", "description",
-                "status", "priority", "assigneeId", "clearAssignee", "dueDate", "clearDueDate",
+                "status", "priority", "assigneeKey", "clearAssignee", "dueDate", "clearDueDate",
                 "plannedStartDate", "clearPlannedStart", "progressPercent", "labels");
         rejectBoth(arguments, "parentId", "clearParent");
-        rejectBoth(arguments, "assigneeId", "clearAssignee");
+        rejectBoth(arguments, "assigneeKey", "clearAssignee");
         rejectBoth(arguments, "dueDate", "clearDueDate");
         rejectBoth(arguments, "plannedStartDate", "clearPlannedStart");
 
@@ -311,7 +311,7 @@ public class McpToolRegistry {
         request.setDescription(taskDescription(arguments));
         request.setStatus(optionalEnum(arguments, "status", STATUSES));
         request.setPriority(optionalEnum(arguments, "priority", PRIORITIES));
-        request.setAssigneeId(McpArgumentValidator.optionalLong(arguments, "assigneeId"));
+        request.setAssigneeKey(McpArgumentValidator.optionalText(arguments, "assigneeKey", 64));
         request.setClearAssignee(McpArgumentValidator.optionalBoolean(arguments, "clearAssignee"));
         request.setDueDate(McpArgumentValidator.optionalDate(arguments, "dueDate"));
         request.setClearDueDate(McpArgumentValidator.optionalBoolean(arguments, "clearDueDate"));
@@ -385,7 +385,7 @@ public class McpToolRegistry {
 
     private Object listProjectTasks(JsonNode rawArguments, Long userId) {
         JsonNode arguments = McpArgumentValidator.object(rawArguments);
-        McpArgumentValidator.fields(arguments, "projectId", "cursor", "limit", "status", "assigneeId");
+        McpArgumentValidator.fields(arguments, "projectId", "cursor", "limit", "status", "assigneeKey");
         Long projectId = requiredLong(arguments, "projectId");
         Long afterId = optionalCursor(arguments, "cursor");
         Integer requestedLimit = McpArgumentValidator.optionalInteger(arguments, "limit", 1, 200);
@@ -394,13 +394,10 @@ public class McpToolRegistry {
         if (status != null && !STATUSES.contains(status)) {
             throw new McpInvalidParamsException("status 不受支持");
         }
-        Long assigneeId = McpArgumentValidator.optionalLong(arguments, "assigneeId");
-        if (assigneeId != null && assigneeId <= 0) {
-            throw new McpInvalidParamsException("assigneeId 必须是正整数");
-        }
+        String assigneeKey = McpArgumentValidator.optionalText(arguments, "assigneeKey", 64);
 
         List<TaskListItemResponse> fetched = taskQueryService.listProjectTasksForMcp(
-                projectId, afterId, limit, status, assigneeId, userId);
+                projectId, afterId, limit, status, assigneeKey, userId);
         boolean hasMore = fetched.size() > limit;
         List<TaskListItemResponse> items = hasMore ? fetched.subList(0, limit) : fetched;
         ObjectNode result = objectMapper.createObjectNode();
@@ -412,8 +409,8 @@ public class McpToolRegistry {
             putNullable(task, "title", item.getTitle());
             putNullable(task, "status", item.getStatus());
             putNullable(task, "progressPercent", item.getProgressPercent());
-            putNullable(task, "assigneeId", item.getAssigneeId());
-            putNullable(task, "assigneeDisplayName", item.getAssigneeDisplayName());
+            putNullable(task, "assigneeKey", item.getAssigneeKey());
+            putNullable(task, "assigneeName", item.getAssigneeName());
             putNullable(task, "updatedAt", formatBeijingTime(item.getUpdatedAt()));
         }
         result.put("hasMore", hasMore);
@@ -902,9 +899,9 @@ public class McpToolRegistry {
         properties.put("cursor", stringSchema("前页 nextCursor 值", 1, 20));
         properties.put("limit", integerRangeSchema("每页任务数；省略值为 100", 1, 200));
         properties.put("status", enumSchema("任务状态筛选；省略参数代表各状态", STATUSES));
-        properties.put("assigneeId", integerSchema("负责人 ID 筛选；省略参数代表全部负责人"));
+        properties.put("assigneeKey", stringSchema("负责人键筛选；省略参数代表全部负责人", 1, 64));
         return tool("list_project_tasks", "枚举项目任务",
-                "项目任务分页快照，覆盖各状态、各负责人和 0% 任务；status 与 assigneeId 参数控制筛选。游标按任务 ID 递增；hasMore=true 时传 nextCursor 读取后页，hasMore=false 表示终页。",
+                "项目任务分页快照，覆盖各状态、各负责人和 0% 任务；status 与 assigneeKey 参数控制筛选。游标按任务 ID 递增；hasMore=true 时传 nextCursor 读取后页，hasMore=false 表示终页。",
                 objectSchema(properties, "projectId"), true, true);
     }
 
@@ -925,7 +922,7 @@ public class McpToolRegistry {
         properties.put("cursor", stringSchema("前页 nextCursor 值", 1, 20));
         properties.put("limit", integerRangeSchema("每页变化数；省略值为 100", 1, 200));
         return tool("list_task_changes", "读取任务状态变化",
-                "项目 progressPercent/status 活动查询；from 含边界、to 不含边界，时间转为 Asia/Shanghai。hasMore=true 时传 nextCursor 读取后页。日报规则：根据同项目当前快照，纳入 progressPercent 大于 0 且 status 或 progressPercent 存在变化的任务；当前 0% 任务排除，含 status 变化；0% 升至正数且存在进度变化记录时纳入。描述、assigneeId、updatedAt 变化不代表进度变化。历史完整性见结果 historyNote。",
+                "项目 progressPercent/status 活动查询；from 含边界、to 不含边界，时间转为 Asia/Shanghai。hasMore=true 时传 nextCursor 读取后页。日报规则：根据同项目当前快照，纳入 progressPercent 大于 0 且 status 或 progressPercent 存在变化的任务；当前 0% 任务排除，含 status 变化；0% 升至正数且存在进度变化记录时纳入。描述、assigneeKey、updatedAt 变化不代表进度变化。历史完整性见结果 historyNote。",
                 objectSchema(properties, "projectId", "from", "to"), true, true);
     }
 
@@ -1139,7 +1136,7 @@ public class McpToolRegistry {
                 0, 100_000));
         properties.put("status", enumSchema("任务状态", STATUSES));
         properties.put("priority", enumSchema("任务优先级", PRIORITIES));
-        properties.put("assigneeId", integerSchema("负责人用户 ID"));
+        properties.put("assigneeKey", stringSchema("负责人键，例如 user:123 或 external:45", 1, 64));
         properties.put("dueDate", dateTimeSchema("截止时间"));
         properties.put("plannedStartDate", dateTimeSchema("计划开始时间"));
         properties.put("progressPercent", integerRangeSchema("完成进度", 0, 100));

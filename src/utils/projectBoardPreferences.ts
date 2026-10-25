@@ -2,10 +2,10 @@ import type { Status, Priority } from '../types/domain'
 import type { ViewConfig } from './viewPreference'
 import { DEFAULT_VIEW_CONFIG, normalizeViewConfig } from './viewPreference'
 
-const STORAGE_KEY = 'linear-lite-project-board-v1'
+const STORAGE_KEY = 'linear-lite-project-board-v2'
 
 /** 处理人筛选项 */
-export type AssigneeFilterItem = 'unassigned' | number
+export type AssigneeFilterItem = string
 
 export interface TaskFilterSnapshot {
   searchQuery: string
@@ -15,8 +15,6 @@ export interface TaskFilterSnapshot {
   filterPriorityList: Priority[]
   /** 按负责人多选筛选（OR） */
   filterAssigneeList: AssigneeFilterItem[]
-  /** 选中系统用户负责人时其 username 的小写形式映射 */
-  filterAssigneeUsernameNormMap: Record<number, string>
   /** 按标签 id 多选筛选（OR） */
   filterLabelIds: number[]
 }
@@ -59,34 +57,8 @@ function parsePriorityList(raw: unknown): Priority[] {
 
 function parseAssigneeList(raw: unknown): AssigneeFilterItem[] {
   if (!Array.isArray(raw)) return []
-  const out: AssigneeFilterItem[] = []
-  for (const x of raw) {
-    if (x === 'unassigned') {
-      out.push('unassigned')
-      continue
-    }
-    if (typeof x === 'number' && Number.isFinite(x)) {
-      out.push(x)
-      continue
-    }
-    if (typeof x === 'string') {
-      const n = Number(x)
-      if (Number.isFinite(n)) out.push(n)
-    }
-  }
-  return out
-}
-
-function parseAssigneeUsernameNormMap(raw: unknown): Record<number, string> {
-  if (!raw || typeof raw !== 'object') return {}
-  const out: Record<number, string> = {}
-  for (const [k, v] of Object.entries(raw)) {
-    const n = Number(k)
-    if (Number.isFinite(n) && typeof v === 'string') {
-      out[n] = v
-    }
-  }
-  return out
+  return raw.filter((item): item is string => typeof item === 'string' &&
+    (item === 'unassigned' || /^(user|external):[1-9][0-9]*$/.test(item)))
 }
 
 function parseFilterLabelIds(raw: unknown): number[] {
@@ -112,7 +84,6 @@ function parseFilters(raw: unknown): TaskFilterSnapshot {
       filterStatusList: [],
       filterPriorityList: [],
       filterAssigneeList: [],
-      filterAssigneeUsernameNormMap: {},
       filterLabelIds: []
     }
   }
@@ -122,7 +93,6 @@ function parseFilters(raw: unknown): TaskFilterSnapshot {
     filterStatusList: parseStatusList(f.filterStatusList),
     filterPriorityList: parsePriorityList(f.filterPriorityList),
     filterAssigneeList: parseAssigneeList(f.filterAssigneeList),
-    filterAssigneeUsernameNormMap: parseAssigneeUsernameNormMap(f.filterAssigneeUsernameNormMap),
     filterLabelIds: parseFilterLabelIds(f.filterLabelIds)
   }
 }

@@ -64,6 +64,7 @@ vi.mock('../services/api/project', () => ({
     delete: vi.fn(),
     invite: vi.fn(),
     listMembers: vi.fn(),
+    listAssignees: vi.fn(),
     listLabels: vi.fn(),
     deleteLabel: vi.fn().mockResolvedValue(undefined)
   }
@@ -149,6 +150,7 @@ describe('TaskEditor label suggestions', () => {
     vi.clearAllMocks()
     vi.mocked(userApi.list).mockResolvedValue([])
     vi.mocked(projectApi.listMembers).mockResolvedValue([])
+    vi.mocked(projectApi.listAssignees).mockResolvedValue([])
     vi.mocked(activityApi.list).mockResolvedValue([])
     vi.mocked(attachmentsApi.list).mockResolvedValue([])
     vi.mocked(taskApi.list).mockResolvedValue([])

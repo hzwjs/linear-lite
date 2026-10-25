@@ -1,12 +1,13 @@
 package com.linearlite.server.dto;
 
 import com.linearlite.server.entity.Task;
+import com.linearlite.server.service.AssigneeService;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
-public class TaskListItemResponse {
+public class TaskListItemResponse implements AssigneeService.TaskProjectAssignee {
     private Long id;
     private String taskKey;
     private String title;
@@ -15,8 +16,8 @@ public class TaskListItemResponse {
     private Long projectId;
     private Long parentId;
     private Long creatorId;
-    private Long assigneeId;
-    private String assigneeDisplayName;
+    private String assigneeKey;
+    private String assigneeName;
     private LocalDate dueDate;
     private LocalDate plannedStartDate;
     private Integer progressPercent;
@@ -38,8 +39,8 @@ public class TaskListItemResponse {
         item.setProjectId(task.getProjectId());
         item.setParentId(task.getParentId());
         item.setCreatorId(task.getCreatorId());
-        item.setAssigneeId(task.getAssigneeId());
-        item.setAssigneeDisplayName(task.getAssigneeDisplayName());
+        item.setAssigneeKey(task.getAssigneeKey());
+        item.setAssigneeName(task.getAssigneeName());
         item.setDueDate(task.getDueDate());
         item.setPlannedStartDate(task.getPlannedStartDate());
         item.setProgressPercent(task.getProgressPercent());
@@ -117,20 +118,20 @@ public class TaskListItemResponse {
         this.creatorId = creatorId;
     }
 
-    public Long getAssigneeId() {
-        return assigneeId;
+    public String getAssigneeKey() {
+        return assigneeKey;
     }
 
-    public void setAssigneeId(Long assigneeId) {
-        this.assigneeId = assigneeId;
+    public void setAssigneeKey(String assigneeKey) {
+        this.assigneeKey = assigneeKey;
     }
 
-    public String getAssigneeDisplayName() {
-        return assigneeDisplayName;
+    public String getAssigneeName() {
+        return assigneeName;
     }
 
-    public void setAssigneeDisplayName(String assigneeDisplayName) {
-        this.assigneeDisplayName = assigneeDisplayName;
+    public void setAssigneeName(String assigneeName) {
+        this.assigneeName = assigneeName;
     }
 
     public LocalDate getDueDate() {

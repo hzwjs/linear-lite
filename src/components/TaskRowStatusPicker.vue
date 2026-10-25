@@ -1,19 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import type { Component } from 'vue'
-import {
-  Circle,
-  CircleDashed,
-  CircleX,
-  CheckCircle,
-  Copy,
-  Eye,
-  Loader2,
-  Check
-} from 'lucide-vue-next'
+import { Check } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import type { Status } from '../types/domain'
 import { getStatusLabel } from '../utils/enumLabels'
+import TaskStatusIcon from './TaskStatusIcon.vue'
 
 const props = defineProps<{
   taskId: string
@@ -26,31 +17,20 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-const statusIcons: Record<Status, typeof Circle> = {
-  backlog: CircleDashed,
-  todo: Circle,
-  in_progress: Loader2,
-  in_review: Eye,
-  done: CheckCircle,
-  canceled: CircleX,
-  duplicate: Copy
-}
-
 type StatusOption = {
   value: Status
   label: string
-  icon: Component
   shortcut: string
 }
 
 const statusOptions = computed<StatusOption[]>(() => [
-  { value: 'backlog', label: getStatusLabel('backlog'), icon: CircleDashed, shortcut: '1' },
-  { value: 'todo', label: getStatusLabel('todo'), icon: Circle, shortcut: '2' },
-  { value: 'in_progress', label: getStatusLabel('in_progress'), icon: Loader2, shortcut: '3' },
-  { value: 'in_review', label: getStatusLabel('in_review'), icon: Eye, shortcut: '4' },
-  { value: 'done', label: getStatusLabel('done'), icon: CheckCircle, shortcut: '5' },
-  { value: 'canceled', label: getStatusLabel('canceled'), icon: CircleX, shortcut: '6' },
-  { value: 'duplicate', label: getStatusLabel('duplicate'), icon: Copy, shortcut: '7' }
+  { value: 'backlog', label: getStatusLabel('backlog'), shortcut: '1' },
+  { value: 'todo', label: getStatusLabel('todo'), shortcut: '2' },
+  { value: 'in_progress', label: getStatusLabel('in_progress'), shortcut: '3' },
+  { value: 'in_review', label: getStatusLabel('in_review'), shortcut: '4' },
+  { value: 'done', label: getStatusLabel('done'), shortcut: '5' },
+  { value: 'canceled', label: getStatusLabel('canceled'), shortcut: '6' },
+  { value: 'duplicate', label: getStatusLabel('duplicate'), shortcut: '7' }
 ])
 const currentStatusLabel = computed(() => getStatusLabel(props.status))
 
@@ -231,17 +211,18 @@ onUnmounted(() => {
       class="task-row-status-trigger"
       :class="`task-row-status-trigger--${status}`"
       :aria-label="`${t('taskList.changeStatus')}: ${currentStatusLabel}`"
+      :title="currentStatusLabel"
       :aria-expanded="isOpen"
       aria-haspopup="listbox"
       :aria-controls="isOpen ? listboxId : undefined"
       @click="toggle"
       @keydown="onTriggerKeydown"
     >
-      <component :is="statusIcons[status]" class="icon icon-14 status-icon" aria-hidden="true" />
+      <TaskStatusIcon :status="status" />
     </button>
     <Teleport to="body">
       <div
-        v-show="isOpen"
+        v-if="isOpen"
         :id="listboxId"
         ref="panelRef"
         class="task-row-status-panel"
@@ -276,8 +257,8 @@ onUnmounted(() => {
           :aria-selected="opt.value === status"
           @click.stop="pick(opt)"
         >
-          <span v-if="opt.icon" class="option-icon">
-            <component :is="opt.icon" :size="18" />
+          <span class="option-icon">
+            <TaskStatusIcon :status="opt.value" :size="18" />
           </span>
           <span class="option-label">{{ opt.label }}</span>
           <span v-if="opt.value === status" class="option-check" aria-hidden="true">
@@ -310,26 +291,15 @@ onUnmounted(() => {
   background: none;
   border: none;
   cursor: pointer;
-  color: inherit;
+  color: var(--color-text-muted);
   border-radius: var(--border-radius-sm, 4px);
 }
-.task-row-status-trigger:hover .status-icon {
-  color: var(--color-text-primary);
+.task-row-status-trigger:hover {
+  background: var(--color-bg-hover);
 }
 .task-row-status-trigger:focus-visible {
   outline: 2px solid var(--color-status-done);
   outline-offset: 2px;
-}
-
-.icon {
-  flex-shrink: 0;
-}
-.icon-14 {
-  width: 14px;
-  height: 14px;
-}
-.status-icon {
-  color: var(--color-text-secondary);
 }
 
 .task-row-status-panel {
@@ -392,7 +362,6 @@ onUnmounted(() => {
 }
 .option-icon {
   display: inline-flex;
-  color: var(--color-text-primary);
 }
 .option-check {
   display: inline-flex;

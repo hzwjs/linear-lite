@@ -3,6 +3,7 @@ package com.linearlite.server.service;
 import com.linearlite.server.dto.TaskImportRequest;
 import com.linearlite.server.dto.TaskImportResponse;
 import com.linearlite.server.dto.TaskImportRowRequest;
+import com.linearlite.server.dto.TaskAssigneeImport;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.ProjectTaskSeq;
 import com.linearlite.server.entity.Task;
@@ -40,6 +41,8 @@ class TaskImportServiceTest {
     private TaskActivityService taskActivityService;
     @Mock
     private TaskHierarchyCompletionService taskHierarchyCompletionService;
+    @org.mockito.Mock
+    private AssigneeService assigneeService;
 
     private TaskImportService taskImportService;
 
@@ -51,8 +54,12 @@ class TaskImportServiceTest {
                 taskPermissionGuard,
                 taskSequenceService,
                 taskActivityService,
-                taskHierarchyCompletionService
+                taskHierarchyCompletionService,
+                assigneeService
         );
+        org.mockito.Mockito.lenient().when(assigneeService.requireProjectAssignee(
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
     }
 
     @Test
@@ -66,7 +73,7 @@ class TaskImportServiceTest {
         parentRow.setTitle("Parent");
         parentRow.setStatus("todo");
         parentRow.setPriority("high");
-        parentRow.setAssigneeId(1L);
+        parentRow.setAssignee(reference("user:1"));
 
         TaskImportRowRequest childRow = new TaskImportRowRequest();
         childRow.setImportId("A-2");
@@ -74,7 +81,7 @@ class TaskImportServiceTest {
         childRow.setTitle("Child");
         childRow.setStatus("in_progress");
         childRow.setPriority("medium");
-        childRow.setAssigneeId(2L);
+        childRow.setAssignee(reference("user:2"));
 
         TaskImportRequest request = new TaskImportRequest();
         request.setProjectId(1L);
@@ -98,8 +105,8 @@ class TaskImportServiceTest {
         assertEquals(1, response.getParentCount());
         assertEquals(1, response.getSubtaskCount());
         assertEquals(2, response.getCreatedCount());
-        assertEquals(null, inserted.get(0).getAssigneeDisplayName());
-        assertEquals(null, inserted.get(1).getAssigneeDisplayName());
+        assertEquals("user:1", inserted.get(0).getAssigneeKey());
+        assertEquals("user:2", inserted.get(1).getAssigneeKey());
         verify(taskMapper).updateById(org.mockito.ArgumentMatchers.argThat(task ->
                 task.getId().equals(102L) && task.getParentId().equals(101L)
         ));
@@ -109,7 +116,7 @@ class TaskImportServiceTest {
     }
 
     @Test
-    void importTasksStoresAssigneeDisplayNameWhenNoAssigneeId() {
+    void importTasksRegistersAndStoresAnExternalAssigneeKey() {
         Project project = new Project();
         project.setId(1L);
         project.setIdentifier("ENG");
@@ -117,8 +124,10 @@ class TaskImportServiceTest {
         TaskImportRowRequest row = new TaskImportRowRequest();
         row.setImportId("X-1");
         row.setTitle("External assignee");
-        row.setAssigneeId(null);
-        row.setAssigneeDisplayName("  外部处理人  ");
+        TaskAssigneeImport external = new TaskAssigneeImport();
+        external.setKind("external");
+        external.setDisplayName("  外部处理人  ");
+        row.setAssignee(external);
 
         TaskImportRequest request = new TaskImportRequest();
         request.setProjectId(1L);
@@ -126,6 +135,7 @@ class TaskImportServiceTest {
 
         when(projectMapper.selectById(1L)).thenReturn(project);
         when(taskSequenceService.reserveTaskNumbers(1L, "ENG", 1)).thenReturn(1L);
+        when(assigneeService.registerExternal(1L, "  外部处理人  ")).thenReturn("external:21");
         doAnswer(invocation -> {
             Task task = invocation.getArgument(0);
             task.setId(201L);
@@ -137,8 +147,14 @@ class TaskImportServiceTest {
         ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
         verify(taskMapper).insert(taskCaptor.capture());
         Task captured = taskCaptor.getValue();
-        assertEquals(null, captured.getAssigneeId());
-        assertEquals("外部处理人", captured.getAssigneeDisplayName());
+        assertEquals("external:21", captured.getAssigneeKey());
+    }
+
+    private static TaskAssigneeImport reference(String key) {
+        TaskAssigneeImport assignee = new TaskAssigneeImport();
+        assignee.setKind("reference");
+        assignee.setKey(key);
+        return assignee;
     }
 
     @Test

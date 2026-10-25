@@ -1,3 +1,4 @@
+import { applyTaskScope } from './taskScope'
 import type { Task, User } from '../types/domain'
 import type { GroupBy, ViewConfig } from './viewPreference'
 
@@ -95,14 +96,13 @@ export function sortTasks(tasks: Task[], config: ViewConfig) {
   return sorted
 }
 
-function groupMeta(task: Task, groupBy: GroupBy, users: User[]) {
+function groupMeta(task: Task, groupBy: GroupBy, _users: User[]) {
   switch (groupBy) {
     case 'priority':
       return { key: task.priority, label: task.priority.replace(/^./, (s) => s.toUpperCase()) }
     case 'assignee': {
-      if (task.assigneeId == null) return { key: 'unassigned', label: 'Unassigned' }
-      const name = users.find((user) => user.id === task.assigneeId)?.username ?? `User ${task.assigneeId}`
-      return { key: `assignee:${task.assigneeId}`, label: name }
+      if (task.assigneeKey == null) return { key: 'unassigned', label: 'Unassigned' }
+      return { key: task.assigneeKey, label: task.assigneeName ?? '' }
     }
     case 'project':
       return { key: String(task.projectId ?? 'none'), label: task.projectId == null ? 'No Project' : `Project ${task.projectId}` }
@@ -200,18 +200,6 @@ export function filterVisibleTaskRows(
   })
 }
 
-const TERMINAL_STATUSES: Task['status'][] = ['done', 'canceled', 'duplicate']
-
-/** 与列表 buildTaskGroups 一致：open_only 时与命令栏「进行中」一致，排除终态与待规划（backlog） */
-export function applyCompletedVisibility(tasks: Task[], config: ViewConfig): Task[] {
-  if (config.completedVisibility === 'open_only') {
-    return tasks.filter(
-      (task) => !TERMINAL_STATUSES.includes(task.status) && task.status !== 'backlog'
-    )
-  }
-  return tasks
-}
-
 export function buildTaskGroups(
   tasks: Task[],
   config: ViewConfig,
@@ -219,8 +207,9 @@ export function buildTaskGroups(
   options?: BuildTaskGroupsOptions
 ): TaskGroup[] {
   const flatRoots =
-    options?.searchActive === true || options?.taskFiltersActive === true
-  const source = applyCompletedVisibility(tasks, config)
+    options?.searchActive === true || options?.taskFiltersActive === true ||
+    (config.layout === 'list' && config.scope === 'active')
+  const source = applyTaskScope(tasks, config.scope)
 
   const seeds = flatRoots ? source : source.filter((t) => t.parentId == null)
   const grouped = new Map<string, TaskGroup>()

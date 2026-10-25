@@ -2,18 +2,21 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Task, Status, Priority } from '../types/domain'
 
-/** 处理人筛选项：'unassigned' 无负责人；number 为 assigneeId */
-export type AssigneeFilterItem = 'unassigned' | number
+/** 负责人筛选使用身份键；unassigned 表示空负责人。 */
+export type AssigneeFilterItem = string
 import { taskApi } from '../services/api/task'
 import type { TaskAncestorStateChange } from '../services/api/task'
 import type { TaskLabelWriteItem, UpdateTaskRequest } from '../services/api/types'
 import { useProjectStore } from './projectStore'
 import { useFavoriteStore } from './favoriteStore'
+import { useViewModeStore } from './viewModeStore'
+import { useAssigneeStore } from './assigneeStore'
+import { applyTaskScope, scopeStatuses } from '../utils/taskScope'
 import { toApiDate } from '../utils/taskDate'
 import { translate } from '../utils/i18n'
 import { invalidateTaskDetailSnapshot } from '../utils/taskDetailPreload'
 
-const TASK_SNAPSHOT_PREFIX = 'linear-lite:tasks:v1:'
+const TASK_SNAPSHOT_PREFIX = 'linear-lite:tasks:v2:'
 
 function taskSnapshotKey(projectId: number): string {
   return `${TASK_SNAPSHOT_PREFIX}${projectId}`
@@ -43,6 +46,11 @@ function createOptimisticTaskId(projectId: number): string {
   return `optimistic-${projectId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+export interface TaskStatusUpdate {
+  task: Task
+  outcome: 'saving' | 'saved' | 'failed'
+}
+
 /**
  * 任务状态。后端 API 仍是最终来源；项目任务快照只用于刷新期间先渲染本地可用数据。
  */
@@ -53,6 +61,8 @@ export const useTaskStore = defineStore('taskStore', () => {
   const loadedTaskProjectId = ref<number | null>(null)
   const isLoading = ref(false)
   const error = ref<string | null>(null)
+  /** 状态操作进度与服务端结果，供任务工作区反馈与定位。 */
+  const lastStatusUpdate = ref<TaskStatusUpdate | null>(null)
 
   const currentTaskId = ref<string | null>(null)
   const searchQuery = ref('')
@@ -62,8 +72,6 @@ export const useTaskStore = defineStore('taskStore', () => {
   const filterPriorityList = ref<Priority[]>([])
   /** 按负责人多选筛选，语义为 OR */
   const filterAssigneeList = ref<AssigneeFilterItem[]>([])
-  /** 选中系统用户负责人时其 username 的小写形式映射，用于匹配仅 assigneeDisplayName 的导入任务 */
-  const filterAssigneeUsernameNormMap = ref<Map<number, string>>(new Map())
   /** 按标签 id 多选筛选，语义为 OR（至少命中其一） */
   const filterLabelIds = ref<number[]>([])
   type TaskUpdatePatch = Partial<Omit<Task, 'id' | 'createdAt' | 'labels'>> & {
@@ -159,7 +167,7 @@ export const useTaskStore = defineStore('taskStore', () => {
 
   function normalizePatch(patch: TaskUpdatePatch): TaskUpdatePatch {
     const next: TaskUpdatePatch = { ...patch }
-    if (next.clearAssignee === true) delete next.assigneeId
+    if (next.clearAssignee === true) delete next.assigneeKey
     if (next.clearDueDate === true) delete next.dueDate
     if (next.clearPlannedStart === true) delete next.plannedStartDate
     if (next.clearParent === true) delete next.parentId
@@ -174,11 +182,16 @@ export const useTaskStore = defineStore('taskStore', () => {
     if (patch.status !== undefined) next.status = patch.status
     if (patch.priority !== undefined) next.priority = patch.priority
     if (patch.clearAssignee === true) {
-      next.assigneeId = undefined
-      next.assigneeDisplayName = undefined
-    } else if (patch.assigneeId !== undefined) {
-      next.assigneeId = patch.assigneeId
-      if (patch.assigneeId != null) next.assigneeDisplayName = undefined
+      next.assigneeKey = null
+      next.assigneeName = null
+    } else if (patch.assigneeKey !== undefined) {
+      next.assigneeKey = patch.assigneeKey
+      const projectId = base.projectId
+      const option = projectId == null ? undefined : useAssigneeStore().optionsByProject[projectId]?.find(
+        (candidate) => candidate.key === patch.assigneeKey
+      )
+      // 名称来自同一身份键对应的负责人目录，服务端确认后替换整条任务。
+      next.assigneeName = option?.name ?? null
     }
     if (patch.clearDueDate === true) next.dueDate = undefined
     else if (patch.dueDate !== undefined) next.dueDate = patch.dueDate
@@ -289,7 +302,7 @@ export const useTaskStore = defineStore('taskStore', () => {
       description: patch.description,
       status: patch.status,
       priority: patch.priority,
-      assigneeId: patch.assigneeId,
+      assigneeKey: patch.assigneeKey,
       clearAssignee: patch.clearAssignee,
       dueDate: toApiDate(patch.dueDate),
       clearDueDate: patch.clearDueDate,
@@ -307,16 +320,11 @@ export const useTaskStore = defineStore('taskStore', () => {
     return body
   }
 
-  const filteredTasks = computed(() => {
+  const nonStatusFilteredTasks = computed(() => {
     let result = [...tasks.value].sort((a, b) => b.updatedAt - a.updatedAt)
     const titleQuery = searchQuery.value.trim().toLowerCase()
     if (titleQuery) {
       result = result.filter((t) => t.title.toLowerCase().includes(titleQuery))
-    }
-    const statusList = filterStatusList.value
-    if (statusList.length > 0) {
-      const wanted = new Set(statusList)
-      result = result.filter((t) => wanted.has(t.status))
     }
     const priorityList = filterPriorityList.value
     if (priorityList.length > 0) {
@@ -325,25 +333,8 @@ export const useTaskStore = defineStore('taskStore', () => {
     }
     const assigneeList = filterAssigneeList.value
     if (assigneeList.length > 0) {
-      const hasUnassigned = assigneeList.includes('unassigned')
-      const userIds = new Set(assigneeList.filter((x): x is number => typeof x === 'number'))
-      const nameNormMap = filterAssigneeUsernameNormMap.value
-      result = result.filter((t) => {
-        if (hasUnassigned && t.assigneeId == null && !(t.assigneeDisplayName?.trim())) {
-          return true
-        }
-        if (t.assigneeId != null && userIds.has(Number(t.assigneeId))) {
-          return true
-        }
-        if (t.assigneeId == null && t.assigneeDisplayName?.trim()) {
-          const ext = t.assigneeDisplayName.trim().toLowerCase()
-          for (const uid of userIds) {
-            const norm = nameNormMap.get(uid)
-            if (norm && ext === norm) return true
-          }
-        }
-        return false
-      })
+      const wanted = new Set(assigneeList)
+      result = result.filter((task) => wanted.has(task.assigneeKey == null ? 'unassigned' : task.assigneeKey))
     }
     const labelIds = filterLabelIds.value
     if (labelIds.length > 0) {
@@ -351,6 +342,26 @@ export const useTaskStore = defineStore('taskStore', () => {
       result = result.filter((t) => t.labels?.some((l) => wanted.has(l.id)))
     }
     return result
+  })
+
+  // 统计与列表共享范围和其他条件；状态条件只影响列表，不缩窄其他状态的计数。
+  const statusCandidates = computed(() =>
+    applyTaskScope(nonStatusFilteredTasks.value, useViewModeStore().viewConfig.scope)
+  )
+  const statusStatistics = computed(() => {
+    const counts: Record<Status, number> = {
+      backlog: 0, todo: 0, in_progress: 0, in_review: 0, done: 0, canceled: 0, duplicate: 0
+    }
+    for (const task of statusCandidates.value) counts[task.status] += 1
+    return {
+      total: statusCandidates.value.length,
+      items: scopeStatuses(useViewModeStore().viewConfig.scope).map((status) => ({ status, count: counts[status] }))
+    }
+  })
+  const filteredTasks = computed(() => {
+    if (filterStatusList.value.length === 0) return statusCandidates.value
+    const wanted = new Set(filterStatusList.value)
+    return statusCandidates.value.filter((task) => wanted.has(task.status))
   })
 
   const groupedTasks = computed(() => {
@@ -543,7 +554,9 @@ export const useTaskStore = defineStore('taskStore', () => {
       priority: data.priority,
       projectId,
       creatorId: data.creatorId,
-      assigneeId: data.assigneeId ?? null,
+      assigneeKey: data.assigneeKey ?? null,
+      assigneeName: data.assigneeKey == null ? null
+        : useAssigneeStore().optionsByProject[projectId]?.find((option) => option.key === data.assigneeKey)?.name ?? null,
       dueDate: data.dueDate,
       plannedStartDate: data.plannedStartDate,
       parentId: data.parentId != null ? String(data.parentId) : undefined,
@@ -565,7 +578,7 @@ export const useTaskStore = defineStore('taskStore', () => {
         description: data.description,
         status: data.status,
         priority: data.priority,
-        assigneeId: data.assigneeId ?? null,
+        assigneeKey: data.assigneeKey ?? null,
         dueDate: toApiDate(data.dueDate),
         plannedStartDate: toApiDate(data.plannedStartDate),
         parentId: data.parentId ?? undefined,
@@ -617,6 +630,12 @@ export const useTaskStore = defineStore('taskStore', () => {
     lane.pendingIntents = []
     syncLaneRow(id)
     const requestBody = toUpdateRequest(lane.inFlightPatch)
+    const previousStatus = lane.ackBase.status
+    const isStatusChange = requestBody.status !== undefined && requestBody.status !== previousStatus
+    let statusUpdate: TaskStatusUpdate | null = null
+    if (isStatusChange) {
+      lastStatusUpdate.value = { task: cloneTask(lane.ackBase), outcome: 'saving' }
+    }
 
     lane.inFlightPromise = taskApi
       .update(id, requestBody)
@@ -624,6 +643,9 @@ export const useTaskStore = defineStore('taskStore', () => {
         const updated = mutation.task
         mergeAutoCompletedAncestors(mutation.autoCompletedAncestors)
         lane.ackBase = cloneTask(updated)
+        if (isStatusChange || updated.status !== previousStatus) {
+          statusUpdate = { task: cloneTask(updated), outcome: 'saved' }
+        }
         lane.hasUnsavedFailure = false
         lane.lastError = undefined
         const favorite = updated.favorited ?? tasks.value[getTaskIndexById(id)]?.favorited ?? false
@@ -641,6 +663,9 @@ export const useTaskStore = defineStore('taskStore', () => {
             : new Error(translate('taskStore.errors.updateFailed', undefined, 'Failed to update task.'))
         lane.lastError = resolvedError
         lane.hasUnsavedFailure = true
+        if (isStatusChange && lane.ackBase != null) {
+          statusUpdate = { task: cloneTask(lane.ackBase), outcome: 'failed' }
+        }
         const intents = lane.inFlightIntents.splice(0)
         intents.forEach((intent) => intent.reject(resolvedError))
       })
@@ -648,6 +673,8 @@ export const useTaskStore = defineStore('taskStore', () => {
         lane.inFlightPatch = null
         lane.inFlightPromise = null
         syncLaneRow(id)
+        // 清除乐观补丁后发布结果，定位使用服务端确认后的排序与筛选结果。
+        if (statusUpdate != null) lastStatusUpdate.value = statusUpdate
       })
 
     await lane.inFlightPromise
@@ -776,20 +803,10 @@ export const useTaskStore = defineStore('taskStore', () => {
     else filterPriorityList.value = cur.filter((p) => p !== priority)
   }
 
-  function toggleFilterAssignee(item: AssigneeFilterItem, usernameNorm?: string) {
-    const cur = filterAssigneeList.value
-    const i = cur.indexOf(item)
-    if (i === -1) {
-      filterAssigneeList.value = [...cur, item]
-      if (typeof item === 'number' && usernameNorm) {
-        filterAssigneeUsernameNormMap.value.set(item, usernameNorm)
-      }
-    } else {
-      filterAssigneeList.value = cur.filter((x) => x !== item)
-      if (typeof item === 'number') {
-        filterAssigneeUsernameNormMap.value.delete(item)
-      }
-    }
+  function toggleFilterAssignee(item: AssigneeFilterItem) {
+    const current = filterAssigneeList.value
+    filterAssigneeList.value = current.includes(item)
+      ? current.filter((candidate) => candidate !== item) : [...current, item]
   }
 
   function toggleFilterLabelId(labelId: number) {
@@ -808,7 +825,6 @@ export const useTaskStore = defineStore('taskStore', () => {
     filterStatusList.value = []
     filterPriorityList.value = []
     filterAssigneeList.value = []
-    filterAssigneeUsernameNormMap.value = new Map()
     filterLabelIds.value = []
   }
 
@@ -817,15 +833,16 @@ export const useTaskStore = defineStore('taskStore', () => {
     taskByKeyCache,
     isLoading,
     error,
+    lastStatusUpdate,
     currentTaskId,
     searchQuery,
     filterStatusList,
     filterPriorityList,
     filterAssigneeList,
-    filterAssigneeUsernameNormMap,
     filterLabelIds,
     currentTask,
     filteredTasks,
+    statusStatistics,
     groupedTasks,
     isEmpty,
     isFilterEmpty,

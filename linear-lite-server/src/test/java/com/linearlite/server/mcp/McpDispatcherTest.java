@@ -158,7 +158,7 @@ class McpDispatcherTest {
         assertTrue(taskList.path("inputSchema").path("properties").has("cursor"));
         assertTrue(taskList.path("inputSchema").path("properties").has("limit"));
         assertTrue(taskList.path("inputSchema").path("properties").has("status"));
-        assertTrue(taskList.path("inputSchema").path("properties").has("assigneeId"));
+        assertTrue(taskList.path("inputSchema").path("properties").has("assigneeKey"));
         assertTrue(taskList.path("description").asText().contains("0% 任务"));
 
         assertEquals("list_task_changes", changes.path("name").asText());
@@ -174,11 +174,11 @@ class McpDispatcherTest {
     @Test
     void listProjectTasksPaginatesWithoutDuplicatesAndPreservesZeroProgress() throws Exception {
         when(taskQueryService.listProjectTasksForMcp(37L, null, 2, null, null, 9L))
-                .thenReturn(List.of(taskItem(1L, "EASYGO-1", "backlog", 20, 3L),
+                .thenReturn(List.of(taskItem(1L, "EASYGO-1", "backlog", 20, "user:3"),
                         taskItem(2L, "EASYGO-2", "done", 0, null),
-                        taskItem(3L, "EASYGO-3", "todo", 55, 4L)));
+                        taskItem(3L, "EASYGO-3", "todo", 55, "user:4")));
         when(taskQueryService.listProjectTasksForMcp(37L, 2L, 2, null, null, 9L))
-                .thenReturn(List.of(taskItem(3L, "EASYGO-3", "todo", 55, 4L)));
+                .thenReturn(List.of(taskItem(3L, "EASYGO-3", "todo", 55, "user:4")));
 
         McpDispatcher.DispatchResponse first = dispatch(request("tasks-1", "tools/call",
                 "{\"name\":\"list_project_tasks\",\"arguments\":{\"projectId\":37,\"limit\":2}}"),
@@ -188,7 +188,7 @@ class McpDispatcherTest {
         assertEquals("2", firstContent.path("nextCursor").asText());
         assertEquals(2, firstContent.path("items").size());
         assertEquals(0, firstContent.path("items").get(1).path("progressPercent").asInt());
-        assertTrue(firstContent.path("items").get(1).path("assigneeId").isNull());
+        assertTrue(firstContent.path("items").get(1).path("assigneeKey").isNull());
 
         McpDispatcher.DispatchResponse second = dispatch(request("tasks-2", "tools/call",
                 "{\"name\":\"list_project_tasks\",\"arguments\":{\"projectId\":37,\"limit\":2,\"cursor\":\"2\"}}"),
@@ -222,16 +222,16 @@ class McpDispatcherTest {
 
     @Test
     void listProjectTasksPassesOptionalStateAndAssigneeFilters() throws Exception {
-        when(taskQueryService.listProjectTasksForMcp(37L, null, 25, "in_progress", 9L, 9L))
-                .thenReturn(List.of(taskItem(8L, "EASYGO-8", "in_progress", 35, 9L)));
+        when(taskQueryService.listProjectTasksForMcp(37L, null, 25, "in_progress", "user:9", 9L))
+                .thenReturn(List.of(taskItem(8L, "EASYGO-8", "in_progress", 35, "user:9")));
 
         McpDispatcher.DispatchResponse response = dispatch(request("task-filters", "tools/call",
-                "{\"name\":\"list_project_tasks\",\"arguments\":{\"projectId\":37,\"limit\":25,\"status\":\"in_progress\",\"assigneeId\":9}}"),
+                "{\"name\":\"list_project_tasks\",\"arguments\":{\"projectId\":37,\"limit\":25,\"status\":\"in_progress\",\"assigneeKey\":\"user:9\"}}"),
                 null, null, null, null, 9L);
 
         assertEquals(8L, response.body().path("result").path("structuredContent")
                 .path("items").get(0).path("id").asLong());
-        verify(taskQueryService).listProjectTasksForMcp(37L, null, 25, "in_progress", 9L, 9L);
+        verify(taskQueryService).listProjectTasksForMcp(37L, null, 25, "in_progress", "user:9", 9L);
     }
 
     @Test
@@ -637,15 +637,15 @@ class McpDispatcherTest {
         assertEquals(-32602, response.body().path("error").path("code").asInt());
     }
 
-    private TaskListItemResponse taskItem(Long id, String taskKey, String status, int progress, Long assigneeId) {
+    private TaskListItemResponse taskItem(Long id, String taskKey, String status, int progress, String assigneeKey) {
         TaskListItemResponse item = new TaskListItemResponse();
         item.setId(id);
         item.setTaskKey(taskKey);
         item.setTitle(taskKey);
         item.setStatus(status);
         item.setProgressPercent(progress);
-        item.setAssigneeId(assigneeId);
-        item.setAssigneeDisplayName(assigneeId == null ? null : "member-" + assigneeId);
+        item.setAssigneeKey(assigneeKey);
+        item.setAssigneeName(assigneeKey == null ? null : "member");
         item.setUpdatedAt(LocalDateTime.of(2026, 10, 14, 16, 30));
         return item;
     }

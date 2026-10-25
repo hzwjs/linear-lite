@@ -106,6 +106,7 @@ vi.mock('../services/api/project', () => ({
     invite: vi.fn(),
     listLabels: vi.fn(),
     listMembers: vi.fn(),
+    listAssignees: vi.fn(),
     deleteLabel: vi.fn().mockResolvedValue(undefined)
   }
 }))
@@ -267,6 +268,7 @@ describe('TaskEditor comments adapter', () => {
     })
     vi.mocked(taskApi.list).mockResolvedValue([])
     vi.mocked(projectApi.listMembers).mockResolvedValue([{ id: 2, username: 'Alice' }])
+    vi.mocked(projectApi.listAssignees).mockResolvedValue([])
     vi.mocked(projectApi.listLabels).mockResolvedValue([])
     vi.mocked(taskApi.update).mockResolvedValue({ task: createTask(), autoCompletedAncestors: [] })
     vi.mocked(agentApi.getTaskStatus).mockResolvedValue({
@@ -371,7 +373,7 @@ describe('TaskEditor comments adapter', () => {
         updatedAt: '2026-08-12T00:01:00.000Z',
         hasSubmittedTurn: false
       })
-    const view = await mountEditor(createTask({ assigneeId: 42 }))
+    const view = await mountEditor(createTask({ assigneeKey: "user:42", assigneeName: "Owner" }))
     try {
       const editor = view.host.querySelector('.comment-compose [data-testid="tiptap-editor-stub"]') as HTMLTextAreaElement
       editor.value = '@Pi 查询南京明天的天气'
@@ -460,7 +462,7 @@ describe('TaskEditor comments adapter', () => {
       return { close } as unknown as EventSource
     })
 
-    const view = await mountEditor(createTask({ assigneeId: 42 }), 42)
+    const view = await mountEditor(createTask({ assigneeKey: "user:42", assigneeName: "Owner" }), 42)
     try {
       view.host.querySelector<HTMLButtonElement>('.agent-launch-button')?.click()
       await nextTick()
@@ -597,7 +599,7 @@ describe('TaskEditor comments adapter', () => {
       executionCredential: 'execution-credential'
     })
 
-    const view = await mountEditor(createTask({ assigneeId: 42 }), 42)
+    const view = await mountEditor(createTask({ assigneeKey: "user:42", assigneeName: "Owner" }), 42)
     try {
       view.host.querySelector<HTMLButtonElement>('.agent-launch-button')?.click()
       await nextTick()
@@ -634,7 +636,7 @@ describe('TaskEditor comments adapter', () => {
       return { close: vi.fn() } as unknown as EventSource
     })
 
-    const view = await mountEditor(createTask({ assigneeId: 42 }), 42)
+    const view = await mountEditor(createTask({ assigneeKey: "user:42", assigneeName: "Owner" }), 42)
     try {
       view.host.querySelector<HTMLButtonElement>('.agent-launch-button')?.click()
       await nextTick()
@@ -681,7 +683,7 @@ describe('TaskEditor comments adapter', () => {
       return { close: vi.fn() } as unknown as EventSource
     })
 
-    const view = await mountEditor(createTask({ assigneeId: 42 }), 42)
+    const view = await mountEditor(createTask({ assigneeKey: "user:42", assigneeName: "Owner" }), 42)
     try {
       view.host.querySelector<HTMLButtonElement>('.agent-launch-button')?.click()
       await nextTick()
@@ -738,7 +740,7 @@ describe('TaskEditor comments adapter', () => {
     })
     vi.mocked(agentApi.openSessionStream).mockReturnValue({ close: vi.fn() } as unknown as EventSource)
 
-    const view = await mountEditor(createTask({ assigneeId: 42 }), 42)
+    const view = await mountEditor(createTask({ assigneeKey: "user:42", assigneeName: "Owner" }), 42)
     try {
       view.host.querySelector<HTMLButtonElement>('.agent-launch-button')?.click()
       await nextTick()
@@ -771,7 +773,7 @@ describe('TaskEditor comments adapter', () => {
       response: { data: { message: '执行上下文已结束' } }
     })
 
-    const view = await mountEditor(createTask({ assigneeId: 42, status: 'done' }), 42)
+    const view = await mountEditor(createTask({ assigneeKey: "user:42", assigneeName: "Owner", status: 'done' }), 42)
     try {
       view.host.querySelector<HTMLButtonElement>('.agent-launch-button')?.click()
       await nextTick()
@@ -811,7 +813,7 @@ describe('TaskEditor comments adapter', () => {
 
   it('does not expose local Pi execution to a non-owner after assignee changes', async () => {
     vi.mocked(taskApi.update).mockResolvedValue({
-      task: createTask({ assigneeId: 42 }),
+      task: createTask({ assigneeKey: "user:42", assigneeName: "Owner" }),
       autoCompletedAncestors: []
     })
     vi.mocked(agentApi.getTaskStatus)

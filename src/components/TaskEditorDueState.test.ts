@@ -106,6 +106,7 @@ vi.mock('../services/api/project', () => ({
     invite: vi.fn(),
     listLabels: vi.fn(),
     listMembers: vi.fn(),
+    listAssignees: vi.fn(),
     deleteLabel: vi.fn().mockResolvedValue(undefined)
   }
 }))
@@ -211,6 +212,7 @@ describe('TaskEditor due state', () => {
     vi.mocked(taskCommentsApi.list).mockResolvedValue([])
     vi.mocked(taskApi.list).mockResolvedValue([])
     vi.mocked(projectApi.listMembers).mockResolvedValue([])
+    vi.mocked(projectApi.listAssignees).mockResolvedValue([])
     vi.mocked(projectApi.listLabels).mockResolvedValue([])
     vi.mocked(taskApi.update).mockResolvedValue({ task: createTask(), autoCompletedAncestors: [] })
   })

@@ -11,9 +11,7 @@ public class TaskImportRowRequest {
     private String description;
     private String status;
     private String priority;
-    private Long assigneeId;
-    /** 未匹配系统用户时的处理人原文，可选 */
-    private String assigneeDisplayName;
+    private TaskAssigneeImport assignee;
     private LocalDate dueDate;
     private LocalDate plannedStartDate;
     /** 完成进度 0–100，缺省为 0 */
@@ -75,20 +73,12 @@ public class TaskImportRowRequest {
         this.priority = priority;
     }
 
-    public Long getAssigneeId() {
-        return assigneeId;
+    public TaskAssigneeImport getAssignee() {
+        return assignee;
     }
 
-    public void setAssigneeId(Long assigneeId) {
-        this.assigneeId = assigneeId;
-    }
-
-    public String getAssigneeDisplayName() {
-        return assigneeDisplayName;
-    }
-
-    public void setAssigneeDisplayName(String assigneeDisplayName) {
-        this.assigneeDisplayName = assigneeDisplayName;
+    public void setAssignee(TaskAssigneeImport assignee) {
+        this.assignee = assignee;
     }
 
     public LocalDate getDueDate() {

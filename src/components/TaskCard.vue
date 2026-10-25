@@ -2,15 +2,13 @@
 import { computed } from 'vue'
 import { Calendar, CalendarClock, Loader2 } from 'lucide-vue-next'
 import type { Task, Status } from '../types/domain'
-import type { User } from '../types/domain'
 import type { VisibleProperty } from '../utils/viewPreference'
 import { getInitials, getAvatarColorByUsername } from '../utils/avatar'
-import { assigneeDisplayLabel, resolveAssigneeUser } from '../utils/taskAssigneeDisplay'
+import { assigneeDisplayLabel } from '../utils/taskAssigneeDisplay'
 import { formatBeijingDate } from '../utils/beijingTime'
 
 const props = defineProps<{
   task: Task
-  users?: User[]
   visibleProperties?: VisibleProperty[]
   selected?: boolean
   opening?: boolean
@@ -31,17 +29,15 @@ const priorityLabel = computed(() => {
   return map[props.task.priority] || props.task.priority
 })
 
-const assigneeUser = computed(() => resolveAssigneeUser(props.task, props.users))
-
 const assigneeDisplay = computed(() =>
-  assigneeDisplayLabel(props.task, props.users, 'Unassigned')
+  assigneeDisplayLabel(props.task, 'Unassigned')
 )
 
 const assigneeInitial = computed(() => getInitials(assigneeDisplay.value))
 
-const assigneeAvatarStyle = computed(() =>
-  assigneeUser.value ? getAvatarColorByUsername(assigneeUser.value.username) : undefined
-)
+const assigneeAvatarStyle = computed(() => props.task.assigneeKey?.startsWith('user:')
+  ? getAvatarColorByUsername(assigneeDisplay.value)
+  : undefined)
 
 const dueDateText = computed(() => {
   if (props.task.dueDate == null) return null
@@ -111,13 +107,8 @@ const handleTransition = (e: Event) => {
     </div>
     <div v-if="show('assignee')" class="assignee-row">
       <span class="assignee" :title="assigneeDisplay">
-        <span class="avatar" :class="{ placeholder: !assigneeUser }" :style="assigneeAvatarStyle">
-          <img
-            v-if="assigneeUser?.avatar_url"
-            :src="assigneeUser.avatar_url"
-            :alt="assigneeUser.username"
-          />
-          <span v-else>{{ assigneeInitial }}</span>
+        <span class="avatar" :class="{ placeholder: !task.assigneeKey }" :style="assigneeAvatarStyle">
+          <span>{{ task.assigneeKey ? assigneeInitial : '—' }}</span>
         </span>
         <span class="assignee-name">{{ assigneeDisplay }}</span>
       </span>

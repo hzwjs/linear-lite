@@ -38,10 +38,10 @@ public class TaskService {
     }
 
     public Task create(Long projectId, Long creatorId, Long parentId, String title, String description,
-                       String status, String priority, Long assigneeId, LocalDate dueDate,
+                       String status, String priority, String assigneeKey, LocalDate dueDate,
                        LocalDate plannedStartDate, Integer progressPercent, List<TaskLabelItemRequest> labels) {
         return taskCommandService.create(projectId, creatorId, parentId, title, description, status, priority,
-                assigneeId, dueDate, plannedStartDate, progressPercent, labels).task();
+                assigneeKey, dueDate, plannedStartDate, progressPercent, labels).task();
     }
 
     public TaskImportResponse importTasks(TaskImportRequest request, Long creatorId) {

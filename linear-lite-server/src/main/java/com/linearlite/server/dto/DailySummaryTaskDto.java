@@ -11,7 +11,7 @@ public class DailySummaryTaskDto {
     private String priority;
     private Long projectId;
     private String projectName;
-    private Long assigneeId;
+    private Long recipientUserId;
     private String assigneeUsername;
     private String assigneeEmail;
     private Integer progressPercent;
@@ -33,8 +33,8 @@ public class DailySummaryTaskDto {
     public void setProjectId(Long projectId) { this.projectId = projectId; }
     public String getProjectName() { return projectName; }
     public void setProjectName(String projectName) { this.projectName = projectName; }
-    public Long getAssigneeId() { return assigneeId; }
-    public void setAssigneeId(Long assigneeId) { this.assigneeId = assigneeId; }
+    public Long getRecipientUserId() { return recipientUserId; }
+    public void setRecipientUserId(Long recipientUserId) { this.recipientUserId = recipientUserId; }
     public String getAssigneeUsername() { return assigneeUsername; }
     public void setAssigneeUsername(String assigneeUsername) { this.assigneeUsername = assigneeUsername; }
     public String getAssigneeEmail() { return assigneeEmail; }

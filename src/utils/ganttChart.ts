@@ -1,6 +1,7 @@
+import { applyTaskScope } from './taskScope'
 import type { Task } from '../types/domain'
 import type { ViewConfig } from './viewPreference'
-import { applyCompletedVisibility, sortTasks } from './taskView'
+import { sortTasks } from './taskView'
 import {
   taskToGanttRow,
   ganttDatesToTaskPatch,
@@ -55,7 +56,7 @@ function flattenDescendantTasks(
  * 与列表一致：开启 showSubIssues 时父任务后紧跟子任务（可选 nested）；否则仅顶层。
  * flatRoots（搜索/筛选命中子任务等）时与分组视图一致，扁平排序、不嵌套。
  *
- * `tasks` 须已与列表同源（例如已 applyCompletedVisibility）。
+ * `tasks` 须已与列表同源（例如已 applyTaskScope）。
  */
 export function orderedTasksForGanttWithDepth(
   tasks: Task[],
@@ -101,7 +102,7 @@ export function getGanttRows(
   config: ViewConfig,
   flatRoots: boolean
 ): GanttRow[] {
-  const source = applyCompletedVisibility(tasks, config)
+  const source = applyTaskScope(tasks, config.scope)
   return orderedTasksForGanttWithDepth(source, config, flatRoots)
     .map(({ task, depth }) => {
       const row = taskToGanttRow(task)
