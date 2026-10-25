@@ -722,8 +722,10 @@ CREATE TABLE IF NOT EXISTS mcp_oauth_refresh_token (
 
 /*
 旧库负责人升级脚本，仅在停用全部旧写入服务并完成备份后执行一次。
-执行前先查看本段核对SQL，预期 name_only_tasks=58、external_identities=4、unmapped_tasks=0、user_tasks=2190。
-核对通过后执行本段DDL/DML。该脚本是文档归档，不参与应用启动。
+执行前保存 tasks 的主键、负责人原值和 updated_at，以及活动字段和原表结构。
+以停写后的实时计数作为基线，冲突负责人、悬空用户和缺失成员数必须为 0。
+转换后核对新键映射、计数及备份中的 updated_at，通过后才能删除旧列。
+该脚本是文档归档，不参与应用启动。
 
 SELECT
     SUM(assignee_id IS NOT NULL) AS user_tasks,
@@ -736,16 +738,6 @@ SELECT
     ) identities) AS external_identities,
     SUM(assignee_id IS NOT NULL AND NULLIF(TRIM(assignee_display_name), '') IS NOT NULL) AS conflicting_tasks
 FROM tasks;
-
-SELECT COUNT(*) AS unmapped_tasks
-FROM tasks t
-LEFT JOIN (
-    SELECT project_id, TRIM(assignee_display_name) AS display_name
-    FROM tasks
-    WHERE assignee_id IS NULL AND NULLIF(TRIM(assignee_display_name), '') IS NOT NULL
-    GROUP BY project_id, TRIM(assignee_display_name)
-) e ON e.project_id = t.project_id AND e.display_name = TRIM(t.assignee_display_name)
-WHERE t.assignee_id IS NULL AND NULLIF(TRIM(t.assignee_display_name), '') IS NOT NULL AND e.project_id IS NULL;
 
 SELECT COUNT(*) AS user_tasks_without_user
 FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id
@@ -773,18 +765,28 @@ ALTER TABLE tasks ADD COLUMN assignee_key VARCHAR(64) DEFAULT NULL
     COMMENT 'user:<users.id> 或 external:<external_assignees.id>';
 
 UPDATE tasks t
-SET t.assignee_key = CONCAT('user:', t.assignee_id)
+SET t.assignee_key = CONCAT('user:', t.assignee_id), t.updated_at = t.updated_at
 WHERE t.assignee_id IS NOT NULL;
 
 UPDATE tasks t
 JOIN external_assignees e
   ON e.project_id = t.project_id AND e.display_name = TRIM(t.assignee_display_name)
-SET t.assignee_key = CONCAT('external:', e.id)
+SET t.assignee_key = CONCAT('external:', e.id), t.updated_at = t.updated_at
 WHERE t.assignee_id IS NULL AND NULLIF(TRIM(t.assignee_display_name), '') IS NOT NULL;
+
+SELECT COUNT(*) AS invalid_assignee_mapping
+FROM tasks t
+LEFT JOIN external_assignees e
+  ON t.assignee_key = CONCAT('external:', e.id) AND t.project_id = e.project_id
+WHERE (t.assignee_id IS NOT NULL AND NOT (t.assignee_key <=> CONCAT('user:', t.assignee_id)))
+   OR (t.assignee_id IS NULL AND NULLIF(TRIM(t.assignee_display_name), '') IS NOT NULL
+       AND (e.id IS NULL OR NOT (e.display_name <=> TRIM(t.assignee_display_name))))
+   OR (t.assignee_id IS NULL AND NULLIF(TRIM(t.assignee_display_name), '') IS NULL
+       AND t.assignee_key IS NOT NULL);
 
 UPDATE task_activities SET field_name = 'assigneeKey' WHERE field_name = 'assigneeId';
 CREATE INDEX idx_tasks_assignee_key ON tasks (assignee_key);
 CREATE INDEX idx_tasks_project_assignee_key ON tasks (project_id, assignee_key);
-ALTER TABLE tasks DROP INDEX idx_tasks_assignee_id, DROP INDEX idx_tasks_project_assignee,
+ALTER TABLE tasks DROP INDEX idx_tasks_assignee_id,
     DROP COLUMN assignee_id, DROP COLUMN assignee_display_name;
 */
