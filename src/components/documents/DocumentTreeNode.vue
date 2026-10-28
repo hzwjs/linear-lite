@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Archive, ChevronRight, Code2, FileText, MoreHorizontal, Plus, Star, Upload } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { htmlDocumentPath } from '../../utils/htmlDocument'
 import type { ProjectDocumentTreeNode } from '../../types/document'
@@ -9,7 +9,9 @@ const props = defineProps<{
   node: ProjectDocumentTreeNode
   depth: number
   childrenByParent: Map<number | null, ProjectDocumentTreeNode[]>
+  nodesById: Map<number, ProjectDocumentTreeNode>
   expandedIds: Set<number>
+  openMenuDocumentId: number | null
   activeId: number | null
   previousSiblingId: number | null
   previousPreviousSiblingId: number | null
@@ -31,11 +33,11 @@ const emit = defineEmits<{
   navigateKey: [payload: { event: KeyboardEvent; documentId: number }]
   dragStart: [documentId: number]
   dragEnd: []
+  openMenu: [documentId: number | null]
 }>()
 
 const { t } = useI18n()
-const menuOpen = ref(false)
-const rowRef = ref<HTMLElement | null>(null)
+const menuOpen = computed(() => props.openMenuDocumentId === props.node.id)
 const dragPlacement = ref<'before' | 'inside' | 'after' | null>(null)
 const children = computed(() => props.childrenByParent.get(props.node.id) ?? [])
 const hasChildren = computed(() => children.value.length > 0)
@@ -50,35 +52,16 @@ const dropLabel = computed(() => {
   } as const
   return t(labelKeys[dragPlacement.value], { title: props.node.title })
 })
-const nodesById = computed(() => {
-  const entries = [...props.childrenByParent.values()].flat().map((node) => [node.id, node] as const)
-  return new Map(entries)
-})
-
 watch(
   () => props.draggingDocumentId,
   (documentId) => {
-    if (documentId != null) menuOpen.value = false
+    if (documentId != null && menuOpen.value) emit('openMenu', null)
   }
 )
 
-function closeMenuOnOutsideClick(event: MouseEvent) {
-  const row = rowRef.value
-  if (row == null || row.contains(event.target as Node)) return
-  menuOpen.value = false
-}
-
-onMounted(() => window.document.addEventListener('click', closeMenuOnOutsideClick, true))
-onBeforeUnmount(() => window.document.removeEventListener('click', closeMenuOnOutsideClick, true))
-
-const parentNode = computed(() => {
-  if (props.node.parentDocumentId == null) return null
-  for (const nodes of props.childrenByParent.values()) {
-    const match = nodes.find((candidate) => candidate.id === props.node.parentDocumentId)
-    if (match) return match
-  }
-  return null
-})
+const parentNode = computed(() => props.node.parentDocumentId == null
+  ? null
+  : props.nodesById.get(props.node.parentDocumentId) ?? null)
 
 function moveUp() {
   emit('move', {
@@ -119,10 +102,10 @@ function outdent() {
 function isInsideDraggingSubtree(documentId: number) {
   const sourceId = props.draggingDocumentId
   if (sourceId == null) return false
-  let current = nodesById.value.get(documentId)
+  let current = props.nodesById.get(documentId)
   while (current) {
     if (current.id === sourceId) return true
-    current = current.parentDocumentId == null ? undefined : nodesById.value.get(current.parentDocumentId)
+    current = current.parentDocumentId == null ? undefined : props.nodesById.get(current.parentDocumentId)
   }
   return false
 }
@@ -132,7 +115,7 @@ function onDragStart(event: DragEvent) {
     event.preventDefault()
     return
   }
-  menuOpen.value = false
+  emit('openMenu', null)
   event.dataTransfer?.setData('application/x-linear-lite-document-id', String(props.node.id))
   event.dataTransfer.effectAllowed = 'move'
   const row = (event.currentTarget as HTMLElement).closest<HTMLElement>('.document-tree-row')
@@ -215,7 +198,6 @@ function onDocumentKeydown(event: KeyboardEvent) {
   >
     <div
       class="document-tree-row"
-      ref="rowRef"
       :data-document-drop-id="node.id"
       :class="[
         { 'document-tree-row--active': activeId === node.id },
@@ -268,16 +250,16 @@ function onDocumentKeydown(event: KeyboardEvent) {
         :aria-label="t('documents.actionsFor', { title: node.title })"
         :aria-expanded="menuOpen"
         aria-haspopup="menu"
-        @click.stop="menuOpen = !menuOpen"
-        @keydown.esc.stop="menuOpen = false"
+        @click.stop="emit('openMenu', menuOpen ? null : node.id)"
+        @keydown.esc.stop="emit('openMenu', null)"
       >
         <MoreHorizontal aria-hidden="true" />
       </button>
-      <div v-if="menuOpen" class="document-tree-row__menu" role="menu" @keydown.esc.stop="menuOpen = false">
-        <button type="button" role="menuitem" @click="menuOpen = false; emit('toggleFavorite', node)">
+      <div v-if="menuOpen" class="document-tree-row__menu" role="menu" @keydown.esc.stop="emit('openMenu', null)">
+        <button type="button" role="menuitem" @click="emit('openMenu', null); emit('toggleFavorite', node)">
           <Star aria-hidden="true" />{{ node.favorited ? t('documents.removeFavorite') : t('documents.addFavorite') }}
         </button>
-        <button type="button" role="menuitem" @click="menuOpen = false; emit('createChild', node.id)">
+        <button type="button" role="menuitem" @click="emit('openMenu', null); emit('createChild', node.id)">
           <Plus aria-hidden="true" />{{ t('documents.newChild') }}
         </button>
         <a
@@ -285,14 +267,14 @@ function onDocumentKeydown(event: KeyboardEvent) {
           :href="`/projects/${node.projectId}/documents/html/new?parentDocumentId=${node.id}`"
           target="_blank"
           rel="noopener noreferrer"
-          @click="menuOpen = false"
+          @click="emit('openMenu', null)"
         >
           <Code2 aria-hidden="true" />{{ t('documents.html.new') }}
         </a>
-        <button type="button" role="menuitem" @click="menuOpen = false; emit('importMarkdown', node.id)">
+        <button type="button" role="menuitem" @click="emit('openMenu', null); emit('importMarkdown', node.id)">
           <Upload aria-hidden="true" />{{ t('documents.markdown.import') }}
         </button>
-        <button type="button" role="menuitem" class="danger" @click="menuOpen = false; emit('archive', node.id)">
+        <button type="button" role="menuitem" class="danger" @click="emit('openMenu', null); emit('archive', node.id)">
           <Archive aria-hidden="true" />{{ t('documents.archive') }}
         </button>
       </div>
@@ -308,7 +290,9 @@ function onDocumentKeydown(event: KeyboardEvent) {
         :node="child"
         :depth="depth + 1"
         :children-by-parent="childrenByParent"
+        :nodes-by-id="nodesById"
         :expanded-ids="expandedIds"
+        :open-menu-document-id="openMenuDocumentId"
         :active-id="activeId"
         :previous-sibling-id="index > 0 ? children[index - 1]!.id : null"
         :previous-previous-sibling-id="index > 1 ? children[index - 2]!.id : null"
@@ -327,6 +311,7 @@ function onDocumentKeydown(event: KeyboardEvent) {
         @navigate-key="emit('navigateKey', $event)"
         @drag-start="emit('dragStart', $event)"
         @drag-end="emit('dragEnd')"
+        @open-menu="emit('openMenu', $event)"
       />
     </ul>
   </li>

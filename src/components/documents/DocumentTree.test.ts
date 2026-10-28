@@ -144,6 +144,36 @@ describe('DocumentTree keyboard interaction', () => {
     app.unmount()
   })
 
+  it('registers one global click listener for a 1000-node tree', async () => {
+    const addEventListener = vi.spyOn(document, 'addEventListener')
+    const removeEventListener = vi.spyOn(document, 'removeEventListener')
+    const largeTree = Array.from({ length: 1000 }, (_, index): ProjectDocumentTreeNode => ({
+      id: index + 1,
+      projectId: 7,
+      parentDocumentId: null,
+      contentFormat: 'BLOCKNOTE',
+      title: `Document ${index + 1}`,
+      sortOrder: index,
+      version: 1,
+      favorited: false,
+      updatedAt: '2026-07-29T08:00:00'
+    }))
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const app = createApp(DocumentTree, { projectId: 7, nodes: largeTree, activeId: null, moving: false })
+    app.use(i18n)
+    app.mount(host)
+    await nextTick()
+
+    expect(host.querySelectorAll('[role="treeitem"]')).toHaveLength(1000)
+    expect(addEventListener.mock.calls.filter(([type]) => type === 'click')).toHaveLength(1)
+
+    app.unmount()
+    expect(removeEventListener.mock.calls.filter(([type]) => type === 'click')).toHaveLength(1)
+    addEventListener.mockRestore()
+    removeEventListener.mockRestore()
+  })
+
   it('uses the whole document row as the drag source', async () => {
     const onMove = vi.fn()
     const draggableNodes = [

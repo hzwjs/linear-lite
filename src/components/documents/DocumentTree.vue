@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, useId, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ProjectDocumentTreeNode } from '../../types/document'
 import DocumentTreeNode from './DocumentTreeNode.vue'
@@ -39,10 +39,14 @@ function readExpanded(): Set<number> {
 const expandedIds = ref(readExpanded())
 const treeRef = ref<HTMLElement | null>(null)
 const draggingDocumentId = ref<number | null>(null)
+const openMenuDocumentId = ref<number | null>(null)
 
 watch(
   () => props.projectId,
-  () => { expandedIds.value = readExpanded() }
+  () => {
+    expandedIds.value = readExpanded()
+    openMenuDocumentId.value = null
+  }
 )
 
 function persistExpanded() {
@@ -94,6 +98,7 @@ watch(
 )
 
 const orderedNodes = computed(() => [...props.nodes].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id))
+const nodesById = computed(() => new Map(props.nodes.map((node) => [node.id, node])))
 
 const childrenByParent = computed(() => {
   const map = new Map<number | null, ProjectDocumentTreeNode[]>()
@@ -106,6 +111,20 @@ const childrenByParent = computed(() => {
 })
 
 const rootNodes = computed(() => childrenByParent.value.get(null) ?? [])
+
+function closeMenuOnOutsideClick(event: MouseEvent) {
+  if (!(event.target instanceof Element)) {
+    openMenuDocumentId.value = null
+    return
+  }
+  const row = event.target.closest<HTMLElement>('[data-document-drop-id]')
+  if (row == null || Number(row.dataset.documentDropId) !== openMenuDocumentId.value) {
+    openMenuDocumentId.value = null
+  }
+}
+
+onMounted(() => window.document.addEventListener('click', closeMenuOnOutsideClick, true))
+onBeforeUnmount(() => window.document.removeEventListener('click', closeMenuOnOutsideClick, true))
 
 function onNavigateKey(payload: { event: KeyboardEvent; documentId: number }) {
   const { event, documentId } = payload
@@ -143,7 +162,9 @@ function onNavigateKey(payload: { event: KeyboardEvent; documentId: number }) {
         :node="node"
         :depth="0"
         :children-by-parent="childrenByParent"
+        :nodes-by-id="nodesById"
         :expanded-ids="expandedIds"
+        :open-menu-document-id="openMenuDocumentId"
         :active-id="activeId"
         :previous-sibling-id="index > 0 ? rootNodes[index - 1]!.id : null"
         :previous-previous-sibling-id="index > 1 ? rootNodes[index - 2]!.id : null"
@@ -162,6 +183,7 @@ function onNavigateKey(payload: { event: KeyboardEvent; documentId: number }) {
         @navigate-key="onNavigateKey"
         @drag-start="draggingDocumentId = $event"
         @drag-end="draggingDocumentId = null"
+        @open-menu="openMenuDocumentId = $event"
       />
     </ul>
     <p :id="dragHintId" class="sr-only">{{ t('documents.dragHint') }}</p>

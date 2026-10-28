@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { documentApi } from '../services/api/documents'
 import { documentCollaborationApi } from '../services/api/documentCollaboration'
 import type { DocumentTitleUpdate } from '../services/api/documentCollaboration'
-import type { ProjectDocument } from '../types/document'
-import { useDocumentStore } from './documentStore'
+import type { ProjectDocument, ProjectDocumentTreeNode } from '../types/document'
+import { DOCUMENT_TREE_CACHE_TTL_MS, useDocumentStore } from './documentStore'
 
 vi.mock('../services/api/documents', async () => {
   const actual = await vi.importActual<typeof import('../services/api/documents')>('../services/api/documents')
@@ -30,6 +30,13 @@ function document(overrides: Partial<ProjectDocument> = {}): ProjectDocument {
     id: 8, projectId: 3, parentDocumentId: null, contentFormat: 'BLOCKNOTE', title: 'Spec', content: '[]',
     sortOrder: 0, version: 1, favorited: false, creatorId: 1, lastEditorId: 1, archivedAt: null,
     createdAt: '2026-07-29T08:00:00', updatedAt: '2026-07-29T08:00:00', ...overrides
+  }
+}
+
+function treeNode(overrides: Partial<ProjectDocumentTreeNode> = {}): ProjectDocumentTreeNode {
+  return {
+    id: 8, projectId: 3, parentDocumentId: null, contentFormat: 'BLOCKNOTE', title: 'Spec',
+    sortOrder: 0, version: 1, favorited: false, updatedAt: '2026-07-29T08:00:00', ...overrides
   }
 }
 
@@ -165,6 +172,113 @@ describe('documentStore title saves', () => {
     expect(store.activeDocument?.favorited).toBe(true)
     expect(store.treeNodes[0]?.favorited).toBe(true)
     expect(store.favoritePendingIds.size).toBe(0)
+  })
+
+  it('deduplicates concurrent tree loads for the same project', async () => {
+    let resolveTree!: (nodes: ProjectDocumentTreeNode[]) => void
+    vi.mocked(documentApi.listTree).mockReturnValue(new Promise((resolve) => { resolveTree = resolve }))
+    const store = useDocumentStore()
+
+    const firstLoad = store.loadTree(3)
+    const secondLoad = store.loadTree(3)
+
+    expect(documentApi.listTree).toHaveBeenCalledTimes(1)
+    expect(store.loadingTree).toBe(true)
+    resolveTree([treeNode()])
+    await Promise.all([firstLoad, secondLoad])
+
+    expect(store.treeNodes).toEqual([treeNode()])
+    expect(store.loadingTree).toBe(false)
+  })
+
+  it('uses a fresh tree snapshot without another request', async () => {
+    vi.setSystemTime(new Date('2026-10-28T08:00:00Z'))
+    vi.mocked(documentApi.listTree).mockResolvedValue([treeNode()])
+    const store = useDocumentStore()
+
+    await store.loadTree(3)
+    await vi.advanceTimersByTimeAsync(DOCUMENT_TREE_CACHE_TTL_MS - 1)
+    await store.loadTree(3)
+
+    expect(documentApi.listTree).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the existing tree and its reference during an unchanged background refresh', async () => {
+    vi.setSystemTime(new Date('2026-10-28T08:00:00Z'))
+    const snapshot = [treeNode()]
+    vi.mocked(documentApi.listTree).mockResolvedValueOnce(snapshot)
+    const store = useDocumentStore()
+    await store.loadTree(3)
+    const acceptedTree = store.treeNodes
+
+    let resolveRefresh!: (nodes: ProjectDocumentTreeNode[]) => void
+    vi.mocked(documentApi.listTree).mockReturnValueOnce(new Promise((resolve) => { resolveRefresh = resolve }))
+    await vi.advanceTimersByTimeAsync(DOCUMENT_TREE_CACHE_TTL_MS)
+    const refresh = store.loadTree(3)
+
+    expect(store.loadingTree).toBe(false)
+    expect(store.refreshingTree).toBe(true)
+    expect(store.treeNodes).toBe(acceptedTree)
+    resolveRefresh(snapshot.map((node) => ({ ...node })))
+    await refresh
+
+    expect(store.treeNodes).toBe(acceptedTree)
+    expect(store.treeSnapshotVersion).toBe(1)
+    expect(store.refreshingTree).toBe(false)
+  })
+
+  it('prevents a stale project response from replacing a fresh cached project', async () => {
+    vi.setSystemTime(new Date('2026-10-28T08:00:00Z'))
+    vi.mocked(documentApi.listTree).mockResolvedValueOnce([treeNode({ projectId: 3, title: 'Project A' })])
+    const store = useDocumentStore()
+    await store.loadTree(3)
+
+    let resolveProjectB!: (nodes: ProjectDocumentTreeNode[]) => void
+    vi.mocked(documentApi.listTree).mockReturnValueOnce(new Promise((resolve) => { resolveProjectB = resolve }))
+    const projectBLoad = store.loadTree(4)
+    await store.loadTree(3)
+    resolveProjectB([treeNode({ projectId: 4, title: 'Project B' })])
+    await projectBLoad
+
+    expect(store.treeNodes[0]?.title).toBe('Project A')
+    expect(store.loadingTree).toBe(false)
+    expect(store.treeError).toBeNull()
+  })
+
+  it('starts a new request for a forced refresh instead of reusing an older snapshot', async () => {
+    let resolveStale!: (nodes: ProjectDocumentTreeNode[]) => void
+    let resolveForced!: (nodes: ProjectDocumentTreeNode[]) => void
+    vi.mocked(documentApi.listTree)
+      .mockReturnValueOnce(new Promise((resolve) => { resolveStale = resolve }))
+      .mockReturnValueOnce(new Promise((resolve) => { resolveForced = resolve }))
+    const store = useDocumentStore()
+
+    const staleLoad = store.loadTree(3)
+    const forcedLoad = store.loadTree(3, { force: true })
+
+    expect(documentApi.listTree).toHaveBeenCalledTimes(2)
+    resolveForced([treeNode({ title: 'Current' })])
+    await forcedLoad
+    resolveStale([treeNode({ title: 'Stale' })])
+    await staleLoad
+
+    expect(store.treeNodes[0]?.title).toBe('Current')
+  })
+
+  it('keeps a cached tree usable when a background refresh fails', async () => {
+    vi.setSystemTime(new Date('2026-10-28T08:00:00Z'))
+    vi.mocked(documentApi.listTree).mockResolvedValueOnce([treeNode()])
+    const store = useDocumentStore()
+    await store.loadTree(3)
+
+    vi.mocked(documentApi.listTree).mockRejectedValueOnce(new Error('Network unavailable'))
+    await vi.advanceTimersByTimeAsync(DOCUMENT_TREE_CACHE_TTL_MS)
+
+    await expect(store.loadTree(3)).rejects.toThrow('Network unavailable')
+    expect(store.treeNodes).toEqual([treeNode()])
+    expect(store.treeError).toBeNull()
+    expect(store.loadingTree).toBe(false)
+    expect(store.refreshingTree).toBe(false)
   })
 
   it('reloads the complete project tree after moving a document', async () => {

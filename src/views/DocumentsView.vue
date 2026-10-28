@@ -564,7 +564,6 @@ onBeforeUnmount(() => {
           </div>
           <DocumentTree
             v-else-if="!hasDocumentSearch"
-            :key="store.treeSnapshotVersion"
             :project-id="projectId"
             :nodes="store.treeNodes"
             :active-id="documentId"

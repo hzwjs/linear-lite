@@ -9,12 +9,28 @@ import type {
   ProjectDocumentTreeNode
 } from '../types/document'
 
+export const DOCUMENT_TREE_CACHE_TTL_MS = 30_000
+
+type LoadTreeOptions = { force?: boolean }
+
+function treeSnapshotsEqual(current: ProjectDocumentTreeNode[], incoming: ProjectDocumentTreeNode[]) {
+  if (current.length !== incoming.length) return false
+  return current.every((node, index) => {
+    const next = incoming[index]
+    return next != null && node.id === next.id && node.projectId === next.projectId &&
+      node.parentDocumentId === next.parentDocumentId && node.contentFormat === next.contentFormat &&
+      node.title === next.title && node.sortOrder === next.sortOrder && node.version === next.version &&
+      node.favorited === next.favorited && node.updatedAt === next.updatedAt
+  })
+}
+
 export const useDocumentStore = defineStore('documentStore', () => {
   const treeNodes = ref<ProjectDocumentTreeNode[]>([])
   const archivedTreeNodes = ref<ProjectDocumentTreeNode[]>([])
   const activeDocument = ref<ProjectDocument | null>(null)
   const saveState = ref<DocumentSaveState>('idle')
   const loadingTree = ref(false)
+  const refreshingTree = ref(false)
   const treeSnapshotVersion = ref(0)
   const treeError = ref<string | null>(null)
   const loadingDocument = ref(false)
@@ -29,6 +45,9 @@ export const useDocumentStore = defineStore('documentStore', () => {
   let treeLoadSequence = 0
   let visibleTreeLoadSequence = 0
   let documentLoadSequence = 0
+  let loadedTreeProjectId: number | null = null
+  let treeLoadedAt = 0
+  const treeLoadPromises = new Map<number, Promise<ProjectDocumentTreeNode[]>>()
 
   function resetEditorState() {
     editSequence = 0
@@ -88,27 +107,56 @@ export const useDocumentStore = defineStore('documentStore', () => {
     return treeNodes.value.map((node) => reordered.get(node.id) ?? node)
   }
 
-  async function refreshTreeSnapshot(projectId: number) {
-    const sequence = ++treeLoadSequence
-    const nodes = await documentApi.listTree(projectId)
-    if (sequence === treeLoadSequence) {
-      treeNodes.value = nodes
-      // 版本只随被接纳的服务端快照递增，供视图完整重建文档树实例。
-      treeSnapshotVersion.value += 1
-    }
+  function requestTreeSnapshot(projectId: number, force: boolean) {
+    const pending = treeLoadPromises.get(projectId)
+    if (pending && !force) return pending
+    const request = documentApi.listTree(projectId).finally(() => {
+      if (treeLoadPromises.get(projectId) === request) treeLoadPromises.delete(projectId)
+    })
+    treeLoadPromises.set(projectId, request)
+    return request
   }
 
-  async function loadTree(projectId: number) {
+  function acceptTreeSnapshot(projectId: number, nodes: ProjectDocumentTreeNode[]) {
+    const sameSnapshot = loadedTreeProjectId === projectId && treeSnapshotsEqual(treeNodes.value, nodes)
+    loadedTreeProjectId = projectId
+    treeLoadedAt = Date.now()
+    if (sameSnapshot) return
+    treeNodes.value = nodes
+    // 版本仅随有变化的服务端快照递增，便于诊断树的真实更新次数。
+    treeSnapshotVersion.value += 1
+  }
+
+  async function loadTree(projectId: number, options: LoadTreeOptions = {}) {
     const visibleSequence = ++visibleTreeLoadSequence
-    loadingTree.value = true
-    treeError.value = null
+    const sequence = ++treeLoadSequence
+    const hasCurrentSnapshot = loadedTreeProjectId === projectId
+    if (!options.force && hasCurrentSnapshot && Date.now() - treeLoadedAt < DOCUMENT_TREE_CACHE_TTL_MS) {
+      loadingTree.value = false
+      refreshingTree.value = false
+      treeError.value = null
+      return
+    }
+
+    loadingTree.value = !hasCurrentSnapshot
+    refreshingTree.value = hasCurrentSnapshot
+    if (!hasCurrentSnapshot) treeError.value = null
     try {
-      await refreshTreeSnapshot(projectId)
+      const nodes = await requestTreeSnapshot(projectId, options.force === true)
+      if (sequence === treeLoadSequence) {
+        acceptTreeSnapshot(projectId, nodes)
+        treeError.value = null
+      }
     } catch (cause) {
-      treeError.value = cause instanceof Error ? cause.message : String(cause)
+      if (visibleSequence === visibleTreeLoadSequence && !hasCurrentSnapshot) {
+        treeError.value = cause instanceof Error ? cause.message : String(cause)
+      }
       throw cause
     } finally {
-      if (visibleSequence === visibleTreeLoadSequence) loadingTree.value = false
+      if (visibleSequence === visibleTreeLoadSequence) {
+        loadingTree.value = false
+        refreshingTree.value = false
+      }
     }
   }
 
@@ -254,7 +302,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
     }
     try {
       // 放下后在后台获取权威快照；请求期间保留当前树，快照返回时再完整替换。
-      await refreshTreeSnapshot(projectId)
+      await loadTree(projectId, { force: true })
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : String(cause)
       throw cause
@@ -284,7 +332,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
 
   async function restoreDocument(documentId: number, projectId: number) {
     await documentApi.restore(documentId)
-    await Promise.all([loadTree(projectId), loadArchive(projectId)])
+    await Promise.all([loadTree(projectId, { force: true }), loadArchive(projectId)])
   }
 
   async function toggleFavorite(document: Pick<ProjectDocumentTreeNode, 'id' | 'favorited'>) {
@@ -319,11 +367,17 @@ export const useDocumentStore = defineStore('documentStore', () => {
 
   function clear() {
     treeLoadSequence += 1
+    visibleTreeLoadSequence += 1
     documentLoadSequence += 1
+    loadedTreeProjectId = null
+    treeLoadedAt = 0
+    treeLoadPromises.clear()
     resetEditorState()
     treeNodes.value = []
     archivedTreeNodes.value = []
     treeError.value = null
+    loadingTree.value = false
+    refreshingTree.value = false
     activeDocument.value = null
     error.value = null
   }
@@ -334,6 +388,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
     activeDocument,
     saveState,
     loadingTree,
+    refreshingTree,
     treeSnapshotVersion,
     treeError,
     loadingDocument,
