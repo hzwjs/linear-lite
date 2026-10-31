@@ -22,25 +22,26 @@ export function getInitials(name: string): string {
 }
 
 /**
- * 15 组固定头像配色（参考 Linear 的柔和色面与高可读文字组合）。
- * 背景降低纯度，文字使用对应深色，避免头像像高亮标签或带白描边。
+ * 15 组固定头像配色：OKLCH 色相每 24° 一档均匀分布（15° 起），
+ * 背景统一 L=0.92 / C≈0.055，文字统一 L=0.44 / C≈0.13（超出 sRGB 时降低纯度），
+ * 保证各色明度一致、色相不扎堆，文字对比度均 ≥ 5.8:1。
  */
 export const AVATAR_PALETTE_15 = Object.freeze([
-  { background: '#dedcff', color: '#4338a0' },
-  { background: '#eadcff', color: '#6b21a8' },
-  { background: '#fbd5ea', color: '#9d174d' },
-  { background: '#dbeafe', color: '#1d4ed8' },
-  { background: '#cffafe', color: '#0e7490' },
-  { background: '#ccfbf1', color: '#0f766e' },
-  { background: '#dcfce7', color: '#166534' },
-  { background: '#fef3c7', color: '#92400e' },
-  { background: '#ffedd5', color: '#9a3412' },
-  { background: '#fee2e2', color: '#b91c1c' },
-  { background: '#ffe4e6', color: '#9f1239' },
-  { background: '#fce7f3', color: '#9d174d' },
-  { background: '#ede9fe', color: '#5b21b6' },
-  { background: '#e0e7ff', color: '#3730a3' },
-  { background: '#fae8ff', color: '#86198f' }
+  { background: '#ffdadc', color: '#8c2b3b' }, // 15° 玫红
+  { background: '#fedcd1', color: '#8b310f' }, // 39° 珊瑚
+  { background: '#ffdec1', color: '#784401' }, // 63° 橙
+  { background: '#f4e3bc', color: '#684e00' }, // 87° 琥珀
+  { background: '#e6e9bf', color: '#555701' }, // 111° 橄榄
+  { background: '#d5edc9', color: '#306101' }, // 135° 草绿
+  { background: '#c6f0d7', color: '#03633e' }, // 159° 翠绿
+  { background: '#bdf1e8', color: '#016057' }, // 183° 青绿
+  { background: '#baf0f7', color: '#055e67' }, // 207° 青
+  { background: '#c6ebff', color: '#025a7a' }, // 231° 天蓝
+  { background: '#d4e6ff', color: '#135298' }, // 255° 蓝
+  { background: '#dee3ff', color: '#454798' }, // 279° 靛
+  { background: '#ebdeff', color: '#623c8c' }, // 303° 紫
+  { background: '#f9d8f8', color: '#763377' }, // 327° 品红
+  { background: '#ffd8e8', color: '#842d5b' } // 351° 粉
 ])
 
 /** 保留背景色表供现有展示与测试使用。 */
