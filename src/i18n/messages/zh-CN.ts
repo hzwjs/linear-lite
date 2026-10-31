@@ -482,6 +482,7 @@ const zhCN = {
     errors: {
       loadFailed: '加载任务失败。',
       noProject: '未选择项目。',
+      titleRequired: '任务标题不能为空。',
       createFailed: '创建任务失败。',
       updateFailed: '更新任务失败。'
     }
@@ -660,7 +661,8 @@ const zhCN = {
     title: '通知',
     empty: '暂无通知',
     markAllRead: '全部已读',
-    mentionInIssue: '在 {key} 中提及你'
+    mentionInIssue: '在 {key} 中提及你',
+    assignedIssue: '将 {key} 分配给你'
   },
   taskList: {
     bulkStatusSaving: '保存 {n} 项任务的状态…',

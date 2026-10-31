@@ -470,6 +470,32 @@ describe('taskStore', () => {
     expect(store.tasks.map((t) => t.id)).toEqual(['ENG-NEW'])
   })
 
+  it('rejects a blank title before creating a task with an assignee', async () => {
+    useProjectStore().setActiveProject(1)
+    const store = useTaskStore()
+
+    await expect(store.createTask({
+      title: '  ', status: 'todo', priority: 'medium', assigneeKey: 'user:2'
+    })).rejects.toThrow()
+
+    expect(taskApi.create).not.toHaveBeenCalled()
+    expect(store.tasks).toEqual([])
+  })
+
+  it('rejects blank titles before updating or assigning a task', async () => {
+    const store = useTaskStore()
+    const task = baseTask({ id: 'ENG-BLANK', title: '  ' })
+    store.tasks = [task]
+
+    await expect(store.updateTask(task.id, { title: ' ', assigneeKey: 'user:2' })).rejects.toThrow()
+    await expect(store.updateTask(task.id, { assigneeKey: 'user:2' })).rejects.toThrow()
+    expect(taskApi.update).not.toHaveBeenCalled()
+
+    vi.mocked(taskApi.update).mockResolvedValueOnce(mutation({ ...task, title: 'Valid', assigneeKey: 'user:2' }))
+    await store.updateTask(task.id, { title: 'Valid', assigneeKey: 'user:2' })
+    expect(taskApi.update).toHaveBeenCalledWith(task.id, expect.objectContaining({ title: 'Valid', assigneeKey: 'user:2' }))
+  })
+
   it('createTask rolls back the optimistic row when API fails', async () => {
     const projectStore = useProjectStore()
     projectStore.setActiveProject(1)
@@ -675,6 +701,27 @@ describe('taskStore', () => {
     expect(store.tasks[0]?.title).toBe('B')
     await pB
     expect(store.tasks[0]?.title).toBe('B')
+  })
+
+  it('rejects queued assignment if the title update it depended on fails', async () => {
+    const store = useTaskStore()
+    const task = baseTask({ id: 'ENG-EMPTY', title: '  ', assigneeKey: null })
+    store.tasks = [task]
+    let rejectTitle!: (reason?: unknown) => void
+    vi.mocked(taskApi.update).mockReturnValueOnce(new Promise((_resolve, reject) => { rejectTitle = reject }))
+
+    const titleUpdate = store.updateTask(task.id, { title: 'Valid' })
+    const assignment = store.updateTask(task.id, { assigneeKey: 'user:2' })
+    const priority = store.updateTask(task.id, { priority: 'high' })
+    const rejectedTitle = expect(titleUpdate).rejects.toThrow('title failed')
+    const rejectedAssignment = expect(assignment).rejects.toThrow()
+    const rejectedPriority = expect(priority).rejects.toThrow()
+    rejectTitle(new Error('title failed'))
+    await Promise.all([rejectedTitle, rejectedAssignment, rejectedPriority])
+
+    expect(taskApi.update).toHaveBeenCalledTimes(1)
+    expect(store.tasks[0]).toMatchObject({ title: '  ', assigneeKey: null, priority: task.priority })
+    expect(await store.drainTask(task.id)).toMatchObject({ ok: false, reason: 'save_failed' })
   })
 
   it('clears completedAt in optimistic overlay when status turns non-done', async () => {

@@ -80,8 +80,9 @@ async function onMarkAll() {
             :class="{ unread: !n.readAt }"
             @click="onItemClick(n.id, n.taskKey)"
           >
-            <span class="notification-item-type">{{ t('notifications.mentionInIssue', { key: n.taskKey }) }}</span>
-            <span v-if="n.summary" class="notification-item-summary">{{ bodyToPlainText(n.summary) }}</span>
+            <span v-if="n.type === 'assignment'" class="notification-item-type">{{ t('notifications.assignedIssue', { key: n.taskKey }) }}</span>
+            <span v-else-if="n.type === 'mention'" class="notification-item-type">{{ t('notifications.mentionInIssue', { key: n.taskKey }) }}</span>
+            <span v-if="n.summary" class="notification-item-summary">{{ n.type === 'mention' ? bodyToPlainText(n.summary) : n.summary }}</span>
           </button>
         </li>
       </ul>

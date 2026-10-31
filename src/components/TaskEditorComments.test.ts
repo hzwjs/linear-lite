@@ -86,7 +86,7 @@ vi.mock('./ui/AssigneeSelect.vue', () => ({
     },
     emits: ['update:modelValue'],
     template:
-      '<button type="button" class="assignee-select-stub" @click="$emit(\'update:modelValue\', 42)">{{ modelValue }}</button>'
+      '<button type="button" class="assignee-select-stub" @click="$emit(\'update:modelValue\', \'user:42\')">{{ modelValue }}</button>'
   })
 }))
 
@@ -283,6 +283,20 @@ describe('TaskEditor comments adapter', () => {
     })
     vi.mocked(agentApi.requestSessionSnapshot).mockResolvedValue('snapshot-request-1')
     vi.mocked(agentApi.requestPiSettings).mockResolvedValue('settings-request-1')
+  })
+
+  it('does not save an assignee change while the edited title is blank', async () => {
+    const view = await mountEditor(createTask())
+    try {
+      const title = view.host.querySelector<HTMLInputElement>('.title-input')!
+      title.value = '  '
+      title.dispatchEvent(new Event('input', { bubbles: true }))
+      view.host.querySelector<HTMLButtonElement>('.assignee-select-stub')!.click()
+      await new Promise((resolve) => setTimeout(resolve, 700))
+      expect(taskApi.update).not.toHaveBeenCalled()
+    } finally {
+      view.unmount()
+    }
   })
 
   it('passes a root comment from the extracted component to the task API', async () => {

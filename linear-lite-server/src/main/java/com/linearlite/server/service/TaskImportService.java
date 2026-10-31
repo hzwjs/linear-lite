@@ -38,6 +38,7 @@ public class TaskImportService {
     private final TaskActivityService taskActivityService;
     private final TaskHierarchyCompletionService taskHierarchyCompletionService;
     private final AssigneeService assigneeService;
+    private final InAppNotificationService inAppNotificationService;
 
     public TaskImportService(
             ProjectMapper projectMapper,
@@ -46,7 +47,8 @@ public class TaskImportService {
             TaskSequenceService taskSequenceService,
             TaskActivityService taskActivityService,
             TaskHierarchyCompletionService taskHierarchyCompletionService,
-            AssigneeService assigneeService) {
+            AssigneeService assigneeService,
+            InAppNotificationService inAppNotificationService) {
         this.projectMapper = projectMapper;
         this.taskMapper = taskMapper;
         this.taskPermissionGuard = taskPermissionGuard;
@@ -54,6 +56,7 @@ public class TaskImportService {
         this.taskActivityService = taskActivityService;
         this.taskHierarchyCompletionService = taskHierarchyCompletionService;
         this.assigneeService = assigneeService;
+        this.inAppNotificationService = inAppNotificationService;
     }
 
     @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
@@ -129,6 +132,7 @@ public class TaskImportService {
             }
             taskMapper.insert(task);
             taskActivityService.recordAction(task.getId(), creatorId, "created");
+            inAppNotificationService.notifyTaskAssignment(task);
             createdTaskByImportId.put(row.getImportId().trim(), task);
             createdTaskKeys.add(task.getTaskKey());
         }

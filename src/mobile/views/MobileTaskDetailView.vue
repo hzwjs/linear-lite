@@ -97,6 +97,11 @@ async function runAction(action: () => Promise<unknown>, fallbackMessage: string
 
 async function updateField(patch: { status?: Status; priority?: Priority; assigneeKey?: string; clearAssignee?: boolean; dueDate?: number; clearDueDate?: boolean }) {
   if (!task.value) return
+  if (patch.assigneeKey != null && contentEditing.value && !title.value.trim()) {
+    actionError.value = '任务标题不能为空。'
+    retryAction.value = null
+    return
+  }
   const taskId = task.value.id
   savingField.value = true
   try { await runAction(() => taskStore.updateTask(taskId, patch), '任务属性保存失败，请重试。') } finally { savingField.value = false }
@@ -104,6 +109,11 @@ async function updateField(patch: { status?: Status; priority?: Priority; assign
 
 async function saveText() {
   if (!task.value) return false
+  if (!title.value.trim()) {
+    actionError.value = '任务标题不能为空。'
+    retryAction.value = null
+    return false
+  }
   const patch: { title?: string; description?: string } = {}
   if (title.value.trim() && title.value.trim() !== task.value.title) patch.title = title.value.trim()
   if (description.value !== (task.value.description || '')) patch.description = description.value

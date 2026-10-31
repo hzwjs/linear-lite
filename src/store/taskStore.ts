@@ -544,6 +544,11 @@ export const useTaskStore = defineStore('taskStore', () => {
       error.value = e.message
       throw e
     }
+    if (!data.title.trim()) {
+      const e = new Error(translate('taskStore.errors.titleRequired', undefined, 'Task title is required.'))
+      error.value = e.message
+      throw e
+    }
     error.value = null
     const createdAt = Date.now()
     const optimisticTask: Task = {
@@ -637,8 +642,13 @@ export const useTaskStore = defineStore('taskStore', () => {
       lastStatusUpdate.value = { task: cloneTask(lane.ackBase), outcome: 'saving' }
     }
 
-    lane.inFlightPromise = taskApi
-      .update(id, requestBody)
+    // 前一笔标题保存失败后，负责人请求须按服务端确认的标题重新校验。
+    const title = requestBody.title !== undefined ? requestBody.title : lane.ackBase.title
+    const needsTitle = requestBody.title !== undefined || requestBody.assigneeKey != null
+    const request = needsTitle && !title.trim()
+      ? Promise.reject(new Error(translate('taskStore.errors.titleRequired', undefined, 'Task title is required.')))
+      : taskApi.update(id, requestBody)
+    lane.inFlightPromise = request
       .then((mutation) => {
         const updated = mutation.task
         mergeAutoCompletedAncestors(mutation.autoCompletedAncestors)
@@ -699,6 +709,14 @@ export const useTaskStore = defineStore('taskStore', () => {
       } else {
         lane.ackBase = cloneTask(tasks.value[index]!)
       }
+    }
+    // 合并队列中的标题，校验负责人变更对应的任务标题。
+    let title = lane.ackBase.title
+    if (lane.inFlightPatch?.title !== undefined) title = lane.inFlightPatch.title
+    if (lane.pendingPatch?.title !== undefined) title = lane.pendingPatch.title
+    if (updates.title !== undefined) title = updates.title
+    if ((updates.title !== undefined || (updates.assigneeKey != null && updates.clearAssignee !== true)) && !title.trim()) {
+      return Promise.reject(new Error(translate('taskStore.errors.titleRequired', undefined, 'Task title is required.')))
     }
     lane.pendingPatch = mergePatches(lane.pendingPatch, updates)
     const p = new Promise<Task>((resolve, reject) => {

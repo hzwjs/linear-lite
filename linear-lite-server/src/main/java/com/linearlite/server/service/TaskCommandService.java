@@ -45,6 +45,7 @@ public class TaskCommandService {
     private final TaskStatusService taskStatusService;
     private final TaskHierarchyCompletionService taskHierarchyCompletionService;
     private final AssigneeService assigneeService;
+    private final InAppNotificationService inAppNotificationService;
     private ApplicationEventPublisher eventPublisher;
 
     public TaskCommandService(
@@ -58,7 +59,8 @@ public class TaskCommandService {
             TaskQueryService taskQueryService,
             TaskStatusService taskStatusService,
             TaskHierarchyCompletionService taskHierarchyCompletionService,
-            AssigneeService assigneeService) {
+            AssigneeService assigneeService,
+            InAppNotificationService inAppNotificationService) {
         this.taskMapper = taskMapper;
         this.projectMapper = projectMapper;
         this.taskFavoriteMapper = taskFavoriteMapper;
@@ -70,6 +72,7 @@ public class TaskCommandService {
         this.taskStatusService = taskStatusService;
         this.taskHierarchyCompletionService = taskHierarchyCompletionService;
         this.assigneeService = assigneeService;
+        this.inAppNotificationService = inAppNotificationService;
     }
 
     @Autowired
@@ -141,6 +144,7 @@ public class TaskCommandService {
         publishSemanticIndexRequest(inserted.getId());
         List<TaskStateChange> ancestorChanges = taskHierarchyCompletionService.completeEligibleAncestors(
                 inserted.getId(), creatorId, occurredAt);
+        inAppNotificationService.notifyTaskAssignment(inserted);
         return new TaskMutationResponse(inserted, ancestorChanges);
     }
 
@@ -163,6 +167,9 @@ public class TaskCommandService {
         boolean semanticTextChanged = false;
         TaskService.ResolvedStatusProgress resolvedState = null;
         if (request.getTitle() != null) {
+            if (request.getTitle().isBlank()) {
+                throw new IllegalArgumentException("标题不能为空");
+            }
             String nextTitle = request.getTitle().trim();
             if (!nextTitle.equals(existing.getTitle())) {
                 wrapper.set("title", nextTitle);
@@ -208,6 +215,10 @@ public class TaskCommandService {
                 hasUpdate = true;
             }
         } else if (request.getAssigneeKey() != null) {
+            String assignmentTitle = request.getTitle() == null ? existing.getTitle() : request.getTitle();
+            if (assignmentTitle == null || assignmentTitle.isBlank()) {
+                throw new IllegalArgumentException("标题不能为空");
+            }
             String nextAssigneeKey = assigneeService.requireProjectAssignee(existing.getProjectId(), request.getAssigneeKey());
             if (!Objects.equals(nextAssigneeKey, existing.getAssigneeKey())) {
                 wrapper.set("assignee_key", nextAssigneeKey);
@@ -297,6 +308,10 @@ public class TaskCommandService {
         if (resolvedState != null || parentChanged) {
             ancestorChanges.addAll(taskHierarchyCompletionService.completeEligibleAncestors(
                     updated.getId(), userId, occurredAt));
+        }
+        if (updated.getAssigneeKey() != null
+                && !Objects.equals(existing.getAssigneeKey(), updated.getAssigneeKey())) {
+            inAppNotificationService.notifyTaskAssignment(updated);
         }
         return new TaskMutationResponse(updated, ancestorChanges);
     }

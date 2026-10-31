@@ -43,6 +43,8 @@ class TaskImportServiceTest {
     private TaskHierarchyCompletionService taskHierarchyCompletionService;
     @org.mockito.Mock
     private AssigneeService assigneeService;
+    @Mock
+    private InAppNotificationService inAppNotificationService;
 
     private TaskImportService taskImportService;
 
@@ -55,7 +57,8 @@ class TaskImportServiceTest {
                 taskSequenceService,
                 taskActivityService,
                 taskHierarchyCompletionService,
-                assigneeService
+                assigneeService,
+                inAppNotificationService
         );
         org.mockito.Mockito.lenient().when(assigneeService.requireProjectAssignee(
                 org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString()))
@@ -107,6 +110,8 @@ class TaskImportServiceTest {
         assertEquals(2, response.getCreatedCount());
         assertEquals("user:1", inserted.get(0).getAssigneeKey());
         assertEquals("user:2", inserted.get(1).getAssigneeKey());
+        verify(inAppNotificationService).notifyTaskAssignment(inserted.get(0));
+        verify(inAppNotificationService).notifyTaskAssignment(inserted.get(1));
         verify(taskMapper).updateById(org.mockito.ArgumentMatchers.argThat(task ->
                 task.getId().equals(102L) && task.getParentId().equals(101L)
         ));
@@ -148,6 +153,24 @@ class TaskImportServiceTest {
         verify(taskMapper).insert(taskCaptor.capture());
         Task captured = taskCaptor.getValue();
         assertEquals("external:21", captured.getAssigneeKey());
+    }
+
+    @Test
+    void importTasksRejectsBlankTitleBeforeWritingOrNotifying() {
+        Project project = new Project();
+        project.setId(1L);
+        when(projectMapper.selectById(1L)).thenReturn(project);
+        TaskImportRowRequest row = new TaskImportRowRequest();
+        row.setImportId("X-1");
+        row.setTitle(" \t\n");
+        row.setAssignee(reference("user:2"));
+        TaskImportRequest request = new TaskImportRequest();
+        request.setProjectId(1L);
+        request.setRows(List.of(row));
+
+        Assertions.assertThrows(IllegalArgumentException.class, () -> taskImportService.importTasks(request, 7L));
+
+        org.mockito.Mockito.verifyNoInteractions(taskMapper, inAppNotificationService);
     }
 
     private static TaskAssigneeImport reference(String key) {

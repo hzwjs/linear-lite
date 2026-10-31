@@ -5,7 +5,7 @@ export interface InAppNotificationDto {
   id: number
   type: string
   taskKey: string
-  commentId: number
+  commentId: number | null
   summary: string | null
   readAt: string | null
   createdAt: string

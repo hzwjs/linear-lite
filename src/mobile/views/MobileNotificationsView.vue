@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { Bell, CheckCheck, ChevronRight } from 'lucide-vue-next'
 import { onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useNotificationStore } from '../../store/notificationStore'
 import MobileEmptyState from '../components/MobileEmptyState.vue'
 import { BEIJING_TIME_ZONE } from '../../utils/beijingTime'
 
 const emit = defineEmits<{ open: [taskKey: string] }>()
 const store = useNotificationStore()
+const { t } = useI18n()
 
 function dateLabel(value: string) {
   const date = new Date(value)
@@ -44,7 +46,8 @@ onMounted(() => store.fetchList())
         <span class="mobile-notification-icon"><Bell :size="18" /></span>
         <span class="mobile-notification-copy">
           <strong>{{ item.summary || '任务有新的动态' }}</strong>
-          <span>{{ item.taskKey }} · {{ dateLabel(item.createdAt) }}</span>
+          <span v-if="item.type === 'assignment'">{{ t('notifications.assignedIssue', { key: item.taskKey }) }} · {{ dateLabel(item.createdAt) }}</span>
+          <span v-else-if="item.type === 'mention'">{{ t('notifications.mentionInIssue', { key: item.taskKey }) }} · {{ dateLabel(item.createdAt) }}</span>
         </span>
         <span v-if="!item.readAt" class="mobile-unread-dot" aria-label="未读" />
         <ChevronRight :size="17" aria-hidden="true" />

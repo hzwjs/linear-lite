@@ -57,6 +57,8 @@ class TaskCommandServiceTest {
     @Mock
     private AssigneeService assigneeService;
     @Mock
+    private InAppNotificationService inAppNotificationService;
+    @Mock
     private ApplicationEventPublisher eventPublisher;
     private TaskCommandService taskCommandService;
 
@@ -73,7 +75,8 @@ class TaskCommandServiceTest {
                 taskQueryService,
                 taskStatusService,
                 taskHierarchyCompletionService,
-                assigneeService
+                assigneeService,
+                inAppNotificationService
         );
         taskCommandService.setEventPublisher(eventPublisher);
         org.mockito.Mockito.lenient().when(taskHierarchyCompletionService.completeEligibleAncestors(
@@ -100,6 +103,8 @@ class TaskCommandServiceTest {
         inserted.setId(99L);
         inserted.setTaskKey("ENG-9");
         inserted.setProjectId(1L);
+        inserted.setTitle("Title");
+        inserted.setAssigneeKey("user:2");
         when(taskMapper.selectById(99L)).thenReturn(inserted);
 
         Task result = taskCommandService.create(
@@ -110,6 +115,7 @@ class TaskCommandServiceTest {
         verify(taskPermissionGuard).requireProjectMember(1L, 7L);
         verify(taskActivityService).recordAction(99L, 7L, "created");
         verify(taskQueryService).enrichForUser(Collections.singletonList(inserted), 7L);
+        verify(inAppNotificationService).notifyTaskAssignment(inserted);
         verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.TASK, 99L));
     }
@@ -198,6 +204,7 @@ class TaskCommandServiceTest {
                 org.mockito.ArgumentMatchers.eq(0), org.mockito.ArgumentMatchers.eq(7L), any());
         verify(taskActivityService).recordFieldChange(21L, 7L, "priority", "medium", "high");
         verify(taskActivityService).recordAssigneeChange(21L, 7L, "user:1", "user:2", "alice", "bob");
+        verify(inAppNotificationService).notifyTaskAssignment(updated);
         verify(eventPublisher).publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.TASK, 21L));
     }
@@ -302,6 +309,105 @@ class TaskCommandServiceTest {
         Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> taskCommandService.update("ENG-31", request, 7L));
+    }
+
+    @Test
+    void createRejectsMissingOrBlankTitleBeforeWritingTaskOrNotification() {
+        for (String title : new String[]{null, "", " \t\n"}) {
+            IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
+                    taskCommandService.create(1L, 7L, null, title, null, "todo", "medium", "user:2",
+                            null, null, null, null));
+            assertEquals("标题不能为空", error.getMessage());
+        }
+        org.mockito.Mockito.verifyNoInteractions(taskMapper, inAppNotificationService);
+    }
+
+    @Test
+    void updateRejectsBlankTitleBeforeWritingTaskOrNotification() {
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task(41L, "ENG-41", "user:1"));
+        for (String title : List.of("", " \t\n")) {
+            UpdateTaskRequest request = new UpdateTaskRequest();
+            request.setTitle(title);
+            request.setAssigneeKey("user:2");
+            IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () ->
+                    taskCommandService.update("ENG-41", request, 7L));
+            assertEquals("标题不能为空", error.getMessage());
+        }
+        verify(taskMapper, never()).update(any(), any(com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper.class));
+        org.mockito.Mockito.verifyNoInteractions(inAppNotificationService);
+    }
+
+    @Test
+    void assignmentRejectsMissingOrBlankPersistedTitle() {
+        Task existing = task(41L, "ENG-41", null);
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
+        UpdateTaskRequest request = new UpdateTaskRequest();
+        request.setAssigneeKey("user:2");
+        for (String title : new String[]{null, "", " \t\n"}) {
+            existing.setTitle(title);
+            assertThrows(IllegalArgumentException.class, () -> taskCommandService.update("ENG-41", request, 7L));
+        }
+        verify(taskMapper, never()).update(any(), any(com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper.class));
+        org.mockito.Mockito.verifyNoInteractions(inAppNotificationService);
+    }
+
+    @Test
+    void assignmentUsesTitleUpdatedInSameRequest() {
+        Task existing = task(41L, "ENG-41", null);
+        existing.setTitle("");
+        Task updated = task(41L, "ENG-41", "user:2");
+        updated.setTitle("任务标题");
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
+        when(taskMapper.selectById(41L)).thenReturn(updated);
+        UpdateTaskRequest request = new UpdateTaskRequest();
+        request.setTitle("  任务标题  ");
+        request.setAssigneeKey("user:2");
+
+        taskCommandService.update("ENG-41", request, 7L);
+
+        verify(inAppNotificationService).notifyTaskAssignment(updated);
+    }
+
+    @Test
+    void assigningSameOwnerDoesNotSendDuplicateNotification() {
+        Task existing = task(41L, "ENG-41", "user:2");
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
+        when(taskMapper.selectById(41L)).thenReturn(existing);
+        UpdateTaskRequest request = new UpdateTaskRequest();
+        request.setAssigneeKey("user:2");
+
+        taskCommandService.update("ENG-41", request, 7L);
+
+        org.mockito.Mockito.verifyNoInteractions(inAppNotificationService);
+    }
+
+    @Test
+    void changingOtherFieldsDoesNotSendAssignmentNotification() {
+        Task existing = task(41L, "ENG-41", "user:2");
+        Task updated = task(41L, "ENG-41", "user:2");
+        updated.setTitle("新标题");
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
+        when(taskMapper.selectById(41L)).thenReturn(updated);
+        UpdateTaskRequest request = new UpdateTaskRequest();
+        request.setTitle("新标题");
+
+        taskCommandService.update("ENG-41", request, 7L);
+
+        org.mockito.Mockito.verifyNoInteractions(inAppNotificationService);
+    }
+
+    @Test
+    void clearingOwnerDoesNotSendAssignmentNotification() {
+        Task existing = task(41L, "ENG-41", "user:2");
+        Task updated = task(41L, "ENG-41", null);
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
+        when(taskMapper.selectById(41L)).thenReturn(updated);
+        UpdateTaskRequest request = new UpdateTaskRequest();
+        request.setClearAssignee(true);
+
+        taskCommandService.update("ENG-41", request, 7L);
+
+        org.mockito.Mockito.verifyNoInteractions(inAppNotificationService);
     }
 
     private static Task task(Long id, String taskKey, String assigneeKey) {

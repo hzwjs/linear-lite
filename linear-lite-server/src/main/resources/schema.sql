@@ -451,9 +451,9 @@ CREATE INDEX idx_comment_mentions_mentioned_user ON comment_mentions (mentioned_
 CREATE TABLE IF NOT EXISTS in_app_notifications (
     id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id     BIGINT       NOT NULL COMMENT '接收人',
-    type        VARCHAR(32)  NOT NULL COMMENT '如 mention',
+    type        VARCHAR(32)  NOT NULL COMMENT 'mention 评论提及，assignment 任务分配',
     task_id     BIGINT       NOT NULL,
-    comment_id  BIGINT       NOT NULL,
+    comment_id  BIGINT       DEFAULT NULL COMMENT '评论提及关联评论，任务分配为空',
     summary     VARCHAR(512) DEFAULT NULL,
     read_at     DATETIME     DEFAULT NULL,
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -461,6 +461,10 @@ CREATE TABLE IF NOT EXISTS in_app_notifications (
 
 CREATE INDEX idx_in_app_notifications_user_created ON in_app_notifications (user_id, created_at DESC);
 CREATE INDEX idx_in_app_notifications_user_unread ON in_app_notifications (user_id, read_at);
+
+-- 已有库增量：任务分配通知不关联评论。
+ALTER TABLE in_app_notifications
+    MODIFY COLUMN comment_id BIGINT DEFAULT NULL COMMENT '评论提及关联评论，任务分配为空';
 
 -- ========== 种子数据（可选；密码字段为 BCrypt 哈希）==========
 

@@ -128,6 +128,12 @@ public class AssigneeService {
     public static String userKey(Long userId) { return userId == null ? null : "user:" + userId; }
     public static String externalKey(Long id) { return "external:" + id; }
 
+    /** 从负责人键解析站内消息接收人；外部负责人没有站内账号。 */
+    public static Long userId(String key) {
+        KeyParts parts = parseTaskKey(key);
+        return parts != null && parts.kind.equals("user") ? parts.id : null;
+    }
+
     private static KeyParts parse(String key) {
         if (key == null) return null;
         Matcher matcher = KEY.matcher(key);

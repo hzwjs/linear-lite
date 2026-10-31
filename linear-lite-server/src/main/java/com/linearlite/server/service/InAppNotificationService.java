@@ -3,6 +3,7 @@ package com.linearlite.server.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.linearlite.server.dto.InAppNotificationResponse;
+import com.linearlite.server.dto.NotificationCreatedEventPayload;
 import com.linearlite.server.entity.InAppNotification;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.exception.ForbiddenOperationException;
@@ -11,6 +12,9 @@ import com.linearlite.server.mapper.InAppNotificationMapper;
 import com.linearlite.server.mapper.TaskMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -25,10 +29,44 @@ public class InAppNotificationService {
 
     private final InAppNotificationMapper inAppNotificationMapper;
     private final TaskMapper taskMapper;
+    private final NotificationSseBroadcaster notificationSseBroadcaster;
 
-    public InAppNotificationService(InAppNotificationMapper inAppNotificationMapper, TaskMapper taskMapper) {
+    public InAppNotificationService(InAppNotificationMapper inAppNotificationMapper, TaskMapper taskMapper,
+                                    NotificationSseBroadcaster notificationSseBroadcaster) {
         this.inAppNotificationMapper = inAppNotificationMapper;
         this.taskMapper = taskMapper;
+        this.notificationSseBroadcaster = notificationSseBroadcaster;
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void notifyTaskAssignment(Task task) {
+        Long recipientId = AssigneeService.userId(task.getAssigneeKey());
+        if (recipientId == null) return;
+        if (task.getTitle() == null || task.getTitle().isBlank()) {
+            throw new IllegalArgumentException("标题不能为空");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        InAppNotification notification = new InAppNotification();
+        notification.setUserId(recipientId);
+        notification.setType("assignment");
+        notification.setTaskId(task.getId());
+        notification.setSummary(task.getTitle().trim());
+        notification.setCreatedAt(now);
+        inAppNotificationMapper.insert(notification);
+
+        NotificationCreatedEventPayload payload = new NotificationCreatedEventPayload();
+        payload.setNotificationId(notification.getId());
+        payload.setType(notification.getType());
+        payload.setTaskKey(task.getTaskKey());
+        payload.setCreatedAt(now);
+        // 消息与任务分配在同一事务入库，提交后推送，避免回滚产生通知。
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                notificationSseBroadcaster.sendToUser(recipientId, "notification", payload);
+            }
+        });
     }
 
     public List<InAppNotificationResponse> list(Long userId, Long beforeId, int limit, Boolean unreadOnly) {

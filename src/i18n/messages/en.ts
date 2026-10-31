@@ -482,6 +482,7 @@ const en = {
     errors: {
       loadFailed: 'Failed to load tasks.',
       noProject: 'No project selected.',
+      titleRequired: 'Task title is required.',
       createFailed: 'Failed to create task.',
       updateFailed: 'Failed to update task.'
     }
@@ -660,7 +661,8 @@ const en = {
     title: 'Notifications',
     empty: 'No notifications',
     markAllRead: 'Mark all read',
-    mentionInIssue: 'Mentioned you on {key}'
+    mentionInIssue: 'Mentioned you on {key}',
+    assignedIssue: 'Assigned {key} to you'
   },
   taskList: {
     bulkStatusSaving: 'Saving status for {n} tasks…',
