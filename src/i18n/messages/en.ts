@@ -116,7 +116,8 @@ const en = {
     globalSearch: 'Global search',
     globalSearchTitle: 'Global search (⌘K)',
     projectTasksTitle: '{project} tasks',
-    projectDocumentsTitle: '{project} documents'
+    projectDocumentsTitle: '{project} documents',
+    openingTask: 'Opening task'
   },
   projectModal: {
     title: 'New project',

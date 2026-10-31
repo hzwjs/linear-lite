@@ -116,7 +116,8 @@ const zhCN = {
     globalSearch: '全局搜索',
     globalSearchTitle: '全局搜索（⌘K）',
     projectTasksTitle: '{project} 任务',
-    projectDocumentsTitle: '{project} 文档'
+    projectDocumentsTitle: '{project} 文档',
+    openingTask: '正在打开任务'
   },
   projectModal: {
     title: '新建项目',

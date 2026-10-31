@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Project, Task } from '../types/domain'
 import type { ProjectDocumentTreeNode } from '../types/document'
@@ -18,11 +18,11 @@ import {
   Folder,
   Loader2,
   LogOut,
-  MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Search,
+  Settings,
   ListTodo,
   Star
 } from 'lucide-vue-next'
@@ -67,6 +67,10 @@ const userMenuOpen = ref(false)
 const userMenuRef = ref<HTMLElement | null>(null)
 const sidebarRef = ref<HTMLElement | null>(null)
 const compactPopover = ref<'favorites' | 'projects' | null>(null)
+const compactPopoverRef = ref<HTMLElement | null>(null)
+const compactPopoverTop = ref(8)
+const POPOVER_VIEWPORT_MARGIN = 8
+let compactPopoverTrigger: HTMLElement | null = null
 const openingFavoriteId = ref<string | null>(null)
 
 const hasFavorites = computed(() => props.favorites.length > 0 || props.favoriteDocuments.length > 0)
@@ -114,7 +118,7 @@ watch(
 )
 
 function toggleUserMenu() {
-  compactPopover.value = null
+  closeCompactPopover()
   userMenuOpen.value = !userMenuOpen.value
 }
 
@@ -122,13 +126,45 @@ function closeUserMenu() {
   userMenuOpen.value = false
 }
 
-function toggleCompactPopover(target: 'favorites' | 'projects') {
+async function toggleCompactPopover(target: 'favorites' | 'projects', event: MouseEvent) {
   closeUserMenu()
-  compactPopover.value = compactPopover.value === target ? null : target
+  if (compactPopover.value === target) {
+    closeCompactPopover()
+    return
+  }
+  const trigger = event.currentTarget as HTMLElement
+  compactPopoverTrigger = trigger
+  compactPopover.value = target
+  // 浮层需要 fixed 才能越过可滚动的 rail，因此按触发按钮位置定位，再按实际高度收进视口。
+  compactPopoverTop.value = trigger.getBoundingClientRect().top
+  await nextTick()
+  const popover = compactPopoverRef.value
+  if (!popover) return
+  const maxTop = window.innerHeight - popover.offsetHeight - POPOVER_VIEWPORT_MARGIN
+  compactPopoverTop.value = Math.max(POPOVER_VIEWPORT_MARGIN, Math.min(compactPopoverTop.value, maxTop))
+  // 焦点落在第一项而非标题栏的「新建」按钮，避免回车误建项目。
+  const firstItem = popover.querySelector<HTMLElement>('.sidebar-nav__compact-item') ?? popover.querySelector<HTMLElement>('button')
+  firstItem?.focus()
 }
 
 function closeCompactPopover() {
   compactPopover.value = null
+  compactPopoverTrigger = null
+}
+
+function onSidebarEscape(event: KeyboardEvent) {
+  if (compactPopover.value != null) {
+    const trigger = compactPopoverTrigger
+    closeCompactPopover()
+    trigger?.focus()
+  } else if (userMenuOpen.value) {
+    closeUserMenu()
+    userMenuRef.value?.querySelector<HTMLElement>('.sidebar-nav__identity')?.focus()
+  } else {
+    return
+  }
+  // 侧栏浮层未注册到全局浮层栈，阻止冒泡，避免 App 的 Esc 同时关闭其他浮层。
+  event.stopPropagation()
 }
 
 function openCompactSearch() {
@@ -151,10 +187,15 @@ function openCompactAnalytics() {
   emit('open-analytics')
 }
 
+function openCompactAgentConnections() {
+  closeCompactPopover()
+  emit('open-agent-connections')
+}
+
 watch(
   () => props.mode,
   (mode) => {
-    if (mode === 'expanded') compactPopover.value = null
+    if (mode === 'expanded') closeCompactPopover()
   }
 )
 
@@ -162,22 +203,22 @@ function onClickOutsideUserMenu(event: MouseEvent) {
   const el = userMenuRef.value
   const target = event.target as Node
   if (el && !el.contains(target)) closeUserMenu()
-  if (sidebarRef.value && !sidebarRef.value.contains(target)) compactPopover.value = null
+  if (sidebarRef.value && !sidebarRef.value.contains(target)) closeCompactPopover()
 }
 
 function handleOpenProjectSettings(event: Event, projectId: number) {
   event.stopPropagation()
-  compactPopover.value = null
+  closeCompactPopover()
   emit('open-project-settings', projectId)
 }
 
 function openCompactFavoriteDocument(document: ProjectDocumentTreeNode) {
-  compactPopover.value = null
+  closeCompactPopover()
   emit('open-favorite-document', document.id, document.projectId)
 }
 
 function selectCompactProject(projectId: number) {
-  compactPopover.value = null
+  closeCompactPopover()
   emit('select-project', projectId)
 }
 
@@ -247,7 +288,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <aside ref="sidebarRef" class="sidebar-nav" :class="{ 'sidebar-nav--compact': mode === 'compact' }" :aria-label="t('sidebar.workspaceNavigation')">
+  <aside
+    ref="sidebarRef"
+    class="sidebar-nav"
+    :class="{ 'sidebar-nav--compact': mode === 'compact' }"
+    :aria-label="t('sidebar.workspaceNavigation')"
+    @keydown.esc="onSidebarEscape"
+  >
     <div ref="userMenuRef" class="sidebar-nav__header">
       <button
         type="button"
@@ -312,80 +359,39 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- DOM 顺序即视觉与 Tab 顺序：全局入口在分隔线上方，当前项目入口在下方，与展开态分组一致。 -->
     <div v-if="mode === 'compact'" class="sidebar-nav__rail" :aria-label="t('sidebar.compactNavigation')">
       <button
         type="button"
-        class="sidebar-nav__rail-item sidebar-nav__rail-item--global-search"
-        :title="t('sidebar.globalSearchTitle')"
+        class="sidebar-nav__rail-item"
         :aria-label="t('sidebar.globalSearchTitle')"
-        :data-tooltip="t('sidebar.globalSearch')"
+        :data-tooltip="t('sidebar.globalSearchTitle')"
         data-testid="sidebar-rail-search"
         @click="openCompactSearch"
       >
         <Search class="sidebar-nav__rail-icon" aria-hidden="true" />
       </button>
 
-      <button
-        v-if="activeProject != null"
-        type="button"
-        class="sidebar-nav__rail-item sidebar-nav__rail-item--project-tasks"
-        :class="{ 'sidebar-nav__rail-item--active': isProjectTasksRoute(activeProject.id) }"
-        :title="t('sidebar.projectTasksTitle', { project: activeProject.name })"
-        :aria-label="t('sidebar.projectTasksTitle', { project: activeProject.name })"
-        :data-tooltip="t('sidebar.tasks')"
-        data-testid="sidebar-rail-tasks"
-        @click="openCompactTasks(activeProject.id)"
-      >
-        <ListTodo class="sidebar-nav__rail-icon" aria-hidden="true" />
-      </button>
-
-      <button
-        v-if="activeProject != null"
-        type="button"
-        class="sidebar-nav__rail-item sidebar-nav__rail-item--project-documents"
-        :class="{ 'sidebar-nav__rail-item--active': isProjectDocumentsRoute(activeProject.id) }"
-        :title="t('sidebar.projectDocumentsTitle', { project: activeProject.name })"
-        :aria-label="t('sidebar.projectDocumentsTitle', { project: activeProject.name })"
-        :data-tooltip="t('sidebar.documents')"
-        data-testid="sidebar-rail-documents"
-        @click="openCompactDocuments(activeProject.id)"
-      >
-        <FileText class="sidebar-nav__rail-icon" aria-hidden="true" />
-      </button>
-
-      <button
-        type="button"
-        class="sidebar-nav__rail-item sidebar-nav__rail-item--project-analytics"
-        :class="{ 'sidebar-nav__rail-item--active': routePath === '/analytics' }"
-        :title="t('sidebar.analytics')"
-        :aria-label="t('sidebar.analytics')"
-        :data-tooltip="t('sidebar.analytics')"
-        data-testid="sidebar-rail-analytics"
-        @click="openCompactAnalytics"
-      >
-        <BarChart3 class="sidebar-nav__rail-icon" aria-hidden="true" />
-      </button>
-
-      <div class="sidebar-nav__rail-divider sidebar-nav__rail-divider--project" aria-hidden="true" />
-
-      <div v-if="hasFavorites" class="sidebar-nav__rail-group sidebar-nav__rail-group--favorites">
+      <div v-if="hasFavorites" class="sidebar-nav__rail-group">
         <button
           type="button"
           class="sidebar-nav__rail-item"
           :class="{ 'sidebar-nav__rail-item--active': compactPopover === 'favorites' }"
           :aria-expanded="compactPopover === 'favorites'"
-          :title="t('sidebar.favorites')"
+          aria-haspopup="dialog"
           :aria-label="t('sidebar.favorites')"
           :data-tooltip="t('sidebar.favorites')"
           data-testid="sidebar-rail-favorites"
-          @click="toggleCompactPopover('favorites')"
+          @click="toggleCompactPopover('favorites', $event)"
         >
           <Star class="sidebar-nav__rail-icon" aria-hidden="true" />
         </button>
 
         <div
           v-if="compactPopover === 'favorites'"
+          ref="compactPopoverRef"
           class="sidebar-nav__rail-popover sidebar-nav__rail-popover--favorites"
+          :style="{ top: `${compactPopoverTop}px` }"
           role="dialog"
           :aria-label="t('sidebar.favorites')"
         >
@@ -397,7 +403,8 @@ onUnmounted(() => {
               type="button"
               class="sidebar-nav__compact-item"
               :class="{ 'sidebar-nav__compact-item--active': routeTaskId === task.id }"
-              @click="compactPopover = null; openFavoriteTask(task)"
+              :title="task.title"
+              @click="closeCompactPopover(); openFavoriteTask(task)"
             >
               <component
                 :is="statusIcons[task.status]"
@@ -413,6 +420,7 @@ onUnmounted(() => {
               type="button"
               class="sidebar-nav__compact-item"
               :class="{ 'sidebar-nav__compact-item--active': isFavoriteDocumentActive(document) }"
+              :title="document.title"
               @click="openCompactFavoriteDocument(document)"
             >
               <FileText class="sidebar-nav__icon sidebar-nav__item-icon sidebar-nav__item-icon--favorite-document" aria-hidden="true" />
@@ -422,24 +430,82 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="sidebar-nav__rail-group sidebar-nav__rail-group--projects">
+      <button
+        type="button"
+        class="sidebar-nav__rail-item"
+        :class="{ 'sidebar-nav__rail-item--active': routePath === '/analytics' }"
+        :aria-label="t('sidebar.analytics')"
+        :aria-current="routePath === '/analytics' ? 'page' : undefined"
+        :data-tooltip="t('sidebar.analytics')"
+        data-testid="sidebar-rail-analytics"
+        @click="openCompactAnalytics"
+      >
+        <BarChart3 class="sidebar-nav__rail-icon" aria-hidden="true" />
+      </button>
+
+      <button
+        type="button"
+        class="sidebar-nav__rail-item"
+        :class="{ 'sidebar-nav__rail-item--active': routePath === '/settings/agent-connections' }"
+        :aria-label="t('sidebar.agentConnections')"
+        :aria-current="routePath === '/settings/agent-connections' ? 'page' : undefined"
+        :data-tooltip="t('sidebar.agentConnections')"
+        data-testid="sidebar-rail-agent-connections"
+        @click="openCompactAgentConnections"
+      >
+        <Bot class="sidebar-nav__rail-icon" aria-hidden="true" />
+      </button>
+
+      <div class="sidebar-nav__rail-divider" aria-hidden="true" />
+
+      <button
+        v-if="activeProject != null"
+        type="button"
+        class="sidebar-nav__rail-item"
+        :class="{ 'sidebar-nav__rail-item--active': isProjectTasksRoute(activeProject.id) }"
+        :aria-label="t('sidebar.projectTasksTitle', { project: activeProject.name })"
+        :aria-current="isProjectTasksRoute(activeProject.id) ? 'page' : undefined"
+        :data-tooltip="t('sidebar.projectTasksTitle', { project: activeProject.name })"
+        data-testid="sidebar-rail-tasks"
+        @click="openCompactTasks(activeProject.id)"
+      >
+        <ListTodo class="sidebar-nav__rail-icon" aria-hidden="true" />
+      </button>
+
+      <button
+        v-if="activeProject != null"
+        type="button"
+        class="sidebar-nav__rail-item"
+        :class="{ 'sidebar-nav__rail-item--active': isProjectDocumentsRoute(activeProject.id) }"
+        :aria-label="t('sidebar.projectDocumentsTitle', { project: activeProject.name })"
+        :aria-current="isProjectDocumentsRoute(activeProject.id) ? 'page' : undefined"
+        :data-tooltip="t('sidebar.projectDocumentsTitle', { project: activeProject.name })"
+        data-testid="sidebar-rail-documents"
+        @click="openCompactDocuments(activeProject.id)"
+      >
+        <FileText class="sidebar-nav__rail-icon" aria-hidden="true" />
+      </button>
+
+      <div class="sidebar-nav__rail-group">
         <button
           type="button"
           class="sidebar-nav__rail-item"
           :class="{ 'sidebar-nav__rail-item--active': compactPopover === 'projects' }"
           :aria-expanded="compactPopover === 'projects'"
-          :title="t('sidebar.projects')"
+          aria-haspopup="dialog"
           :aria-label="t('sidebar.projects')"
           :data-tooltip="t('sidebar.projects')"
           data-testid="sidebar-rail-projects"
-          @click="toggleCompactPopover('projects')"
+          @click="toggleCompactPopover('projects', $event)"
         >
           <Folder class="sidebar-nav__rail-icon" aria-hidden="true" />
         </button>
 
         <div
           v-if="compactPopover === 'projects'"
+          ref="compactPopoverRef"
           class="sidebar-nav__rail-popover sidebar-nav__rail-popover--projects"
+          :style="{ top: `${compactPopoverTop}px` }"
           role="dialog"
           :aria-label="t('sidebar.projects')"
         >
@@ -450,7 +516,7 @@ onUnmounted(() => {
               class="sidebar-nav__icon-button sidebar-nav__icon-button--ghost"
               :title="t('sidebar.newProjectTitle')"
               :aria-label="t('sidebar.newProjectTitle')"
-              @click="compactPopover = null; emit('create-project')"
+              @click="closeCompactPopover(); emit('create-project')"
             >
               <Plus class="sidebar-nav__icon sidebar-nav__icon--xs" />
             </button>
@@ -461,6 +527,7 @@ onUnmounted(() => {
                 type="button"
                 class="sidebar-nav__compact-item"
                 :class="{ 'sidebar-nav__compact-item--active': activeProjectId === project.id }"
+                :title="project.name"
                 @click="selectCompactProject(project.id)"
               >
                 <Folder class="sidebar-nav__icon sidebar-nav__item-icon" aria-hidden="true" />
@@ -473,7 +540,7 @@ onUnmounted(() => {
                 :aria-label="t('sidebar.projectSettings')"
                 @click="handleOpenProjectSettings($event, project.id)"
               >
-                <MoreVertical class="sidebar-nav__icon sidebar-nav__icon--xs" />
+                <Settings class="sidebar-nav__icon sidebar-nav__icon--xs" />
               </button>
             </div>
           </nav>
@@ -534,6 +601,7 @@ onUnmounted(() => {
               'sidebar-nav__item--opening': openingFavoriteId === task.id
             }"
             :aria-busy="openingFavoriteId === task.id"
+            :title="task.title"
             data-item-kind="favorite"
             :data-testid="`sidebar-favorite-${task.id}`"
             @pointerdown="markFavoriteOpening(task)"
@@ -543,7 +611,7 @@ onUnmounted(() => {
               v-if="openingFavoriteId === task.id"
               class="sidebar-nav__icon sidebar-nav__item-icon sidebar-nav__opening-spinner"
               :size="16"
-              aria-label="正在打开任务"
+              :aria-label="t('sidebar.openingTask')"
             />
             <component
               v-else
@@ -646,7 +714,6 @@ onUnmounted(() => {
             <div
               class="sidebar-nav__item sidebar-nav__item--project"
               :class="{
-                'sidebar-nav__item--active': activeProjectId === project.id,
                 'sidebar-nav__item--dragging': draggedProjectId === project.id,
                 'sidebar-nav__item--drag-over': dragOverProjectId === project.id,
                 'sidebar-nav__item--drag-over-after':
@@ -654,7 +721,7 @@ onUnmounted(() => {
               }"
               :data-testid="`sidebar-project-${project.id}`"
               data-item-kind="project"
-              :title="project.identifier"
+              :title="project.name"
               draggable="true"
               :aria-grabbed="draggedProjectId === project.id"
               @dragstart="onProjectDragStart($event, project.id)"
@@ -681,7 +748,7 @@ onUnmounted(() => {
                 :data-testid="`sidebar-project-settings-${project.id}`"
                 @click="handleOpenProjectSettings($event, project.id)"
               >
-                <MoreVertical class="sidebar-nav__icon sidebar-nav__icon--xs" />
+                <Settings class="sidebar-nav__icon sidebar-nav__icon--xs" />
               </button>
             </div>
 
@@ -998,14 +1065,6 @@ onUnmounted(() => {
   transition: color var(--transition-fast), background var(--transition-fast), transform 120ms var(--sidebar-ease-out);
 }
 
-.sidebar-nav__rail-item--global-search { order: 0; }
-.sidebar-nav__rail-group--favorites { order: 1; }
-.sidebar-nav__rail-item--project-tasks { order: 2; }
-.sidebar-nav__rail-item--project-documents { order: 3; }
-.sidebar-nav__rail-item--project-analytics { order: 4; }
-.sidebar-nav__rail-divider--project { order: 5; }
-.sidebar-nav__rail-group--projects { order: 6; }
-
 .sidebar-nav__rail-item:hover,
 .sidebar-nav__rail-item:focus-visible,
 .sidebar-nav__rail-item--active {
@@ -1066,8 +1125,8 @@ onUnmounted(() => {
 }
 
 .sidebar-nav__rail-popover {
+  /* top 由脚本按触发按钮位置写入，并收进视口。 */
   position: fixed;
-  top: 8px;
   left: 48px;
   z-index: 110;
   width: 272px;
@@ -1078,16 +1137,6 @@ onUnmounted(() => {
   border: 1px solid var(--sidebar-border);
   border-radius: 10px;
   box-shadow: var(--shadow-popover);
-}
-
-.sidebar-nav__rail-popover--projects {
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.sidebar-nav__rail-popover--favorites {
-  top: 56px;
-  max-height: min(520px, calc(100vh - 64px));
 }
 
 .sidebar-nav__rail-popover-header {
@@ -1324,11 +1373,6 @@ onUnmounted(() => {
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.sidebar-nav__project-child:hover {
-  color: var(--sidebar-text);
-  background: var(--sidebar-item-hover);
-}
-
 .sidebar-nav__project-child--active {
   color: var(--sidebar-text);
   background: var(--sidebar-item-active-bg);
@@ -1393,6 +1437,13 @@ onUnmounted(() => {
 .sidebar-nav__item:hover .sidebar-nav__item-action,
 .sidebar-nav__item:focus-within .sidebar-nav__item-action {
   opacity: 1;
+}
+
+/* 触屏没有悬停，设置按钮需常显，否则看不见却仍能点到。 */
+@media (hover: none) {
+  .sidebar-nav__item-action {
+    opacity: 1;
+  }
 }
 
 .sidebar-nav__item-action:hover {
@@ -1512,7 +1563,8 @@ onUnmounted(() => {
   .sidebar-nav__identity:hover,
   .sidebar-nav__icon-button:hover,
   .sidebar-nav__menu-item:hover,
-  .sidebar-nav__item:hover {
+  .sidebar-nav__item:hover,
+  .sidebar-nav__project-child:hover {
     color: var(--sidebar-text);
     background: var(--sidebar-item-hover);
   }

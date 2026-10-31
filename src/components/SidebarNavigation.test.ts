@@ -139,6 +139,135 @@ describe('SidebarNavigation', () => {
     host.remove()
   })
 
+  it('orders the compact rail by DOM, exposes agent connections and uses one tooltip source', async () => {
+    const onOpenAgentConnections = vi.fn()
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+
+    const app = createApp(SidebarNavigation, {
+      mode: 'compact',
+      userName: 'Alice',
+      userInitial: 'A',
+      locale: 'en',
+      favoritesCollapsed: false,
+      projectsCollapsed: false,
+      favorites: [buildFavorite()],
+      favoriteDocuments: [],
+      projects: [buildProject()],
+      routePath: '/settings/agent-connections',
+      routeTaskId: null,
+      activeProjectId: 1,
+      onOpenAgentConnections
+    })
+    app.use(i18n)
+    app.mount(host)
+    await nextTick()
+
+    const order = Array.from(host.querySelectorAll('.sidebar-nav__rail [data-testid^="sidebar-rail-"]'))
+      .map((el) => el.getAttribute('data-testid'))
+    expect(order).toEqual([
+      'sidebar-rail-search',
+      'sidebar-rail-favorites',
+      'sidebar-rail-analytics',
+      'sidebar-rail-agent-connections',
+      'sidebar-rail-tasks',
+      'sidebar-rail-documents',
+      'sidebar-rail-projects'
+    ])
+    expect(host.querySelector('.sidebar-nav__rail-item[title]')).toBeNull()
+
+    const agent = host.querySelector('[data-testid="sidebar-rail-agent-connections"]') as HTMLButtonElement
+    expect(agent.getAttribute('aria-current')).toBe('page')
+    expect(agent.getAttribute('data-tooltip')).toBe('Agent connections')
+    agent.click()
+    expect(onOpenAgentConnections).toHaveBeenCalledOnce()
+
+    app.unmount()
+    host.remove()
+  })
+
+  it('anchors compact popovers to their trigger and closes them with Escape', async () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+
+    const app = createApp(SidebarNavigation, {
+      mode: 'compact',
+      userName: 'Alice',
+      userInitial: 'A',
+      locale: 'en',
+      favoritesCollapsed: false,
+      projectsCollapsed: false,
+      favorites: [],
+      favoriteDocuments: [],
+      projects: [buildProject()],
+      routePath: '/',
+      routeTaskId: null,
+      activeProjectId: 1
+    })
+    app.use(i18n)
+    app.mount(host)
+    await nextTick()
+
+    const trigger = host.querySelector('[data-testid="sidebar-rail-projects"]') as HTMLButtonElement
+    trigger.getBoundingClientRect = () => ({ top: 200 }) as DOMRect
+    trigger.focus()
+    trigger.click()
+    await nextTick()
+    await nextTick()
+
+    const popover = host.querySelector('.sidebar-nav__rail-popover--projects') as HTMLElement
+    expect(popover.style.top).toBe('200px')
+    expect(document.activeElement?.classList.contains('sidebar-nav__compact-item')).toBe(true)
+    expect(popover.contains(document.activeElement)).toBe(true)
+
+    const onAppEscape = vi.fn()
+    document.addEventListener('keydown', onAppEscape)
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+    document.removeEventListener('keydown', onAppEscape)
+
+    expect(host.querySelector('.sidebar-nav__rail-popover')).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+    expect(onAppEscape).not.toHaveBeenCalled()
+
+    app.unmount()
+    host.remove()
+  })
+
+  it('shows full names on truncated rows and localizes the opening state', async () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+
+    const app = createApp(SidebarNavigation, {
+      mode: 'expanded',
+      userName: 'Alice',
+      userInitial: 'A',
+      locale: 'en',
+      favoritesCollapsed: false,
+      projectsCollapsed: false,
+      favorites: [buildFavorite()],
+      favoriteDocuments: [],
+      projects: [buildProject()],
+      routePath: '/',
+      routeTaskId: null,
+      activeProjectId: 1
+    })
+    app.use(i18n)
+    app.mount(host)
+    await nextTick()
+
+    const favorite = host.querySelector('[data-testid="sidebar-favorite-ENG-1"]') as HTMLButtonElement
+    expect(favorite.getAttribute('title')).toBe('Stabilize sidebar tokens')
+    expect(host.querySelector('[data-testid="sidebar-project-1"]')?.getAttribute('title')).toBe('Core')
+
+    favorite.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await nextTick()
+    expect(favorite.querySelector('.sidebar-nav__opening-spinner')?.getAttribute('aria-label')).toBe('Opening task')
+
+    app.unmount()
+    host.remove()
+  })
+
   it('renders a full-width global search row and preserves the focus-search event', async () => {
     const onFocusSearch = vi.fn()
     const host = document.createElement('div')
@@ -267,7 +396,7 @@ describe('SidebarNavigation', () => {
         ?.classList.contains('sidebar-nav__item-icon--status-todo')
     ).toBe(true)
     expect(host.querySelector('.sidebar-nav__item--active[data-item-kind="analytics"]')).toBeTruthy()
-    expect(host.querySelector('.sidebar-nav__item--active[data-item-kind="project"]')).toBeTruthy()
+    expect(host.querySelector('.sidebar-nav__item--active[data-item-kind="project"]')).toBeNull()
 
     const dragStart = new Event('dragstart', { bubbles: true }) as DragEvent
     Object.defineProperty(dragStart, 'dataTransfer', {
@@ -350,11 +479,13 @@ describe('SidebarNavigation', () => {
     const tasks = host.querySelector('[data-testid="sidebar-project-tasks-1"]') as HTMLButtonElement
     const documents = host.querySelector('[data-testid="sidebar-project-documents-1"]') as HTMLButtonElement
 
-    expect(project.classList.contains('sidebar-nav__item--active')).toBe(true)
+    expect(project.classList.contains('sidebar-nav__item--active')).toBe(false)
     expect(project.querySelector('.sidebar-nav__item-main')?.getAttribute('aria-expanded')).toBe('true')
     expect(tasks).toBeTruthy()
     expect(documents.getAttribute('aria-current')).toBe('page')
+    expect(documents.classList.contains('sidebar-nav__project-child--active')).toBe(true)
     expect(tasks.getAttribute('aria-current')).toBeNull()
+    expect(tasks.classList.contains('sidebar-nav__project-child--active')).toBe(false)
     expect(host.querySelector('[data-testid="sidebar-project-tasks-2"]')).toBeNull()
     expect(host.querySelector('[data-testid="sidebar-project-documents-2"]')).toBeNull()
 
