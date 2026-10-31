@@ -76,6 +76,13 @@ mcp:
     resource: ${MCP_OAUTH_RESOURCE:https://linearlite.eobua.cn/mcp}
     token-ttl-seconds: ${MCP_OAUTH_TOKEN_TTL_SECONDS:2592000}
 
+collaboration:
+  internal-key: ${COLLABORATION_INTERNAL_KEY:}
+  server-url: ${COLLABORATION_SERVER_URL:http://127.0.0.1:9091}
+  websocket-url: ${COLLABORATION_WEBSOCKET_URL:}
+  blocknote-max-content-bytes: ${COLLABORATION_BLOCKNOTE_MAX_CONTENT_BYTES:10485760}
+  html-max-content-bytes: ${COLLABORATION_HTML_MAX_CONTENT_BYTES:5242880}
+
 app:
   timezone: ${APP_TIMEZONE:Asia/Shanghai}
   mail:
