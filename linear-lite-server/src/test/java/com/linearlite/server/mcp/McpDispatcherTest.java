@@ -398,8 +398,8 @@ class McpDispatcherTest {
                 body, null, null, null, null, 7L);
 
         assertEquals(200, response.status());
-        assertEquals(1, response.body().path("result").path("structuredContent").size());
-        assertEquals("ENG", response.body().path("result").path("structuredContent").get(0)
+        assertEquals(1, response.body().path("result").path("structuredContent").path("items").size());
+        assertEquals("ENG", response.body().path("result").path("structuredContent").path("items").get(0)
                 .path("identifier").asText());
         verify(projectService).list(7L);
     }
@@ -417,7 +417,7 @@ class McpDispatcherTest {
                 body, null, null, null, null, 9L);
 
         assertEquals(200, response.status());
-        assertEquals(68L, response.body().path("result").path("structuredContent").get(0)
+        assertEquals(68L, response.body().path("result").path("structuredContent").path("items").get(0)
                 .path("id").asLong());
         verify(projectDocumentQueryService).listTree(7L, 9L, false);
     }

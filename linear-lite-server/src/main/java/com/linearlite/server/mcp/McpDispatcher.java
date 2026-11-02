@@ -144,7 +144,12 @@ public class McpDispatcher {
         try {
             JsonNode value = toolRegistry.invoke(toolName, arguments, userId);
             ObjectNode result = objectMapper.createObjectNode();
-            result.set("structuredContent", value);
+            // MCP 规范要求 structuredContent 为 JSON 对象；列表等非对象结果包装为 {"items": ...}。
+            if (value != null && value.isObject()) {
+                result.set("structuredContent", value);
+            } else {
+                result.putObject("structuredContent").set("items", value);
+            }
             ArrayNode content = result.putArray("content");
             content.addObject().put("type", "text").put("text", objectMapper.writeValueAsString(value));
             return success(id, result);
