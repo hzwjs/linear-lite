@@ -728,82 +728,82 @@ function onClickOutsideDisplay(event: MouseEvent) {
       </div>
     </div>
 
-    <TaskStatusNavigation
-      v-if="!isEditorOpen"
-      :statistics="store.statusStatistics"
-      :selected-statuses="store.filterStatusList"
-      :loading="store.isLoading"
-      @select="store.filterStatusList = $event == null ? [] : [$event]"
-    />
-
-    <div v-if="!isEditorOpen && hasActiveFilters" class="filter-bar">
-      <div class="filter-bar-conditions">
-        <div v-if="store.searchQuery.trim()" class="filter-condition">
-          <TypeIcon class="filter-condition-icon" />
-          <span class="filter-condition-dim">{{ t('common.title') }}</span>
-          <span class="filter-condition-op">{{ t('boardView.filterOp.contains') }}</span>
-          <span class="filter-condition-value">{{ store.searchQuery.trim() }}</span>
-          <button
-            type="button"
-            class="filter-condition-remove"
-            :aria-label="t('boardView.clearTitleFilter')"
-            @click="store.searchQuery = ''"
-          >
-            <X class="icon-12" />
+    <div v-if="!isEditorOpen" class="status-filter-row">
+      <TaskStatusNavigation
+        :statistics="store.statusStatistics"
+        :selected-statuses="store.filterStatusList"
+        :loading="store.isLoading"
+        @select="store.filterStatusList = $event == null ? [] : [$event]"
+      />
+      <div v-if="hasActiveFilters" class="filter-bar">
+        <div class="filter-bar-conditions">
+          <div v-if="store.searchQuery.trim()" class="filter-condition">
+            <TypeIcon class="filter-condition-icon" />
+            <span class="filter-condition-dim">{{ t('common.title') }}</span>
+            <span class="filter-condition-op">{{ t('boardView.filterOp.contains') }}</span>
+            <span class="filter-condition-value">{{ store.searchQuery.trim() }}</span>
+            <button
+              type="button"
+              class="filter-condition-remove"
+              :aria-label="t('boardView.clearTitleFilter')"
+              @click="store.searchQuery = ''"
+            >
+              <X class="icon-12" />
+            </button>
+          </div>
+          <div v-if="store.filterStatusList.length > 0" class="filter-condition">
+            <Circle class="filter-condition-icon" />
+            <span class="filter-condition-dim">{{ t('common.status') }}</span>
+            <span class="filter-condition-op">{{ t('boardView.filterOp.includeAnyOf') }}</span>
+            <span class="filter-condition-value">{{ statusFilterLabel }}</span>
+            <button type="button" class="filter-condition-remove" @click="store.filterStatusList = []">
+              <X class="icon-12" />
+            </button>
+          </div>
+          <div v-if="store.filterPriorityList.length > 0" class="filter-condition">
+            <BarChart3 class="filter-condition-icon" />
+            <span class="filter-condition-dim">{{ t('common.priority') }}</span>
+            <span class="filter-condition-op">{{ t('boardView.filterOp.includeAnyOf') }}</span>
+            <span class="filter-condition-value">{{ priorityFilterLabel }}</span>
+            <button type="button" class="filter-condition-remove" @click="store.filterPriorityList = []">
+              <X class="icon-12" />
+            </button>
+          </div>
+          <div v-if="store.filterAssigneeList.length > 0" class="filter-condition">
+            <UserIcon class="filter-condition-icon" />
+            <span class="filter-condition-dim">{{ t('common.assignee') }}</span>
+            <span class="filter-condition-op">{{ t('boardView.filterOp.includeAnyOf') }}</span>
+            <span class="filter-condition-value">{{ assigneeFilterLabel }}</span>
+            <button type="button" class="filter-condition-remove" @click="clearAssigneeFilter">
+              <X class="icon-12" />
+            </button>
+          </div>
+          <div v-if="store.filterLabelIds.length > 0" class="filter-condition">
+            <Tag class="filter-condition-icon" />
+            <span class="filter-condition-dim">{{ t('boardView.labels') }}</span>
+            <span class="filter-condition-op">{{ t('boardView.filterOp.includeAnyOf') }}</span>
+            <span class="filter-condition-value filter-condition-labels">
+              <span
+                v-for="lid in store.filterLabelIds.slice(0, 3)"
+                :key="lid"
+                class="filter-label-dot"
+                :style="{ background: labelColor(lid) }"
+              />
+              <span>{{ store.filterLabelIds.length }} {{ t('boardView.labelsCount') }}</span>
+            </span>
+            <button type="button" class="filter-condition-remove" @click="store.filterLabelIds = []">
+              <X class="icon-12" />
+            </button>
+          </div>
+          <button type="button" class="filter-add-more" @click="filterPopoverOpen = true">
+            <Plus class="icon-12" />
           </button>
         </div>
-        <div v-if="store.filterStatusList.length > 0" class="filter-condition">
-          <Circle class="filter-condition-icon" />
-          <span class="filter-condition-dim">{{ t('common.status') }}</span>
-          <span class="filter-condition-op">{{ t('boardView.filterOp.includeAnyOf') }}</span>
-          <span class="filter-condition-value">{{ statusFilterLabel }}</span>
-          <button type="button" class="filter-condition-remove" @click="store.filterStatusList = []">
-            <X class="icon-12" />
+        <div class="filter-bar-actions">
+          <button type="button" class="filter-bar-clear" @click="clearAllFilters">
+            {{ t('boardView.clearFilters') }}
           </button>
         </div>
-        <div v-if="store.filterPriorityList.length > 0" class="filter-condition">
-          <BarChart3 class="filter-condition-icon" />
-          <span class="filter-condition-dim">{{ t('common.priority') }}</span>
-          <span class="filter-condition-op">{{ t('boardView.filterOp.includeAnyOf') }}</span>
-          <span class="filter-condition-value">{{ priorityFilterLabel }}</span>
-          <button type="button" class="filter-condition-remove" @click="store.filterPriorityList = []">
-            <X class="icon-12" />
-          </button>
-        </div>
-        <div v-if="store.filterAssigneeList.length > 0" class="filter-condition">
-          <UserIcon class="filter-condition-icon" />
-          <span class="filter-condition-dim">{{ t('common.assignee') }}</span>
-          <span class="filter-condition-op">{{ t('boardView.filterOp.includeAnyOf') }}</span>
-          <span class="filter-condition-value">{{ assigneeFilterLabel }}</span>
-          <button type="button" class="filter-condition-remove" @click="clearAssigneeFilter">
-            <X class="icon-12" />
-          </button>
-        </div>
-        <div v-if="store.filterLabelIds.length > 0" class="filter-condition">
-          <Tag class="filter-condition-icon" />
-          <span class="filter-condition-dim">{{ t('boardView.labels') }}</span>
-          <span class="filter-condition-op">{{ t('boardView.filterOp.includeAnyOf') }}</span>
-          <span class="filter-condition-value filter-condition-labels">
-            <span
-              v-for="lid in store.filterLabelIds.slice(0, 3)"
-              :key="lid"
-              class="filter-label-dot"
-              :style="{ background: labelColor(lid) }"
-            />
-            <span>{{ store.filterLabelIds.length }} {{ t('boardView.labelsCount') }}</span>
-          </span>
-          <button type="button" class="filter-condition-remove" @click="store.filterLabelIds = []">
-            <X class="icon-12" />
-          </button>
-        </div>
-        <button type="button" class="filter-add-more" @click="filterPopoverOpen = true">
-          <Plus class="icon-12" />
-        </button>
-      </div>
-      <div class="filter-bar-actions">
-        <button type="button" class="filter-bar-clear" @click="clearAllFilters">
-          {{ t('boardView.clearFilters') }}
-        </button>
       </div>
     </div>
 
@@ -976,23 +976,37 @@ function onClickOutsideDisplay(event: MouseEvent) {
   flex-shrink: 0;
 }
 
+.status-filter-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.status-filter-row :deep(.status-navigation) {
+  flex: 0 1 auto;
+  min-width: 0;
+  border-bottom: 0;
+}
 .filter-bar {
   display: flex;
-  justify-content: space-between;
+  flex: 0 1 auto;
   align-items: center;
-  padding: 8px 12px;
-  background: var(--color-bg-subtle);
-  border-bottom: 1px solid var(--color-border-subtle);
+  gap: 8px;
+  min-width: 0;
+  padding-right: 20px;
 }
 .filter-bar-conditions {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  min-width: 0;
+  overflow-x: auto;
 }
 .filter-condition {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
+  white-space: nowrap;
   gap: 6px;
   padding: 4px 8px 4px 10px;
   background: var(--color-bg-base);
@@ -1050,6 +1064,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
 }
 .filter-add-more {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   width: 24px;
@@ -1068,10 +1083,12 @@ function onClickOutsideDisplay(event: MouseEvent) {
 }
 .filter-bar-actions {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 8px;
 }
 .filter-bar-clear {
+  white-space: nowrap;
   padding: 4px 8px;
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
