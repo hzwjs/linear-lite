@@ -325,6 +325,7 @@ const zhCN = {
   boardView: {
     statusNavigation: '任务状态导航',
     allStatuses: '全部状态',
+    emptyColumn: '暂无任务',
     newIssue: '新建任务',
     searchIssues: '搜索任务编号、序号、标题和描述...',
     allIssues: '全部任务',

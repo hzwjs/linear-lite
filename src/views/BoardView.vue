@@ -146,6 +146,10 @@ const activeFilterCount = computed(() => {
   return n
 })
 
+// 看板按状态分组时，列头已经展示状态与数量，不再重复显示状态导航。
+const showStatusNavigation = computed(
+  () => !(viewModeStore.viewType === 'board' && viewModeStore.groupBy === 'status')
+)
 const hasActiveFilters = computed(
   () =>
     store.searchQuery.trim().length > 0 ||
@@ -728,8 +732,9 @@ function onClickOutsideDisplay(event: MouseEvent) {
       </div>
     </div>
 
-    <div v-if="!isEditorOpen" class="status-filter-row">
+    <div v-if="!isEditorOpen && (showStatusNavigation || hasActiveFilters)" class="status-filter-row">
       <TaskStatusNavigation
+        v-if="showStatusNavigation"
         :statistics="store.statusStatistics"
         :selected-statuses="store.filterStatusList"
         :loading="store.isLoading"
@@ -994,6 +999,10 @@ function onClickOutsideDisplay(event: MouseEvent) {
   gap: 8px;
   min-width: 0;
   padding-right: 20px;
+}
+.filter-bar:first-child {
+  min-height: 44px;
+  padding-left: 20px;
 }
 .filter-bar-conditions {
   display: flex;

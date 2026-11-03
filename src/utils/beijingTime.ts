@@ -49,3 +49,18 @@ export function formatRelativeTime(
   if (days < 30) return t(`${prefix}.daysAgo`, { count: days })
   return t(`${prefix}.monthsAgo`, { count: Math.floor(days / 30) })
 }
+
+const BEIJING_YEAR_FORMATTER = new Intl.DateTimeFormat('zh-CN', { timeZone: BEIJING_TIME_ZONE, year: 'numeric' })
+const BEIJING_MONTH_DAY_FORMATTER = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: BEIJING_TIME_ZONE,
+  month: 'long',
+  day: 'numeric'
+})
+
+/** 紧凑日期：今年只显示月日，跨年才带年份；用于卡片等窄空间。 */
+export function formatBeijingShortDate(value: string | number, now = Date.now()): string {
+  const date = new Date(value)
+  return BEIJING_YEAR_FORMATTER.format(date) === BEIJING_YEAR_FORMATTER.format(new Date(now))
+    ? BEIJING_MONTH_DAY_FORMATTER.format(date)
+    : BEIJING_DATE_FORMATTER.format(date)
+}

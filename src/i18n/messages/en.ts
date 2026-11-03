@@ -325,6 +325,7 @@ const en = {
   boardView: {
     statusNavigation: 'Status navigation',
     allStatuses: 'All statuses',
+    emptyColumn: 'No issues',
     newIssue: 'New issue',
     searchIssues: 'Search task IDs, numbers, titles, and descriptions...',
     allIssues: 'All issues',

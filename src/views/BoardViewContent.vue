@@ -36,6 +36,7 @@ import { useViewModeStore } from '../store/viewModeStore'
 import { useOverlayStore } from '../store/overlayStore'
 import { useIssuePanelStore } from '../store/issuePanelStore'
 import TaskCard from '../components/TaskCard.vue'
+import TaskStatusIcon from '../components/TaskStatusIcon.vue'
 import TaskListView from '../components/TaskListView.vue'
 import type { User } from '../types/domain'
 import type { Status, Task } from '../types/domain'
@@ -444,7 +445,11 @@ onUnmounted(() => {
             :class="{ 'column-first': idx === 0 }"
           >
             <div class="column-header">
-              <h3>{{ group.label }} <span>{{ group.tasks.length }}</span></h3>
+              <h3>
+                <TaskStatusIcon v-if="viewModeStore.groupBy === 'status'" :status="group.key as Status" :size="14" />
+                <span class="column-title">{{ group.label }}</span>
+                <span class="column-count">{{ group.tasks.length }}</span>
+              </h3>
               <button
                 type="button"
                 class="column-add-btn"
@@ -456,6 +461,7 @@ onUnmounted(() => {
               </button>
             </div>
             <div class="column-list">
+              <div v-if="group.tasks.length === 0" class="column-empty">{{ t('boardView.emptyColumn') }}</div>
               <TaskCard
                 v-for="task in group.tasks"
                 :key="task.id"
@@ -610,68 +616,85 @@ onUnmounted(() => {
   flex-direction: column;
   background: var(--color-bg-base);
 }
+/* 固定泳道宽度，列数超出视口时横向滚动 */
 .board-columns {
+  --board-column-width: 300px;
   display: flex;
-  gap: 0;
+  gap: 12px;
   height: 100%;
-  background: transparent;
+  padding: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--color-bg-subtle);
+  scrollbar-width: thin;
 }
 .column {
-  flex: 1;
+  flex: 0 0 var(--board-column-width);
+  width: var(--board-column-width);
   display: flex;
   flex-direction: column;
-  min-width: 0;
-  padding: 0 12px;
-  border-left: 1px solid var(--color-border-subtle);
-  transition: background-color var(--transition-fast);
-}
-.column-first {
-  border-left: none;
-}
-.column:hover {
-  background: var(--color-bg-hover);
+  min-height: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-muted);
 }
 .column-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--color-border-subtle);
-  margin-bottom: 8px;
+  gap: 8px;
+  padding: 10px 10px 8px 12px;
 }
 .column-header h3 {
   margin: 0;
+  min-width: 0;
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+.column-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.column-count {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-normal, 400);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 .column-add-btn {
-  padding: 2px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   font-size: var(--font-size-subhead);
   line-height: 1;
   color: var(--color-text-muted);
   background: transparent;
-  border: 1px solid var(--color-border-subtle);
+  border: 0;
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 .column-add-btn:hover {
-  color: var(--color-accent);
-  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  background: var(--color-bg-active);
 }
-.column-header span {
+.column-empty {
+  padding: 16px 0;
+  text-align: center;
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
-  background: var(--color-bg-muted);
-  padding: 2px 5px;
-  border-radius: var(--radius-xs);
 }
 .column-list {
   flex: 1;
+  min-height: 0;
+  padding: 0 8px 8px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
