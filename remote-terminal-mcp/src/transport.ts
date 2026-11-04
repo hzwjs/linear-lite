@@ -1,10 +1,12 @@
 import type { Readable, Writable } from 'node:stream';
 
-export type Profile = {
-  profile_id: string;
-  login_user: string;
-  max_ttl_seconds: number;
-} & ({ public_key_path: string; agent_socket: string; private_key_path?: never } | { private_key_path: string; certificate_path?: string; public_key_path?: never; agent_socket?: never });
+export type ListedProfile = { profile_id: string; login_user: string; max_ttl_seconds: number };
+export type Profile = ListedProfile & (
+  | { public_key_path: string; agent_socket: string; private_key_path?: never; ephemeral?: never }
+  | { private_key_path: string; certificate_path?: string; public_key_path?: never; agent_socket?: never; ephemeral?: never }
+  /** Team mode: a session key and CA-signed certificate held only in memory. */
+  | { ephemeral: { private_key: Buffer; certificate: string }; private_key_path?: never; public_key_path?: never; agent_socket?: never }
+);
 export type Target = {
   target_id: string;
   alias: string;
@@ -14,7 +16,14 @@ export type Target = {
   host_key: string;
   profiles: Profile[];
 };
+export type ListedTarget = Omit<Target, 'profiles'> & { profiles: ListedProfile[] };
 export type Configuration = { targets: Target[] };
+export type ConnectInfo = { target: Target; profile: Profile; afterConnect?: () => Promise<void> };
+/** Where the service learns which servers exist and how to log in to one. */
+export interface TargetSource {
+  list(): Promise<ListedTarget[]>;
+  connectInfo(targetId: string, profileId: string, ttlSeconds: number, signal: AbortSignal): Promise<ConnectInfo>;
+}
 export type TerminalOptions = { pty: boolean; rows?: number; cols?: number };
 export interface RemoteChannel {
   stdout: Readable;

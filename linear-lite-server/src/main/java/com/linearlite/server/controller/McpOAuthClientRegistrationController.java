@@ -34,7 +34,7 @@ import java.util.UUID;
 @ConditionalOnProperty(prefix = "mcp.oauth", name = "enabled", havingValue = "true")
 public class McpOAuthClientRegistrationController {
 
-    private static final Set<String> SCOPES = Set.of("linear-lite:read", "linear-lite:write");
+    private static final Set<String> SCOPES = Set.of("linear-lite:read", "linear-lite:write", "remote-terminal");
 
     private final RegisteredClientRepository clients;
     private final McpOAuthProperties properties;

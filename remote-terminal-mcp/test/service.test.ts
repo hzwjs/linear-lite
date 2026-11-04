@@ -137,9 +137,20 @@ test('connection expiry releases its channel and rejects the expired handle', as
 
 test('shutdown aborts authentication and closes late connections without publishing a handle', async () => {
   let aborted = false;
-  const service = new TerminalService(configuration(), { connect: async (_target, _profile, signal) => new Promise((_resolve, reject) => signal!.addEventListener('abort', () => { aborted = true; reject(new Error('/private/socket')); }, { once: true })) });
+  let started!: () => void; const authenticating = new Promise<void>(resolve => { started = resolve; });
+  const service = new TerminalService(configuration(), { connect: async (_target, _profile, signal) => new Promise((_resolve, reject) => { started(); signal!.addEventListener('abort', () => { aborted = true; reject(new Error('/private/socket')); }, { once: true }); }) });
   const opening = service.call('open_session', { target_id: 'test', profile_id: 'ops', ttl_seconds: 30 });
+  await authenticating;
   service.close(); await assert.rejects(opening, { message: 'SSH connection could not be opened' }); assert.equal(aborted, true);
+});
+
+test('shutdown before authentication starts never opens a connection', async () => {
+  let connects = 0;
+  const service = new TerminalService(configuration(), { connect: async () => { connects++; throw new Error('unreachable'); } });
+  const opening = service.call('open_session', { target_id: 'test', profile_id: 'ops', ttl_seconds: 30 });
+  service.close();
+  await assert.rejects(opening, { message: 'SSH connection could not be opened' });
+  assert.equal(connects, 0);
 });
 
 test('closed channels release channel quota on the existing connection', async () => {

@@ -76,6 +76,14 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.fail(HttpStatus.UNAUTHORIZED.value(), e.getMessage()));
     }
 
+    @ExceptionHandler(com.linearlite.server.service.RemoteTerminalRateLimiter.RateLimitedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleRateLimited(
+            com.linearlite.server.service.RemoteTerminalRateLimiter.RateLimitedException e) {
+        return ResponseEntity
+                .status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(ApiResponse.fail(HttpStatus.TOO_MANY_REQUESTS.value(), e.getMessage()));
+    }
+
     @ExceptionHandler(UnprocessableEntityException.class)
     public ResponseEntity<ApiResponse<Void>> handleUnprocessable(UnprocessableEntityException e) {
         return ResponseEntity

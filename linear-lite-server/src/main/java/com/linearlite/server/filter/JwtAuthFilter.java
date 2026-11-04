@@ -45,6 +45,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
     public static final String REQUEST_ATTR_USER_ID = "userId";
+    public static final String REQUEST_ATTR_OAUTH_CLIENT_ID = "oauthClientId";
+    public static final String REMOTE_TERMINAL_SCOPE = "remote-terminal";
+    private static final String REMOTE_TERMINAL_CLIENT_PREFIX = "/api/remote-terminal/";
 
     private final JwtUtil jwtUtil;
     private final ObjectMapper objectMapper;
@@ -97,7 +100,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         boolean mcpRequest = "/mcp".equals(request.getRequestURI());
-        if (mcpRequest && !mcpOAuthProperties.isEnabled()) {
+        boolean remoteTerminalClient = request.getRequestURI().startsWith(REMOTE_TERMINAL_CLIENT_PREFIX);
+        if ((mcpRequest || remoteTerminalClient) && !mcpOAuthProperties.isEnabled()) {
             response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
             response.setContentType("application/json;charset=UTF-8");
             ApiResponse<Void> body = ApiResponse.fail(503, "MCP OAuth is not configured.");
@@ -118,10 +122,21 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         try {
             Claims claims = jwtUtil.parseToken(token);
             if (mcpRequest) {
-                Long userId = validateMcpAccessToken(token, claims);
+                Long userId = validateMcpAccessToken(request, token, claims);
                 request.setAttribute(REQUEST_ATTR_USER_ID, userId);
                 request.setAttribute("mcpScopes", extractScopes(claims));
+            } else if (remoteTerminalClient) {
+                // 远程终端客户端接口只接受带 remote-terminal scope 的 OAuth 令牌。
+                Long userId = validateMcpAccessToken(request, token, claims);
+                if (!extractScopes(claims).contains(REMOTE_TERMINAL_SCOPE)) {
+                    throw new IllegalArgumentException("The OAuth token lacks the remote-terminal scope.");
+                }
+                request.setAttribute(REQUEST_ATTR_USER_ID, userId);
             } else {
+                if (claims.get("scope") instanceof Collection<?> scopes && scopes.contains(REMOTE_TERMINAL_SCOPE)) {
+                    // 该 scope 的令牌只能用于上面的客户端接口，不得当作登录令牌访问其余 /api。
+                    throw new IllegalArgumentException("The OAuth token is not valid for this endpoint.");
+                }
                 Long userId = jwtUtil.getUserIdFromClaims(claims);
                 if (userId != null) {
                     request.setAttribute(REQUEST_ATTR_USER_ID, userId);
@@ -138,7 +153,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
     }
 
-    private Long validateMcpAccessToken(String token, Claims claims) {
+    private Long validateMcpAccessToken(HttpServletRequest request, String token, Claims claims) {
         if (!mcpOAuthProperties.getIssuer().equals(claims.getIssuer())
                 || claims.getExpiration() == null
                 || claims.getAudience() == null
@@ -163,6 +178,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             throw new IllegalArgumentException("The OAuth token has no Linear Lite account.");
         }
         extractScopes(claims);
+        request.setAttribute(REQUEST_ATTR_OAUTH_CLIENT_ID, authorization.getRegisteredClientId());
         return userId;
     }
 
@@ -178,7 +194,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         } else {
             throw new IllegalArgumentException("The OAuth token contains no scope claim.");
         }
-        if (!Set.of("linear-lite:read", "linear-lite:write").containsAll(scopes)) {
+        if (!Set.of("linear-lite:read", "linear-lite:write", REMOTE_TERMINAL_SCOPE).containsAll(scopes)) {
             throw new IllegalArgumentException("The OAuth token contains an unsupported scope.");
         }
         return Set.copyOf(scopes);

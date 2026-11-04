@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { githubWebhookUrl, gitlabWebhookUrl, type GitHubRepository, type GitLabRepository } from '../services/api/project'
 import { copyTextToClipboard } from '../utils/clipboard'
 import ProjectLocalExecutionSettings from './ProjectLocalExecutionSettings.vue'
+import ProjectRemoteTerminalSettings from './ProjectRemoteTerminalSettings.vue'
 import {
   ArrowLeft,
   Bell,
@@ -14,6 +15,7 @@ import {
   LoaderCircle,
   MailPlus,
   MonitorCog,
+  ServerCog,
   Trash2,
   Users
 } from 'lucide-vue-next'
@@ -234,6 +236,7 @@ function onClose() {
         <a href="#settings-import" :class="{ 'is-active': activeSection === 'settings-import' }" :aria-current="activeSection === 'settings-import' ? 'location' : undefined" @click.prevent="navigateToSection('settings-import')"><Download aria-hidden="true" />{{ t('projectSettingsModal.importTitle') }}</a>
         <a href="#settings-local-execution" :class="{ 'is-active': activeSection === 'settings-local-execution' }" :aria-current="activeSection === 'settings-local-execution' ? 'location' : undefined" @click.prevent="navigateToSection('settings-local-execution')"><MonitorCog aria-hidden="true" />本地执行</a>
         <a v-if="canDelete" href="#settings-integrations" :class="{ 'is-active': activeSection === 'settings-integrations' }" :aria-current="activeSection === 'settings-integrations' ? 'location' : undefined" @click.prevent="navigateToSection('settings-integrations')"><Gitlab aria-hidden="true" />{{ t('projectSettingsModal.integrationsNav') }}</a>
+        <a v-if="canDelete" href="#settings-remote-terminal" :class="{ 'is-active': activeSection === 'settings-remote-terminal' }" :aria-current="activeSection === 'settings-remote-terminal' ? 'location' : undefined" @click.prevent="navigateToSection('settings-remote-terminal')"><ServerCog aria-hidden="true" />{{ t('remoteTerminal.nav') }}</a>
         <a v-if="canDelete" href="#settings-notifications" :class="{ 'is-active': activeSection === 'settings-notifications' }" :aria-current="activeSection === 'settings-notifications' ? 'location' : undefined" @click.prevent="navigateToSection('settings-notifications')"><Bell aria-hidden="true" />{{ t('projectSettingsModal.emailTitle') }}</a>
         <a v-if="canDelete" class="settings-nav__danger" href="#settings-danger" :class="{ 'is-active': activeSection === 'settings-danger' }" :aria-current="activeSection === 'settings-danger' ? 'location' : undefined" @click.prevent="navigateToSection('settings-danger')"><Trash2 aria-hidden="true" />{{ t('projectSettingsModal.deleteTitle') }}</a>
       </nav>
@@ -312,6 +315,8 @@ function onClose() {
         </section>
 
         <ProjectLocalExecutionSettings :project-id="projectId" :project-name="name" />
+
+        <ProjectRemoteTerminalSettings v-if="canDelete" :project-id="projectId" />
 
         <div v-if="canDelete" id="settings-integrations" class="settings-cluster">
           <div class="cluster-header">

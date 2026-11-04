@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { Configuration, Profile, RemoteChannel, RemoteConnection, RemoteTransport, Target } from './transport.js';
+import type { Configuration, RemoteChannel, RemoteConnection, RemoteTransport, TargetSource } from './transport.js';
+import { StaticSource } from './targets.js';
 import { toolSchemas, type ToolName } from './schemas.js';
+import { ControlledError } from './errors.js';
 
 type Frame = { seq: number; stream: 'stdout' | 'stderr' | 'pty'; bytes: Buffer };
 type Channel = { id: string; remote: RemoteChannel; pty: boolean; frames: Frame[]; next: number; size: number; ended: Set<string>; error: boolean; closed: boolean };
 type Session = { id: string; targetId: string; profileId: string; loginUser: string; expires: number; remote: RemoteConnection; channels: Map<string, Channel>; pendingChannels: number; timer: NodeJS.Timeout };
 const BUFFER_BYTES = 1024 * 1024;
+const controlledLookupErrors = new Set(['Configured server identity is unavailable', 'Connection lifetime exceeds the configured identity limit']);
 
 /** The process owns live SSH handles, not remote operation history or retry policy. */
 export class TerminalService {
@@ -14,26 +17,31 @@ export class TerminalService {
   private readonly connecting = new Set<AbortController>();
   private pendingChannels = 0;
   private closed = false;
-  constructor(private readonly config: Configuration, private readonly transport: RemoteTransport) {}
+  private readonly source: TargetSource;
+  constructor(source: Configuration | TargetSource, private readonly transport: RemoteTransport) {
+    this.source = 'targets' in source ? new StaticSource(source) : source;
+  }
 
   async call(name: ToolName, raw: unknown): Promise<Record<string, unknown>> {
     if (this.closed) throw new Error('Local terminal service is closed');
     switch (name) {
       case 'list_targets': {
         toolSchemas[name].parse(raw);
-        return { targets: this.config.targets.map(target => ({ target_id: target.target_id, alias: target.alias, environment: target.environment,
+        return { targets: (await this.source.list()).map(target => ({ target_id: target.target_id, alias: target.alias, environment: target.environment,
           profiles: target.profiles.map(profile => ({ profile_id: profile.profile_id, login_user: profile.login_user, max_ttl_seconds: profile.max_ttl_seconds })) })) };
       }
       case 'open_session': {
         const args = toolSchemas[name].parse(raw);
-        const { target, profile } = this.lookup(args.target_id, args.profile_id);
-        if (args.ttl_seconds > profile.max_ttl_seconds) throw new Error('Connection lifetime exceeds the configured identity limit');
         if (this.sessions.size + this.connecting.size >= 32) throw new Error('Connection limit reached');
         const controller = new AbortController();
         this.connecting.add(controller);
-        const expires = Date.now() + args.ttl_seconds * 1000;
         let connection: RemoteConnection | undefined;
         try {
+          // Resolving may issue a credential, so lookup errors reach the caller unchanged.
+          const info = await this.resolve(args.target_id, args.profile_id, args.ttl_seconds, controller.signal);
+          const { target, profile } = info;
+          if (controller.signal.aborted) throw new Error('Connection was closed during authentication');
+          const expires = Date.now() + args.ttl_seconds * 1000;
           connection = await this.transport.connect(target, profile, controller.signal);
           if (this.closed || controller.signal.aborted || Date.now() >= expires || !connection.isOpen()) throw new Error('Connection was closed during authentication');
           const id = randomUUID();
@@ -42,8 +50,13 @@ export class TerminalService {
           this.sessions.set(id, { id, targetId: target.target_id, profileId: profile.profile_id, loginUser: profile.login_user, expires, remote: connection, channels: new Map(), pendingChannels: 0, timer });
           connection.onClose(() => this.release(id));
           if (!this.sessions.has(id)) throw new Error('Connection closed before its handle was returned');
+          await info.afterConnect?.().catch(() => {});
           return { session_id: id, target_id: target.target_id, profile_id: profile.profile_id, login_user: profile.login_user, expires_at: new Date(expires).toISOString() };
-        } catch { connection?.close(); throw new Error('SSH connection could not be opened'); }
+        } catch (error) {
+          connection?.close();
+          if (error instanceof ControlledError || (error instanceof Error && controlledLookupErrors.has(error.message))) throw error;
+          throw new Error('SSH connection could not be opened');
+        }
         finally { this.connecting.delete(controller); }
       }
       case 'close_session': {
@@ -160,11 +173,11 @@ export class TerminalService {
     input.on('close', () => channel.ended.add(source));
     input.on('error', () => { channel.error = true; channel.ended.add(source); });
   }
-  private lookup(targetId: string, profileId: string): { target: Target; profile: Profile } {
-    const target = this.config.targets.find(item => item.target_id === targetId);
-    const profile = target?.profiles.find(item => item.profile_id === profileId);
-    if (!target || !profile) throw new Error('Configured server identity is unavailable');
-    return { target, profile };
+  private async resolve(targetId: string, profileId: string, ttlSeconds: number, signal: AbortSignal) {
+    const listed = (await this.source.list()).find(item => item.target_id === targetId)?.profiles.find(item => item.profile_id === profileId);
+    if (!listed) throw new Error('Configured server identity is unavailable');
+    if (ttlSeconds > listed.max_ttl_seconds) throw new Error('Connection lifetime exceeds the configured identity limit');
+    return this.source.connectInfo(targetId, profileId, ttlSeconds, signal);
   }
   private async inputDeadline(session: Session, channel: Channel, operation: () => Promise<void>): Promise<void> {
     let timer: NodeJS.Timeout | undefined;

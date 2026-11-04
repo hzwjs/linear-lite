@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { toolSchemas, type ToolName } from './schemas.js';
 import type { TerminalService } from './service.js';
+import { ControlledError } from './errors.js';
 
 const targetProfile = z.object({
   profile_id: z.string(),
@@ -78,6 +79,7 @@ const controlledServiceErrors = new Set([
 ]);
 
 function safeErrorMessage(error: unknown): string {
+  if (error instanceof ControlledError) return error.message;
   if (error instanceof Error && controlledServiceErrors.has(error.message)) return error.message;
   return 'Remote operation failed; the result may be unknown.';
 }

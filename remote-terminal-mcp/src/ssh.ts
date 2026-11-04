@@ -71,7 +71,12 @@ function sshString(value: Buffer): Buffer {
 async function certificateKeyFor(path: string, privateKey: Buffer, signal?: AbortSignal): Promise<ParsedKey> {
   const details = await stat(path);
   if (!details.isFile() || details.size > 16 * 1024) throw new Error('Invalid certificate file');
-  const [type = '', encoded = ''] = (await readFile(path, { encoding: 'utf8', signal })).trim().split(/\s+/);
+  return certificateKeyFromText(await readFile(path, { encoding: 'utf8', signal }), privateKey);
+}
+
+function certificateKeyFromText(certificate: string, privateKey: Buffer): ParsedKey {
+  if (certificate.length > 16 * 1024) throw new Error('Invalid certificate');
+  const [type = '', encoded = ''] = certificate.trim().split(/\s+/);
   const key = utils.parseKey(privateKey);
   if (key instanceof Error || Array.isArray(key)) throw new Error('Invalid private key');
   const baseType = type.replace(CERT_SUFFIX, '');
@@ -353,7 +358,10 @@ export class SshTransport implements RemoteTransport {
     let hostKey: ParsedKey;
     try {
       hostKey = parsePublicKey(target.host_key);
-      if (profile.private_key_path !== undefined) {
+      if (profile.ephemeral !== undefined) {
+        privateKey = profile.ephemeral.private_key;
+        certificateKey = certificateKeyFromText(profile.ephemeral.certificate, privateKey);
+      } else if (profile.private_key_path !== undefined) {
         privateKey = await privateKeyFor(profile.private_key_path, signal);
         if (profile.certificate_path !== undefined) certificateKey = await certificateKeyFor(profile.certificate_path, privateKey, signal);
       } else selected = await publicKeyFor(profile.public_key_path, signal);

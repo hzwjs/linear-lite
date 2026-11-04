@@ -137,6 +137,76 @@ const en = {
       createFailed: 'Create failed'
     }
   },
+  remoteTerminal: {
+    title: 'Remote terminal',
+    nav: 'Remote servers',
+    description: 'Servers shared by this project. Members get short-lived SSH certificates for the identities you grant; no personal keys are stored on servers.',
+    refresh: 'Refresh',
+    disabled: 'Remote terminal is not enabled on this server: RT_CA_KEK is missing or invalid.',
+    ca: {
+      title: 'Project CA',
+      description: 'Servers trust this CA. The private key never leaves Linear Lite.',
+      create: 'Create CA',
+      rotate: 'Rotate CA',
+      retire: 'Retire old CA',
+      created: 'CA created. Run the access script on each server.',
+      rotated: 'New CA is active. Re-run the access script on every server, then retire the old CA.',
+      retired: 'Old CA retired. Re-run the access script on every server to remove it.',
+      rotateConfirm: 'Rotate the project CA? Servers must run the updated access script before the old CA is retired.',
+      retireConfirm: 'Retire the old CA? Make sure every server has run the latest access script first.',
+      status: { active: 'Active', retiring: 'Retiring', retired: 'Retired' }
+    },
+    target: {
+      title: 'Servers',
+      description: 'Add a server with its verified SSH host key, then add login identities and grant members.',
+      add: 'Add a server',
+      editing: 'Edit server',
+      edit: 'Edit',
+      delete: 'Delete server',
+      save: 'Save server',
+      cancel: 'Cancel',
+      saved: 'Server saved',
+      deleted: 'Server deleted',
+      deleteConfirm: 'Delete {name}? Its identities and grants are removed.',
+      fingerprint: 'host key',
+      port: 'Port',
+      idPlaceholder: 'target_id (letters, digits, - _)',
+      aliasPlaceholder: 'Name',
+      environmentPlaceholder: 'Environment, e.g. prod',
+      hostPlaceholder: 'Host or IP',
+      hostKeyPlaceholder: 'ssh-ed25519 AAAA… (full host public key)',
+      hostKeyHint: 'Get it from the server console (/etc/ssh/ssh_host_ed25519_key.pub) and compare the fingerprint. A changed key makes members\' clients stop until they confirm it.'
+    },
+    profile: {
+      add: 'Add identity',
+      saved: 'Identity saved',
+      deleted: 'Identity deleted',
+      delete: 'Delete identity',
+      deleteConfirm: 'Delete the identity {name}? Its grants are removed.',
+      idPlaceholder: 'profile_id',
+      userPlaceholder: 'Login account',
+      ttl: 'Max connection seconds',
+      noPty: 'no PTY'
+    },
+    grants: { label: 'Members allowed to use this identity', saved: 'Grants updated' },
+    script: {
+      show: 'Access script',
+      title: 'Access script for {target}',
+      description: 'Review it, then run it once as root on the server. It only adds this project\'s CA and principals; existing key logins keep working.',
+      copy: 'Copy',
+      copied: 'Script copied',
+      copyFailed: 'Copy failed; select the script manually'
+    },
+    records: {
+      title: 'Records',
+      show: 'Show',
+      hide: 'Hide',
+      certificates: 'Issued certificates',
+      changes: 'Configuration changes',
+      empty: 'Nothing yet'
+    },
+    errors: { loadFailed: 'Failed to load remote terminal settings', actionFailed: 'Operation failed' }
+  },
   projectSettingsModal: {
     title: 'Project settings',
     backToProject: 'Back to project',

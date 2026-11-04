@@ -137,6 +137,76 @@ const zhCN = {
       createFailed: '创建失败'
     }
   },
+  remoteTerminal: {
+    title: '远程终端',
+    nav: '远程服务器',
+    description: '本项目共享的服务器配置。成员按你授予的身份获取短期 SSH 证书，服务器上不再存放个人公钥。',
+    refresh: '刷新',
+    disabled: '服务端未启用远程终端：RT_CA_KEK 缺失或无效。',
+    ca: {
+      title: '项目 CA',
+      description: '服务器信任此 CA；CA 私钥不会离开 Linear Lite。',
+      create: '创建 CA',
+      rotate: '轮换 CA',
+      retire: '结束旧 CA',
+      created: 'CA 已创建，请在每台服务器上执行接入脚本。',
+      rotated: '新 CA 已生效。请在所有服务器重新执行接入脚本，然后结束旧 CA。',
+      retired: '旧 CA 已结束。请在所有服务器重新执行接入脚本以移除它。',
+      rotateConfirm: '确定轮换项目 CA？结束旧 CA 前，所有服务器都需要执行更新后的接入脚本。',
+      retireConfirm: '确定结束旧 CA？请先确认所有服务器已执行最新接入脚本。',
+      status: { active: '使用中', retiring: '轮换中', retired: '已结束' }
+    },
+    target: {
+      title: '服务器',
+      description: '录入服务器及其核对过的 SSH 主机公钥，再添加登录身份并授权成员。',
+      add: '添加服务器',
+      editing: '编辑服务器',
+      edit: '编辑',
+      delete: '删除服务器',
+      save: '保存服务器',
+      cancel: '取消',
+      saved: '服务器已保存',
+      deleted: '服务器已删除',
+      deleteConfirm: '确定删除 {name}？其登录身份与授权会一并移除。',
+      fingerprint: '主机指纹',
+      port: '端口',
+      idPlaceholder: 'target_id（字母、数字、- _）',
+      aliasPlaceholder: '名称',
+      environmentPlaceholder: '环境，如 prod',
+      hostPlaceholder: '主机名或 IP',
+      hostKeyPlaceholder: 'ssh-ed25519 AAAA…（完整主机公钥）',
+      hostKeyHint: '在服务器控制台取得（/etc/ssh/ssh_host_ed25519_key.pub）并核对指纹。主机公钥变更后，成员的客户端会停止连接，直到本人确认。'
+    },
+    profile: {
+      add: '添加身份',
+      saved: '身份已保存',
+      deleted: '身份已删除',
+      delete: '删除身份',
+      deleteConfirm: '确定删除身份 {name}？其授权会一并移除。',
+      idPlaceholder: 'profile_id',
+      userPlaceholder: '登录账号',
+      ttl: '最长连接秒数',
+      noPty: '无 PTY'
+    },
+    grants: { label: '允许使用该身份的成员', saved: '授权已更新' },
+    script: {
+      show: '接入脚本',
+      title: '{target} 的接入脚本',
+      description: '请先审阅，再在服务器上以 root 执行一次。它只会加入本项目的 CA 与 principal，原有的公钥登录不受影响。',
+      copy: '复制',
+      copied: '脚本已复制',
+      copyFailed: '复制失败，请手动选择脚本'
+    },
+    records: {
+      title: '记录',
+      show: '展开',
+      hide: '收起',
+      certificates: '证书签发记录',
+      changes: '配置变更',
+      empty: '暂无记录'
+    },
+    errors: { loadFailed: '加载远程终端设置失败', actionFailed: '操作失败' }
+  },
   projectSettingsModal: {
     title: '项目设置',
     backToProject: '返回项目',

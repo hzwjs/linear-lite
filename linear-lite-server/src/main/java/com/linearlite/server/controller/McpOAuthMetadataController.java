@@ -29,7 +29,7 @@ public class McpOAuthMetadataController {
         Map<String, Object> metadata = Map.of(
                 "resource", properties.getResource(),
                 "authorization_servers", List.of(properties.getIssuer()),
-                "scopes_supported", List.of("linear-lite:read", "linear-lite:write"),
+                "scopes_supported", List.of("linear-lite:read", "linear-lite:write", "remote-terminal"),
                 "bearer_methods_supported", List.of("header"));
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.maxAge(5, TimeUnit.MINUTES).cachePublic())

@@ -18,7 +18,7 @@ import java.util.List;
 @ConditionalOnProperty(prefix = "mcp.oauth", name = "enabled", havingValue = "true")
 public class McpOAuthUiController {
 
-    private static final List<String> SUPPORTED_SCOPES = List.of("linear-lite:read", "linear-lite:write");
+    private static final List<String> SUPPORTED_SCOPES = List.of("linear-lite:read", "linear-lite:write", "remote-terminal");
     private final RegisteredClientRepository clients;
 
     public McpOAuthUiController(RegisteredClientRepository clients) {
@@ -88,9 +88,11 @@ public class McpOAuthUiController {
     private static String scopeList(List<String> scopes) {
         StringBuilder result = new StringBuilder();
         for (String scope : scopes) {
-            String label = "linear-lite:read".equals(scope)
-                    ? "读取项目、任务与文档"
-                    : "创建项目、任务、评论和文档；更新任务与文档";
+            String label = switch (scope) {
+                case "linear-lite:read" -> "读取项目、任务与文档";
+                case "remote-terminal" -> "读取你被授权的远程服务器目录，并为其申请短期 SSH 登录证书";
+                default -> "创建项目、任务、评论和文档；更新任务与文档";
+            };
             result.append("<li>").append(label).append("</li>");
         }
         return result.toString();

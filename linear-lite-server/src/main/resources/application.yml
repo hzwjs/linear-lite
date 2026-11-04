@@ -76,6 +76,11 @@ mcp:
     resource: ${MCP_OAUTH_RESOURCE:https://linearlite.eobua.cn/mcp}
     token-ttl-seconds: ${MCP_OAUTH_TOKEN_TTL_SECONDS:2592000}
 
+# 远程终端：项目 SSH CA 私钥的加密密钥（32 字节 Base64）；缺失时该功能整体不可用，不降级为明文。
+remote-terminal:
+  ca-kek: ${RT_CA_KEK:}
+  certificate-rate-per-minute: ${RT_CERT_RATE_PER_MINUTE:30}
+
 collaboration:
   internal-key: ${COLLABORATION_INTERNAL_KEY:}
   server-url: ${COLLABORATION_SERVER_URL:http://127.0.0.1:9091}

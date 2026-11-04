@@ -138,7 +138,7 @@ public class McpOAuthServerConfiguration {
                                     metadata.claim("registration_endpoint", properties.getIssuer() + "/oauth2/register");
                                     metadata.claim("token_endpoint_auth_methods_supported", List.of("none"));
                                     metadata.claim("code_challenge_methods_supported", List.of("S256"));
-                                    metadata.claim("scopes_supported", List.of("linear-lite:read", "linear-lite:write"));
+                                    metadata.claim("scopes_supported", List.of("linear-lite:read", "linear-lite:write", "remote-terminal"));
                                     metadata.claim("grant_types_supported", List.of("authorization_code", "refresh_token"));
                                     metadata.claim("revocation_endpoint_auth_methods_supported", List.of("none"));
                                     metadata.claims(claims -> {
