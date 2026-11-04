@@ -105,7 +105,8 @@ function applyBoardSnapshot(snap: ProjectBoardSnapshot) {
     store.filterPriorityList = [...snap.filters.filterPriorityList]
     store.filterAssigneeList = [...snap.filters.filterAssigneeList]
     store.filterLabelIds = [...snap.filters.filterLabelIds]
-    viewModeStore.hydrateViewConfig(snap.view)
+    // 看板/列表/甘特模式为全局偏好：切换项目或重新登录时沿用上次选择，不被项目快照覆盖
+    viewModeStore.hydrateViewConfig({ ...snap.view, layout: viewModeStore.viewConfig.layout })
   } finally {
     applyingBoardPrefs.value = false
   }

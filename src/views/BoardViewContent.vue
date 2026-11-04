@@ -435,7 +435,7 @@ onUnmounted(() => {
         {{ t('boardView.clearFilters') }}
       </button>
     </div>
-    <div v-else class="workspace-shell" :class="{ 'workspace-shell--list': viewType === 'list' }">
+    <div v-else class="workspace-shell" :class="{ 'workspace-shell--list': viewType === 'list', 'workspace-shell--board': viewType === 'board' }">
       <section class="workspace-primary" tabindex="0" @keydown="onWorkspaceKeydown">
         <div v-if="viewType === 'board'" class="board-columns">
           <div
@@ -581,9 +581,11 @@ onUnmounted(() => {
   border-radius: var(--radius-lg);
   background: var(--color-bg-base);
 }
-.workspace-shell--list {
+.workspace-shell--list,
+.workspace-shell--board {
   border: none;
   border-radius: 0;
+  background: transparent;
 }
 .workspace-inline-editor {
   flex: 1;
@@ -622,10 +624,10 @@ onUnmounted(() => {
   display: flex;
   gap: 12px;
   height: 100%;
-  padding: 12px;
+  padding: 4px 0 0;
   overflow-x: auto;
   overflow-y: hidden;
-  background: var(--color-bg-subtle);
+  background: transparent;
   scrollbar-width: thin;
 }
 .column {
