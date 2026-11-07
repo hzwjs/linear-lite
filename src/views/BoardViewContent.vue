@@ -36,6 +36,7 @@ import { useViewModeStore } from '../store/viewModeStore'
 import { useOverlayStore } from '../store/overlayStore'
 import { useIssuePanelStore } from '../store/issuePanelStore'
 import TaskCard from '../components/TaskCard.vue'
+import TaskCardPreview from '../components/TaskCardPreview.vue'
 import TaskStatusIcon from '../components/TaskStatusIcon.vue'
 import TaskListView from '../components/TaskListView.vue'
 import type { User } from '../types/domain'
@@ -462,16 +463,20 @@ onUnmounted(() => {
             </div>
             <div class="column-list">
               <div v-if="group.tasks.length === 0" class="column-empty">{{ t('boardView.emptyColumn') }}</div>
-              <TaskCard
+              <TaskCardPreview
                 v-for="task in group.tasks"
                 :key="task.id"
                 :task="task"
-                :visible-properties="viewModeStore.visibleProperties"
-                :selected="issuePanelStore.selectedTaskId === task.id"
-                :opening="openingTaskId === task.id"
-                @click="openEditEditor"
-                @transition="(id, status) => store.transitionTask(id, status)"
-              />
+              >
+                <TaskCard
+                  :task="task"
+                  :visible-properties="viewModeStore.visibleProperties"
+                  :selected="issuePanelStore.selectedTaskId === task.id"
+                  :opening="openingTaskId === task.id"
+                  @click="openEditEditor"
+                  @transition="(id, status) => store.transitionTask(id, status)"
+                />
+              </TaskCardPreview>
             </div>
           </div>
         </div>
