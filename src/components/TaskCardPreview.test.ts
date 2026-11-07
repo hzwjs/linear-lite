@@ -14,6 +14,41 @@ afterEach(() => {
 })
 
 describe('TaskCardPreview', () => {
+  it('保留描述中的列表和文字样式', async () => {
+    vi.useFakeTimers()
+    const description = JSON.stringify([
+      { id: 'one', type: 'bulletListItem', props: {}, content: [{ type: 'text', text: '短信服务', styles: { bold: true } }], children: [] },
+      { id: 'two', type: 'bulletListItem', props: {}, content: [{ type: 'text', text: 'OSS', styles: {} }], children: [] },
+      { id: 'three', type: 'numberedListItem', props: {}, content: [{ type: 'text', text: '实名认证', styles: {} }], children: [] }
+    ])
+    vi.spyOn(taskApi, 'get').mockResolvedValue({ ...task, description })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp({ render: () => h(TaskCardPreview, { task }, () => h('div', '卡片')) })
+    app.use(i18n).mount(host)
+    host.firstElementChild!.dispatchEvent(new MouseEvent('mouseenter'))
+    await vi.advanceTimersByTimeAsync(400)
+    const preview = document.querySelector('.preview-description')!
+    expect(Array.from(preview.querySelectorAll('ul > li')).map(item => item.textContent)).toEqual(['短信服务', 'OSS'])
+    expect(preview.querySelector('ul > li strong')?.textContent).toBe('短信服务')
+    expect(preview.querySelector('ol > li')?.textContent).toBe('实名认证')
+    app.unmount()
+  })
+
+  it('展示块格式描述的文字，而非结构数据', async () => {
+    vi.useFakeTimers()
+    const description = JSON.stringify([{ id: 'block-1', type: 'paragraph', props: {}, content: [{ type: 'text', text: '基于开发环境盘点依赖' }], children: [] }])
+    vi.spyOn(taskApi, 'get').mockResolvedValue({ ...task, description })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp({ render: () => h(TaskCardPreview, { task }, () => h('div', '卡片')) })
+    app.use(i18n).mount(host)
+    host.firstElementChild!.dispatchEvent(new MouseEvent('mouseenter'))
+    await vi.advanceTimersByTimeAsync(400)
+    expect(document.querySelector('.preview-description')?.textContent).toBe('基于开发环境盘点依赖')
+    app.unmount()
+  })
+
   it('等待 400 毫秒后读取详情，滚动时关闭', async () => {
     vi.useFakeTimers()
     const get = vi.spyOn(taskApi, 'get').mockResolvedValue(task)

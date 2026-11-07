@@ -6,6 +6,7 @@ import { taskApi } from '../services/api/task'
 import { assigneeDisplayLabel } from '../utils/taskAssigneeDisplay'
 import { formatBeijingDate } from '../utils/beijingTime'
 import { getStatusLabel } from '../utils/enumLabels'
+import { renderBody } from '../utils/blockNoteHtml'
 import { renderMarkdown } from '../utils/markdown'
 import TaskStatusIcon from './TaskStatusIcon.vue'
 
@@ -25,9 +26,7 @@ const PANEL_WIDTH = 340
 
 const description = computed(() => {
   if (!detail.value?.description) return ''
-  const template = document.createElement('template')
-  template.innerHTML = renderMarkdown(detail.value.description)
-  return (template.content.textContent ?? '').trim()
+  return renderBody(detail.value.description, renderMarkdown)
 })
 
 function close() {
@@ -102,16 +101,22 @@ onBeforeUnmount(close)
       @mouseenter="keepOpen"
       @mouseleave="scheduleClose"
     >
-      <div class="preview-id">{{ detail.id }}</div>
-      <div class="preview-title">{{ detail.title }}</div>
-      <div class="preview-fields">
-        <span>{{ t('common.status') }}</span><span class="preview-status"><TaskStatusIcon :status="detail.status" :size="14" />{{ getStatusLabel(detail.status) }}</span>
-        <span>{{ t('common.assignee') }}</span><span>{{ assigneeDisplayLabel(detail, t('common.unassigned')) }}</span>
-        <span>{{ t('fieldLabel.progressPercent') }}</span><span>{{ detail.progressPercent }}%</span>
-        <template v-if="detail.plannedStartDate != null"><span>{{ t('common.plannedStartDate') }}</span><span>{{ formatBeijingDate(detail.plannedStartDate) }}</span></template>
-        <template v-if="detail.dueDate != null"><span>{{ t('common.dueDate') }}</span><span>{{ formatBeijingDate(detail.dueDate) }}</span></template>
+      <div class="preview-heading">
+        <span class="preview-title">{{ detail.title }}</span>
+        <span class="preview-id">{{ detail.id }}</span>
       </div>
-      <p v-if="description" class="preview-description">{{ description }}</p>
+      <div class="preview-fields">
+        <div class="preview-field-row">
+          <span class="preview-status"><TaskStatusIcon :status="detail.status" :size="14" />{{ getStatusLabel(detail.status) }}</span>
+          <span><span class="preview-label">{{ t('common.assignee') }}</span> {{ assigneeDisplayLabel(detail, t('common.unassigned')) }}</span>
+          <span><span class="preview-label">{{ t('fieldLabel.progressPercent') }}</span> {{ detail.progressPercent }}%</span>
+        </div>
+        <div v-if="detail.plannedStartDate != null || detail.dueDate != null" class="preview-field-row">
+          <span v-if="detail.plannedStartDate != null"><span class="preview-label">{{ t('common.plannedStartDate') }}</span> {{ formatBeijingDate(detail.plannedStartDate) }}</span>
+          <span v-if="detail.dueDate != null"><span class="preview-label">{{ t('common.dueDate') }}</span> {{ formatBeijingDate(detail.dueDate) }}</span>
+        </div>
+      </div>
+      <div v-if="description" class="preview-description" v-html="description" />
     </aside>
   </Teleport>
 </template>
@@ -132,9 +137,16 @@ onBeforeUnmount(close)
   color: var(--color-text-primary);
 }
 .preview-id { color: var(--color-text-muted); font-size: var(--font-size-xs); }
-.preview-title { margin-top: 4px; font-weight: var(--font-weight-medium); overflow-wrap: anywhere; }
-.preview-fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin-top: 12px; font-size: var(--font-size-xs); }
-.preview-fields > span:nth-child(odd) { color: var(--color-text-muted); }
+.preview-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.preview-title { font-weight: var(--font-weight-medium); overflow-wrap: anywhere; }
+.preview-fields { display: grid; gap: 4px; margin-top: 8px; font-size: var(--font-size-xs); }
+.preview-field-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.preview-label { color: var(--color-text-muted); }
 .preview-status { display: inline-flex; align-items: center; gap: 5px; }
-.preview-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0; color: var(--color-text-secondary); font-size: var(--font-size-xs); }
+.preview-description { max-height: 120px; overflow: hidden; overflow-wrap: anywhere; margin-top: 8px; color: var(--color-text-secondary); font-size: var(--font-size-xs); }
+.preview-description :deep(p), .preview-description :deep(ul), .preview-description :deep(ol) { margin: 0 0 4px; }
+.preview-description :deep(ul), .preview-description :deep(ol) { padding-left: 20px; }
+.preview-description :deep(ul) { list-style: disc; }
+.preview-description :deep(ol) { list-style: decimal; }
+.preview-description :deep(img) { max-width: 100%; }
 </style>
