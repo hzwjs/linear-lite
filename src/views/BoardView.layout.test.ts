@@ -10,10 +10,10 @@ describe('BoardView toolbar layout', () => {
 
   it('keeps every task view in one toolbar row', () => {
     expect(boardViewSource).toContain('class="board-toolbar board-toolbar--single-row"')
-    expect(boardViewSource).toContain('grid-template-areas: "scope actions spacer search options view"')
+    expect(boardViewSource).toContain('grid-template-areas: "scope actions spacer options view"')
     expect(boardViewSource).toContain('class="toolbar-actions"')
     expect(boardViewSource).toContain('class="toolbar-scope"')
-    expect(boardViewSource).toContain('class="toolbar-search"')
+    expect(boardViewSource).not.toContain('class="toolbar-search"')
     expect(boardViewSource).toContain('class="toolbar-options"')
   })
 

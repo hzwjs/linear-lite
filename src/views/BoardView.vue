@@ -442,10 +442,6 @@ function onNewTaskCommand() {
   openCreateEditor()
 }
 
-function openGlobalSearch() {
-  window.dispatchEvent(new CustomEvent('global-search:open'))
-}
-
 onMounted(() => {
   window.addEventListener('command-palette:new-task', onNewTaskCommand)
   window.addEventListener('click', onClickOutsideFilter, true)
@@ -547,8 +543,6 @@ function onClickOutsideDisplay(event: MouseEvent) {
           <span>{{ t('boardView.newIssue') }}</span>
         </button>
       </div>
-      <div class="toolbar-spacer" aria-hidden="true" />
-      <div class="toolbar-search"><button class="search-input" type="button" @click="openGlobalSearch">{{ t('boardView.searchIssues') }}</button></div>
       <div class="toolbar-options">
         <div ref="filterTriggerRef" class="popover-anchor popover-anchor-right">
           <button
@@ -842,7 +836,7 @@ function onClickOutsideDisplay(event: MouseEvent) {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
-    "scope search view"
+    "scope options view"
     "actions options view";
   align-items: center;
   gap: 8px 12px;
@@ -852,8 +846,8 @@ function onClickOutsideDisplay(event: MouseEvent) {
   border-bottom: 1px solid var(--color-border-subtle);
 }
 .board-toolbar--single-row {
-  grid-template-columns: auto auto minmax(12px, 1fr) minmax(180px, 240px) auto auto;
-  grid-template-areas: "scope actions spacer search options view";
+  grid-template-columns: auto auto minmax(12px, 1fr) auto auto;
+  grid-template-areas: "scope actions spacer options view";
   gap: 8px;
   min-height: 48px;
   padding: 8px 16px;
@@ -872,19 +866,6 @@ function onClickOutsideDisplay(event: MouseEvent) {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 0;
-}
-.toolbar-spacer {
-  grid-area: spacer;
-  display: none;
-  min-width: 0;
-}
-.board-toolbar--single-row .toolbar-spacer {
-  display: block;
-}
-.toolbar-search {
-  grid-area: search;
-  justify-self: end;
   min-width: 0;
 }
 .toolbar-options {
@@ -920,29 +901,6 @@ function onClickOutsideDisplay(event: MouseEvent) {
 .btn-create:hover {
   background: var(--color-accent-hover);
 }
-.search-input {
-  min-width: 180px;
-  width: 260px;
-  max-width: 100%;
-  height: 26px;
-  box-sizing: border-box;
-  background: var(--color-bg-muted);
-  border: 1px solid var(--color-border-subtle);
-  color: var(--color-text-primary);
-  padding: 0 8px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-caption);
-  transition: border-color var(--transition-fast), background var(--transition-fast);
-}
-.search-input::placeholder {
-  color: var(--color-text-secondary);
-}
-.search-input:focus {
-  outline: none;
-  border-color: var(--color-border-strong);
-  background: var(--color-bg-base);
-}
-
 .scope-tabs {
   display: flex;
   gap: 2px;
@@ -1603,7 +1561,6 @@ function onClickOutsideDisplay(event: MouseEvent) {
     grid-template-areas:
       "scope"
       "actions"
-      "search"
       "options"
       "view";
     min-height: auto;
@@ -1616,7 +1573,6 @@ function onClickOutsideDisplay(event: MouseEvent) {
     flex-wrap: wrap;
   }
 
-  .toolbar-search,
   .toolbar-options,
   .toolbar-view {
     justify-self: stretch;
@@ -1625,10 +1581,6 @@ function onClickOutsideDisplay(event: MouseEvent) {
   .toolbar-options,
   .toolbar-view {
     justify-content: flex-start;
-  }
-
-  .search-input {
-    width: 100%;
   }
 
   .display-bar {
