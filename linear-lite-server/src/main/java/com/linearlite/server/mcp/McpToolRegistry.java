@@ -21,6 +21,7 @@ import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.service.ProjectService;
 import com.linearlite.server.service.TaskCommandService;
 import com.linearlite.server.service.TaskActivityService;
+import com.linearlite.server.service.TaskAttachmentService;
 import com.linearlite.server.service.TaskCommentService;
 import com.linearlite.server.service.TaskQueryService;
 import com.linearlite.server.time.BeijingTime;
@@ -62,6 +63,8 @@ public class McpToolRegistry {
     private static final Set<String> PRIORITIES = Set.of("urgent", "high", "medium", "low");
     private static final Pattern IMAGE_REF_PATTERN = Pattern.compile("[A-Za-z0-9_-]{1,64}");
     private static final int MAX_DOCUMENT_IMAGES = 8;
+    private static final int MAX_TASK_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+    private static final int MAX_TASK_ATTACHMENT_BASE64_CHARS = 4 * ((MAX_TASK_ATTACHMENT_BYTES + 2) / 3);
     private static final int MAX_IMAGE_BASE64_CHARS = 8_388_608;
     private static final int MAX_IMAGE_BYTES = 6 * 1024 * 1024;
     private static final int MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024;
@@ -70,7 +73,7 @@ public class McpToolRegistry {
             "list_projects", "get_task", "list_project_tasks", "list_task_changes", "list_task_comments",
             "list_documents", "get_document", "get_document_blocks", "get_member_id");
     private static final Set<String> WRITE_TOOLS = Set.of(
-            "create_project", "create_task", "update_task", "add_task_comment",
+            "create_project", "create_task", "update_task", "add_task_comment", "upload_task_attachment",
             "create_document", "update_document", "patch_document");
 
     private final ObjectMapper objectMapper;
@@ -80,6 +83,7 @@ public class McpToolRegistry {
     private final TaskCommandService taskCommandService;
     private final TaskQueryService taskQueryService;
     private final TaskActivityService taskActivityService;
+    private final TaskAttachmentService taskAttachmentService;
     private final TaskCommentService taskCommentService;
     private final McpTaskCommentImageContentService taskCommentImageContentService;
     private final ProjectDocumentCommandService projectDocumentCommandService;
@@ -99,6 +103,7 @@ public class McpToolRegistry {
             TaskCommandService taskCommandService,
             TaskQueryService taskQueryService,
             TaskActivityService taskActivityService,
+            TaskAttachmentService taskAttachmentService,
             TaskCommentService taskCommentService,
             McpTaskCommentImageContentService taskCommentImageContentService,
             ProjectDocumentCommandService projectDocumentCommandService,
@@ -112,6 +117,7 @@ public class McpToolRegistry {
         this.taskCommandService = taskCommandService;
         this.taskQueryService = taskQueryService;
         this.taskActivityService = taskActivityService;
+        this.taskAttachmentService = taskAttachmentService;
         this.taskCommentService = taskCommentService;
         this.taskCommentImageContentService = taskCommentImageContentService;
         this.projectDocumentCommandService = projectDocumentCommandService;
@@ -138,6 +144,7 @@ public class McpToolRegistry {
         registered.put("patch_document", this::patchDocument);
         registered.put("get_profile", this::getProfile);
         registered.put("get_member_id", this::getMemberId);
+        registered.put("upload_task_attachment", this::uploadTaskAttachment);
         this.handlers = Map.copyOf(registered);
         this.definitions = List.of(
                 getProfileDefinition(),
@@ -156,7 +163,8 @@ public class McpToolRegistry {
                 createDocumentDefinition(),
                 updateDocumentDefinition(),
                 patchDocumentDefinition(),
-                getMemberIdDefinition());
+                getMemberIdDefinition(),
+                uploadTaskAttachmentDefinition());
         this.definitions.forEach(this::addSecurityScheme);
     }
 
@@ -337,6 +345,30 @@ public class McpToolRegistry {
         JsonNode arguments = McpArgumentValidator.object(rawArguments);
         McpArgumentValidator.fields(arguments, "taskKey");
         return taskCommentService.listByTaskKey(McpArgumentValidator.requiredText(arguments, "taskKey", 32), userId);
+    }
+
+    private Object uploadTaskAttachment(JsonNode rawArguments, Long userId) {
+        JsonNode arguments = McpArgumentValidator.object(rawArguments);
+        McpArgumentValidator.fields(arguments, "taskKey", "fileName", "contentType", "dataBase64");
+        String taskKey = McpArgumentValidator.requiredText(arguments, "taskKey", 32);
+        String fileName = McpArgumentValidator.requiredText(arguments, "fileName", 255);
+        String contentType = McpArgumentValidator.requiredText(arguments, "contentType", 128);
+        JsonNode encoded = arguments.get("dataBase64");
+        // 在解码分配内存前限制编码长度；解码后校验文件大小。
+        if (encoded == null || !encoded.isTextual()
+                || encoded.textValue().length() > MAX_TASK_ATTACHMENT_BASE64_CHARS) {
+            throw new McpInvalidParamsException("dataBase64 必须是字符串，文件大小不能超过 10 MiB");
+        }
+        byte[] content;
+        try {
+            content = Base64.getDecoder().decode(encoded.textValue());
+        } catch (IllegalArgumentException e) {
+            throw new McpInvalidParamsException("dataBase64 必须是有效的 Base64");
+        }
+        if (content.length == 0 || content.length > MAX_TASK_ATTACHMENT_BYTES) {
+            throw new McpInvalidParamsException("附件大小必须在 1 字节到 10 MiB 之间");
+        }
+        return taskAttachmentService.upload(taskKey, new McpAttachmentFile(fileName, contentType, content), userId);
     }
 
     private Object getTask(JsonNode rawArguments, Long userId) {
@@ -885,6 +917,17 @@ public class McpToolRegistry {
         choices.add(objectSchema(Map.of("ref", stringSchema("Markdown 图片 ref", 1, 64),
                 "attachmentId", integerSchema("同一任务的已有图片附件 ID")), "ref", "attachmentId"));
         array.set("items", item); return array;
+    }
+
+    private ObjectNode uploadTaskAttachmentDefinition() {
+        return tool("upload_task_attachment", "上传任务附件",
+                "将文件上传为任务附件；单文件大小为 1 字节至 10 MiB，支持图片、PDF 等文件。dataBase64 为文件内容的 Base64 编码，不带 data: 前缀。返回附件 id、taskId、fileName、fileSize、contentType、url 等字段。每次调用创建一个附件。",
+                objectSchema(Map.of(
+                        "taskKey", stringSchema("任务编号，如 ENG-1", 1, 32),
+                        "fileName", stringSchema("附件文件名，含扩展名", 1, 255),
+                        "contentType", stringSchema("文件 MIME 类型，如 application/pdf", 1, 128),
+                        "dataBase64", stringSchema("文件内容的 Base64 编码", 1, MAX_TASK_ATTACHMENT_BASE64_CHARS)),
+                        "taskKey", "fileName", "contentType", "dataBase64"), false, false);
     }
 
     private ObjectNode getTaskDefinition() {

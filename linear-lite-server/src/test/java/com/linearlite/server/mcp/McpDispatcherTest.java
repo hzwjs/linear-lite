@@ -2,6 +2,7 @@ package com.linearlite.server.mcp;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linearlite.server.config.McpProperties;
 import com.linearlite.server.config.McpOAuthProperties;
 import com.linearlite.server.entity.Project;
@@ -10,12 +11,15 @@ import com.linearlite.server.dto.ProjectDocumentTreeNode;
 import com.linearlite.server.dto.ProjectDocumentAttachmentResponse;
 import com.linearlite.server.dto.CreateProjectDocumentRequest;
 import com.linearlite.server.dto.TaskChangeRecord;
+import com.linearlite.server.dto.TaskAttachmentResponse;
 import com.linearlite.server.dto.TaskListItemResponse;
 import com.linearlite.server.dto.UpdateProjectDocumentRequest;
 import com.linearlite.server.service.ProjectDocumentCommandService;
 import com.linearlite.server.service.ProjectDocumentQueryService;
 import com.linearlite.server.service.ProjectDocumentAttachmentService;
 import com.linearlite.server.service.TaskActivityService;
+import com.linearlite.server.service.TaskAttachmentService;
+import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.service.ProjectService;
 import com.linearlite.server.service.TaskCommandService;
 import com.linearlite.server.service.TaskCommentService;
@@ -23,7 +27,12 @@ import com.linearlite.server.service.TaskQueryService;
 import com.linearlite.server.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.time.LocalDateTime;
@@ -36,6 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -55,6 +65,7 @@ class McpDispatcherTest {
     private com.linearlite.server.service.McpDocumentPatchService documentPatchService;
     private TaskQueryService taskQueryService;
     private TaskActivityService taskActivityService;
+    private TaskAttachmentService taskAttachmentService;
     private McpDispatcher dispatcher;
 
     @BeforeEach
@@ -66,6 +77,7 @@ class McpDispatcherTest {
         documentPatchService = mock(com.linearlite.server.service.McpDocumentPatchService.class);
         taskQueryService = mock(TaskQueryService.class);
         taskActivityService = mock(TaskActivityService.class);
+        taskAttachmentService = mock(TaskAttachmentService.class);
         McpProperties properties = new McpProperties();
         properties.setServerName("linear-lite-test");
         properties.setServerVersion("test");
@@ -79,6 +91,7 @@ class McpDispatcherTest {
                 mock(TaskCommandService.class),
                 taskQueryService,
                 taskActivityService,
+                taskAttachmentService,
                 mock(TaskCommentService.class),
                 mock(McpTaskCommentImageContentService.class),
                 projectDocumentCommandService,
@@ -86,6 +99,137 @@ class McpDispatcherTest {
                 documentPatchService,
                 mock(UserMapper.class));
         dispatcher = new McpDispatcher(objectMapper, properties, new McpOAuthProperties(), registry);
+    }
+
+    @Test
+    void listsTaskAttachmentUploadWithWriteScopeAndFileInput() throws Exception {
+        McpDispatcher.DispatchResponse response = dispatch(
+                request("attachment-list", "tools/list", "{}"), null, null, null, null, 7L);
+        JsonNode tool = response.body().path("result").path("tools").path(17);
+
+        assertEquals("upload_task_attachment", tool.path("name").asText());
+        assertEquals("linear-lite:write", tool.path("securitySchemes").get(0).path("scopes").get(0).asText());
+        assertEquals(false, tool.path("annotations").path("readOnlyHint").asBoolean());
+        assertEquals(false, tool.path("annotations").path("idempotentHint").asBoolean());
+        assertEquals(false, tool.path("inputSchema").path("additionalProperties").asBoolean());
+        assertEquals(objectMapper.readTree("[\"taskKey\",\"fileName\",\"contentType\",\"dataBase64\"]"),
+                tool.path("inputSchema").path("required"));
+    }
+
+    @Test
+    void uploadsTaskAttachmentBytesAndReturnsServiceMetadata() throws Exception {
+        TaskAttachmentResponse uploaded = new TaskAttachmentResponse();
+        uploaded.setId(41L);
+        uploaded.setTaskId(23L);
+        uploaded.setFileName("验收.pdf");
+        uploaded.setFileSize(4L);
+        uploaded.setContentType("application/pdf");
+        uploaded.setUrl("https://files.example.test/attachments/23/report.pdf");
+        when(taskAttachmentService.upload(eq("ENG-1"), any(MultipartFile.class), eq(7L)))
+                .thenReturn(uploaded);
+
+        var response = callTaskAttachmentUpload(taskAttachmentArguments(), Set.of("linear-lite:write"));
+
+        assertEquals(200, response.status());
+        assertEquals(objectMapper.valueToTree(uploaded), response.body().path("result").path("structuredContent"));
+        ArgumentCaptor<MultipartFile> file = ArgumentCaptor.forClass(MultipartFile.class);
+        verify(taskAttachmentService).upload(eq("ENG-1"), file.capture(), eq(7L));
+        assertEquals("验收.pdf", file.getValue().getOriginalFilename());
+        assertEquals("application/pdf", file.getValue().getContentType());
+        assertEquals(4L, file.getValue().getSize());
+        assertArrayEquals(new byte[] {0, 1, 2, (byte) 255}, file.getValue().getInputStream().readAllBytes());
+        assertArrayEquals(new byte[] {0, 1, 2, (byte) 255}, file.getValue().getBytes());
+    }
+
+    @Test
+    void taskAttachmentUploadRequiresWriteScopeBeforeCallingService() {
+        var response = callTaskAttachmentUpload(taskAttachmentArguments(), Set.of("linear-lite:read"));
+
+        assertTrue(response.body().path("result").path("isError").asBoolean());
+        assertTrue(response.body().path("result").path("_meta").path("mcp/www_authenticate")
+                .get(0).asText().contains("linear-lite:write"));
+        verifyNoInteractions(taskAttachmentService);
+    }
+
+    @Test
+    void taskAttachmentUploadReportsTaskPermissionFailure() {
+        when(taskAttachmentService.upload(eq("ENG-1"), any(MultipartFile.class), eq(7L)))
+                .thenThrow(new ForbiddenOperationException("无权访问该任务"));
+
+        var response = callTaskAttachmentUpload(taskAttachmentArguments(), Set.of("linear-lite:write"));
+
+        assertTrue(response.body().path("result").path("isError").asBoolean());
+        assertEquals("FORBIDDEN", response.body().path("result").path("structuredContent").path("errorType").asText());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"taskKey", "fileName", "contentType", "dataBase64"})
+    void taskAttachmentUploadRejectsMissingRequiredFields(String field) {
+        ObjectNode arguments = taskAttachmentArguments();
+        arguments.remove(field);
+
+        var response = callTaskAttachmentUpload(arguments, Set.of("linear-lite:write"));
+
+        assertEquals(-32602, response.body().path("error").path("code").asInt());
+        verifyNoInteractions(taskAttachmentService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"taskKey\":1}", "{\"taskKey\":\" \"}",
+            "{\"fileName\":null}", "{\"fileName\":\" \"}",
+            "{\"contentType\":false}", "{\"contentType\":\" \"}",
+            "{\"dataBase64\":null}", "{\"dataBase64\":123}", "{\"dataBase64\":\"\"}",
+            "{\"dataBase64\":\"%%%\"}", "{\"dataBase64\":\"data:application/pdf;base64,AAEC/w==\"}",
+            "{\"filePath\":\"/tmp/report.pdf\"}"
+    })
+    void taskAttachmentUploadRejectsInvalidInputBeforeCallingService(String patch) throws Exception {
+        ObjectNode arguments = taskAttachmentArguments();
+        arguments.setAll((ObjectNode) objectMapper.readTree(patch));
+
+        var response = callTaskAttachmentUpload(arguments, Set.of("linear-lite:write"));
+
+        assertEquals(-32602, response.body().path("error").path("code").asInt());
+        verifyNoInteractions(taskAttachmentService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {13_981_016, 13_981_020})
+    void taskAttachmentUploadRejectsEncodedAndDecodedSizeOverflow(int encodedLength) {
+        ObjectNode arguments = taskAttachmentArguments().put("dataBase64", "A".repeat(encodedLength));
+
+        var response = callTaskAttachmentUpload(arguments, Set.of("linear-lite:write"));
+
+        assertEquals(-32602, response.body().path("error").path("code").asInt());
+        verifyNoInteractions(taskAttachmentService);
+    }
+
+    @Test
+    void taskAttachmentUploadAcceptsTenMiBBoundary() {
+        byte[] content = new byte[10 * 1024 * 1024];
+        ObjectNode arguments = taskAttachmentArguments().put("dataBase64", Base64.getEncoder().encodeToString(content));
+        when(taskAttachmentService.upload(eq("ENG-1"), any(MultipartFile.class), eq(7L)))
+                .thenReturn(new TaskAttachmentResponse());
+
+        var response = callTaskAttachmentUpload(arguments, Set.of("linear-lite:write"));
+
+        assertEquals(200, response.status());
+        assertFalse(response.body().path("result").path("isError").asBoolean());
+        ArgumentCaptor<MultipartFile> file = ArgumentCaptor.forClass(MultipartFile.class);
+        verify(taskAttachmentService).upload(eq("ENG-1"), file.capture(), eq(7L));
+        assertEquals(content.length, file.getValue().getSize());
+    }
+
+    private ObjectNode taskAttachmentArguments() {
+        return objectMapper.createObjectNode().put("taskKey", "ENG-1").put("fileName", "验收.pdf")
+                .put("contentType", "application/pdf").put("dataBase64", "AAEC/w==");
+    }
+
+    private McpDispatcher.DispatchResponse callTaskAttachmentUpload(JsonNode arguments, Set<String> scopes) {
+        ObjectNode params = objectMapper.createObjectNode().put("name", "upload_task_attachment");
+        params.set("arguments", arguments);
+        return dispatcher.dispatch(request("attachment-upload", "tools/call", params.toString()),
+                null, null, null, null, 7L, scopes);
     }
 
     @Test
@@ -101,12 +245,12 @@ class McpDispatcherTest {
     }
 
     @Test
-    void listsAllSeventeenToolsInStableOrder() throws Exception {
+    void listsAllEighteenToolsInStableOrder() throws Exception {
         McpDispatcher.DispatchResponse response = dispatch(
                 request("2", "tools/list", "{}"), null, null, null, null, 7L);
 
         JsonNode tools = response.body().path("result").path("tools");
-        assertEquals(17, tools.size());
+        assertEquals(18, tools.size());
         assertEquals("get_profile", tools.get(0).path("name").asText());
         assertEquals("list_projects", tools.get(1).path("name").asText());
         assertEquals("list_task_comments", tools.get(6).path("name").asText());
@@ -123,6 +267,7 @@ class McpDispatcherTest {
         assertEquals("update_document", tools.get(14).path("name").asText());
         assertEquals("patch_document", tools.get(15).path("name").asText());
         assertEquals("get_member_id", tools.get(16).path("name").asText());
+        assertEquals("upload_task_attachment", tools.get(17).path("name").asText());
         assertTrue(tools.get(16).path("inputSchema").path("properties").has("username"));
         assertTrue(tools.get(3).path("inputSchema").path("properties").has("projectId"));
         assertEquals("array", tools.get(13).path("inputSchema").path("properties").path("images").path("type").asText());
