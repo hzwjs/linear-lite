@@ -1,6 +1,8 @@
 package com.linearlite.server.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
@@ -15,6 +17,9 @@ public class RtProfile {
     private Long targetRef;
     private String profileId;
     private String loginUser;
+    private String authType;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private byte[] passwordCipher;
     private Integer maxTtlSeconds;
     private Boolean permitPty;
     private LocalDateTime deletedAt;
@@ -28,6 +33,10 @@ public class RtProfile {
     public void setProfileId(String profileId) { this.profileId = profileId; }
     public String getLoginUser() { return loginUser; }
     public void setLoginUser(String loginUser) { this.loginUser = loginUser; }
+    public String getAuthType() { return authType; }
+    public void setAuthType(String authType) { this.authType = authType; }
+    public byte[] getPasswordCipher() { return passwordCipher; }
+    public void setPasswordCipher(byte[] passwordCipher) { this.passwordCipher = passwordCipher; }
     public Integer getMaxTtlSeconds() { return maxTtlSeconds; }
     public void setMaxTtlSeconds(Integer maxTtlSeconds) { this.maxTtlSeconds = maxTtlSeconds; }
     public Boolean getPermitPty() { return permitPty; }

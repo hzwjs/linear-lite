@@ -31,10 +31,11 @@ const script = ref<{ targetId: string; text: string } | null>(null)
 const showRecords = ref(false)
 
 const emptyTarget = (): RtTargetInput => ({ targetId: '', alias: '', environment: '', host: '', port: 22, hostKey: '' })
-const emptyProfile = (): RtProfileInput => ({ profileId: '', loginUser: '', maxTtlSeconds: 3600, permitPty: true })
+const emptyProfile = (): RtProfileInput => ({ profileId: '', loginUser: '', authType: 'CERTIFICATE', password: null, maxTtlSeconds: 3600, permitPty: true })
 const targetForm = ref<RtTargetInput>(emptyTarget())
 const editingTargetRef = ref<number | null>(null)
 const profileForms = ref<Record<number, RtProfileInput>>({})
+const editingProfile = ref<{ id: number; input: RtProfileInput } | null>(null)
 const memberName = computed(() => new Map(members.value.map((member) => [member.id, member.username])))
 const hasActiveCa = computed(() => overview.value?.cas.some((ca) => ca.status === 'active') ?? false)
 const retiringCa = computed(() => overview.value?.cas.find((ca) => ca.status === 'retiring') ?? null)
@@ -119,10 +120,27 @@ function profileForm(target: RtTarget): RtProfileInput {
 }
 
 function addProfile(target: RtTarget) {
-  const input = { ...profileForm(target) }
+  const input = { ...profileForm(target), password: profileForm(target).authType === 'PASSWORD' ? profileForm(target).password : null }
+  if (input.authType === 'PASSWORD' && !window.confirm(t('remoteTerminal.profile.passwordConfirm'))) return
   return run(async () => {
     await remoteTerminalApi.createProfile(props.projectId, target.id, input)
     profileForms.value[target.id] = emptyProfile()
+  }, t('remoteTerminal.profile.saved'), t('remoteTerminal.errors.actionFailed'))
+}
+
+function editProfile(profile: RtProfile) {
+  editingProfile.value = { id: profile.id, input: { profileId: profile.profileId, loginUser: profile.loginUser,
+    authType: profile.authType, password: null, maxTtlSeconds: profile.maxTtlSeconds, permitPty: profile.permitPty } }
+}
+
+function saveProfile() {
+  const edit = editingProfile.value
+  if (!edit) return
+  const input = { ...edit.input, password: edit.input.authType === 'PASSWORD' && edit.input.password ? edit.input.password : null }
+  if (input.authType === 'PASSWORD' && input.password && !window.confirm(t('remoteTerminal.profile.passwordConfirm'))) return
+  return run(async () => {
+    await remoteTerminalApi.updateProfile(props.projectId, edit.id, input)
+    editingProfile.value = null
   }, t('remoteTerminal.profile.saved'), t('remoteTerminal.errors.actionFailed'))
 }
 
@@ -172,13 +190,15 @@ const userLabel = (userId: number) => memberName.value.get(userId) ?? `#${userId
 watch(() => props.projectId, () => {
   overview.value = null
   script.value = null
+  editingProfile.value = null
+  profileForms.value = {}
   showRecords.value = false
   cancelEdit()
   void load()
 }, { immediate: true })
 
 // 脚本只是公开的 CA 公钥与 principal 名单，但离开页面后不再保留。
-onBeforeUnmount(() => { requestSeq += 1; script.value = null })
+onBeforeUnmount(() => { requestSeq += 1; script.value = null; editingProfile.value = null; profileForms.value = {} })
 </script>
 
 <template>
@@ -225,16 +245,28 @@ onBeforeUnmount(() => { requestSeq += 1; script.value = null })
             </div>
             <div class="actions">
               <button type="button" class="btn-secondary" :disabled="busy" @click="editTarget(target)">{{ t('remoteTerminal.target.edit') }}</button>
-              <button type="button" class="btn-secondary" :disabled="busy || !target.profiles.length || !hasActiveCa" @click="showScript(target)">{{ t('remoteTerminal.script.show') }}</button>
+              <button type="button" class="btn-secondary" :disabled="busy || !target.profiles.some(profile => profile.authType === 'CERTIFICATE') || !hasActiveCa" @click="showScript(target)">{{ t('remoteTerminal.script.show') }}</button>
               <button type="button" class="btn-secondary danger" :disabled="busy" :aria-label="t('remoteTerminal.target.delete')" @click="deleteTarget(target)"><Trash2 aria-hidden="true" /></button>
             </div>
           </header>
 
           <div v-for="profile in target.profiles" :key="profile.id" class="profile">
             <div class="profile-head">
-              <span><code>{{ profile.loginUser }}</code> · ≤ {{ profile.maxTtlSeconds }}s<template v-if="!profile.permitPty"> · {{ t('remoteTerminal.profile.noPty') }}</template></span>
-              <button type="button" class="btn-secondary danger" :disabled="busy" :aria-label="t('remoteTerminal.profile.delete')" @click="deleteProfile(profile)"><Trash2 aria-hidden="true" /></button>
+              <span><code>{{ profile.loginUser }}</code> · {{ t(`remoteTerminal.profile.auth.${profile.authType}`) }} · ≤ {{ profile.maxTtlSeconds }}s<template v-if="!profile.permitPty"> · {{ t('remoteTerminal.profile.noPty') }}</template></span>
+              <div class="actions"><button type="button" class="btn-secondary" :disabled="busy" @click="editProfile(profile)">{{ t('remoteTerminal.profile.edit') }}</button><button type="button" class="btn-secondary danger" :disabled="busy" :aria-label="t('remoteTerminal.profile.delete')" @click="deleteProfile(profile)"><Trash2 aria-hidden="true" /></button></div>
             </div>
+            <form v-if="editingProfile?.id === profile.id" class="inline-form" @submit.prevent="saveProfile">
+              <input v-model="editingProfile.input.loginUser" class="input" :aria-label="t('remoteTerminal.profile.userPlaceholder')" disabled />
+              <select v-model="editingProfile.input.authType" class="input" :aria-label="t('remoteTerminal.profile.authLabel')">
+                <option value="CERTIFICATE">{{ t('remoteTerminal.profile.auth.CERTIFICATE') }}</option>
+                <option value="PASSWORD">{{ t('remoteTerminal.profile.auth.PASSWORD') }}</option>
+              </select>
+              <input v-if="editingProfile.input.authType === 'PASSWORD'" v-model="editingProfile.input.password" class="input" type="password" autocomplete="new-password" :placeholder="t('remoteTerminal.profile.passwordEdit')" :required="profile.authType !== 'PASSWORD'" />
+              <input v-model.number="editingProfile.input.maxTtlSeconds" class="input narrow" type="number" min="1" max="28800" :aria-label="t('remoteTerminal.profile.ttl')" />
+              <label class="grant"><input v-model="editingProfile.input.permitPty" type="checkbox" /> PTY</label>
+              <button type="submit" class="btn-secondary" :disabled="busy">{{ t('remoteTerminal.target.save') }}</button>
+              <button type="button" class="btn-secondary" :disabled="busy" @click="editingProfile = null">{{ t('remoteTerminal.target.cancel') }}</button>
+            </form>
             <div class="grants" role="group" :aria-label="t('remoteTerminal.grants.label')">
               <label v-for="member in members" :key="member.id" class="grant">
                 <input type="checkbox" :checked="profile.grantUserIds.includes(member.id)" :disabled="busy" @change="toggleGrant(profile, member.id, ($event.target as HTMLInputElement).checked)" />
@@ -246,6 +278,11 @@ onBeforeUnmount(() => { requestSeq += 1; script.value = null })
           <form class="inline-form" @submit.prevent="addProfile(target)">
             <input v-model="profileForm(target).profileId" class="input" :placeholder="t('remoteTerminal.profile.idPlaceholder')" maxlength="100" required />
             <input v-model="profileForm(target).loginUser" class="input" :placeholder="t('remoteTerminal.profile.userPlaceholder')" maxlength="32" required />
+            <select v-model="profileForm(target).authType" class="input" :aria-label="t('remoteTerminal.profile.authLabel')">
+              <option value="CERTIFICATE">{{ t('remoteTerminal.profile.auth.CERTIFICATE') }}</option>
+              <option value="PASSWORD">{{ t('remoteTerminal.profile.auth.PASSWORD') }}</option>
+            </select>
+            <input v-if="profileForm(target).authType === 'PASSWORD'" v-model="profileForm(target).password" class="input" type="password" autocomplete="new-password" :placeholder="t('remoteTerminal.profile.password')" required />
             <input v-model.number="profileForm(target).maxTtlSeconds" class="input narrow" type="number" min="1" max="28800" :aria-label="t('remoteTerminal.profile.ttl')" />
             <label class="grant"><input v-model="profileForm(target).permitPty" type="checkbox" /> PTY</label>
             <button type="submit" class="btn-secondary" :disabled="busy"><Plus aria-hidden="true" />{{ t('remoteTerminal.profile.add') }}</button>

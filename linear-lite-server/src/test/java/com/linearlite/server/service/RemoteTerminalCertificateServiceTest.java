@@ -5,6 +5,9 @@ import com.linearlite.server.config.RemoteTerminalProperties;
 import com.linearlite.server.dto.RemoteTerminalDtos.Catalog;
 import com.linearlite.server.dto.RemoteTerminalDtos.CertificateRequest;
 import com.linearlite.server.dto.RemoteTerminalDtos.CertificateResponse;
+import com.linearlite.server.dto.RemoteTerminalDtos.PasswordRequest;
+import com.linearlite.server.dto.RemoteTerminalDtos.PasswordResponse;
+import com.linearlite.server.exception.ConflictOperationException;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.RtCaKey;
 import com.linearlite.server.entity.RtCertificate;
@@ -58,9 +61,11 @@ class RemoteTerminalCertificateServiceTest {
     private final RtGrantMapper grantMapper = mock(RtGrantMapper.class);
     private final RtCertificateMapper certificateMapper = mock(RtCertificateMapper.class);
     private final RemoteTerminalProperties properties = new RemoteTerminalProperties();
+    private final RemoteTerminalAuditService audit = mock(RemoteTerminalAuditService.class);
     private CaKeyCipher cipher;
     private RemoteTerminalCertificateService service;
     private SshCertificateSigner.CaKeyPair ca;
+    private RtProfile profile;
 
     @BeforeEach
     void setUp() {
@@ -68,7 +73,7 @@ class RemoteTerminalCertificateServiceTest {
         cipher = new CaKeyCipher(properties);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         service = new RemoteTerminalCertificateService(guard, projectMapper, caMapper, targetMapper, profileMapper,
-                grantMapper, certificateMapper, cipher, new RemoteTerminalRateLimiter(properties, clock), clock);
+                grantMapper, certificateMapper, cipher, new RemoteTerminalRateLimiter(properties, clock), audit, clock);
 
         Project project = new Project();
         project.setId(1L);
@@ -88,9 +93,11 @@ class RemoteTerminalCertificateServiceTest {
         target.setId(10L);
         target.setProjectId(1L);
         target.setTargetId("prod-api");
+        target.setHostKeyRev(4);
         when(targetMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(target);
 
-        RtProfile profile = new RtProfile();
+        profile = new RtProfile();
+        profile.setAuthType("CERTIFICATE");
         profile.setId(20L);
         profile.setTargetRef(10L);
         profile.setProfileId("deploy");
@@ -204,6 +211,8 @@ class RemoteTerminalCertificateServiceTest {
         grant.setUserId(USER);
         when(grantMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(grant));
         RtProfile profile = new RtProfile();
+        profile.setAuthType("PASSWORD");
+        profile.setPasswordCipher(cipher.encryptPassword(1L, 20L, java.util.UUID.randomUUID().toString()));
         profile.setId(20L);
         profile.setTargetRef(10L);
         profile.setProfileId("deploy");
@@ -228,6 +237,7 @@ class RemoteTerminalCertificateServiceTest {
         assertEquals("prod-api", catalog.targets().get(0).targetId());
         assertEquals(3, catalog.targets().get(0).hostKeyRev());
         assertEquals("deploy", catalog.targets().get(0).profiles().get(0).profileId());
+        assertEquals("PASSWORD", catalog.targets().get(0).profiles().get(0).authType());
         verify(guard).requireMember(1L, USER);
     }
 
@@ -235,6 +245,49 @@ class RemoteTerminalCertificateServiceTest {
     void catalogIsEmptyWhenTheMemberHasNoGrants() {
         when(grantMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
         assertTrue(service.catalog("ENG", USER).targets().isEmpty());
+    }
+
+    @Test
+    void passwordRequiresGrantLifetimeAndUnchangedHostKey() {
+        String password = java.util.UUID.randomUUID().toString();
+        profile.setAuthType("PASSWORD");
+        profile.setPasswordCipher(cipher.encryptPassword(1L, 20L, password));
+        profile.setPermitPty(false);
+        PasswordRequest request = new PasswordRequest("ENG", "prod-api", "deploy", 300, 4);
+        PasswordResponse response = service.password(USER, request);
+        assertEquals(password, response.password());
+        assertEquals(false, response.permitPty());
+        assertTrue(!response.toString().contains(password));
+        verify(audit).record(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq(USER),
+                org.mockito.ArgumentMatchers.eq("password.issue"), org.mockito.ArgumentMatchers.eq("prod-api/deploy"),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.argThat(value -> !value.toString().contains(password)));
+        assertThrows(ConflictOperationException.class, () -> service.password(USER,
+                new PasswordRequest("ENG", "prod-api", "deploy", 300, 3)));
+        assertThrows(IllegalArgumentException.class, () -> service.password(USER,
+                new PasswordRequest("ENG", "prod-api", "deploy", 601, 4)));
+        when(grantMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        assertThrows(ForbiddenOperationException.class, () -> service.password(USER, request));
+        verify(guard, org.mockito.Mockito.atLeastOnce()).requireMember(1L, USER);
+    }
+
+    @Test
+    void authenticationTypesCannotUseEachOthersEndpoints() {
+        assertThrows(IllegalArgumentException.class, () -> service.password(USER,
+                new PasswordRequest("ENG", "prod-api", "deploy", 60, 4)));
+        profile.setAuthType("PASSWORD");
+        assertThrows(IllegalArgumentException.class, () -> service.issue(USER, "ip", "client",
+                new CertificateRequest("ENG", "prod-api", "deploy", "", 60)));
+    }
+
+    @Test
+    void passwordCipherBindsProjectProfileAndPurpose() {
+        String password = java.util.UUID.randomUUID().toString();
+        byte[] encrypted = cipher.encryptPassword(1L, 20L, password);
+        assertEquals(password, cipher.decryptPassword(1L, 20L, encrypted));
+        assertThrows(IllegalStateException.class, () -> cipher.decryptPassword(2L, 20L, encrypted));
+        assertThrows(IllegalStateException.class, () -> cipher.decryptPassword(1L, 21L, encrypted));
+        assertThrows(IllegalStateException.class, () -> cipher.decrypt(1L, encrypted));
+        assertThrows(IllegalStateException.class, () -> cipher.decryptPassword(1L, 20L, cipher.encrypt(1L, new byte[32])));
     }
 
     private static String newUserKey(Path dir) throws Exception {

@@ -4,6 +4,8 @@ import com.linearlite.server.common.ApiResponse;
 import com.linearlite.server.dto.RemoteTerminalDtos.Catalog;
 import com.linearlite.server.dto.RemoteTerminalDtos.CertificateRequest;
 import com.linearlite.server.dto.RemoteTerminalDtos.CertificateResponse;
+import com.linearlite.server.dto.RemoteTerminalDtos.PasswordRequest;
+import com.linearlite.server.dto.RemoteTerminalDtos.PasswordResponse;
 import com.linearlite.server.filter.JwtAuthFilter;
 import com.linearlite.server.service.RemoteTerminalCertificateService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -40,6 +42,13 @@ public class RemoteTerminalClientController {
         String clientId = (String) request.getAttribute(JwtAuthFilter.REQUEST_ATTR_OAUTH_CLIENT_ID);
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(ApiResponse.success(service.issue(userId(request), request.getRemoteAddr(), clientId, body)));
+    }
+
+    @PostMapping("/passwords")
+    public ResponseEntity<ApiResponse<PasswordResponse>> password(HttpServletRequest request,
+                                                                   @RequestBody PasswordRequest body) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(ApiResponse.success(service.password(userId(request), body)));
     }
 
     private static Long userId(HttpServletRequest request) {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -58,6 +58,7 @@ async function createFixture(keyType: 'ed25519' | 'rsa' = 'ed25519') {
   const server = new Server({ hostKeys: [await readFile(host.privatePath)] }, (client) => {
     client.on('error', () => {});
     client.on('authentication', (ctx) => {
+      if (ctx.method === 'password') return ctx.username === 'tester' && ctx.password === 'fixture-password' ? ctx.accept() : ctx.reject();
       if (ctx.method !== 'publickey') return ctx.reject();
       const selectedKey = utils.parseKey(selected.publicText);
       if (selectedKey instanceof Error || Array.isArray(selectedKey) || !ctx.key.data.equals(pubBlob(selected.publicText))) {
@@ -166,6 +167,37 @@ test('authenticates with the configured private key file', async () => withFixtu
   assert.equal(fixture.state().rejectedKeyAttempts, 0);
   connection.close();
   await assert.rejects(new SshTransport().connect({ ...fixture.target, host_key: (await generateKey(fixture.directory, 'wrong-private-host')).publicText }, profile), /SSH host key verification failed/);
+}));
+
+test('authenticates with a password and rejects a wrong password without disclosing it', async () => withFixture(async fixture => {
+  const profile: Profile = { profile_id: 'password', login_user: 'tester', password: 'fixture-password', permit_pty: true, max_ttl_seconds: 30 };
+  const connection = await new SshTransport().connect(fixture.target, profile);
+  assert.equal(connection.isOpen(), true);
+  connection.close();
+  await assert.rejects(new SshTransport().connect(fixture.target, { ...profile, password: 'wrong-password-secret' }),
+    (error: Error) => error.message === 'SSH authentication failed' && !error.message.includes('wrong-password-secret'));
+}));
+
+test('local password file must be private and regular and its errors reveal no file path or password', async () => withFixture(async fixture => {
+  const password_file = join(fixture.directory, 'password-secret-file');
+  const profile: Profile = { profile_id: 'password', login_user: 'tester', password_file, max_ttl_seconds: 30 };
+  await writeFile(password_file, 'fixture-password', { mode: 0o600 });
+  const connection = await new SshTransport().connect(fixture.target, profile);
+  assert.equal(connection.isOpen(), true);
+  connection.close();
+  await chmod(password_file, 0o400);
+  const readonlyConnection = await new SshTransport().connect(fixture.target, profile);
+  readonlyConnection.close();
+  await chmod(password_file, 0o644);
+  await assert.rejects(new SshTransport().connect(fixture.target, profile), (error: Error) => error.message === 'SSH password configuration is invalid');
+  await chmod(password_file, 0o600);
+  const link = join(fixture.directory, 'password-link');
+  await symlink(password_file, link);
+  await assert.rejects(new SshTransport().connect(fixture.target, { ...profile, password_file: link }), /SSH password configuration is invalid/);
+  await assert.rejects(new SshTransport().connect(fixture.target, { ...profile, password_file: fixture.directory }), /SSH password configuration is invalid/);
+  await writeFile(password_file, 'wrong-local-secret');
+  await assert.rejects(new SshTransport().connect(fixture.target, profile), (error: Error) =>
+    error.message === 'SSH authentication failed' && !error.message.includes('wrong-local-secret') && !error.message.includes(password_file));
 }));
 
 test('authenticates with an RSA private key file', async () => {

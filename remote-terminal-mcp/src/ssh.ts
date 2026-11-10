@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises';
-import { stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { open, readFile, stat } from 'node:fs/promises';
 import { Socket } from 'node:net';
 import type { Readable } from 'node:stream';
 import ssh2 from 'ssh2';
@@ -34,6 +34,18 @@ async function privateKeyFor(path: string, signal?: AbortSignal): Promise<Buffer
   const parsed = utils.parseKey(contents);
   if (parsed instanceof Error || Array.isArray(parsed) || !parsed.isPrivateKey()) throw new Error('Invalid private key');
   return contents;
+}
+
+async function passwordFor(path: string, signal?: AbortSignal): Promise<string> {
+  // Inspect the opened file so a symlink or path replacement cannot change the permission check.
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const details = await file.stat();
+    if (!details.isFile() || details.size < 1 || details.size > 16 * 1024 || (details.mode & 0o177) !== 0 || (details.mode & 0o400) === 0) throw new Error('Invalid password file');
+    const bytes = await file.readFile({ signal });
+    if (bytes.length < 1 || bytes.length > 16 * 1024) throw new Error('Invalid password file');
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } finally { await file.close(); }
 }
 
 // @types/ssh2 types authHandler arrays as bare AuthMethod; ssh2 accepts full methods.
@@ -355,17 +367,22 @@ export class SshTransport implements RemoteTransport {
     let selected: ParsedKey | undefined;
     let privateKey: Buffer | undefined;
     let certificateKey: ParsedKey | undefined;
+    let password: string | undefined;
     let hostKey: ParsedKey;
     try {
       hostKey = parsePublicKey(target.host_key);
-      if (profile.ephemeral !== undefined) {
+      if (profile.password !== undefined) {
+        password = profile.password;
+      } else if (profile.password_file !== undefined) {
+        password = await passwordFor(profile.password_file, signal);
+      } else if (profile.ephemeral !== undefined) {
         privateKey = profile.ephemeral.private_key;
         certificateKey = certificateKeyFromText(profile.ephemeral.certificate, privateKey);
       } else if (profile.private_key_path !== undefined) {
         privateKey = await privateKeyFor(profile.private_key_path, signal);
         if (profile.certificate_path !== undefined) certificateKey = await certificateKeyFor(profile.certificate_path, privateKey, signal);
       } else selected = await publicKeyFor(profile.public_key_path, signal);
-    } catch { throw new Error(signal?.aborted ? ERR_CONNECT : 'SSH key configuration is invalid'); }
+    } catch { throw new Error(signal?.aborted ? ERR_CONNECT : profile.password_file !== undefined ? 'SSH password configuration is invalid' : 'SSH key configuration is invalid'); }
     if (signal?.aborted) throw new Error(ERR_CONNECT);
     const agent = selected && profile.agent_socket ? new BoundedAgent(profile.agent_socket, selected) : undefined;
     const client = new Client();
@@ -404,7 +421,7 @@ export class SshTransport implements RemoteTransport {
         host: target.host,
         port: target.port,
         username: profile.login_user,
-        ...(agent ? { agent, authHandler: ['agent' as const] } : certificateKey ? { authHandler: certificateAuth(profile.login_user, certificateKey) } : { privateKey, authHandler: ['publickey' as const] }),
+        ...(password !== undefined ? { password, authHandler: ['password' as const] } : agent ? { agent, authHandler: ['agent' as const] } : certificateKey ? { authHandler: certificateAuth(profile.login_user, certificateKey) } : { privateKey, authHandler: ['publickey' as const] }),
         readyTimeout: NETWORK_TIMEOUT_MS,
         tryKeyboard: false,
         algorithms: { serverHostKey },

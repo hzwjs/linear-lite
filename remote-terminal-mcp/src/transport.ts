@@ -2,10 +2,13 @@ import type { Readable, Writable } from 'node:stream';
 
 export type ListedProfile = { profile_id: string; login_user: string; max_ttl_seconds: number };
 export type Profile = ListedProfile & (
-  | { public_key_path: string; agent_socket: string; private_key_path?: never; ephemeral?: never }
-  | { private_key_path: string; certificate_path?: string; public_key_path?: never; agent_socket?: never; ephemeral?: never }
+  | { public_key_path: string; agent_socket: string; private_key_path?: never; ephemeral?: never; password?: never; password_file?: never; permit_pty?: never }
+  | { private_key_path: string; certificate_path?: string; public_key_path?: never; agent_socket?: never; ephemeral?: never; password?: never; password_file?: never; permit_pty?: never }
   /** Team mode: a session key and CA-signed certificate held only in memory. */
-  | { ephemeral: { private_key: Buffer; certificate: string }; private_key_path?: never; public_key_path?: never; agent_socket?: never }
+  | { ephemeral: { private_key: Buffer; certificate: string }; private_key_path?: never; public_key_path?: never; agent_socket?: never; password?: never; password_file?: never; permit_pty?: never }
+  /** Team mode: the cloud credential exists only during connection setup. */
+  | { password: string; permit_pty: boolean; ephemeral?: never; private_key_path?: never; public_key_path?: never; agent_socket?: never; password_file?: never }
+  | { password_file: string; password?: never; permit_pty?: never; ephemeral?: never; private_key_path?: never; public_key_path?: never; agent_socket?: never }
 );
 export type Target = {
   target_id: string;

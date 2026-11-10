@@ -13,6 +13,8 @@ export interface RtProfile {
   id: number
   profileId: string
   loginUser: string
+  authType: 'CERTIFICATE' | 'PASSWORD'
+  hasPassword: boolean
   maxTtlSeconds: number
   permitPty: boolean
   grantUserIds: number[]
@@ -51,6 +53,8 @@ export interface RtTargetInput {
 export interface RtProfileInput {
   profileId: string
   loginUser: string
+  authType: 'CERTIFICATE' | 'PASSWORD'
+  password: string | null
   maxTtlSeconds: number
   permitPty: boolean
 }

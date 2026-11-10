@@ -26,6 +26,11 @@ export const configurationSchema = z.object({
       private_key_path: localPath,
       certificate_path: localPath.optional(),
       max_ttl_seconds: z.number().int().min(1).max(28800),
+    }).strict(), z.object({
+      profile_id: identifier,
+      login_user: text.refine(value => !/[\s\0]/.test(value)),
+      password_file: localPath,
+      max_ttl_seconds: z.number().int().min(1).max(28800),
     }).strict()])).min(1).max(20).refine(profiles => new Set(profiles.map(profile => profile.profile_id)).size === profiles.length),
   }).strict()).max(100).refine(targets => new Set(targets.map(target => target.target_id)).size === targets.length),
 }).strict();

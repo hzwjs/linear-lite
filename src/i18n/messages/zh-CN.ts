@@ -178,6 +178,12 @@ const zhCN = {
       hostKeyHint: '在服务器控制台取得（/etc/ssh/ssh_host_ed25519_key.pub）并核对指纹。主机公钥变更后，成员的客户端会停止连接，直到本人确认。'
     },
     profile: {
+      edit: '编辑身份',
+      authLabel: '认证方式',
+      auth: { CERTIFICATE: 'SSH 证书', PASSWORD: '账号密码' },
+      password: '登录密码',
+      passwordEdit: '新密码，留空保持不变',
+      passwordConfirm: '获授权成员可以取得服务器密码。撤销授权不能使已取得的密码失效；需要收回访问权限时，请修改服务器密码。确定保存？',
       add: '添加身份',
       saved: '身份已保存',
       deleted: '身份已删除',
@@ -397,7 +403,6 @@ const zhCN = {
     allStatuses: '全部状态',
     emptyColumn: '暂无任务',
     newIssue: '新建任务',
-    searchIssues: '搜索任务编号、序号、标题和描述...',
     allIssues: '全部任务',
     active: '进行中',
     backlog: '待规划',

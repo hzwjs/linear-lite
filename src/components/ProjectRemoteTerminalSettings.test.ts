@@ -25,7 +25,7 @@ function overview(extra: Partial<RtOverview> = {}): RtOverview {
     targets: [{
       id: 10, targetId: 'prod-api', alias: 'API', environment: 'prod', host: '10.0.0.5', port: 22,
       hostKey: 'ssh-ed25519 AAAA', hostKeyFingerprint: 'SHA256:host', hostKeyRev: 1,
-      profiles: [{ id: 20, profileId: 'deploy', loginUser: 'deploy', maxTtlSeconds: 600, permitPty: true, grantUserIds: [2] }],
+      profiles: [{ id: 20, profileId: 'deploy', loginUser: 'deploy', authType: 'CERTIFICATE', hasPassword: false, maxTtlSeconds: 600, permitPty: true, grantUserIds: [2] }],
     }],
     ...extra,
   }
@@ -63,6 +63,46 @@ describe('ProjectRemoteTerminalSettings', () => {
       const byName = (name: string) => boxes.find((box) => box.parentElement?.textContent?.includes(name))!
       expect(byName('alice').checked).toBe(true)
       expect(byName('owner').checked).toBe(false)
+    } finally { view.unmount() }
+  })
+
+  it('creates a password identity after confirmation', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.mocked(remoteTerminalApi.createProfile).mockResolvedValue({} as never)
+    const view = await mountSettings()
+    try {
+      const form = view.host.querySelector<HTMLFormElement>('.target > .inline-form')!
+      const inputs = form.querySelectorAll<HTMLInputElement>('input')
+      inputs[0]!.value = 'ops'; inputs[0]!.dispatchEvent(new Event('input'))
+      inputs[1]!.value = 'operator'; inputs[1]!.dispatchEvent(new Event('input'))
+      const select = form.querySelector<HTMLSelectElement>('select')!
+      select.value = 'PASSWORD'; select.dispatchEvent(new Event('change'))
+      await nextTick()
+      const password = form.querySelector<HTMLInputElement>('input[type="password"]')!
+      password.value = 'test-only-password'; password.dispatchEvent(new Event('input'))
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await flush()
+      expect(confirm).toHaveBeenCalled()
+      expect(remoteTerminalApi.createProfile).toHaveBeenCalledWith(7, 10, expect.objectContaining({
+        profileId: 'ops', loginUser: 'operator', authType: 'PASSWORD', password: 'test-only-password',
+      }))
+      expect(form.querySelector('input[type="password"]')).toBeNull()
+    } finally { confirm.mockRestore(); view.unmount() }
+  })
+
+  it('retains the existing password when editing without a replacement', async () => {
+    const data = overview()
+    Object.assign(data.targets[0]!.profiles[0]!, { authType: 'PASSWORD', hasPassword: true })
+    vi.mocked(remoteTerminalApi.overview).mockResolvedValue(data)
+    vi.mocked(remoteTerminalApi.updateProfile).mockResolvedValue({} as never)
+    const view = await mountSettings()
+    try {
+      const edit = [...view.host.querySelectorAll<HTMLButtonElement>('.profile-head button')].find(b => b.textContent?.includes('编辑身份'))!
+      edit.click(); await nextTick()
+      const form = view.host.querySelector<HTMLFormElement>('.profile form')!
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await flush()
+      expect(remoteTerminalApi.updateProfile).toHaveBeenCalledWith(7, 20, expect.objectContaining({ authType: 'PASSWORD', password: null }))
     } finally { view.unmount() }
   })
 

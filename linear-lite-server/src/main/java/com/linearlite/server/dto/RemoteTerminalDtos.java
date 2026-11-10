@@ -15,7 +15,7 @@ public final class RemoteTerminalDtos {
     }
 
     public record ProfileView(Long id, String profileId, String loginUser, Integer maxTtlSeconds,
-                              boolean permitPty, List<Long> grantUserIds) {
+                              boolean permitPty, String authType, boolean hasPassword, List<Long> grantUserIds) {
     }
 
     public record TargetView(Long id, String targetId, String alias, String environment, String host, Integer port,
@@ -29,7 +29,9 @@ public final class RemoteTerminalDtos {
                                 String hostKey) {
     }
 
-    public record ProfileRequest(String profileId, String loginUser, Integer maxTtlSeconds, Boolean permitPty) {
+    public record ProfileRequest(String profileId, String loginUser, Integer maxTtlSeconds, Boolean permitPty,
+                                 String authType, String password) {
+        @Override public String toString() { return "ProfileRequest[password=REDACTED]"; }
     }
 
     public record GrantsRequest(List<Long> userIds) {
@@ -46,7 +48,7 @@ public final class RemoteTerminalDtos {
 
     // ---- 客户端（OAuth 令牌，scope=remote-terminal）----
 
-    public record CatalogProfile(String profileId, String loginUser, Integer maxTtlSeconds) {
+    public record CatalogProfile(String profileId, String loginUser, Integer maxTtlSeconds, String authType) {
     }
 
     public record CatalogTarget(String targetId, String alias, String environment, String host, Integer port,
@@ -58,6 +60,14 @@ public final class RemoteTerminalDtos {
 
     public record CertificateRequest(String project, String targetId, String profileId, String publicKey,
                                      Integer ttlSeconds) {
+    }
+
+    public record PasswordRequest(String project, String targetId, String profileId, Integer ttlSeconds,
+                                  Integer expectedHostKeyRev) {
+    }
+
+    public record PasswordResponse(String password, boolean permitPty) {
+        @Override public String toString() { return "PasswordResponse[password=REDACTED]"; }
     }
 
     public record CertificateResponse(String certificate, Long serial, String principal, String validBefore) {

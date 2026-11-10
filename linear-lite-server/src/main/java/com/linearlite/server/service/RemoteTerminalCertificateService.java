@@ -6,6 +6,8 @@ import com.linearlite.server.dto.RemoteTerminalDtos.CatalogProfile;
 import com.linearlite.server.dto.RemoteTerminalDtos.CatalogTarget;
 import com.linearlite.server.dto.RemoteTerminalDtos.CertificateRequest;
 import com.linearlite.server.dto.RemoteTerminalDtos.CertificateResponse;
+import com.linearlite.server.dto.RemoteTerminalDtos.PasswordRequest;
+import com.linearlite.server.dto.RemoteTerminalDtos.PasswordResponse;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.RtCaKey;
 import com.linearlite.server.entity.RtCertificate;
@@ -13,6 +15,7 @@ import com.linearlite.server.entity.RtGrant;
 import com.linearlite.server.entity.RtProfile;
 import com.linearlite.server.entity.RtTarget;
 import com.linearlite.server.exception.ForbiddenOperationException;
+import com.linearlite.server.exception.ConflictOperationException;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.exception.UnprocessableEntityException;
 import com.linearlite.server.mapper.ProjectMapper;
@@ -52,6 +55,7 @@ public class RemoteTerminalCertificateService {
     private final RtCertificateMapper certificateMapper;
     private final CaKeyCipher cipher;
     private final RemoteTerminalRateLimiter rateLimiter;
+    private final RemoteTerminalAuditService audit;
     private final Clock clock;
 
     @Autowired
@@ -59,15 +63,15 @@ public class RemoteTerminalCertificateService {
                                             RtCaKeyMapper caMapper, RtTargetMapper targetMapper,
                                             RtProfileMapper profileMapper, RtGrantMapper grantMapper,
                                             RtCertificateMapper certificateMapper, CaKeyCipher cipher,
-                                            RemoteTerminalRateLimiter rateLimiter) {
+                                            RemoteTerminalRateLimiter rateLimiter, RemoteTerminalAuditService audit) {
         this(guard, projectMapper, caMapper, targetMapper, profileMapper, grantMapper, certificateMapper, cipher,
-                rateLimiter, Clock.systemUTC());
+                rateLimiter, audit, Clock.systemUTC());
     }
 
     RemoteTerminalCertificateService(ProjectAccessGuard guard, ProjectMapper projectMapper, RtCaKeyMapper caMapper,
                                      RtTargetMapper targetMapper, RtProfileMapper profileMapper,
                                      RtGrantMapper grantMapper, RtCertificateMapper certificateMapper,
-                                     CaKeyCipher cipher, RemoteTerminalRateLimiter rateLimiter, Clock clock) {
+                                     CaKeyCipher cipher, RemoteTerminalRateLimiter rateLimiter, RemoteTerminalAuditService audit, Clock clock) {
         this.guard = guard;
         this.projectMapper = projectMapper;
         this.caMapper = caMapper;
@@ -77,6 +81,7 @@ public class RemoteTerminalCertificateService {
         this.certificateMapper = certificateMapper;
         this.cipher = cipher;
         this.rateLimiter = rateLimiter;
+        this.audit = audit;
         this.clock = clock;
     }
 
@@ -102,7 +107,7 @@ public class RemoteTerminalCertificateService {
                 .stream().map(t -> new CatalogTarget(t.getTargetId(), t.getAlias(), t.getEnvironment(), t.getHost(),
                         t.getPort(), t.getHostKey(), t.getHostKeyRev(),
                         byTarget.get(t.getId()).stream().map(p -> new CatalogProfile(p.getProfileId(),
-                                p.getLoginUser(), p.getMaxTtlSeconds())).toList())).toList();
+                                p.getLoginUser(), p.getMaxTtlSeconds(), p.getAuthType())).toList())).toList();
         return new Catalog(project.getIdentifier(), targets);
     }
 
@@ -115,23 +120,14 @@ public class RemoteTerminalCertificateService {
             throw new UnprocessableEntityException("远程终端未启用：服务端缺少有效的 RT_CA_KEK");
         }
         rateLimiter.acquire(userId);
-        Project project = requireMemberProject(request.project(), userId);
-        RtTarget target = targetMapper.selectOne(new LambdaQueryWrapper<RtTarget>()
-                .eq(RtTarget::getProjectId, project.getId()).eq(RtTarget::getTargetId, request.targetId())
-                .isNull(RtTarget::getDeletedAt));
-        RtProfile profile = target == null ? null : profileMapper.selectOne(new LambdaQueryWrapper<RtProfile>()
-                .eq(RtProfile::getTargetRef, target.getId()).eq(RtProfile::getProfileId, request.profileId())
-                .isNull(RtProfile::getDeletedAt));
-        Long granted = profile == null ? 0L : grantMapper.selectCount(new LambdaQueryWrapper<RtGrant>()
-                .eq(RtGrant::getProfileRef, profile.getId()).eq(RtGrant::getUserId, userId));
-        // 目标不存在与未授权返回同一个错误，避免成员枚举到自己无权看到的服务器。
-        if (target == null || profile == null || granted == null || granted == 0) {
-            throw new ForbiddenOperationException("没有使用该服务器身份的授权");
+        AuthorizedProfile access = authorize(userId, request.project(), request.targetId(), request.profileId(), request.ttlSeconds());
+        Project project = access.project();
+        RtTarget target = access.target();
+        RtProfile profile = access.profile();
+        if (!"CERTIFICATE".equals(profile.getAuthType())) {
+            throw new IllegalArgumentException("该身份不使用证书认证");
         }
-        int ttl = request.ttlSeconds() == null ? 0 : request.ttlSeconds();
-        if (ttl < 1 || ttl > Math.min(MAX_TTL_SECONDS, profile.getMaxTtlSeconds())) {
-            throw new IllegalArgumentException("连接期限超出该身份允许的范围（1–" + profile.getMaxTtlSeconds() + " 秒）");
-        }
+        int ttl = request.ttlSeconds();
         byte[] userKey = SshKeys.parseEd25519(request.publicKey());
         RtCaKey ca = caMapper.selectOne(new LambdaQueryWrapper<RtCaKey>()
                 .eq(RtCaKey::getProjectId, project.getId()).eq(RtCaKey::getStatus, "active")
@@ -168,6 +164,56 @@ public class RemoteTerminalCertificateService {
                 + profile.getProfileId(), List.of(principal), validAfter, validBefore,
                 Boolean.TRUE.equals(profile.getPermitPty())));
         return new CertificateResponse(certificate, row.getId(), principal, validBefore.toString());
+    }
+
+    /** 目录与凭据使用相同授权检查；仅将密码交给被授权的客户端。 */
+    @Transactional(rollbackFor = Exception.class)
+    public PasswordResponse password(Long userId, PasswordRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("请求体不能为空");
+        }
+        if (!cipher.isConfigured()) {
+            throw new UnprocessableEntityException("远程终端未启用：服务端缺少有效的 RT_CA_KEK");
+        }
+        rateLimiter.acquire(userId);
+        AuthorizedProfile access = authorize(userId, request.project(), request.targetId(), request.profileId(), request.ttlSeconds());
+        if (!"PASSWORD".equals(access.profile().getAuthType())) {
+            throw new IllegalArgumentException("该身份不使用密码认证");
+        }
+        if (request.expectedHostKeyRev() == null || !request.expectedHostKeyRev().equals(access.target().getHostKeyRev())) {
+            throw new ConflictOperationException("服务器主机公钥已变更，请重新获取并核对目录");
+        }
+        if (access.profile().getPasswordCipher() == null) {
+            throw new UnprocessableEntityException("该身份未配置密码");
+        }
+        String password = cipher.decryptPassword(access.project().getId(), access.profile().getId(),
+                access.profile().getPasswordCipher());
+        audit.record(access.project().getId(), userId, "password.issue",
+                access.target().getTargetId() + "/" + access.profile().getProfileId(), null,
+                Map.of("profileRef", access.profile().getId(), "ttlSeconds", request.ttlSeconds()));
+        return new PasswordResponse(password, Boolean.TRUE.equals(access.profile().getPermitPty()));
+    }
+
+    private record AuthorizedProfile(Project project, RtTarget target, RtProfile profile) { }
+
+    private AuthorizedProfile authorize(Long userId, String projectIdentifier, String targetId, String profileId, Integer ttlSeconds) {
+        Project project = requireMemberProject(projectIdentifier, userId);
+        RtTarget target = targetMapper.selectOne(new LambdaQueryWrapper<RtTarget>()
+                .eq(RtTarget::getProjectId, project.getId()).eq(RtTarget::getTargetId, targetId)
+                .isNull(RtTarget::getDeletedAt));
+        RtProfile profile = target == null ? null : profileMapper.selectOne(new LambdaQueryWrapper<RtProfile>()
+                .eq(RtProfile::getTargetRef, target.getId()).eq(RtProfile::getProfileId, profileId)
+                .isNull(RtProfile::getDeletedAt));
+        Long granted = profile == null ? 0L : grantMapper.selectCount(new LambdaQueryWrapper<RtGrant>()
+                .eq(RtGrant::getProfileRef, profile.getId()).eq(RtGrant::getUserId, userId));
+        if (target == null || profile == null || granted == null || granted == 0) {
+            throw new ForbiddenOperationException("没有使用该服务器身份的授权");
+        }
+        int ttl = ttlSeconds == null ? 0 : ttlSeconds;
+        if (ttl < 1 || ttl > Math.min(MAX_TTL_SECONDS, profile.getMaxTtlSeconds())) {
+            throw new IllegalArgumentException("连接期限超出该身份允许的范围（1–" + profile.getMaxTtlSeconds() + " 秒）");
+        }
+        return new AuthorizedProfile(project, target, profile);
     }
 
     static String principal(String projectIdentifier, String targetId, String loginUser) {

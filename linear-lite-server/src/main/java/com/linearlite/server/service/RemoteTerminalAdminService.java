@@ -223,14 +223,20 @@ public class RemoteTerminalAdminService {
                 throw new ConflictOperationException("该服务器已有登录账号 " + f.loginUser + " 的身份");
             }
         }
+        validatePassword(f.authType, request.password(), null);
         RtProfile profile = new RtProfile();
         profile.setTargetRef(targetRef);
         profile.setProfileId(f.profileId);
         profile.setLoginUser(f.loginUser);
+        profile.setAuthType(f.authType);
         profile.setMaxTtlSeconds(f.maxTtlSeconds);
         profile.setPermitPty(f.permitPty);
         profile.setCreatedAt(BeijingTime.now());
         profileMapper.insert(profile);
+        if ("PASSWORD".equals(f.authType)) {
+            profile.setPasswordCipher(cipher.encryptPassword(projectId, profile.getId(), request.password()));
+            profileMapper.updateById(profile);
+        }
         audit.record(projectId, userId, "profile.create", target.getTargetId() + "/" + f.profileId, null, profileAudit(profile));
         return profileView(profile, List.of());
     }
@@ -245,7 +251,16 @@ public class RemoteTerminalAdminService {
         if (!profile.getProfileId().equals(f.profileId) || !profile.getLoginUser().equals(f.loginUser)) {
             throw new IllegalArgumentException("profile_id 与登录账号创建后不可修改，请新建身份");
         }
+        validatePassword(f.authType, request.password(), profile);
         Map<String, Object> before = profileAudit(profile);
+        if ("PASSWORD".equals(f.authType)) {
+            if (request.password() != null && !request.password().isEmpty()) {
+                profile.setPasswordCipher(cipher.encryptPassword(projectId, profile.getId(), request.password()));
+            }
+        } else {
+            profile.setPasswordCipher(null);
+        }
+        profile.setAuthType(f.authType);
         profile.setMaxTtlSeconds(f.maxTtlSeconds);
         profile.setPermitPty(f.permitPty);
         profileMapper.updateById(profile);
@@ -317,9 +332,10 @@ public class RemoteTerminalAdminService {
         if (cas.isEmpty()) {
             throw new UnprocessableEntityException("项目尚未创建 CA");
         }
-        List<RtProfile> profiles = liveProfiles(List.of(target));
+        List<RtProfile> profiles = liveProfiles(List.of(target)).stream()
+                .filter(profile -> "CERTIFICATE".equals(profile.getAuthType())).toList();
         if (profiles.isEmpty()) {
-            throw new UnprocessableEntityException("该服务器还没有登录身份");
+            throw new UnprocessableEntityException("该服务器还没有证书登录身份");
         }
         return AccessScript.render(project.getIdentifier(), target.getTargetId(), cas,
                 profiles.stream().map(RtProfile::getLoginUser).toList());
@@ -439,6 +455,7 @@ public class RemoteTerminalAdminService {
     private void softDeleteProfile(RtProfile profile) {
         grantMapper.delete(new LambdaQueryWrapper<RtGrant>().eq(RtGrant::getProfileRef, profile.getId()));
         profile.setDeletedAt(BeijingTime.now());
+        profile.setPasswordCipher(null);
         profileMapper.updateById(profile);
     }
 
@@ -451,7 +468,7 @@ public class RemoteTerminalAdminService {
 
     private static ProfileView profileView(RtProfile p, List<Long> grantUserIds) {
         return new ProfileView(p.getId(), p.getProfileId(), p.getLoginUser(), p.getMaxTtlSeconds(),
-                Boolean.TRUE.equals(p.getPermitPty()), grantUserIds);
+                Boolean.TRUE.equals(p.getPermitPty()), p.getAuthType(), p.getPasswordCipher() != null, grantUserIds);
     }
 
     private static CaView caView(RtCaKey ca) {
@@ -481,6 +498,7 @@ public class RemoteTerminalAdminService {
         map.put("loginUser", p.getLoginUser());
         map.put("maxTtlSeconds", p.getMaxTtlSeconds());
         map.put("permitPty", p.getPermitPty());
+        map.put("authType", p.getAuthType());
         return map;
     }
 
@@ -488,7 +506,7 @@ public class RemoteTerminalAdminService {
                              SshKeys.PublicKey hostKey) {
     }
 
-    private record ProfileFields(String profileId, String loginUser, int maxTtlSeconds, boolean permitPty) {
+    private record ProfileFields(String profileId, String loginUser, int maxTtlSeconds, boolean permitPty, String authType) {
     }
 
     private static void apply(RtTarget target, Validated v) {
@@ -536,7 +554,23 @@ public class RemoteTerminalAdminService {
         if (ttl < 1 || ttl > 28800) {
             throw new IllegalArgumentException("最长连接期限须在 1–28800 秒之间");
         }
-        return new ProfileFields(profileId, loginUser, ttl, r.permitPty() == null || r.permitPty());
+        if (!"CERTIFICATE".equals(r.authType()) && !"PASSWORD".equals(r.authType())) {
+            throw new IllegalArgumentException("认证方式无效");
+        }
+        return new ProfileFields(profileId, loginUser, ttl, r.permitPty() == null || r.permitPty(), r.authType());
+    }
+
+    private static void validatePassword(String authType, String password, RtProfile existing) {
+        if (password != null && password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 1024) {
+            throw new IllegalArgumentException("密码不能超过 1024 字节");
+        }
+        if ("PASSWORD".equals(authType) && (password == null || password.isEmpty())
+                && (existing == null || !"PASSWORD".equals(existing.getAuthType()) || existing.getPasswordCipher() == null)) {
+            throw new IllegalArgumentException("密码登录身份需要密码");
+        }
+        if ("CERTIFICATE".equals(authType) && password != null && !password.isEmpty()) {
+            throw new IllegalArgumentException("证书登录身份不接受密码");
+        }
     }
 
     private static String text(String value, String label) {

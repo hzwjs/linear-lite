@@ -7,7 +7,7 @@ import { ControlledError } from './errors.js';
 
 type Frame = { seq: number; stream: 'stdout' | 'stderr' | 'pty'; bytes: Buffer };
 type Channel = { id: string; remote: RemoteChannel; pty: boolean; frames: Frame[]; next: number; size: number; ended: Set<string>; error: boolean; closed: boolean };
-type Session = { id: string; targetId: string; profileId: string; loginUser: string; expires: number; remote: RemoteConnection; channels: Map<string, Channel>; pendingChannels: number; timer: NodeJS.Timeout };
+type Session = { id: string; targetId: string; profileId: string; loginUser: string; permitPty: boolean; expires: number; remote: RemoteConnection; channels: Map<string, Channel>; pendingChannels: number; timer: NodeJS.Timeout };
 const BUFFER_BYTES = 1024 * 1024;
 const controlledLookupErrors = new Set(['Configured server identity is unavailable', 'Connection lifetime exceeds the configured identity limit']);
 
@@ -47,7 +47,7 @@ export class TerminalService {
           const id = randomUUID();
           const timer = setTimeout(() => this.release(id), expires - Date.now());
           timer.unref();
-          this.sessions.set(id, { id, targetId: target.target_id, profileId: profile.profile_id, loginUser: profile.login_user, expires, remote: connection, channels: new Map(), pendingChannels: 0, timer });
+          this.sessions.set(id, { id, targetId: target.target_id, profileId: profile.profile_id, loginUser: profile.login_user, permitPty: profile.password === undefined || profile.permit_pty, expires, remote: connection, channels: new Map(), pendingChannels: 0, timer });
           connection.onClose(() => this.release(id));
           if (!this.sessions.has(id)) throw new Error('Connection closed before its handle was returned');
           await info.afterConnect?.().catch(() => {});
@@ -68,6 +68,7 @@ export class TerminalService {
       case 'exec': {
         const args = toolSchemas[name].parse(raw);
         const session = this.session(args.session_id);
+        if (args.pty && !session.permitPty) throw new Error('PTY is not permitted for this identity');
         let activeChannels = this.pendingChannels;
         for (const connection of this.sessions.values()) activeChannels += connection.channels.size;
         if (session.channels.size + session.pendingChannels >= 8 || activeChannels >= 32) throw new Error('Terminal channel limit reached; close an unused channel');

@@ -16,7 +16,7 @@ const wireCatalog = z.object({
   targets: z.array(z.object({
     targetId: z.string(), alias: z.string(), environment: z.string(),
     host: z.string(), port: z.number().int(), hostKey: z.string(), hostKeyRev: z.number().int(),
-    profiles: z.array(z.object({ profileId: z.string(), loginUser: z.string(), maxTtlSeconds: z.number().int() }).strict()),
+    profiles: z.array(z.object({ profileId: z.string(), loginUser: z.string(), maxTtlSeconds: z.number().int(), authType: z.enum(['CERTIFICATE', 'PASSWORD']) }).strict()),
   }).strict()),
 }).strict();
 const catalogSchema = wireCatalog.transform(wire => ({
@@ -24,18 +24,19 @@ const catalogSchema = wireCatalog.transform(wire => ({
   targets: wire.targets.map(t => ({
     target_id: t.targetId, alias: t.alias, environment: t.environment, host: t.host, port: t.port,
     host_key: t.hostKey, host_key_rev: t.hostKeyRev,
-    profiles: t.profiles.map(p => ({ profile_id: p.profileId, login_user: p.loginUser, max_ttl_seconds: p.maxTtlSeconds })),
+    profiles: t.profiles.map(p => ({ profile_id: p.profileId, login_user: p.loginUser, max_ttl_seconds: p.maxTtlSeconds, auth_type: p.authType })),
   })),
 }));
 type Catalog = z.output<typeof catalogSchema>;
 const envelope = <T extends z.ZodTypeAny>(data: T) => z.object({ code: z.number(), message: z.string().nullish(), data }).passthrough();
 const certificateSchema = z.object({ certificate: z.string().min(1), serial: z.number() }).passthrough();
+const passwordSchema = z.object({ password: z.string().min(1), permitPty: z.boolean() }).strict();
 
 function toWire(catalog: Catalog) {
   return { project: catalog.project, targets: catalog.targets.map(t => ({
     targetId: t.target_id, alias: t.alias, environment: t.environment, host: t.host, port: t.port,
     hostKey: t.host_key, hostKeyRev: t.host_key_rev,
-    profiles: t.profiles.map(p => ({ profileId: p.profile_id, loginUser: p.login_user, maxTtlSeconds: p.max_ttl_seconds })),
+    profiles: t.profiles.map(p => ({ profileId: p.profile_id, loginUser: p.login_user, maxTtlSeconds: p.max_ttl_seconds, authType: p.auth_type })),
   })) };
 }
 
@@ -118,16 +119,27 @@ export class CloudSource implements TargetSource {
     }
     signal.throwIfAborted();
 
-    const key = generateEphemeralKey();
-    const issued = envelope(certificateSchema).parse(await this.call('/api/remote-terminal/certificates', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ project: this.project, targetId, profileId, publicKey: key.publicKeyLine, ttlSeconds }),
-    })).data;
+    const credentials = profile.auth_type === 'PASSWORD'
+      ? await this.call('/api/remote-terminal/passwords', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ project: this.project, targetId, profileId, ttlSeconds, expectedHostKeyRev: target.host_key_rev }),
+      }).then(result => {
+        const issued = envelope(passwordSchema).parse(result).data;
+        return { password: issued.password, permit_pty: issued.permitPty };
+      })
+      : await (async () => {
+        const key = generateEphemeralKey();
+        const issued = envelope(certificateSchema).parse(await this.call('/api/remote-terminal/certificates', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ project: this.project, targetId, profileId, publicKey: key.publicKeyLine, ttlSeconds }),
+        })).data;
+        return { ephemeral: { private_key: key.privateKey, certificate: issued.certificate } };
+      })();
     return {
       target: { target_id: target.target_id, alias: target.alias, environment: target.environment, host: target.host,
         port: target.port, host_key: target.host_key, profiles: [] },
       profile: { profile_id: profile.profile_id, login_user: profile.login_user, max_ttl_seconds: profile.max_ttl_seconds,
-        ephemeral: { private_key: key.privateKey, certificate: issued.certificate } },
+        ...credentials },
       // Trust on first use is recorded only after a successful login to that very key.
       afterConnect: pin.result === 'new' ? () => recordPin(this.server, this.project, targetId, target.host_key) : undefined,
     };

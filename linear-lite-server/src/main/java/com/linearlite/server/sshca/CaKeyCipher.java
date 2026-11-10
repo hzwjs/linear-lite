@@ -38,7 +38,7 @@ public class CaKeyCipher {
         try {
             byte[] nonce = new byte[NONCE_BYTES];
             RANDOM.nextBytes(nonce);
-            Cipher cipher = cipher(Cipher.ENCRYPT_MODE, projectId, nonce);
+            Cipher cipher = cipher(Cipher.ENCRYPT_MODE, "rt-ca:" + projectId, nonce);
             byte[] sealed = cipher.doFinal(seed);
             byte[] result = new byte[nonce.length + sealed.length];
             System.arraycopy(nonce, 0, result, 0, nonce.length);
@@ -52,21 +52,45 @@ public class CaKeyCipher {
     public byte[] decrypt(long projectId, byte[] stored) {
         try {
             byte[] nonce = Arrays.copyOfRange(stored, 0, NONCE_BYTES);
-            Cipher cipher = cipher(Cipher.DECRYPT_MODE, projectId, nonce);
+            Cipher cipher = cipher(Cipher.DECRYPT_MODE, "rt-ca:" + projectId, nonce);
             return cipher.doFinal(stored, NONCE_BYTES, stored.length - NONCE_BYTES);
         } catch (GeneralSecurityException | RuntimeException e) {
             throw new IllegalStateException("CA 私钥解密失败，请检查 RT_CA_KEK", e);
         }
     }
 
-    private Cipher cipher(int mode, long projectId, byte[] nonce) throws GeneralSecurityException {
+    public byte[] encryptPassword(long projectId, long profileId, String password) {
+        try {
+            byte[] nonce = new byte[NONCE_BYTES];
+            RANDOM.nextBytes(nonce);
+            Cipher cipher = cipher(Cipher.ENCRYPT_MODE, "rt-password:" + projectId + ":" + profileId, nonce);
+            byte[] sealed = cipher.doFinal(password.getBytes(StandardCharsets.UTF_8));
+            byte[] result = Arrays.copyOf(nonce, nonce.length + sealed.length);
+            System.arraycopy(sealed, 0, result, nonce.length, sealed.length);
+            return result;
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("登录密码加密失败", e);
+        }
+    }
+
+    public String decryptPassword(long projectId, long profileId, byte[] stored) {
+        try {
+            byte[] nonce = Arrays.copyOfRange(stored, 0, NONCE_BYTES);
+            Cipher cipher = cipher(Cipher.DECRYPT_MODE, "rt-password:" + projectId + ":" + profileId, nonce);
+            return new String(cipher.doFinal(stored, NONCE_BYTES, stored.length - NONCE_BYTES), StandardCharsets.UTF_8);
+        } catch (GeneralSecurityException | RuntimeException e) {
+            throw new IllegalStateException("登录密码解密失败，请检查 RT_CA_KEK", e);
+        }
+    }
+
+    private Cipher cipher(int mode, String purpose, byte[] nonce) throws GeneralSecurityException {
         byte[] key = kek();
         if (key == null) {
             throw new UnprocessableEntityException("远程终端未启用：服务端缺少有效的 RT_CA_KEK（32 字节 Base64）");
         }
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(mode, new SecretKeySpec(key, "AES"), new GCMParameterSpec(TAG_BITS, nonce));
-        cipher.updateAAD(("rt-ca:" + projectId).getBytes(StandardCharsets.UTF_8));
+        cipher.updateAAD(purpose.getBytes(StandardCharsets.UTF_8));
         return cipher;
     }
 

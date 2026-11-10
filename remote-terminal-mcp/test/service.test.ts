@@ -52,12 +52,45 @@ test('configuration is one strict local whitelist and public catalogue omits cre
   assert.equal(configurationSchema.safeParse({ targets: [{ ...target, profiles: [keyProfile] }] }).success, true);
   assert.equal(configurationSchema.safeParse({ targets: [{ ...target, profiles: [{ ...keyProfile, agent_socket: '/private/agent.sock' }] }] }).success, false);
   assert.equal(configurationSchema.safeParse({ targets: [{ ...target, profiles: [{ ...keyProfile, private_key_path: 'relative' }] }] }).success, false);
+  const passwordProfile = { profile_id: 'password', login_user: 'operator', password_file: '/private/password-file', max_ttl_seconds: 60 };
+  assert.equal(configurationSchema.safeParse({ targets: [{ ...target, profiles: [passwordProfile] }] }).success, true);
+  assert.equal(configurationSchema.safeParse({ targets: [{ ...target, profiles: [{ ...passwordProfile, password_file: 'relative' }] }] }).success, false);
+  assert.equal(configurationSchema.safeParse({ targets: [{ ...target, profiles: [{ ...passwordProfile, password: 'secret' }] }] }).success, false);
+  assert.equal(configurationSchema.safeParse({ targets: [{ ...target, profiles: [{ ...passwordProfile, private_key_path: '/private/key' }] }] }).success, false);
+  const passwordService = new TerminalService({ targets: [{ ...target, profiles: [passwordProfile] }] }, { connect: async () => new Connection() });
+  try {
+    const listed = JSON.stringify(await passwordService.call('list_targets', {}));
+    assert.ok(!listed.includes(passwordProfile.password_file));
+    assert.ok(!listed.includes('password_file'));
+  } finally { passwordService.close(); }
   const f = fixture();
   try {
     const output = JSON.stringify(await f.service.call('list_targets', {}));
     assert.ok(output.includes('operator')); assert.ok(!output.includes('private-host')); assert.ok(!output.includes('agent.sock')); assert.ok(!output.includes('identity.pub'));
     await assert.rejects(f.service.call('open_session', { target_id: 'other', profile_id: 'ops', ttl_seconds: 10 }), /unavailable/);
   } finally { f.service.close(); }
+});
+
+test('password session enforces PTY policy without returning the password', async () => {
+  const config = configuration();
+  const target = config.targets[0]!;
+  const secret = 'session-password-secret';
+  const profile = { profile_id: 'ops', login_user: 'operator', password: secret, permit_pty: false, max_ttl_seconds: 60 };
+  const connection = new Connection();
+  const source = {
+    list: async () => [{ ...target, profiles: [{ profile_id: profile.profile_id, login_user: profile.login_user, max_ttl_seconds: profile.max_ttl_seconds }] }],
+    connectInfo: async () => ({ target, profile }),
+  };
+  const service = new TerminalService(source, { connect: async () => connection });
+  try {
+    const listed = await service.call('list_targets', {});
+    const opened = await service.call('open_session', { target_id: 'test', profile_id: 'ops', ttl_seconds: 30 });
+    assert.ok(!JSON.stringify({ listed, opened }).includes(secret));
+    await assert.rejects(service.call('exec', { session_id: opened.session_id, command: 'id', pty: true, rows: 24, cols: 80 }), /PTY is not permitted/);
+    assert.equal(connection.commands.length, 0);
+    await service.call('exec', { session_id: opened.session_id, command: 'id', pty: false });
+    assert.equal(connection.commands.length, 1);
+  } finally { service.close(); }
 });
 
 test('original command, nonzero exit and replayable memory output remain transport facts', async () => {

@@ -178,6 +178,12 @@ const en = {
       hostKeyHint: 'Get it from the server console (/etc/ssh/ssh_host_ed25519_key.pub) and compare the fingerprint. A changed key makes members\' clients stop until they confirm it.'
     },
     profile: {
+      edit: 'Edit identity',
+      authLabel: 'Authentication',
+      auth: { CERTIFICATE: 'SSH certificate', PASSWORD: 'Password' },
+      password: 'Login password',
+      passwordEdit: 'New password; leave blank to keep current',
+      passwordConfirm: 'Authorized members can obtain the server password. Revoking access does not invalidate a password already obtained. Change the server password to revoke it. Save?',
       add: 'Add identity',
       saved: 'Identity saved',
       deleted: 'Identity deleted',
@@ -397,7 +403,6 @@ const en = {
     allStatuses: 'All statuses',
     emptyColumn: 'No issues',
     newIssue: 'New issue',
-    searchIssues: 'Search task IDs, numbers, titles, and descriptions...',
     allIssues: 'All issues',
     active: 'Active',
     backlog: 'Backlog',

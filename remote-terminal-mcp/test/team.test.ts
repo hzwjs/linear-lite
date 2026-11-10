@@ -149,8 +149,8 @@ test('expired access tokens refresh and rotate; a rejected refresh asks the user
 }));
 
 // Exactly what the server sends: camelCase, wrapped in ApiResponse.
-const catalogBody = (hostKey = HOST_KEY) => ({ code: 200, data: { project: 'ENG', targets: [{ targetId: 'prod', alias: 'Prod', environment: 'prod', host: '10.0.0.5', port: 22, hostKey, hostKeyRev: 1,
-  profiles: [{ profileId: 'deploy', loginUser: 'deploy', maxTtlSeconds: 600 }] }] } });
+const catalogBody = (hostKey = HOST_KEY, authType: 'CERTIFICATE' | 'PASSWORD' = 'CERTIFICATE') => ({ code: 200, data: { project: 'ENG', targets: [{ targetId: 'prod', alias: 'Prod', environment: 'prod', host: '10.0.0.5', port: 22, hostKey, hostKeyRev: 1,
+  profiles: [{ profileId: 'deploy', loginUser: 'deploy', maxTtlSeconds: 600, authType }] }] } });
 
 function cloud(handler: (path: string, init: RequestInit) => unknown | Promise<unknown>) {
   const calls: Array<{ path: string; init: RequestInit }> = [];
@@ -207,4 +207,39 @@ test('a changed host key blocks the connection before any certificate is request
   await assert.rejects(source.connectInfo('prod', 'deploy', 60, new AbortController().signal), (error: Error) =>
     error instanceof ControlledError && /changed/.test(error.message) && /pins accept/.test(error.message));
   assert.equal(issued, 0);
+}));
+
+test('password identity retrieves the secret only for a live, pinned target and never caches it', async () => withHome(async home => {
+  const secret = 'test-password-do-not-persist';
+  let request: Record<string, unknown> | undefined;
+  const { source, calls } = cloud((path, init) => {
+    if (path === '/api/remote-terminal/passwords') {
+      request = JSON.parse(String(init.body));
+      return { code: 200, data: { password: secret, permitPty: false } };
+    }
+    return catalogBody(HOST_KEY, 'PASSWORD');
+  });
+  await source.list();
+  const info = await source.connectInfo('prod', 'deploy', 300, new AbortController().signal);
+  assert.deepEqual(request, { project: 'ENG', targetId: 'prod', profileId: 'deploy', ttlSeconds: 300, expectedHostKeyRev: 1 });
+  assert.equal(info.profile.password, secret);
+  assert.equal(info.profile.permit_pty, false);
+  assert.ok(!calls.some(call => call.path === '/api/remote-terminal/certificates'));
+  const cache = await readFile(join(home, 'catalog', 'linear.example.com__ENG.json'), 'utf8');
+  assert.ok(!cache.includes(secret));
+}));
+
+test('password retrieval rejects revoked access and changed host keys without trying a certificate', async () => withHome(async () => {
+  let refused = false;
+  const { source, calls } = cloud((path) => {
+    if (path === '/api/remote-terminal/passwords') { refused = true; throw new HttpError(403); }
+    return catalogBody(HOST_KEY, 'PASSWORD');
+  });
+  await assert.rejects(source.connectInfo('prod', 'deploy', 60, new AbortController().signal), /Not authorized/);
+  assert.equal(refused, true);
+  assert.ok(!calls.some(call => call.path === '/api/remote-terminal/certificates'));
+  await recordPin('https://linear.example.com', 'ENG', 'prod', OTHER_KEY);
+  refused = false;
+  await assert.rejects(source.connectInfo('prod', 'deploy', 60, new AbortController().signal), /Host key.*changed/);
+  assert.equal(refused, false);
 }));

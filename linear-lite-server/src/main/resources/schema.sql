@@ -499,6 +499,8 @@ CREATE TABLE IF NOT EXISTS rt_profiles (
     target_ref       BIGINT       NOT NULL COMMENT '逻辑关联 rt_targets.id',
     profile_id       VARCHAR(100) NOT NULL,
     login_user       VARCHAR(64)  NOT NULL,
+    auth_type        VARCHAR(16)  NOT NULL DEFAULT 'CERTIFICATE',
+    password_cipher  VARBINARY(4096) NULL,
     max_ttl_seconds  INT          NOT NULL COMMENT '1–28800',
     permit_pty       TINYINT      NOT NULL DEFAULT 1,
     deleted_at       DATETIME     NULL,
