@@ -4,11 +4,13 @@ import { useI18n } from 'vue-i18n'
 import { githubWebhookUrl, gitlabWebhookUrl, type GitHubRepository, type GitLabRepository } from '../services/api/project'
 import { copyTextToClipboard } from '../utils/clipboard'
 import ProjectLocalExecutionSettings from './ProjectLocalExecutionSettings.vue'
+import ProjectDeviceBindingSettings from './ProjectDeviceBindingSettings.vue'
 import ProjectRemoteTerminalSettings from './ProjectRemoteTerminalSettings.vue'
 import {
   ArrowLeft,
   Bell,
   Download,
+  FolderOpen,
   Github,
   Gitlab,
   Info,
@@ -234,6 +236,7 @@ function onClose() {
         <a href="#settings-general" :class="{ 'is-active': activeSection === 'settings-general' }" :aria-current="activeSection === 'settings-general' ? 'location' : undefined" @click.prevent="navigateToSection('settings-general')"><Info aria-hidden="true" />{{ t('projectSettingsModal.basicTitle') }}</a>
         <a href="#settings-members" :class="{ 'is-active': activeSection === 'settings-members' }" :aria-current="activeSection === 'settings-members' ? 'location' : undefined" @click.prevent="navigateToSection('settings-members')"><Users aria-hidden="true" />{{ t('projectSettingsModal.membersNav') }}</a>
         <a href="#settings-import" :class="{ 'is-active': activeSection === 'settings-import' }" :aria-current="activeSection === 'settings-import' ? 'location' : undefined" @click.prevent="navigateToSection('settings-import')"><Download aria-hidden="true" />{{ t('projectSettingsModal.importTitle') }}</a>
+        <a href="#settings-device-binding" :class="{ 'is-active': activeSection === 'settings-device-binding' }" :aria-current="activeSection === 'settings-device-binding' ? 'location' : undefined" @click.prevent="navigateToSection('settings-device-binding')"><FolderOpen aria-hidden="true" />{{ t('projectDeviceBinding.title') }}</a>
         <a href="#settings-local-execution" :class="{ 'is-active': activeSection === 'settings-local-execution' }" :aria-current="activeSection === 'settings-local-execution' ? 'location' : undefined" @click.prevent="navigateToSection('settings-local-execution')"><MonitorCog aria-hidden="true" />本地执行</a>
         <a v-if="canDelete" href="#settings-integrations" :class="{ 'is-active': activeSection === 'settings-integrations' }" :aria-current="activeSection === 'settings-integrations' ? 'location' : undefined" @click.prevent="navigateToSection('settings-integrations')"><Gitlab aria-hidden="true" />{{ t('projectSettingsModal.integrationsNav') }}</a>
         <a v-if="canDelete" href="#settings-remote-terminal" :class="{ 'is-active': activeSection === 'settings-remote-terminal' }" :aria-current="activeSection === 'settings-remote-terminal' ? 'location' : undefined" @click.prevent="navigateToSection('settings-remote-terminal')"><ServerCog aria-hidden="true" />{{ t('remoteTerminal.nav') }}</a>
@@ -313,6 +316,8 @@ function onClose() {
             {{ t('projectSettingsModal.importButton') }}
           </button>
         </section>
+
+        <ProjectDeviceBindingSettings :project-id="projectId" :project-name="name" />
 
         <ProjectLocalExecutionSettings :project-id="projectId" :project-name="name" />
 
@@ -465,9 +470,9 @@ function onClose() {
 .basic-fields { display: grid; grid-template-columns: minmax(0, 1fr) 160px auto; gap: 16px; align-items: end; }
 .form-group { display: flex; flex-direction: column; gap: 7px; }
 .form-group label { color: var(--color-text-secondary); font-size: var(--font-size-caption); font-weight: var(--font-weight-medium); }
-.input { width: 100%; min-height: 38px; padding: 8px 11px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-bg-primary); transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast); }
-.input:hover:not(:disabled) { border-color: var(--color-text-muted); }
-.input:focus { border-color: var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-muted); }
+.input, :deep(.project-device-binding .input) { width: 100%; min-height: 38px; padding: 8px 11px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-bg-primary); transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast); }
+.input:hover:not(:disabled), :deep(.project-device-binding .input:hover:not(:disabled)) { border-color: var(--color-text-muted); }
+.input:focus, :deep(.project-device-binding .input:focus) { border-color: var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-muted); }
 .input--mono { text-transform: uppercase; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .section-actions { display: flex; justify-content: flex-end; }
 .invite-controls, .gitlab-controls { display: flex; align-items: center; gap: 8px; }
@@ -476,9 +481,9 @@ function onClose() {
 .pi-project-context strong { max-width: min(100%, 420px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-primary); font-weight: var(--font-weight-medium); }
 .pi-project-context code { padding: 2px 6px; border-radius: var(--radius-sm); background: var(--color-bg-muted); color: var(--color-text-muted); font: 500 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .pi-configure-controls { display: flex; align-items: center; }
-.feedback { margin: 0; padding: 10px 12px; border: 1px solid; border-radius: var(--radius-md); font-size: var(--font-size-caption); }
-.feedback--error { color: var(--project-settings-danger-text); border-color: var(--project-settings-danger-border); background: var(--project-settings-danger-bg); }
-.feedback--success { margin-top: 10px; color: var(--project-settings-success-text); border-color: color-mix(in srgb, var(--project-settings-success-text) 20%, transparent); background: var(--project-settings-success-bg); }
+.feedback, :deep(.project-device-binding .feedback) { margin: 0; padding: 10px 12px; border: 1px solid; border-radius: var(--radius-md); font-size: var(--font-size-caption); }
+.feedback--error, :deep(.project-device-binding .feedback--error) { color: var(--project-settings-danger-text); border-color: var(--project-settings-danger-border); background: var(--project-settings-danger-bg); }
+.feedback--success, :deep(.project-device-binding .feedback--success) { margin-top: 10px; color: var(--project-settings-success-text); border-color: color-mix(in srgb, var(--project-settings-success-text) 20%, transparent); background: var(--project-settings-success-bg); }
 .settings-cluster { scroll-margin-top: 104px; display: grid; gap: 16px; }
 .settings-cluster > .cluster-header { margin-bottom: 0; }
 .integration-section { padding: 20px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-primary); box-shadow: 0 1px 2px color-mix(in srgb, var(--color-text-primary) 4%, transparent); }
@@ -501,19 +506,19 @@ function onClose() {
 .danger-zone { padding: 20px; border: 1px solid var(--project-settings-danger-border); border-radius: var(--radius-lg); background: var(--project-settings-danger-bg); }
 .danger-zone .section-header { margin-bottom: 16px; }
 .danger-zone .section-header h2, .danger-zone .section-header p { color: var(--project-settings-danger-text); }
-.btn-secondary, .btn-primary, .btn-danger, .btn-danger-ghost { min-height: 36px; padding: 7px 12px; border: 1px solid; border-radius: var(--radius-md); font-weight: var(--font-weight-medium); transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast); }
-.btn-primary, .btn-secondary, .btn-danger { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
-.btn-primary { border-color: var(--color-accent); color: var(--color-text-on-accent); background: var(--color-accent); }
-.btn-primary:hover:not(:disabled) { border-color: var(--color-accent-hover); background: var(--color-accent-hover); }
-.btn-secondary { border-color: var(--color-border-strong); background: var(--color-bg-primary); }
-.btn-secondary:hover:not(:disabled) { background: var(--color-bg-hover); }
+.btn-secondary, .btn-primary, .btn-danger, .btn-danger-ghost, :deep(.project-device-binding .btn-secondary), :deep(.project-device-binding .btn-primary) { min-height: 36px; padding: 7px 12px; border: 1px solid; border-radius: var(--radius-md); font-weight: var(--font-weight-medium); transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast); }
+.btn-primary, .btn-secondary, .btn-danger, :deep(.project-device-binding .btn-primary), :deep(.project-device-binding .btn-secondary) { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.btn-primary, :deep(.project-device-binding .btn-primary) { border-color: var(--color-accent); color: var(--color-text-on-accent); background: var(--color-accent); }
+.btn-primary:hover:not(:disabled), :deep(.project-device-binding .btn-primary:hover:not(:disabled)) { border-color: var(--color-accent-hover); background: var(--color-accent-hover); }
+.btn-secondary, :deep(.project-device-binding .btn-secondary) { border-color: var(--color-border-strong); background: var(--color-bg-primary); }
+.btn-secondary:hover:not(:disabled), :deep(.project-device-binding .btn-secondary:hover:not(:disabled)) { background: var(--color-bg-hover); }
 .btn-secondary.is-success { border-color: color-mix(in srgb, var(--project-settings-success-text) 30%, transparent); color: var(--project-settings-success-text); background: var(--project-settings-success-bg); }
 .btn-secondary.is-error { border-color: var(--project-settings-danger-border); color: var(--project-settings-danger-text); background: var(--project-settings-danger-bg); }
 .btn-danger { border-color: var(--project-settings-danger-text); color: #fff; background: var(--project-settings-danger-text); }
 .btn-danger-ghost { border-color: transparent; color: var(--project-settings-danger-text); background: transparent; }
 .btn-danger-ghost:hover:not(:disabled) { background: var(--project-settings-danger-bg); }
-button:disabled, input:disabled { cursor: not-allowed; opacity: 0.55; }
-button:focus-visible, a:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+button:disabled, input:disabled, :deep(.project-device-binding button:disabled), :deep(.project-device-binding input:disabled), :deep(.project-device-binding select:disabled) { cursor: not-allowed; opacity: 0.55; }
+button:focus-visible, a:focus-visible, :deep(.project-device-binding button:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .button-spinner { width: 14px; height: 14px; animation: settings-spin 0.8s linear infinite; }
 @keyframes settings-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .settings-page { scroll-behavior: auto; } .button-spinner { animation: none; } }

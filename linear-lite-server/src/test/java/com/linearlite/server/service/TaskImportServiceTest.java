@@ -60,6 +60,8 @@ class TaskImportServiceTest {
                 assigneeService,
                 inAppNotificationService
         );
+        org.mockito.Mockito.lenient().when(projectMapper.lockProject(org.mockito.ArgumentMatchers.anyLong()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         org.mockito.Mockito.lenient().when(assigneeService.requireProjectAssignee(
                 org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(1));

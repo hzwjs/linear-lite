@@ -90,6 +90,7 @@ public class McpToolRegistry {
     private final ProjectDocumentQueryService projectDocumentQueryService;
     private final McpDocumentPatchService documentPatchService;
     private final UserMapper userMapper;
+    private final com.linearlite.server.service.CollaborationApiService collaborationApi;
     private final BlockNoteDocumentPatchProcessor blockNotePatchProcessor;
     private final Map<String, ToolHandler> handlers;
     private final List<ObjectNode> definitions;
@@ -109,7 +110,8 @@ public class McpToolRegistry {
             ProjectDocumentCommandService projectDocumentCommandService,
             ProjectDocumentQueryService projectDocumentQueryService,
             McpDocumentPatchService documentPatchService,
-            UserMapper userMapper) {
+            UserMapper userMapper,
+            com.linearlite.server.service.CollaborationApiService collaborationApi) {
         this.objectMapper = objectMapper;
         this.markdownToBlockNoteConverter = markdownToBlockNoteConverter;
         this.documentImageContentService = documentImageContentService;
@@ -124,6 +126,7 @@ public class McpToolRegistry {
         this.projectDocumentQueryService = projectDocumentQueryService;
         this.documentPatchService = documentPatchService;
         this.userMapper = userMapper;
+        this.collaborationApi = collaborationApi;
         this.blockNotePatchProcessor = new BlockNoteDocumentPatchProcessor(objectMapper);
 
         Map<String, ToolHandler> registered = new LinkedHashMap<>();
@@ -146,7 +149,7 @@ public class McpToolRegistry {
         registered.put("get_member_id", this::getMemberId);
         registered.put("upload_task_attachment", this::uploadTaskAttachment);
         this.handlers = Map.copyOf(registered);
-        this.definitions = List.of(
+        List<ObjectNode> allDefinitions = new ArrayList<>(List.of(
                 getProfileDefinition(),
                 listProjectsDefinition(),
                 createProjectDefinition(),
@@ -164,7 +167,12 @@ public class McpToolRegistry {
                 updateDocumentDefinition(),
                 patchDocumentDefinition(),
                 getMemberIdDefinition(),
-                uploadTaskAttachmentDefinition());
+                uploadTaskAttachmentDefinition()));
+        for (var definition : collaborationApi.definitions()) {
+            allDefinitions.add(tool(definition.name(), definition.title(), definition.description(),
+                    (ObjectNode) definition.inputSchema().deepCopy(), definition.readOnly(), definition.idempotent()));
+        }
+        this.definitions = List.copyOf(allDefinitions);
         this.definitions.forEach(this::addSecurityScheme);
     }
 
@@ -177,6 +185,13 @@ public class McpToolRegistry {
     }
 
     public JsonNode invoke(String name, JsonNode arguments, Long userId) {
+        if (collaborationApi.definition(name) != null) {
+            try {
+                return collaborationApi.invoke(name, arguments, userId);
+            } catch (com.linearlite.server.service.CollaborationApiService.ParameterException e) {
+                throw new McpInvalidParamsException(e.getMessage());
+            }
+        }
         ToolHandler handler = handlers.get(name);
         if (handler == null) {
             throw new McpToolNotFoundException("工具不存在: " + name);
@@ -193,6 +208,10 @@ public class McpToolRegistry {
         }
         if (WRITE_TOOLS.contains(name)) {
             return "linear-lite:write";
+        }
+        var collaborationDefinition = collaborationApi.definition(name);
+        if (collaborationDefinition != null) {
+            return collaborationDefinition.readOnly() ? "linear-lite:read" : "linear-lite:write";
         }
         return null;
     }

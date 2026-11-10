@@ -1,0 +1,218 @@
+{
+  "task": "LINEAR-LITE-121",
+  "observedAt": "2026-11-10",
+  "cliVersion": "codex-cli 0.164.0",
+  "captureCommand": "codex app-server generate-json-schema --out <evidence-directory> --experimental",
+  "evidenceLevel": "本机协议声明；缺少服务调用与进程生命周期运行证明",
+  "methods": [
+    {
+      "method": "thread/start",
+      "requiredParams": [],
+      "declaredParamFields": [
+        "allowProviderModelFallback",
+        "approvalPolicy",
+        "approvalsReviewer",
+        "baseInstructions",
+        "config",
+        "cwd",
+        "daybreakEnabled",
+        "developerInstructions",
+        "dynamicTools",
+        "environments",
+        "ephemeral",
+        "experimentalRawEvents",
+        "historyMode",
+        "mockExperimentalField",
+        "model",
+        "modelProvider",
+        "multiAgentMode",
+        "permissions",
+        "personality",
+        "projectId",
+        "runtimeWorkspaceRoots",
+        "sandbox",
+        "selectedCapabilityRoots",
+        "serviceName",
+        "serviceTier",
+        "sessionStartSource",
+        "threadSource"
+      ]
+    },
+    {
+      "method": "thread/resume",
+      "requiredParams": [
+        "threadId"
+      ],
+      "declaredParamFields": [
+        "approvalPolicy",
+        "approvalsReviewer",
+        "baseInstructions",
+        "config",
+        "cwd",
+        "developerInstructions",
+        "excludeTurns",
+        "history",
+        "initialTurnsPage",
+        "model",
+        "modelProvider",
+        "path",
+        "permissions",
+        "personality",
+        "runtimeWorkspaceRoots",
+        "sandbox",
+        "serviceTier",
+        "threadId"
+      ]
+    },
+    {
+      "method": "thread/backgroundTerminals/list",
+      "requiredParams": [
+        "threadId"
+      ],
+      "declaredParamFields": [
+        "cursor",
+        "limit",
+        "threadId"
+      ]
+    },
+    {
+      "method": "thread/backgroundTerminals/terminate",
+      "requiredParams": [
+        "processId",
+        "threadId"
+      ],
+      "declaredParamFields": [
+        "processId",
+        "threadId"
+      ]
+    },
+    {
+      "method": "thread/read",
+      "requiredParams": [
+        "threadId"
+      ],
+      "declaredParamFields": [
+        "includeTurns",
+        "threadId"
+      ]
+    },
+    {
+      "method": "turn/start",
+      "requiredParams": [
+        "input",
+        "threadId"
+      ],
+      "declaredParamFields": [
+        "additionalContext",
+        "approvalPolicy",
+        "approvalsReviewer",
+        "clientUserMessageId",
+        "collaborationMode",
+        "cwd",
+        "cyberAccessProgram",
+        "disabledPluginIds",
+        "effort",
+        "environments",
+        "input",
+        "model",
+        "multiAgentMode",
+        "outputSchema",
+        "parentTurnId",
+        "permissions",
+        "personality",
+        "responsesapiClientMetadata",
+        "responsesapiClientMetadataPatch",
+        "rootTurnId",
+        "runtimeWorkspaceRoots",
+        "sandboxPolicy",
+        "serviceTier",
+        "serviceTierForTurn",
+        "summary",
+        "threadId",
+        "toolOutput",
+        "turnTrigger"
+      ]
+    },
+    {
+      "method": "turn/interrupt",
+      "requiredParams": [
+        "threadId",
+        "turnId"
+      ],
+      "declaredParamFields": [
+        "threadId",
+        "turnId"
+      ]
+    },
+    {
+      "method": "command/exec",
+      "requiredParams": [
+        "command"
+      ],
+      "declaredParamFields": [
+        "command",
+        "cwd",
+        "disableOutputCap",
+        "disableTimeout",
+        "env",
+        "outputBytesCap",
+        "permissionProfile",
+        "processId",
+        "sandboxPolicy",
+        "size",
+        "streamStdin",
+        "streamStdoutStderr",
+        "timeoutMs",
+        "tty"
+      ]
+    },
+    {
+      "method": "command/exec/terminate",
+      "requiredParams": [
+        "processId"
+      ],
+      "declaredParamFields": [
+        "processId"
+      ]
+    },
+    {
+      "method": "process/spawn",
+      "requiredParams": [
+        "command",
+        "cwd",
+        "processHandle"
+      ],
+      "declaredParamFields": [
+        "command",
+        "cwd",
+        "env",
+        "outputBytesCap",
+        "processHandle",
+        "size",
+        "streamStdin",
+        "streamStdoutStderr",
+        "timeoutMs",
+        "tty"
+      ]
+    },
+    {
+      "method": "process/kill",
+      "requiredParams": [
+        "processHandle"
+      ],
+      "declaredParamFields": [
+        "processHandle"
+      ]
+    }
+  ],
+  "notificationMethods": [
+    "thread/status/changed",
+    "turn/completed",
+    "process/exited"
+  ],
+  "limits": [
+    "thread/start 与原生子代理创建缺少等价契约",
+    "进程接口覆盖全部关联写入后代的证明缺失",
+    "deviceId、绑定读取、续租与停止恢复属于宿主集成工作"
+  ]
+}

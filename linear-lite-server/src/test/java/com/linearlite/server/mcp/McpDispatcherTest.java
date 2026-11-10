@@ -97,7 +97,8 @@ class McpDispatcherTest {
                 projectDocumentCommandService,
                 projectDocumentQueryService,
                 documentPatchService,
-                mock(UserMapper.class));
+                mock(UserMapper.class),
+                mock(com.linearlite.server.service.CollaborationApiService.class));
         dispatcher = new McpDispatcher(objectMapper, properties, new McpOAuthProperties(), registry);
     }
 

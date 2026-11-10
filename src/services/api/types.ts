@@ -23,6 +23,10 @@ export interface ApiTask {
   dueDate?: string | null
   plannedStartDate?: string | null
   progressPercent?: number | null
+  agentExecutionEnabled: boolean
+  inputRevision: number
+  writeScopes: string[]
+  publicContextRefs: { documentId: number; version: number }[]
   completedAt?: string | null
   createdAt: string
   updatedAt: string

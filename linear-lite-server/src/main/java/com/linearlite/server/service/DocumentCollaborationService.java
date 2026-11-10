@@ -94,6 +94,7 @@ public class DocumentCollaborationService {
         this.revisionSnapshots = revisionSnapshots;
         this.eventPublisher = eventPublisher;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.transactionTemplate.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.transitionMapper = transitionMapper;
         this.transitionItemMapper = transitionItemMapper;
     }
@@ -177,7 +178,7 @@ public class DocumentCollaborationService {
                 state.getCommitSeq(), document.getVersion(), document.getContentFormat());
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public ArchiveTransitionPrepared prepareArchiveTransition(Long projectId, Long rootDocumentId,
                                                                List<Long> documentIds, String operation) {
         if (!"archive".equals(operation) && !"unarchive".equals(operation) && !"delete".equals(operation)) {
@@ -241,7 +242,7 @@ public class DocumentCollaborationService {
                 transitionMapper.selectDeadlineEpochMs(transitionId), List.copyOf(prepared));
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public Long renewArchiveTransition(String transitionId) {
         TransitionContext context = lockTransitionContext(transitionId);
         if (!"ACTIVE".equals(context.transition().getStatus())
@@ -254,7 +255,7 @@ public class DocumentCollaborationService {
         return transitionMapper.selectDeadlineEpochMs(transitionId);
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public TransitionState finalizeArchiveTransition(String transitionId, List<DrainedTransitionDocument> drained) {
         TransitionContext context = lockTransitionContext(transitionId);
         requireActiveTransition(transitionId, context.transition());
@@ -306,10 +307,14 @@ public class DocumentCollaborationService {
             documentIds.forEach(id -> eventPublisher.publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                     ProjectContentType.DOCUMENT, id)));
         }
+        List<CollaborationDocumentChangedEvent.Change> changes = context.documents().stream()
+                .map(document -> new CollaborationDocumentChangedEvent.Change(document.getId(), document.getVersion(),
+                        !"archive".equals(operation))).toList();
+        eventPublisher.publishEvent(new CollaborationDocumentChangedEvent(context.transition().getProjectId(), changes, null));
         return transitionState(transitionId);
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public TransitionState finalizeProjectDeleteTransition(String transitionId,
                                                             List<DrainedTransitionDocument> drained,
                                                             Runnable deleteProjectRows) {
@@ -360,7 +365,7 @@ public class DocumentCollaborationService {
         return new TransitionState(transitionId, "FINALIZED", List.copyOf(releasedDocuments));
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public TransitionState abortArchiveTransition(String transitionId) {
         TransitionContext context = lockTransitionContext(transitionId);
         if ("ACTIVE".equals(context.transition().getStatus())) {
@@ -372,7 +377,7 @@ public class DocumentCollaborationService {
         return transitionStateFromContext(transitionId, context);
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public TransitionState transitionState(String transitionId) {
         ProjectDocumentCollabTransition observed = transitionMapper.selectById(transitionId);
         if (observed != null && "delete".equals(observed.getOperation())
@@ -431,7 +436,7 @@ public class DocumentCollaborationService {
         validateOwnedImageAssets(request.documentId(), request.imageAssetIds());
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public StateCommitted commitState(Long documentId, UpdateStateRequest request) {
         if (request == null || request.epoch() == null || request.expectedCommitSeq() == null
                 || request.stateBase64() == null || request.content() == null || request.editorId() == null) {
@@ -462,10 +467,12 @@ public class DocumentCollaborationService {
         revisionSnapshots.captureForced(saved, request.editorId(), request.content());
         eventPublisher.publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.DOCUMENT, documentId));
+        eventPublisher.publishEvent(new CollaborationDocumentChangedEvent(document.getProjectId(),
+                List.of(new CollaborationDocumentChangedEvent.Change(documentId, nextVersion, true)), request.editorId()));
         return new StateCommitted(request.expectedCommitSeq() + 1, nextVersion);
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public EpochRestored restoreEpoch(Long documentId, RestoreEpochRequest request) {
         if (request == null || request.expectedEpoch() == null || request.expectedCommitSeq() == null
                 || request.stateBase64() == null || request.content() == null || request.editorId() == null
@@ -499,6 +506,8 @@ public class DocumentCollaborationService {
         revisionSnapshots.captureForced(saved, request.editorId(), request.content());
         eventPublisher.publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.DOCUMENT, documentId));
+        eventPublisher.publishEvent(new CollaborationDocumentChangedEvent(document.getProjectId(),
+                List.of(new CollaborationDocumentChangedEvent.Change(documentId, nextVersion, true)), request.editorId()));
         return new EpochRestored(nextEpoch, 1L, nextVersion);
     }
 
@@ -547,6 +556,8 @@ public class DocumentCollaborationService {
         revisionSnapshots.captureTitleVersion(saved, editorId, snapshot.content());
         eventPublisher.publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.DOCUMENT, documentId));
+        eventPublisher.publishEvent(new CollaborationDocumentChangedEvent(projectId,
+                List.of(new CollaborationDocumentChangedEvent.Change(documentId, nextVersion, true)), editorId));
         org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
                 new org.springframework.transaction.support.TransactionSynchronization() {
                     @Override public void afterCommit() {

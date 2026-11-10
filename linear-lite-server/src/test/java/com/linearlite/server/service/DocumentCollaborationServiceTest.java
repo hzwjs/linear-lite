@@ -63,6 +63,46 @@ class DocumentCollaborationServiceTest {
     }
 
     @Test
+    void committingDocumentPublishesItsNewVersion() {
+        ProjectDocument document = document(false);
+        ProjectDocumentCollabState state = state("epoch-current", 8L);
+        when(documentMapper.selectById(11L)).thenReturn(document);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(document);
+        when(stateMapper.selectByDocumentIdForUpdate(11L)).thenReturn(state);
+        when(stateMapper.updateStateIfMatches(11L, "epoch-current", 8L, state, null)).thenReturn(1);
+        when(documentMapper.updateVersionAndEditorIfMatches(11L, 3L, 4L, 7L)).thenReturn(1);
+
+        service.commitState(11L, new com.linearlite.server.dto.DocumentCollaborationDtos.UpdateStateRequest(
+                "epoch-current", 8L, "AQ==", "[]", "BLOCKNOTE", 7L, java.util.Map.of(), null));
+
+        verify(eventPublisher).publishEvent(new CollaborationDocumentChangedEvent(4L,
+                java.util.List.of(new CollaborationDocumentChangedEvent.Change(11L, 4L, true)), 7L));
+    }
+
+    @Test
+    void documentMutationTransactionsReadCommittedWhileSessionsKeepRepeatableRead() throws Exception {
+        for (String name : java.util.List.of("prepareArchiveTransition", "renewArchiveTransition",
+                "finalizeArchiveTransition", "finalizeProjectDeleteTransition", "abortArchiveTransition",
+                "transitionState", "commitState", "restoreEpoch")) {
+            var method = java.util.Arrays.stream(DocumentCollaborationService.class.getDeclaredMethods())
+                    .filter(candidate -> candidate.getName().equals(name)).findFirst().orElseThrow();
+            assertEquals(org.springframework.transaction.annotation.Isolation.READ_COMMITTED,
+                    method.getAnnotation(org.springframework.transaction.annotation.Transactional.class).isolation(), name);
+        }
+        for (String name : java.util.List.of("createSession", "refreshSession")) {
+            var method = java.util.Arrays.stream(DocumentCollaborationService.class.getDeclaredMethods())
+                    .filter(candidate -> candidate.getName().equals(name)).findFirst().orElseThrow();
+            var annotation = method.getAnnotation(org.springframework.transaction.annotation.Transactional.class);
+            assertEquals(org.springframework.transaction.annotation.Isolation.REPEATABLE_READ, annotation.isolation(), name);
+            org.junit.jupiter.api.Assertions.assertTrue(annotation.readOnly());
+        }
+        var template = (org.springframework.transaction.support.TransactionTemplate)
+                org.springframework.test.util.ReflectionTestUtils.getField(service, "transactionTemplate");
+        assertEquals(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED,
+                template.getIsolationLevel());
+    }
+
+    @Test
     void rejectsRoomTokenAfterArchiveRestoreChangesEpoch() {
         ProjectDocument document = document(false);
         ProjectDocumentCollabState oldState = state("epoch-old", 1L);

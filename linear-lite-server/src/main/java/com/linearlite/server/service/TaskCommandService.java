@@ -99,6 +99,7 @@ public class TaskCommandService {
             throw new ResourceNotFoundException("项目不存在: " + projectId);
         }
         taskPermissionGuard.requireProjectMember(projectId, creatorId);
+        if (projectMapper.lockProject(projectId) == null) throw new ResourceNotFoundException("项目不存在: " + projectId);
         if (assigneeKey != null) assigneeService.requireProjectAssignee(projectId, assigneeKey);
 
         if (parentId != null) {
@@ -109,6 +110,7 @@ public class TaskCommandService {
             if (!projectId.equals(parent.getProjectId())) {
                 throw new IllegalArgumentException("父任务与当前项目不一致");
             }
+            eventPublisher.publishEvent(new CollaborationParentAssignedEvent(projectId, parentId));
         }
 
         long taskNumber = taskSequenceService.reserveTaskNumbers(projectId, project.getIdentifier(), 1);
@@ -154,9 +156,16 @@ public class TaskCommandService {
             throw new IllegalArgumentException("任务 ID 不能为空");
         }
 
+        Task observed = taskMapper.selectOne(new LambdaQueryWrapper<Task>().eq(Task::getTaskKey, taskKey));
+        if (observed == null) {
+            throw new ResourceNotFoundException("任务不存在: " + taskKey);
+        }
+        taskPermissionGuard.requireProjectMember(observed.getProjectId(), userId);
+        if (projectMapper.lockProject(observed.getProjectId()) == null)
+            throw new ResourceNotFoundException("项目不存在: " + observed.getProjectId());
         Task existing = taskMapper.selectOne(
                 new LambdaQueryWrapper<Task>().eq(Task::getTaskKey, taskKey).last("FOR UPDATE"));
-        if (existing == null) {
+        if (existing == null || !Objects.equals(observed.getProjectId(), existing.getProjectId())) {
             throw new ResourceNotFoundException("任务不存在: " + taskKey);
         }
         taskPermissionGuard.requireProjectMember(existing.getProjectId(), userId);
@@ -267,6 +276,7 @@ public class TaskCommandService {
             if (!parent.getProjectId().equals(existing.getProjectId())) {
                 throw new IllegalArgumentException("父任务与当前任务项目不一致");
             }
+            eventPublisher.publishEvent(new CollaborationParentAssignedEvent(existing.getProjectId(), newParentId));
             Set<Long> descendantIds = getDescendantIds(existing.getId());
             if (descendantIds.contains(newParentId)) {
                 throw new IllegalArgumentException("不能将父任务设为自己的后代，会形成环");
@@ -287,6 +297,13 @@ public class TaskCommandService {
             labelService.replaceTaskLabels(existing.getId(), existing.getProjectId(), request.getLabels());
         }
         Task updated = taskMapper.selectById(existing.getId());
+        boolean revokedResult = "done".equalsIgnoreCase(existing.getStatus()) && !"done".equalsIgnoreCase(updated.getStatus());
+        boolean canceled = !"canceled".equalsIgnoreCase(existing.getStatus()) && "canceled".equalsIgnoreCase(updated.getStatus());
+        if (semanticTextChanged || revokedResult || canceled) {
+            eventPublisher.publishEvent(new CollaborationTaskInputChangedEvent(existing.getProjectId(), existing.getId(),
+                    userId, semanticTextChanged || revokedResult, canceled));
+            updated = taskMapper.selectById(existing.getId());
+        }
         recordActivityForTaskChanges(existing, updated, userId);
         if (request.getLabels() != null) {
             recordLabelsChange(

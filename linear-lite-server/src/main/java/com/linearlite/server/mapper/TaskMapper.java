@@ -1,12 +1,16 @@
 package com.linearlite.server.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import com.linearlite.server.dto.TaskListItemResponse;
 import com.linearlite.server.dto.TaskSubIssueCount;
 import com.linearlite.server.dto.DirectChildCompletion;
 import com.linearlite.server.entity.Task;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Result;
+import org.apache.ibatis.annotations.ResultMap;
+import org.apache.ibatis.annotations.Results;
 import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
@@ -19,7 +23,21 @@ public interface TaskMapper extends BaseMapper<Task> {
             WHERE id = #{id}
             FOR UPDATE
             """)
+    @Results(id = "taskForUpdate", value = {
+            @Result(column = "write_scopes", property = "writeScopes", typeHandler = StringListJsonTypeHandler.class),
+            @Result(column = "public_context_refs", property = "publicContextRefs", typeHandler = JacksonTypeHandler.class)
+    })
     Task selectByIdForUpdate(@Param("id") Long id);
+
+    @Select("""
+            SELECT * FROM tasks
+            WHERE project_id = #{projectId}
+              AND JSON_CONTAINS(public_context_refs, JSON_OBJECT('documentId', #{documentId}), '$')
+            ORDER BY id FOR UPDATE
+            """)
+    @ResultMap("taskForUpdate")
+    List<Task> selectReferencingDocumentForUpdate(@Param("projectId") Long projectId,
+                                                  @Param("documentId") Long documentId);
 
     @Select("""
             SELECT
@@ -45,6 +63,10 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.due_date,
               t.planned_start_date,
               t.progress_percent,
+              t.agent_execution_enabled,
+              t.input_revision,
+              t.write_scopes,
+              t.public_context_refs,
               t.completed_at,
               t.created_at,
               t.updated_at
@@ -62,6 +84,10 @@ public interface TaskMapper extends BaseMapper<Task> {
             ORDER BY t.id ASC
             </script>
             """)
+    @Results(id = "taskListEntity", value = {
+            @Result(column = "write_scopes", property = "writeScopes", typeHandler = StringListJsonTypeHandler.class),
+            @Result(column = "public_context_refs", property = "publicContextRefs", typeHandler = JacksonTypeHandler.class)
+    })
     List<Task> selectListItems(
             @Param("projectId") Long projectId,
             @Param("topLevelOnly") Boolean topLevelOnly,
@@ -83,6 +109,10 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.due_date,
               t.planned_start_date,
               t.progress_percent,
+              t.agent_execution_enabled,
+              t.input_revision,
+              t.write_scopes,
+              t.public_context_refs,
               t.completed_at,
               t.created_at,
               t.updated_at
@@ -100,6 +130,10 @@ public interface TaskMapper extends BaseMapper<Task> {
             ORDER BY t.id ASC
             </script>
             """)
+    @Results(id = "taskListResponse", value = {
+            @Result(column = "write_scopes", property = "writeScopes", typeHandler = StringListJsonTypeHandler.class),
+            @Result(column = "public_context_refs", property = "publicContextRefs", typeHandler = JacksonTypeHandler.class)
+    })
     List<TaskListItemResponse> selectListItemResponses(
             @Param("projectId") Long projectId,
             @Param("topLevelOnly") Boolean topLevelOnly,
@@ -114,6 +148,10 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.title AS title,
               t.status AS status,
               t.progress_percent AS progressPercent,
+              t.agent_execution_enabled AS agentExecutionEnabled,
+              t.input_revision AS inputRevision,
+              t.write_scopes AS writeScopes,
+              t.public_context_refs AS publicContextRefs,
               t.assignee_key AS assigneeKey,
               t.updated_at AS updatedAt
             FROM tasks t
@@ -131,6 +169,10 @@ public interface TaskMapper extends BaseMapper<Task> {
             LIMIT #{fetchLimit}
             </script>
             """)
+    @Results(id = "mcpProjectTaskResponse", value = {
+            @Result(column = "writeScopes", property = "writeScopes", typeHandler = StringListJsonTypeHandler.class),
+            @Result(column = "publicContextRefs", property = "publicContextRefs", typeHandler = JacksonTypeHandler.class)
+    })
     List<TaskListItemResponse> selectMcpProjectTasks(
             @Param("projectId") Long projectId,
             @Param("afterId") Long afterId,

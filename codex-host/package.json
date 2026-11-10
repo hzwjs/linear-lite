@@ -1,0 +1,9 @@
+{
+  "name": "linear-lite-codex-host",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/cli.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}

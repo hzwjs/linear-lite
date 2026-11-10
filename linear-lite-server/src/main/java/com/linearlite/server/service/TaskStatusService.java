@@ -2,11 +2,15 @@ package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.linearlite.server.entity.Task;
+import com.linearlite.server.exception.ConflictOperationException;
+import com.linearlite.server.mapper.TaskDependencyMapper;
+import com.linearlite.server.mapper.TaskExecutionAttemptMapper;
 import com.linearlite.server.mapper.TaskMapper;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.Set;
+import java.util.Objects;
 
 /** The single write path for status, progress, and completion timestamp. */
 @Service
@@ -15,10 +19,16 @@ public class TaskStatusService {
 
     private final TaskMapper taskMapper;
     private final TaskActivityService taskActivityService;
+    private final TaskDependencyMapper taskDependencyMapper;
+    private final TaskExecutionAttemptMapper taskExecutionAttemptMapper;
 
-    public TaskStatusService(TaskMapper taskMapper, TaskActivityService taskActivityService) {
+    public TaskStatusService(TaskMapper taskMapper, TaskActivityService taskActivityService,
+                             TaskDependencyMapper taskDependencyMapper,
+                             TaskExecutionAttemptMapper taskExecutionAttemptMapper) {
         this.taskMapper = taskMapper;
         this.taskActivityService = taskActivityService;
+        this.taskDependencyMapper = taskDependencyMapper;
+        this.taskExecutionAttemptMapper = taskExecutionAttemptMapper;
     }
 
     public Task updateState(Long taskId, String status, int progressPercent, Long actorUserId,
@@ -33,6 +43,12 @@ public class TaskStatusService {
         boolean progressChanged = progressPercent != oldProgress;
         if (!statusChanged && !progressChanged) {
             return existing;
+        }
+
+        // 任务状态入口与成果入口使用同一事实，避免普通更新绕过协作交付。
+        if (statusChanged && "done".equalsIgnoreCase(status) && requiresDeliveryEvidence(existing.getId())
+                && !hasCurrentDelivery(existing)) {
+            throw new ConflictOperationException("协作任务需要完成交付与停止确认");
         }
 
         LocalDateTime completedAt = existing.getCompletedAt();
@@ -56,6 +72,18 @@ public class TaskStatusService {
             }
         }
         return taskMapper.selectById(taskId);
+    }
+
+    public boolean requiresDeliveryEvidence(Long taskId) {
+        return taskDependencyMapper.hasCollaborationParticipation(taskId);
+    }
+
+    private boolean hasCurrentDelivery(Task task) {
+        return taskExecutionAttemptMapper.selectByTaskId(task.getId()).stream().anyMatch(attempt ->
+                "succeeded".equals(attempt.getStatus()) && attempt.getStopConfirmedAt() != null
+                        && attempt.getResultEvidence() != null && attempt.getResultEvidence().isObject()
+                        && !attempt.getResultEvidence().isEmpty()
+                        && Objects.equals(task.getInputRevision(), attempt.getInputRevision()));
     }
 
     private static boolean isTerminal(String status) {

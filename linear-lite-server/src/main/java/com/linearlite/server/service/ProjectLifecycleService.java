@@ -42,6 +42,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
@@ -74,6 +75,8 @@ public class ProjectLifecycleService {
     private final DocumentCollaborationService collaborationService;
     private final DocumentCollaborationTransitionCoordinator transitionCoordinator;
     private final TransactionTemplate transactionTemplate;
+    private final TransactionTemplate stopTransactionTemplate;
+    private final TaskCollaborationInputService taskCollaborationInputService;
 
     @Autowired
     public ProjectLifecycleService(
@@ -93,7 +96,8 @@ public class ProjectLifecycleService {
             ApplicationEventPublisher eventPublisher,
             DocumentCollaborationService collaborationService,
             CollaborationNodeClient nodeClient,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            TaskCollaborationInputService taskCollaborationInputService) {
         this.accessGuard = accessGuard;
         this.projectMapper = projectMapper;
         this.documentMapper = documentMapper;
@@ -120,10 +124,20 @@ public class ProjectLifecycleService {
         this.collaborationService = collaborationService;
         this.transitionCoordinator = new DocumentCollaborationTransitionCoordinator(collaborationService, nodeClient);
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.transactionTemplate.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        this.stopTransactionTemplate = new TransactionTemplate(transactionManager);
+        this.stopTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.stopTransactionTemplate.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        this.taskCollaborationInputService = taskCollaborationInputService;
     }
 
     public void deleteProject(Long projectId, Long userId) {
         accessGuard.requireOwner(projectId, userId);
+        Boolean stopping = stopTransactionTemplate.execute(status -> taskCollaborationInputService.requestProjectStop(projectId, userId));
+        if (stopping == null) throw new IllegalStateException("协作执行停止检查失败");
+        if (stopping) {
+            throw new com.linearlite.server.exception.ConflictOperationException("协作执行等待停止确认");
+        }
         List<Long> documentIds = documentMapper.selectList(new LambdaQueryWrapper<ProjectDocument>()
                         .eq(ProjectDocument::getProjectId, projectId))
                 .stream().map(ProjectDocument::getId).sorted().toList();
@@ -149,6 +163,10 @@ public class ProjectLifecycleService {
             throw new com.linearlite.server.exception.ConflictOperationException(
                     "项目删除期间文档集合发生变化");
         }
+        List<Long> taskIds = taskMapper.selectList(new LambdaQueryWrapper<Task>()
+                        .eq(Task::getProjectId, projectId))
+                .stream().map(Task::getId).toList();
+        taskCollaborationInputService.clearProjectFacts(projectId, taskIds);
         if (!documentIds.isEmpty()) {
             // 先清理对象存储与附件元数据，再清理不可变版本和当前文档。
             documentAttachmentService.deleteForProject(projectId);
@@ -163,9 +181,6 @@ public class ProjectLifecycleService {
             documentMapper.deleteBatchIds(documentIds);
         }
 
-        List<Long> taskIds = taskMapper.selectList(new LambdaQueryWrapper<Task>()
-                        .eq(Task::getProjectId, projectId))
-                .stream().map(Task::getId).toList();
         if (!taskIds.isEmpty()) {
             notificationMapper.delete(new LambdaQueryWrapper<InAppNotification>()
                     .in(InAppNotification::getTaskId, taskIds));

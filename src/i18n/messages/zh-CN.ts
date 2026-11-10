@@ -1,4 +1,25 @@
 const zhCN = {
+  projectDeviceBinding: {
+    title: '项目目录绑定',
+    user: '用户',
+    project: '项目',
+    device: '设备',
+    localDevice: '本机：{id}',
+    directory: '项目根目录',
+    directoryPlaceholder: '输入本机项目目录绝对路径',
+    docsDirectory: '协作资料目录',
+    loading: '读取中…',
+    refresh: '刷新',
+    save: '保存',
+    delete: '删除',
+    deleteConfirm: '确认删除本机项目目录绑定吗？',
+    saved: '项目目录绑定已保存',
+    deleted: '项目目录绑定已删除',
+    deviceChanged: '设备身份发生变化，请刷新后重试',
+    loadFailed: '读取绑定失败',
+    saveFailed: '保存绑定失败',
+    deleteFailed: '删除绑定失败'
+  },
   app: {
     name: 'Linear Lite'
   },

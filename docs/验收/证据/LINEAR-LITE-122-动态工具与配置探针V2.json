@@ -1,0 +1,39 @@
+{
+  "runtime": "codex-cli 0.164.0",
+  "modelCalls": 0,
+  "turnStarts": 0,
+  "threadStarts": 1,
+  "phase": "complete",
+  "configuredMcpCount": 12,
+  "enabledMcpCount": 0,
+  "featureFlags": {
+    "apps": false,
+    "plugins": false,
+    "hooks": false,
+    "computer_use": false,
+    "browser_use": false,
+    "multi_agent": false,
+    "code_mode_host": false,
+    "image_generation": false,
+    "in_app_browser": false,
+    "workspace_dependencies": false,
+    "remote_plugin": false,
+    "skill_mcp_dependency_install": false
+  },
+  "approvalPolicy": "never",
+  "sandboxMode": "read-only",
+  "mcpBeforeCount": 12,
+  "mcpBeforeStates": {
+    "unknown": 12
+  },
+  "threadStartAccepted": true,
+  "threadEphemeral": true,
+  "threadHasId": true,
+  "threadApprovalPolicy": "never",
+  "threadSandbox": "readOnly",
+  "threadNetworkAccess": false,
+  "mcpAfterCount": 12,
+  "mcpAfterStates": {
+    "unknown": 12
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "modelCalls": 0,
+  "threadStarts": 0,
+  "exitCode": 0,
+  "markers": [
+    "DIRECT_DENIED:EPERM",
+    "ALIAS_DENIED:EPERM",
+    "DETACHED_STARTED",
+    "DETACHED_DENIED:EPERM"
+  ],
+  "directExists": false,
+  "aliasTargetExists": false,
+  "detachedExists": false
+}

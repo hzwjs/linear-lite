@@ -6,7 +6,10 @@ import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskFavorite;
+import com.linearlite.server.exception.ConflictOperationException;
 import com.linearlite.server.mapper.ProjectMapper;
+import com.linearlite.server.mapper.TaskDependencyMapper;
+import com.linearlite.server.mapper.TaskExecutionAttemptMapper;
 import com.linearlite.server.mapper.TaskFavoriteMapper;
 import com.linearlite.server.mapper.TaskMapper;
 import org.junit.jupiter.api.Assertions;
@@ -53,6 +56,10 @@ class TaskCommandServiceTest {
     @Mock
     private TaskStatusService taskStatusService;
     @Mock
+    private TaskDependencyMapper taskDependencyMapper;
+    @Mock
+    private TaskExecutionAttemptMapper taskExecutionAttemptMapper;
+    @Mock
     private TaskHierarchyCompletionService taskHierarchyCompletionService;
     @Mock
     private AssigneeService assigneeService;
@@ -79,12 +86,51 @@ class TaskCommandServiceTest {
                 inAppNotificationService
         );
         taskCommandService.setEventPublisher(eventPublisher);
+        org.mockito.Mockito.lenient().when(projectMapper.lockProject(anyLong()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         org.mockito.Mockito.lenient().when(taskHierarchyCompletionService.completeEligibleAncestors(
                 anyLong(), anyLong(), any())).thenReturn(List.of());
         org.mockito.Mockito.lenient().when(taskHierarchyCompletionService.completeEligibleParentChain(
                 anyLong(), anyLong(), any())).thenReturn(List.of());
         org.mockito.Mockito.lenient().when(assigneeService.requireProjectAssignee(anyLong(), org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
+    }
+
+    @Test
+    void updateDoneAndProgress100CannotBypassCollaborativeDeliveryGate() {
+        Task task = new Task(); task.setId(31L); task.setTaskKey("ENG-31"); task.setProjectId(1L);
+        task.setStatus("in_progress"); task.setProgressPercent(40); task.setInputRevision(3L);
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
+        when(taskMapper.selectByIdForUpdate(31L)).thenReturn(task);
+        when(taskDependencyMapper.hasCollaborationParticipation(31L)).thenReturn(true);
+        when(taskExecutionAttemptMapper.selectByTaskId(31L)).thenReturn(List.of());
+        var actualStatus = new TaskStatusService(taskMapper, taskActivityService, taskDependencyMapper,
+                taskExecutionAttemptMapper);
+        doAnswer(call -> actualStatus.updateState(call.getArgument(0), call.getArgument(1),
+                call.getArgument(2), call.getArgument(3), call.getArgument(4)))
+                .when(taskStatusService).updateState(anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyInt(), anyLong(), any());
+
+        UpdateTaskRequest done = new UpdateTaskRequest(); done.setStatus("done");
+        UpdateTaskRequest completeProgress = new UpdateTaskRequest(); completeProgress.setProgressPercent(100);
+        assertThrows(ConflictOperationException.class, () -> taskCommandService.update("ENG-31", done, 7L));
+        assertThrows(ConflictOperationException.class, () -> taskCommandService.update("ENG-31", completeProgress, 7L));
+        verify(taskMapper, never()).update(org.mockito.ArgumentMatchers.isNull(), any());
+    }
+
+    @Test
+    void reopeningDeliveredTaskPublishesInputInvalidation() {
+        Task before = new Task(); before.setId(32L); before.setTaskKey("ENG-32"); before.setProjectId(1L);
+        before.setStatus("done"); before.setProgressPercent(100); before.setInputRevision(3L);
+        Task after = new Task(); after.setId(32L); after.setTaskKey("ENG-32"); after.setProjectId(1L);
+        after.setStatus("todo"); after.setProgressPercent(99); after.setInputRevision(3L);
+        when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(before);
+        when(taskMapper.selectById(32L)).thenReturn(after);
+        UpdateTaskRequest request = new UpdateTaskRequest(); request.setStatus("todo");
+
+        taskCommandService.update("ENG-32", request, 7L);
+
+        verify(eventPublisher).publishEvent(new CollaborationTaskInputChangedEvent(1L, 32L, 7L, true, false));
     }
 
     @Test
@@ -197,7 +243,7 @@ class TaskCommandServiceTest {
 
         taskCommandService.update("ENG-21", request, 7L);
 
-        verify(taskPermissionGuard).requireProjectMember(1L, 7L);
+        verify(taskPermissionGuard, org.mockito.Mockito.times(2)).requireProjectMember(1L, 7L);
         verify(taskActivityService).recordFieldChange(21L, 7L, "title", "Old title", "New title");
         verify(taskStatusService).updateState(
                 org.mockito.ArgumentMatchers.eq(21L), org.mockito.ArgumentMatchers.eq("in_progress"),

@@ -74,6 +74,8 @@ public class TaskImportService {
             throw new ResourceNotFoundException("项目不存在: " + request.getProjectId());
         }
         taskPermissionGuard.requireProjectMember(request.getProjectId(), creatorId);
+        if (projectMapper.lockProject(request.getProjectId()) == null)
+            throw new ResourceNotFoundException("项目不存在: " + request.getProjectId());
 
         List<TaskImportRowRequest> rows = request.getRows() == null ? List.of() : request.getRows();
         if (rows.isEmpty()) {

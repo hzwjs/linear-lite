@@ -4,7 +4,12 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.linearlite.server.entity.Task;
+import com.linearlite.server.entity.TaskExecutionAttempt;
+import com.linearlite.server.exception.ConflictOperationException;
+import com.linearlite.server.mapper.TaskDependencyMapper;
+import com.linearlite.server.mapper.TaskExecutionAttemptMapper;
 import com.linearlite.server.mapper.TaskMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,8 +19,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -23,6 +34,8 @@ import static org.mockito.Mockito.when;
 class TaskStatusServiceTest {
     @Mock private TaskMapper taskMapper;
     @Mock private TaskActivityService taskActivityService;
+    @Mock private TaskDependencyMapper taskDependencyMapper;
+    @Mock private TaskExecutionAttemptMapper attemptMapper;
 
     @BeforeEach
     void initializeTableMetadata() {
@@ -47,7 +60,7 @@ class TaskStatusServiceTest {
         when(taskMapper.selectByIdForUpdate(1L)).thenReturn(existing);
         when(taskMapper.selectById(1L)).thenReturn(updated);
 
-        new TaskStatusService(taskMapper, taskActivityService)
+        new TaskStatusService(taskMapper, taskActivityService, taskDependencyMapper, attemptMapper)
                 .updateState(1L, "duplicate", 30, 7L, occurredAt);
 
         ArgumentCaptor<UpdateWrapper<Task>> update = ArgumentCaptor.forClass(UpdateWrapper.class);
@@ -70,10 +83,59 @@ class TaskStatusServiceTest {
         when(taskMapper.selectByIdForUpdate(2L)).thenReturn(existing);
         when(taskMapper.selectById(2L)).thenReturn(updated);
 
-        new TaskStatusService(taskMapper, taskActivityService)
+        new TaskStatusService(taskMapper, taskActivityService, taskDependencyMapper, attemptMapper)
                 .updateState(2L, "todo", 25, 9L, occurredAt);
 
         verify(taskActivityService).recordFieldChangeAt(
                 2L, 9L, "progressPercent", "0", "25", occurredAt);
+    }
+
+    @Test
+    void collaborativeTaskCannotBecomeDoneWithoutCurrentConfirmedEvidence() {
+        Task task = new Task(); task.setId(3L); task.setStatus("in_progress"); task.setProgressPercent(30);
+        task.setInputRevision(2L);
+        when(taskMapper.selectByIdForUpdate(3L)).thenReturn(task);
+        when(taskDependencyMapper.hasCollaborationParticipation(3L)).thenReturn(true);
+        TaskExecutionAttempt old = new TaskExecutionAttempt(); old.setStatus("succeeded"); old.setInputRevision(1L);
+        old.setStopConfirmedAt(LocalDateTime.now());
+        old.setResultEvidence(new ObjectMapper().createObjectNode().put("checkpoint", "revision-one"));
+        when(attemptMapper.selectByTaskId(3L)).thenReturn(List.of(old));
+
+        var service = new TaskStatusService(taskMapper, taskActivityService, taskDependencyMapper, attemptMapper);
+        assertThrows(ConflictOperationException.class, () -> service.updateState(3L, "done", 100, 9L, LocalDateTime.now()));
+        old.setInputRevision(2L); old.setStopConfirmedAt(null);
+        assertThrows(ConflictOperationException.class, () -> service.updateState(3L, "done", 100, 9L, LocalDateTime.now()));
+        old.setStopConfirmedAt(LocalDateTime.now()); old.setStatus("failed");
+        assertThrows(ConflictOperationException.class, () -> service.updateState(3L, "done", 100, 9L, LocalDateTime.now()));
+        old.setStatus("succeeded"); old.setResultEvidence(new ObjectMapper().createObjectNode());
+        assertThrows(ConflictOperationException.class, () -> service.updateState(3L, "done", 100, 9L, LocalDateTime.now()));
+        verify(taskMapper, never()).update(isNull(), any());
+    }
+
+    @Test
+    void onlyStoppedSuccessfulCurrentDeliveryAllowsDone() {
+        Task task = new Task(); task.setId(4L); task.setStatus("in_progress"); task.setProgressPercent(40);
+        task.setInputRevision(2L);
+        TaskExecutionAttempt attempt = new TaskExecutionAttempt(); attempt.setInputRevision(2L);
+        attempt.setStatus("succeeded"); attempt.setStopConfirmedAt(LocalDateTime.now());
+        attempt.setResultEvidence(new ObjectMapper().createObjectNode().put("checkpoint", "result"));
+        when(taskMapper.selectByIdForUpdate(4L)).thenReturn(task);
+        when(taskMapper.selectById(4L)).thenReturn(task);
+        when(taskDependencyMapper.hasCollaborationParticipation(4L)).thenReturn(true);
+        when(attemptMapper.selectByTaskId(4L)).thenReturn(List.of(attempt));
+        var service = new TaskStatusService(taskMapper, taskActivityService, taskDependencyMapper, attemptMapper);
+        service.updateState(4L, "done", 100, 9L, LocalDateTime.now());
+        verify(taskMapper).update(isNull(), any());
+    }
+
+    @Test
+    void ordinaryTaskRetainsManualCompletion() {
+        Task task = new Task(); task.setId(5L); task.setStatus("todo"); task.setProgressPercent(0);
+        when(taskMapper.selectByIdForUpdate(5L)).thenReturn(task);
+        when(taskMapper.selectById(5L)).thenReturn(task);
+        var service = new TaskStatusService(taskMapper, taskActivityService, taskDependencyMapper, attemptMapper);
+        assertEquals(task, service.updateState(5L, "done", 100, 9L, LocalDateTime.now()));
+        verify(taskMapper).update(isNull(), any());
+        verify(attemptMapper, never()).selectByTaskId(any());
     }
 }

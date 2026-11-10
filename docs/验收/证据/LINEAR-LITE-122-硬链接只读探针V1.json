@@ -1,0 +1,12 @@
+{
+  "runtime": "codex-cli 0.164.0",
+  "method": "command/exec",
+  "policy": { "type": "readOnly", "networkAccess": false },
+  "modelCalls": 0,
+  "threadStarts": 0,
+  "projectFileAndTemporaryAliasAreHardLinks": true,
+  "aliasWrite": "EPERM",
+  "temporaryNewFileWrite": "EPERM",
+  "originalUnchanged": true,
+  "exitCode": 0
+}

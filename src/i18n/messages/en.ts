@@ -1,4 +1,25 @@
 const en = {
+  projectDeviceBinding: {
+    title: 'Project directory binding',
+    user: 'User',
+    project: 'Project',
+    device: 'Device',
+    localDevice: 'This device: {id}',
+    directory: 'Project root directory',
+    directoryPlaceholder: 'Enter the absolute path to the project on this device',
+    docsDirectory: 'Collaboration documents',
+    loading: 'Loading…',
+    refresh: 'Refresh',
+    save: 'Save',
+    delete: 'Delete',
+    deleteConfirm: 'Delete this device’s project directory binding?',
+    saved: 'Project directory binding saved',
+    deleted: 'Project directory binding deleted',
+    deviceChanged: 'Device identity changed. Refresh and try again.',
+    loadFailed: 'Could not load bindings',
+    saveFailed: 'Could not save binding',
+    deleteFailed: 'Could not delete binding'
+  },
   app: {
     name: 'Linear Lite'
   },

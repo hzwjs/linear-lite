@@ -1,0 +1,22 @@
+{
+  "runtime": "codex-cli 0.164.0",
+  "method": "command/exec",
+  "policy": {
+    "type": "readOnly",
+    "networkAccess": false
+  },
+  "modelCalls": 0,
+  "threadStarts": 0,
+  "initialized": true,
+  "rpcError": false,
+  "exitCode": 0,
+  "markers": [
+    "PARENT_WRITE_DENIED:EPERM",
+    "DETACHED_STARTED",
+    "DETACHED_WRITE_DENIED:EPERM",
+    "DETACHED_NET_DENIED:EPERM"
+  ],
+  "parentWriteExists": false,
+  "detachedWriteExists": false,
+  "loopbackReached": false
+}

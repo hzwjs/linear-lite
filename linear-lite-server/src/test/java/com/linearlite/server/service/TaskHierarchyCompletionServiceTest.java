@@ -95,6 +95,21 @@ class TaskHierarchyCompletionServiceTest {
                 org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    void collaborativeParentIsNotCompletedByChildTerminalStates() {
+        Task parent = task(2L, "ENG-2", "in_progress", 1L);
+        when(taskMapper.selectByIdForUpdate(2L)).thenReturn(parent);
+        when(taskMapper.selectDirectChildCompletion(2L)).thenReturn(completion(2, 2));
+        when(taskStatusService.requiresDeliveryEvidence(2L)).thenReturn(true);
+        var changes = new TaskHierarchyCompletionService(taskMapper, taskStatusService)
+                .completeEligibleParentChain(2L, 7L, LocalDateTime.now());
+        assertEquals(0, changes.size());
+        verify(taskStatusService, never()).updateState(
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
     private static Task task(Long id, String key, String status, Long parentId) {
         Task task = new Task();
         task.setId(id);
