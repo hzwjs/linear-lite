@@ -552,6 +552,11 @@ async function handleCreate() {
   padding: var(--composer-inset);
 }
 
+/* 内容超出面板高度时由 composer-body 滚动，子区块不能被 flex 压缩，否则图片等内容会溢出到属性栏上。 */
+.composer-body > * {
+  flex-shrink: 0;
+}
+
 .content-section {
   display: flex;
   flex-direction: column;
