@@ -104,6 +104,17 @@ class ProjectDocumentQueryServiceTest {
     }
 
     @Test
+    void responsePairsFlushedContentWithSnapshotVersion() {
+        ProjectDocument document = new ProjectDocument();
+        document.setId(11L); document.setProjectId(7L); document.setVersion(3L); document.setContentFormat("HTML");
+        when(collaborationService.getSnapshot(11L, true)).thenReturn(
+                new CollaborationNodeClient.SnapshotResponse("epoch", 4L, "HTML", "<p>new content</p>"));
+        var response = service.toResponse(document, false);
+        assertEquals(4L, response.version());
+        assertEquals("<p>new content</p>", response.content());
+    }
+
+    @Test
     void treeProjectionNeverSelectsDocumentContent() throws NoSuchMethodException {
         Select select = ProjectDocumentMapper.class
                 .getMethod("selectTreeNodes", Long.class, Long.class, boolean.class)

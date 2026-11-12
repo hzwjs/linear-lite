@@ -2,7 +2,11 @@ package com.linearlite.server.filter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linearlite.server.common.ApiResponse;
+import com.linearlite.server.common.HostProtocol;
 import com.linearlite.server.config.McpOAuthProperties;
+import com.linearlite.server.entity.HostDeviceAuthorization;
+import com.linearlite.server.security.OAuthResourcePolicy;
+import com.linearlite.server.service.HostDeviceAuthorizationService;
 import com.linearlite.server.util.DocumentAssetCookie;
 import com.linearlite.server.util.JwtUtil;
 import io.jsonwebtoken.Claims;
@@ -46,26 +50,39 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
     public static final String REQUEST_ATTR_USER_ID = "userId";
     public static final String REQUEST_ATTR_OAUTH_CLIENT_ID = "oauthClientId";
+    public static final String REQUEST_ATTR_HOST_AUTHORIZATION_ID = "hostAuthorizationId";
+    public static final String REQUEST_ATTR_HOST_GRANT_ID = "hostGrantId";
+    public static final String REQUEST_ATTR_HOST_DEVICE_ID = "hostDeviceId";
     public static final String REMOTE_TERMINAL_SCOPE = "remote-terminal";
     private static final String REMOTE_TERMINAL_CLIENT_PREFIX = "/api/remote-terminal/";
+    private static final String HOST_PREFIX = HostProtocol.API_PATH + "/";
+    private static final Set<String> HOST_RECOVERY_PATHS = Set.of(
+            HOST_PREFIX + "recovery/read", HOST_PREFIX + "recovery/request-stop",
+            HOST_PREFIX + "recovery/confirm-stop", HOST_PREFIX + "recovery/recover-claim",
+            HOST_PREFIX + "recovery/finish", HOST_PREFIX + "recovery/finish-accept");
 
     private final JwtUtil jwtUtil;
     private final ObjectMapper objectMapper;
     private final McpOAuthProperties mcpOAuthProperties;
     private final OAuth2AuthorizationService authorizationService;
+    private final HostDeviceAuthorizationService hostAuthorizations;
 
     @org.springframework.beans.factory.annotation.Autowired
     public JwtAuthFilter(JwtUtil jwtUtil, ObjectMapper objectMapper, McpOAuthProperties mcpOAuthProperties,
-                         ObjectProvider<OAuth2AuthorizationService> authorizationServiceProvider) {
+                         ObjectProvider<OAuth2AuthorizationService> authorizationServiceProvider,
+                         HostDeviceAuthorizationService hostAuthorizations) {
         this.jwtUtil = jwtUtil;
         this.objectMapper = objectMapper;
         this.mcpOAuthProperties = mcpOAuthProperties;
         this.authorizationService = authorizationServiceProvider.getIfAvailable();
+        this.hostAuthorizations = hostAuthorizations;
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
+        // 恢复端点验证原批次签名及原尝试凭据，不建立普通用户身份。
+        if ("POST".equalsIgnoreCase(request.getMethod()) && HOST_RECOVERY_PATHS.contains(path)) return true;
         boolean protectedApiPath = path.startsWith("/api/") || "/mcp".equals(path);
         if (!protectedApiPath) {
             return true;
@@ -101,7 +118,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         boolean mcpRequest = "/mcp".equals(request.getRequestURI());
         boolean remoteTerminalClient = request.getRequestURI().startsWith(REMOTE_TERMINAL_CLIENT_PREFIX);
-        if ((mcpRequest || remoteTerminalClient) && !mcpOAuthProperties.isEnabled()) {
+        boolean hostRequest = request.getRequestURI().startsWith(HOST_PREFIX);
+        if ((mcpRequest || remoteTerminalClient || hostRequest) && !mcpOAuthProperties.isEnabled()) {
             response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
             response.setContentType("application/json;charset=UTF-8");
             ApiResponse<Void> body = ApiResponse.fail(503, "MCP OAuth is not configured.");
@@ -123,18 +141,23 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             Claims claims = jwtUtil.parseToken(token);
             if (mcpRequest) {
                 Long userId = validateMcpAccessToken(request, token, claims);
+                if (extractScopes(claims).contains(REMOTE_TERMINAL_SCOPE)) {
+                    throw new IllegalArgumentException("The OAuth token is not an MCP credential.");
+                }
                 request.setAttribute(REQUEST_ATTR_USER_ID, userId);
                 request.setAttribute("mcpScopes", extractScopes(claims));
             } else if (remoteTerminalClient) {
                 // 远程终端客户端接口只接受带 remote-terminal scope 的 OAuth 令牌。
                 Long userId = validateMcpAccessToken(request, token, claims);
-                if (!extractScopes(claims).contains(REMOTE_TERMINAL_SCOPE)) {
+                if (!extractScopes(claims).equals(Set.of(REMOTE_TERMINAL_SCOPE))) {
                     throw new IllegalArgumentException("The OAuth token lacks the remote-terminal scope.");
                 }
                 request.setAttribute(REQUEST_ATTR_USER_ID, userId);
+            } else if (hostRequest) {
+                validateHostIdentity(request, token, claims);
             } else {
-                if (claims.get("scope") instanceof Collection<?> scopes && scopes.contains(REMOTE_TERMINAL_SCOPE)) {
-                    // 该 scope 的令牌只能用于上面的客户端接口，不得当作登录令牌访问其余 /api。
+                if (claims.get("scope") != null || claims.getIssuer() != null) {
+                    // OAuth 与批次令牌不能充当网页登录令牌。
                     throw new IllegalArgumentException("The OAuth token is not valid for this endpoint.");
                 }
                 Long userId = jwtUtil.getUserIdFromClaims(claims);
@@ -143,6 +166,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 }
             }
             filterChain.doFilter(request, response);
+        } catch (JwtUtil.TokenExpiredException e) {
+            if (mcpRequest) sendMcp401(response, "OAuth 访问令牌无效或权限已过期", "invalid_token");
+            else send401(response, "认证已过期");
+        } catch (HostGrantRevokedException e) {
+            send401(response, "宿主设备授权已撤销");
         } catch (IllegalArgumentException e) {
             if (mcpRequest) {
                 LOGGER.warn("Rejected MCP OAuth access token: {}", e.getMessage());
@@ -153,6 +181,28 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
     }
 
+    private void validateHostIdentity(HttpServletRequest request, String token, Claims claims) {
+        if (!mcpOAuthProperties.getIssuer().equals(claims.getIssuer()) || claims.getExpiration() == null
+                || claims.getAudience() == null || !claims.getAudience().contains(OAuthResourcePolicy.hostResource(mcpOAuthProperties))
+                || !extractScopes(claims).equals(Set.of(OAuthResourcePolicy.HOST_SCOPE))) {
+            throw new IllegalArgumentException("The OAuth token does not target the collaboration host.");
+        }
+        Object authorizationClaim = claims.get(OAuthResourcePolicy.AUTHORIZATION_ID_CLAIM);
+        if (!(authorizationClaim instanceof String authorizationId) || authorizationId.isBlank()) {
+            throw new IllegalArgumentException("Missing authorization identity.");
+        }
+        Long userId = userId(claims);
+        HostDeviceAuthorization grant = hostAuthorizations.findByAuthorization(authorizationId);
+        if (grant == null || !userId.equals(grant.getUserId())) throw new IllegalArgumentException("Host authorization is unavailable.");
+        if (grant.getRevokedAt() != null) throw new HostGrantRevokedException();
+        OAuth2Authorization authorization = findActiveAuthorization(token);
+        if (!authorizationId.equals(authorization.getId())) throw new IllegalArgumentException("Host authorization mismatch.");
+        request.setAttribute(REQUEST_ATTR_USER_ID, userId);
+        request.setAttribute(REQUEST_ATTR_HOST_AUTHORIZATION_ID, authorizationId);
+        request.setAttribute(REQUEST_ATTR_HOST_DEVICE_ID, grant.getDeviceId());
+        request.setAttribute(REQUEST_ATTR_HOST_GRANT_ID, grant.getId());
+    }
+
     private Long validateMcpAccessToken(HttpServletRequest request, String token, Claims claims) {
         if (!mcpOAuthProperties.getIssuer().equals(claims.getIssuer())
                 || claims.getExpiration() == null
@@ -160,6 +210,14 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 || !claims.getAudience().contains(mcpOAuthProperties.getResource())) {
             throw new IllegalArgumentException("The OAuth token does not target Linear Lite MCP.");
         }
+        OAuth2Authorization authorization = findActiveAuthorization(token);
+        Long userId = userId(claims);
+        extractScopes(claims);
+        request.setAttribute(REQUEST_ATTR_OAUTH_CLIENT_ID, authorization.getRegisteredClientId());
+        return userId;
+    }
+
+    private OAuth2Authorization findActiveAuthorization(String token) {
         if (authorizationService == null) {
             throw new IllegalArgumentException("OAuth authorization state is unavailable.");
         }
@@ -168,6 +226,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 || !authorization.getAccessToken().isActive()) {
             throw new IllegalArgumentException("The OAuth token has been revoked or is not active.");
         }
+        return authorization;
+    }
+
+    private Long userId(Claims claims) {
         Long userId;
         try {
             userId = Long.valueOf(claims.getSubject());
@@ -177,8 +239,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (userId <= 0) {
             throw new IllegalArgumentException("The OAuth token has no Linear Lite account.");
         }
-        extractScopes(claims);
-        request.setAttribute(REQUEST_ATTR_OAUTH_CLIENT_ID, authorization.getRegisteredClientId());
         return userId;
     }
 
@@ -194,11 +254,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         } else {
             throw new IllegalArgumentException("The OAuth token contains no scope claim.");
         }
-        if (!Set.of("linear-lite:read", "linear-lite:write", REMOTE_TERMINAL_SCOPE).containsAll(scopes)) {
+        if (!Set.of("linear-lite:read", "linear-lite:write", REMOTE_TERMINAL_SCOPE, OAuthResourcePolicy.HOST_SCOPE).containsAll(scopes)) {
             throw new IllegalArgumentException("The OAuth token contains an unsupported scope.");
         }
         return Set.copyOf(scopes);
     }
+
+    private static final class HostGrantRevokedException extends IllegalArgumentException {}
 
     /**
      * EventSource 无法设置 Authorization 头时，允许对受保护 SSE 使用 query {@code access_token}。

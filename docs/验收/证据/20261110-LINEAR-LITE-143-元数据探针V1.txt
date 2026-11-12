@@ -1,0 +1,1 @@
+{"copyMode":292,"restoredMode":493,"sourceAcl":[" 0: group:everyone deny writeextattr"," 1: group:everyone allow read,readattr,readextattr,readsecurity"],"targetAcl":[" 0: group:everyone deny writeextattr"," 1: group:everyone allow read,readattr,readextattr,readsecurity"],"xattr":"sample"}

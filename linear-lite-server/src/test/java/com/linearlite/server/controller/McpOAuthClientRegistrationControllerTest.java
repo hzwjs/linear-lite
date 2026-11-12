@@ -16,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import com.linearlite.server.security.OAuthResourcePolicy;
 
 class McpOAuthClientRegistrationControllerTest {
 
@@ -100,5 +101,30 @@ class McpOAuthClientRegistrationControllerTest {
 
         assertEquals(HttpStatus.CREATED, response.getStatusCode());
         assertEquals(2, saved.get().getRedirectUris().size());
+    }
+
+    @Test
+    void hostClientRegistersDeviceAndCannotMixScopesOrUseNonLoopbackCallback() throws Exception {
+        AtomicReference<RegisteredClient> saved = new AtomicReference<>();
+        RegisteredClientRepository clients = mock(RegisteredClientRepository.class);
+        doAnswer(invocation -> { saved.set(invocation.getArgument(0)); return null; }).when(clients).save(any());
+        McpOAuthClientRegistrationController controller = new McpOAuthClientRegistrationController(clients, new McpOAuthProperties());
+        String valid = """
+                {"client_name":"Host", "redirect_uris":["http://127.0.0.1:33418/callback"],
+                 "grant_types":["authorization_code","refresh_token"], "scope":"collaboration-host",
+                 "device_id":"a1111111-2222-4333-8444-555555555555", "device_name":"My Mac"}
+                """;
+        assertEquals(HttpStatus.CREATED, controller.register(objectMapper.readTree(valid)).getStatusCode());
+        assertEquals("a1111111-2222-4333-8444-555555555555",
+                saved.get().getClientSettings().getSetting(OAuthResourcePolicy.DEVICE_ID_SETTING));
+        assertEquals("My Mac", saved.get().getClientSettings().getSetting(OAuthResourcePolicy.DEVICE_NAME_SETTING));
+        assertTrue(saved.get().getClientSettings().isRequireProofKey());
+        assertTrue(saved.get().getClientSettings().isRequireAuthorizationConsent());
+        assertEquals(HttpStatus.BAD_REQUEST, controller.register(objectMapper.readTree(
+                valid.replace("collaboration-host\"", "collaboration-host linear-lite:read\""))).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, controller.register(objectMapper.readTree(
+                valid.replace("a1111111", "A1111111"))).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, controller.register(objectMapper.readTree(
+                valid.replace("http://127.0.0.1:33418/callback", "https://vscode.dev/redirect"))).getStatusCode());
     }
 }

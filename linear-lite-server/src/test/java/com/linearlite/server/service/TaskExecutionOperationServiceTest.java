@@ -67,6 +67,23 @@ class TaskExecutionOperationServiceTest {
         assertEquals(9L, service.findReplay(6L, 7L, "op", "claim", request).path("attemptId").longValue());
     }
 
+    @Test void committedReplayIsScopedAndRejectsDifferentKindOrPayload() throws Exception {
+        TaskExecutionOperation previous = new TaskExecutionOperation();
+        previous.setKind("batch_start");
+        previous.setRequestJson("{\"projectId\":6,\"taskIds\":[1,2]}");
+        previous.setResponseJson("{\"batchId\":\"batch-1\"}");
+        when(mapper.selectExisting(6L, 7L, "op")).thenReturn(previous);
+        var request = json.readTree(previous.getRequestJson());
+        assertEquals("batch-1", service.findCommittedReplay(6L, 7L, "op", "batch_start", request).path("batchId").asText());
+        assertNull(service.findCommittedReplay(6L, 8L, "op", "batch_start", request));
+        assertNull(service.findCommittedReplay(9L, 7L, "op", "batch_start", request));
+        assertThrows(ConflictOperationException.class,
+                () -> service.findCommittedReplay(6L, 7L, "op", "batch_stop", request));
+        assertThrows(ConflictOperationException.class, () -> service.findCommittedReplay(6L, 7L, "op", "batch_start",
+                json.readTree("{\"projectId\":6,\"taskIds\":[1,3]}")));
+        verify(mapper, never()).selectForUpdate(anyLong(), anyLong(), anyString());
+    }
+
     @Test void rejectsInvalidOperationKeyAndFailedInsert() throws Exception {
         var request = json.readTree("{}");
         assertThrows(IllegalArgumentException.class, () -> service.findReplay(6L, 7L, " ", "claim", request));

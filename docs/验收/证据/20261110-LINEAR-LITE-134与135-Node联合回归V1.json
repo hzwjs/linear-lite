@@ -1,0 +1,14 @@
+{
+  "tests": 82,
+  "pass": 82,
+  "fail": 0,
+  "cancelled": 0,
+  "skipped": 0,
+  "todo": 0,
+  "command": "rtk proxy node --test --test-reporter=tap codex-host/test/*.test.mjs",
+  "report": "20261110-LINEAR-LITE-134与135-Node联合回归V1.tap",
+  "realModelRuns": 0,
+  "realKeychainChanges": 0,
+  "realLaunchAgentChanges": 0,
+  "isolatedNodeProcessGroups": true
+}

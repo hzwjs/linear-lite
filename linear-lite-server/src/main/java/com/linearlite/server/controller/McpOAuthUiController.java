@@ -1,5 +1,6 @@
 package com.linearlite.server.controller;
 
+import com.linearlite.server.security.OAuthResourcePolicy;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
@@ -13,12 +14,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.Arrays;
 import java.util.List;
+import java.security.Principal;
 
 @Controller
 @ConditionalOnProperty(prefix = "mcp.oauth", name = "enabled", havingValue = "true")
 public class McpOAuthUiController {
 
-    private static final List<String> SUPPORTED_SCOPES = List.of("linear-lite:read", "linear-lite:write", "remote-terminal");
+    private static final List<String> SUPPORTED_SCOPES = List.of("linear-lite:read", "linear-lite:write", "remote-terminal", OAuthResourcePolicy.HOST_SCOPE);
     private final RegisteredClientRepository clients;
 
     public McpOAuthUiController(RegisteredClientRepository clients) {
@@ -49,7 +51,11 @@ public class McpOAuthUiController {
     public ResponseEntity<String> consent(
             @RequestParam("client_id") String clientId,
             @RequestParam("state") String state,
-            @RequestParam("scope") String scope) {
+            @RequestParam("scope") String scope,
+            Principal principal) {
+        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+            return ResponseEntity.badRequest().contentType(MediaType.TEXT_PLAIN).body("授权账号不可用。");
+        }
         RegisteredClient client = clients.findByClientId(clientId);
         if (client == null) {
             return ResponseEntity.badRequest().contentType(MediaType.TEXT_PLAIN)
@@ -67,6 +73,15 @@ public class McpOAuthUiController {
             return ResponseEntity.badRequest().contentType(MediaType.TEXT_PLAIN)
                     .body("Linear Lite 授权范围无效。");
         }
+        String deviceDescription = "";
+        if (scopes.contains(OAuthResourcePolicy.HOST_SCOPE)) {
+            String deviceId = client.getClientSettings().getSetting(OAuthResourcePolicy.DEVICE_ID_SETTING);
+            String deviceName = client.getClientSettings().getSetting(OAuthResourcePolicy.DEVICE_NAME_SETTING);
+            if (deviceId == null || deviceName == null || !scopes.equals(List.of(OAuthResourcePolicy.HOST_SCOPE))) {
+                return ResponseEntity.badRequest().contentType(MediaType.TEXT_PLAIN).body("宿主设备授权信息无效。");
+            }
+            deviceDescription = "<p>设备：<strong>" + escape(deviceName) + "</strong>（" + escape(deviceId) + "）</p>";
+        }
         StringBuilder scopeInputs = new StringBuilder();
         for (String value : scopes) {
             scopeInputs.append(hiddenInput("scope", value));
@@ -76,11 +91,11 @@ public class McpOAuthUiController {
                 <meta name="viewport" content="width=device-width, initial-scale=1">
                 <title>授权 Linear Lite</title>
                 <style>body{font:16px system-ui,sans-serif;background:#f6f7f9;color:#202124;margin:0;display:grid;min-height:100vh;place-items:center}main{background:white;padding:32px;border-radius:16px;box-shadow:0 8px 32px #0001;width:min(420px,calc(100%% - 48px))}h1{font-size:22px;margin-top:0}li{margin:10px 0;color:#454950}button{margin-top:22px;width:100%%;padding:12px;border:0;border-radius:8px;background:#5e6ad2;color:white;font:inherit;cursor:pointer}</style>
-                <main><h1>授权 Linear Lite</h1><p>应用 <strong>%s</strong> 将使用你的 Linear Lite 账号访问以下内容：</p><ul>%s</ul>
+                <main><h1>授权 Linear Lite</h1><p>当前账号：<strong>%s</strong></p><p>应用 <strong>%s</strong> 将使用你的 Linear Lite 账号访问以下内容：</p>%s<ul>%s</ul>
                 <form method="post" action="/oauth2/authorize">%s%s%s
                 <button type="submit" name="user_oauth_approval" value="true">允许访问</button>
                 <button type="submit" name="user_oauth_approval" value="false" style="background:#62666d">拒绝</button></form></main></html>
-                """.formatted(escape(clientName), scopeList(scopes), hiddenInput("client_id", clientId),
+                """.formatted(escape(principal.getName()), escape(clientName), deviceDescription, scopeList(scopes), hiddenInput("client_id", clientId),
                 hiddenInput("state", state), scopeInputs);
         return ResponseEntity.ok().contentType(MediaType.TEXT_HTML).body(page);
     }
@@ -91,6 +106,7 @@ public class McpOAuthUiController {
             String label = switch (scope) {
                 case "linear-lite:read" -> "读取项目、任务与文档";
                 case "remote-terminal" -> "读取你被授权的远程服务器目录，并为其申请短期 SSH 登录证书";
+                case OAuthResourcePolicy.HOST_SCOPE -> "将此设备作为协作宿主连接并运行你授权的批次";
                 default -> "创建项目、任务、评论和文档；更新任务与文档";
             };
             result.append("<li>").append(label).append("</li>");

@@ -1,0 +1,215 @@
+{
+  "suites": 25,
+  "totals": {
+    "tests": 177,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "results": [
+    {
+      "class": "com.linearlite.server.service.CollaborationBatchControlServiceTest",
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.06"
+    },
+    {
+      "class": "com.linearlite.server.service.TaskCollaborationInputServiceTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.021"
+    },
+    {
+      "class": "com.linearlite.server.service.TaskCollaborationClaimServiceTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.017"
+    },
+    {
+      "class": "com.linearlite.server.service.TaskCollaborationStateServiceTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.011"
+    },
+    {
+      "class": "com.linearlite.server.service.TaskCollaborationCompletionServiceTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.574"
+    },
+    {
+      "class": "com.linearlite.server.service.TaskExecutionAccessServiceTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.049"
+    },
+    {
+      "class": "com.linearlite.server.service.TaskExecutionLifecycleServiceTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.036"
+    },
+    {
+      "class": "com.linearlite.server.mcp.CollaborationInterfacesTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.442"
+    },
+    {
+      "class": "com.linearlite.server.mapper.CollaborationModelMappingTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.622"
+    },
+    {
+      "class": "com.linearlite.server.service.ProjectArtifactPathServiceTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.001"
+    },
+    {
+      "class": "com.linearlite.server.controller.CollaborationBatchControllerTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.037"
+    },
+    {
+      "class": "com.linearlite.server.service.TaskCommandServiceTest",
+      "tests": 17,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.093"
+    },
+    {
+      "class": "com.linearlite.server.service.TaskHierarchyCompletionServiceTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.003"
+    },
+    {
+      "class": "com.linearlite.server.service.CollaborationBatchAuthorizationServiceTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.057"
+    },
+    {
+      "class": "com.linearlite.server.service.HostCollaborationBatchServiceTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.012"
+    },
+    {
+      "class": "com.linearlite.server.service.TaskStatusServiceTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.004"
+    },
+    {
+      "class": "com.linearlite.server.service.TaskImportServiceTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.005"
+    },
+    {
+      "class": "com.linearlite.server.service.TaskQueryServiceTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.031"
+    },
+    {
+      "class": "com.linearlite.server.service.TaskServiceTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.006"
+    },
+    {
+      "class": "com.linearlite.server.service.ProjectLifecycleServiceTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.105"
+    },
+    {
+      "class": "com.linearlite.server.controller.HostCollaborationBatchControllerTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.124"
+    },
+    {
+      "class": "com.linearlite.server.controller.TaskCollaborationStateControllerTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.02"
+    },
+    {
+      "class": "com.linearlite.server.security.HostOAuthPkceIntegrationTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.484"
+    },
+    {
+      "class": "com.linearlite.server.service.HostDeviceAuthorizationServiceTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.055"
+    },
+    {
+      "class": "com.linearlite.server.service.UnacknowledgedClaimRecoveryServiceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "time": "0.012"
+    }
+  ],
+  "kind": "mocked services, mapper contract and local controller/security protocol tests",
+  "databaseScriptsExecuted": false,
+  "realModelExecuted": false,
+  "deployed": false
+}

@@ -49,17 +49,16 @@ class TaskCollaborationCompletionServiceTest {
         command = new CollaborationAttemptCommand(20L, "claim-secret", 2L, "host", "agent", "complete-1");
         evidence = new TaskDeliveryEvidence(List.of(new TaskDeliveryEvidence.CompletionCondition(
                 "交付接口", "测试通过", List.of("docs/validation.md"))),
-                List.of("src/App.java"), List.of("docs/validation.md"), "git:abc");
+                List.of("src/App.java"), List.of("docs/validation.md"), "git:abc", List.of(), List.of());
         stopped = new CollaborationStopConfirmation(true, "进程退出，写入停止");
         task = new Task(); task.setId(10L); task.setProjectId(6L); task.setStatus("in_progress");
-        task.setInputRevision(2L); task.setPublicContextRefs(json.createArrayNode().add(
-                json.createObjectNode().put("documentId", 4).put("version", 3)));
+        task.setInputRevision(2L);
         attempt = new TaskExecutionAttempt(); attempt.setId(20L); attempt.setTaskId(10L); attempt.setBindingId(30L);
-        attempt.setInputRevision(2L); attempt.setStatus("running"); attempt.setHeldWriteScopes(List.of("src/"));
-        attempt.setPrerequisiteVersions(json.createArrayNode().add(json.createObjectNode()
-                .put("taskId", 9).put("attemptId", 19).put("inputRevision", 7)));
+        attempt.setInputRevision(2L); attempt.setStatus("running");
+        attempt.setPrerequisiteVersions(json.createArrayNode());
         var context = new CollaborationBatchAuthorizationService.BatchContext("batch", 1L, 6L, 30L, 1L,
-                "device", List.of(10L), Instant.now().plusSeconds(300));
+                "device", List.of(10L), Instant.now().plusSeconds(300), 11L, "host", 1L,
+                Instant.now().plusSeconds(30), Instant.now().plusSeconds(300), 5, 2);
         owned = new TaskExecutionAccessService.OwnedAttempt(context, task, attempt);
     }
 
@@ -76,34 +75,77 @@ class TaskCollaborationCompletionServiceTest {
         order.verify(operations).save(eq(6L), eq(1L), eq("complete-1"), eq("complete"), eq(20L), any(), any());
         TaskExecutionAttempt patch = saved.getValue();
         assertEquals("succeeded", patch.getStatus()); assertNotNull(patch.getStopConfirmedAt());
-        assertNotNull(patch.getFinishedAt()); assertNull(patch.getHeldWriteScopes());
+        assertNotNull(patch.getFinishedAt());
         assertEquals(2L, patch.getResultEvidence().path("inputRevision").asLong());
         assertEquals(attempt.getPrerequisiteVersions(), patch.getResultEvidence().get("prerequisiteVersions"));
-        assertEquals(task.getPublicContextRefs(), patch.getResultEvidence().get("publicContextRefs"));
         assertFalse(result.data().toString().contains("secret"));
     }
 
+    @Test void completionRequiresCurrentAttemptAdoptionAndFreshObservationForEachSource() {
+        writable();
+        attempt.setPrerequisiteVersions(json.createArrayNode().add(json.createObjectNode()
+                .put("taskId", 9).put("attemptId", 19).put("inputRevision", 7)));
+        attempt.setCheckpoints(json.createArrayNode());
+        assertThrows(IllegalArgumentException.class, () -> service.complete(1L, batch, 10L, command, evidence, stopped));
+        var observed = new com.linearlite.server.dto.ArtifactObservation("docs/a.md", "PRESENT", "sha256:" + "a".repeat(64));
+        var review = new com.linearlite.server.dto.PrerequisiteReviewRequest(9L, 19L, 7L,
+                "ADOPT", "满足本任务", "读取确认", List.of(observed), null, null);
+        var fact = json.createObjectNode().put("kind", "PREREQUISITE_REVIEW").put("operationId", "review-1").put("outcome", "ADOPT");
+        fact.set("review", json.valueToTree(review)); attempt.setCheckpoints(json.createArrayNode().add(fact));
+        var changed = new com.linearlite.server.dto.ArtifactObservation("docs/a.md", "PRESENT", "sha256:" + "b".repeat(64));
+        var stale = new TaskDeliveryEvidence(evidence.conditions(), List.of(), List.of(), null, List.of(),
+                List.of(new com.linearlite.server.dto.PrerequisiteAdoption("review-1", List.of(changed))));
+        assertThrows(IllegalArgumentException.class, () -> service.complete(1L, batch, 10L, command, stale, stopped));
+        var adopted = new TaskDeliveryEvidence(evidence.conditions(), List.of(), List.of(), null, List.of(),
+                List.of(new com.linearlite.server.dto.PrerequisiteAdoption("review-1", List.of(observed))));
+        when(attempts.updateById(any(TaskExecutionAttempt.class))).thenReturn(1);
+        assertTrue(service.complete(1L, batch, 10L, command, adopted, stopped).accepted());
+    }
+
     @Test void missingEvidenceOrStopConfirmationNeverChangesState() {
-        var missingEvidence = new TaskDeliveryEvidence(List.of(), List.of(), List.of("output"), "git:abc");
+        var missingEvidence = new TaskDeliveryEvidence(List.of(), List.of(), List.of("output"), "git:abc", List.of(), List.of());
         assertThrows(IllegalArgumentException.class, () -> service.complete(1L, batch, 10L, command, missingEvidence, stopped));
         assertThrows(IllegalArgumentException.class, () -> service.complete(1L, batch, 10L, command, evidence,
                 new CollaborationStopConfirmation(false, "进程未退出")));
         verifyNoInteractions(access, attempts, statuses, operations);
     }
 
-    @Test void changedPathMustBeInsideHeldScope() {
+    @Test void changedPathDoesNotRequireDeclaredScope() {
         writable();
-        var outside = new TaskDeliveryEvidence(evidence.conditions(), List.of("src2/App.java"), evidence.artifactRefs(), "git:abc");
-        assertThrows(IllegalArgumentException.class, () -> service.complete(1L, batch, 10L, command, outside, stopped));
-        verify(attempts, never()).updateById(any(TaskExecutionAttempt.class));
-        verifyNoInteractions(statuses);
+        when(attempts.updateById(any(TaskExecutionAttempt.class))).thenReturn(1);
+        var changed = new TaskDeliveryEvidence(evidence.conditions(), List.of("another/Module.java"), evidence.artifactRefs(), "git:abc", List.of(), List.of());
+        assertTrue(service.complete(1L, batch, 10L, command, changed, stopped).accepted());
     }
 
     @Test void readonlyDeliveryCanUseAnEmptyChangeList() {
         writable();
         when(attempts.updateById(any(TaskExecutionAttempt.class))).thenReturn(1);
-        var readonly = new TaskDeliveryEvidence(evidence.conditions(), List.of(), evidence.artifactRefs(), "git:abc");
+        var readonly = new TaskDeliveryEvidence(List.of(new TaskDeliveryEvidence.CompletionCondition("分析", "完成", List.of())), List.of(), List.of(), null, List.of(), List.of());
         assertTrue(service.complete(1L, batch, 10L, command, readonly, stopped).accepted());
+    }
+
+    @Test void deliveryCannotOmitOrInventAdoptedContexts() {
+        writable();
+        var document = new com.linearlite.server.dto.CollaborationContextRef("DOCUMENT", 11L, 3L, null, null);
+        var point = json.createObjectNode(); point.set("contextRefs", json.valueToTree(List.of(document)));
+        attempt.setCheckpoints(json.createArrayNode().add(point));
+        assertThrows(IllegalArgumentException.class, () -> service.complete(1L, batch, 10L, command, evidence, stopped));
+        var invented = new TaskDeliveryEvidence(evidence.conditions(), evidence.changedPaths(), evidence.artifactRefs(),
+                evidence.projectCheckpoint(), List.of(new com.linearlite.server.dto.CollaborationContextRef("DOCUMENT", 12L, 3L, null, null)), List.of());
+        assertThrows(IllegalArgumentException.class, () -> service.complete(1L, batch, 10L, command, invented, stopped));
+        var included = new TaskDeliveryEvidence(evidence.conditions(), evidence.changedPaths(), evidence.artifactRefs(),
+                evidence.projectCheckpoint(), List.of(document), List.of());
+        when(attempts.updateById(any(TaskExecutionAttempt.class))).thenReturn(1);
+        assertTrue(service.complete(1L, batch, 10L, command, included, stopped).accepted());
+    }
+
+    @Test void artifactReferencesMustBeNormalizedProjectRelativePaths() {
+        for (List<String> paths : List.of(List.of("../outside"), List.of("/tmp/output"),
+                List.of("docs/../output"), List.of("docs/output", "docs/output/"))) {
+            var invalid = new TaskDeliveryEvidence(evidence.conditions(), List.of(), paths, "git:abc", List.of(), List.of());
+            assertThrows(IllegalArgumentException.class, () -> service.complete(1L, batch, 10L, command, invalid, stopped));
+        }
+        verifyNoInteractions(access, attempts, statuses, operations);
     }
 
     @Test void rejectedCurrentInputPreservesStopResultWithoutDone() {
@@ -135,7 +177,7 @@ class TaskCollaborationCompletionServiceTest {
     @Test void credentialsInEvidenceOrOperationIdAreRejectedBeforeReceipt() {
         when(access.requireOwnedAttempt(eq(1L), eq(batch), eq(10L), any())).thenReturn(owned);
         var contaminated = new TaskDeliveryEvidence(List.of(new TaskDeliveryEvidence.CompletionCondition(
-                "交付接口", "claim-secret", List.of("proof"))), List.of(), List.of("proof"), "git:abc");
+                "交付接口", "claim-secret", List.of("proof"))), List.of(), List.of("proof"), "git:abc", List.of(), List.of());
         assertThrows(IllegalArgumentException.class, () -> service.complete(1L, batch, 10L, command, contaminated, stopped));
         var badOperation = new CollaborationAttemptCommand(20L, "claim-secret", 2L, "host", "agent", "batch-secret");
         assertThrows(IllegalArgumentException.class, () -> service.complete(1L, batch, 10L, badOperation, evidence, stopped));

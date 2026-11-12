@@ -31,11 +31,8 @@ export interface Task {
   plannedStartDate?: number | null
   /** 完成进度 0–100 */
   progressPercent?: number
-  /** 协作字段的缺值限创建中的乐观对象；服务响应必填，消费点等待服务结果。 */
-  agentExecutionEnabled?: boolean
+  /** 服务端任务输入版本，创建中的乐观对象尚未取得版本。 */
   inputRevision?: number
-  writeScopes?: string[]
-  publicContextRefs?: { documentId: number; version: number }[]
   completedAt?: number | null // 实际完成时间，由后端在终态时写入
   createdAt: number
   updatedAt: number

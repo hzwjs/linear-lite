@@ -45,14 +45,15 @@ class TaskExecutionLifecycleServiceTest {
         batch = new CollaborationBatchRequest("batch-secret", 30L, "device", "/work");
         command = new CollaborationAttemptCommand(20L, "claim-secret", 2L, "host", "agent", "op");
         task = new Task(); task.setId(10L); task.setProjectId(6L); task.setStatus("in_progress");
-        task.setAgentExecutionEnabled(true); task.setInputRevision(2L);
+        task.setInputRevision(2L);
         attempt = new TaskExecutionAttempt(); attempt.setId(20L); attempt.setTaskId(10L); attempt.setBindingId(30L);
         attempt.setInputRevision(2L); attempt.setStatus("running"); attempt.setLeaseUntil(LocalDateTime.now().plusMinutes(2));
-        attempt.setCheckpoints(json.createArrayNode()); attempt.setHeldWriteScopes(List.of("src/"));
+        attempt.setCheckpoints(json.createArrayNode());
         var context = new CollaborationBatchAuthorizationService.BatchContext("batch", 1L, 6L, 30L, 1L,
-                "device", List.of(10L), Instant.now().plusSeconds(300));
+                "device", List.of(10L), Instant.now().plusSeconds(300), 11L, "host", 1L,
+                Instant.now().plusSeconds(30), Instant.now().plusSeconds(300), 5, 2);
         owned = new TaskExecutionAccessService.OwnedAttempt(context, task, attempt);
-        recovery = new TaskExecutionAccessService.RecoveryAttempt(new ProjectDeviceBinding(), task, attempt);
+        recovery = new TaskExecutionAccessService.RecoveryAttempt(context, task, attempt);
     }
 
     @Test void renewChangesLeaseWithoutAppendingBusinessCheckpoint() {
@@ -78,7 +79,7 @@ class TaskExecutionLifecycleServiceTest {
         business();
         when(attempts.appendCheckpoint(eq(20L), eq(0), anyString())).thenReturn(1);
         var point = new TaskExecutionCheckpoint("op", "agent", LocalDateTime.of(2026, 11, 10, 12, 0),
-                "发现", List.of("docs/a.md"), "等待");
+                "发现", List.of("docs/a.md"), "等待", List.of(), List.of(), null, null);
         var first = service.checkpoint(1L, batch, 10L, command, point);
         assertTrue(first.accepted()); assertEquals(1, first.data().get("sequence").asInt());
         ArgumentCaptor<JsonNode> requests = ArgumentCaptor.forClass(JsonNode.class);
@@ -96,46 +97,72 @@ class TaskExecutionLifecycleServiceTest {
         business();
         attempt.setCheckpoints(json.createArrayNode().add(json.createObjectNode().put("operationId", "previous")));
         when(attempts.appendCheckpoint(eq(20L), eq(1), anyString())).thenReturn(1);
-        var point = new TaskExecutionCheckpoint("op", "agent", LocalDateTime.now(), "发现二", List.of(), null);
+        var point = new TaskExecutionCheckpoint("op", "agent", LocalDateTime.now(), "发现二", List.of(), null, List.of(), List.of(), null, null);
         var result = service.checkpoint(1L, batch, 10L, command, point);
         assertTrue(result.accepted()); assertEquals(2, result.data().get("sequence").asInt());
         verify(attempts).appendCheckpoint(eq(20L), eq(1), anyString());
+    }
+
+    @Test void checkpointPersistsOnlyConsistentFileTraceAndPreviousVersion() {
+        business();
+        when(attempts.appendCheckpoint(eq(20L), eq(0), anyString())).thenReturn(1);
+        var observed = new com.linearlite.server.dto.ArtifactObservation("docs/a.md", "PRESENT", "sha256:" + "b".repeat(64));
+        var point = new TaskExecutionCheckpoint("op", "agent", LocalDateTime.now(), null,
+                List.of("docs/a.md"), null, List.of(), List.of(observed), "sha256:" + "a".repeat(64), null);
+        var result = service.checkpoint(1L, batch, 10L, command, point);
+        assertEquals(observed.contentVersion(), result.data().path("checkpoint").path("artifactObservations").get(0).path("contentVersion").asText());
+        assertEquals(point.previousContentVersion(), result.data().path("checkpoint").path("previousContentVersion").asText());
+        var invalid = new TaskExecutionCheckpoint("op", "agent", LocalDateTime.now(), null,
+                List.of("docs/other.md"), null, List.of(), List.of(observed), null, null);
+        assertThrows(IllegalArgumentException.class, () -> service.checkpoint(1L, batch, 10L, command, invalid));
+    }
+
+    @Test void renameTraceRejectsChangedContentVersion() {
+        var observed = new com.linearlite.server.dto.ArtifactObservation("docs/new.md", "PRESENT", "sha256:" + "b".repeat(64));
+        var forged = new TaskExecutionCheckpoint("op", "agent", LocalDateTime.now(), null,
+                List.of("docs/new.md"), null, List.of(), List.of(observed), "sha256:" + "a".repeat(64), "docs/old.md");
+        assertThrows(IllegalArgumentException.class, () -> service.checkpoint(1L, batch, 10L, command, forged));
+        verify(attempts, never()).appendCheckpoint(anyLong(), anyInt(), anyString());
+    }
+
+    @Test void checkpointCannotInventContextAdoption() {
+        business();
+        var ref = new com.linearlite.server.dto.CollaborationContextRef("DOCUMENT", 11L, 3L, null, null);
+        var point = new TaskExecutionCheckpoint("op", "agent", LocalDateTime.now(), "发现", List.of(), null, List.of(ref), List.of(), null, null);
+        assertThrows(IllegalArgumentException.class, () -> service.checkpoint(1L, batch, 10L, command, point));
+        verify(attempts, never()).appendCheckpoint(anyLong(), anyInt(), anyString());
     }
 
     @Test void requestStopPreservesOriginalReasonAndReplays() {
         recovery();
         LocalDateTime requested = LocalDateTime.of(2026, 11, 10, 12, 0);
         attempt.setStopRequestedAt(requested); attempt.setStopReason("任务取消"); attempt.setStatus("stop_requested");
-        var first = service.requestStop(1L, 6L, 30L, "device", 10L, command, "执行故障");
+        var first = service.requestStop(1L, "batch-secret", 6L, 30L, "device", 10L, command, "执行故障");
         assertTrue(first.accepted()); assertEquals("任务取消", first.data().path("stopReason").asText());
         ArgumentCaptor<JsonNode> response = ArgumentCaptor.forClass(JsonNode.class);
         verify(operations).save(eq(6L), eq(1L), eq("op"), eq("stop_request"), eq(20L), any(), response.capture());
         when(operations.findReplay(eq(6L), eq(1L), eq("op"), eq("stop_request"), any())).thenReturn(response.getValue());
-        assertEquals(first, service.requestStop(1L, 6L, 30L, "device", 10L, command, "执行故障"));
+        assertEquals(first, service.requestStop(1L, "batch-secret", 6L, 30L, "device", 10L, command, "执行故障"));
         verify(access, times(1)).requestStop(attempt, "执行故障");
     }
 
-    @Test void confirmedRetryableAttemptKeepsScopeSnapshotAndMovesTaskToTodo() {
+    @Test void confirmedRetryableAttemptMovesTaskToTodo() {
         recovery(); attempt.setStopRequestedAt(LocalDateTime.now().minusMinutes(1)); attempt.setStatus("stop_requested");
         when(attempts.updateById(any(TaskExecutionAttempt.class))).thenReturn(1);
         when(members.selectCount(any())).thenReturn(1L);
-        var result = service.confirmStop(1L, 6L, 30L, "device", 10L, command, new CollaborationStopConfirmation(true, "进程退出"));
+        var result = service.confirmStop(1L, "batch-secret", 6L, 30L, "device", 10L, command, new CollaborationStopConfirmation(true, "进程退出"));
         assertTrue(result.accepted()); assertEquals("todo", result.data().path("taskStatus").asText());
         ArgumentCaptor<TaskExecutionAttempt> patch = ArgumentCaptor.forClass(TaskExecutionAttempt.class);
         verify(attempts).updateById(patch.capture());
-        assertNotNull(patch.getValue().getStopConfirmedAt()); assertNull(patch.getValue().getHeldWriteScopes());
-        assertEquals(List.of("src/"), attempt.getHeldWriteScopes());
+        assertNotNull(patch.getValue().getStopConfirmedAt());
         verify(statuses).updateState(eq(10L), eq("todo"), eq(0), eq(1L), any());
     }
 
-    @Test void canceledTaskAndRevokedAuthorizationDoNotReenterTodo() {
+    @Test void canceledTaskDoesNotReenterTodo() {
         recovery(); attempt.setStopRequestedAt(LocalDateTime.now().minusMinutes(1));
         when(attempts.updateById(any(TaskExecutionAttempt.class))).thenReturn(1);
         task.setStatus("canceled");
-        assertEquals("canceled", service.confirmStop(1L, 6L, 30L, "device", 10L, command,
-                new CollaborationStopConfirmation(true, "进程退出")).data().path("taskStatus").asText());
-        task.setStatus("in_progress"); task.setAgentExecutionEnabled(false);
-        assertEquals("in_progress", service.confirmStop(1L, 6L, 30L, "device", 10L, command,
+        assertEquals("canceled", service.confirmStop(1L, "batch-secret", 6L, 30L, "device", 10L, command,
                 new CollaborationStopConfirmation(true, "进程退出")).data().path("taskStatus").asText());
         verifyNoInteractions(statuses, members);
     }
@@ -144,7 +171,7 @@ class TaskExecutionLifecycleServiceTest {
         recovery(); attempt.setStopRequestedAt(LocalDateTime.now().minusMinutes(1));
         when(attempts.updateById(any(TaskExecutionAttempt.class))).thenReturn(1);
         when(members.selectCount(any())).thenReturn(0L);
-        var result = service.confirmStop(1L, 6L, 30L, "device", 10L, command, new CollaborationStopConfirmation(true, "进程退出"));
+        var result = service.confirmStop(1L, "batch-secret", 6L, 30L, "device", 10L, command, new CollaborationStopConfirmation(true, "进程退出"));
         assertTrue(result.accepted()); assertEquals("in_progress", result.data().path("taskStatus").asText());
         verifyNoInteractions(statuses);
     }
@@ -157,7 +184,7 @@ class TaskExecutionLifecycleServiceTest {
         }).when(access).requestStop(eq(attempt), anyString());
         when(attempts.updateById(any(TaskExecutionAttempt.class))).thenReturn(1);
         when(members.selectCount(any())).thenReturn(0L);
-        assertTrue(service.confirmStop(1L, 6L, 30L, "device", 10L, command,
+        assertTrue(service.confirmStop(1L, "batch-secret", 6L, 30L, "device", 10L, command,
                 new CollaborationStopConfirmation(true, "进程退出")).accepted());
         assertEquals("执行租约过期", attempt.getStopReason());
         verify(attempts).updateById(any(TaskExecutionAttempt.class));
@@ -169,7 +196,7 @@ class TaskExecutionLifecycleServiceTest {
         when(attempts.updateById(any(TaskExecutionAttempt.class))).thenReturn(1);
         for (String terminal : List.of("duplicate", "done")) {
             task.setStatus(terminal);
-            var result = service.confirmStop(1L, 6L, 30L, "device", 10L, command,
+            var result = service.confirmStop(1L, "batch-secret", 6L, 30L, "device", 10L, command,
                     new CollaborationStopConfirmation(true, "进程退出"));
             assertEquals(terminal, result.data().path("taskStatus").asText());
         }
@@ -179,7 +206,7 @@ class TaskExecutionLifecycleServiceTest {
     @Test void oldConfirmedAttemptCannotResetNewAttemptTask() {
         recovery(); attempt.setStopConfirmedAt(LocalDateTime.now().minusMinutes(1));
         attempt.setStopConfirmation(json.createObjectNode().put("detail", "原停止事实"));
-        var result = service.confirmStop(1L, 6L, 30L, "device", 10L, command, new CollaborationStopConfirmation(true, "重复回报"));
+        var result = service.confirmStop(1L, "batch-secret", 6L, 30L, "device", 10L, command, new CollaborationStopConfirmation(true, "重复回报"));
         assertTrue(result.accepted()); assertEquals("原停止事实", result.data().path("confirmation").path("detail").asText());
         verify(attempts, never()).updateById(any(TaskExecutionAttempt.class));
         verifyNoInteractions(statuses, members);
@@ -189,7 +216,7 @@ class TaskExecutionLifecycleServiceTest {
         recovery();
         JsonNode original = json.createObjectNode().put("accepted", true).put("taskStatus", "todo");
         when(operations.findReplay(eq(6L), eq(1L), eq("op"), eq("stop_confirm"), any())).thenReturn(original);
-        assertEquals(original, service.confirmStop(1L, 6L, 30L, "device", 10L, command,
+        assertEquals(original, service.confirmStop(1L, "batch-secret", 6L, 30L, "device", 10L, command,
                 new CollaborationStopConfirmation(true, "进程退出")).data());
         verifyNoInteractions(attempts, statuses, members);
         verify(operations, never()).save(anyLong(), anyLong(), anyString(), anyString(), anyLong(), any(), any());
@@ -197,7 +224,7 @@ class TaskExecutionLifecycleServiceTest {
 
     @Test void unrequestedActiveAttemptCannotBeConfirmedStopped() {
         recovery();
-        var result = service.confirmStop(1L, 6L, 30L, "device", 10L, command, new CollaborationStopConfirmation(true, "进程退出"));
+        var result = service.confirmStop(1L, "batch-secret", 6L, 30L, "device", 10L, command, new CollaborationStopConfirmation(true, "进程退出"));
         assertFalse(result.accepted()); assertEquals("执行尝试缺少停止请求", result.reason());
         verifyNoInteractions(attempts, statuses, members);
     }
@@ -205,7 +232,7 @@ class TaskExecutionLifecycleServiceTest {
     @Test void checkpointRejectsPastedCredentialBeforePersistence() {
         when(access.requireOwnedAttempt(1L, batch, 10L, command)).thenReturn(owned);
         var point = new TaskExecutionCheckpoint("op", "agent", LocalDateTime.now(),
-                "discovered " + command.claimToken(), List.of("docs/a.md"), null);
+                "discovered " + command.claimToken(), List.of("docs/a.md"), null, List.of(), List.of(), null, null);
         var error = assertThrows(IllegalArgumentException.class,
                 () -> service.checkpoint(1L, batch, 10L, command, point));
         assertEquals("协作业务材料包含执行凭据", error.getMessage());
@@ -215,9 +242,9 @@ class TaskExecutionLifecycleServiceTest {
     @Test void recoveryRejectsPastedCredentialInStopReasonAndConfirmation() {
         recovery();
         assertThrows(IllegalArgumentException.class, () -> service.requestStop(
-                1L, 6L, 30L, "device", 10L, command, "reason " + command.claimToken()));
+                1L, "batch-secret", 6L, 30L, "device", 10L, command, "reason " + command.claimToken()));
         assertThrows(IllegalArgumentException.class, () -> service.confirmStop(
-                1L, 6L, 30L, "device", 10L, command,
+                1L, "batch-secret", 6L, 30L, "device", 10L, command,
                 new CollaborationStopConfirmation(true, "detail " + command.claimToken())));
         verifyNoInteractions(operations, attempts, statuses);
     }
@@ -227,6 +254,6 @@ class TaskExecutionLifecycleServiceTest {
         when(access.checkWritable(owned, command)).thenReturn(new TaskExecutionAccessService.WriteCheck(true, null, attempt));
     }
     private void recovery() {
-        when(access.requireRecoveryAttempt(1L, 6L, 30L, "device", 10L, command)).thenReturn(recovery);
+        when(access.requireRecoveryAttempt(1L, "batch-secret", 6L, 30L, "device", 10L, command)).thenReturn(recovery);
     }
 }

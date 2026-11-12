@@ -9,6 +9,7 @@ import com.linearlite.server.exception.ConflictOperationException;
 import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.ProjectDeviceBindingMapper;
+import com.linearlite.server.mapper.CollaborationBatchMapper;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskExecutionAttemptMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -26,15 +27,18 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -43,6 +47,7 @@ class ProjectDeviceBindingServiceTest {
     @Mock private TaskExecutionAttemptMapper attempts;
     @Mock private ProjectMapper projects;
     @Mock private ProjectAccessGuard access;
+    @Mock private CollaborationBatchMapper batches;
     private ProjectDeviceBindingService service;
 
     @BeforeAll
@@ -53,7 +58,7 @@ class ProjectDeviceBindingServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ProjectDeviceBindingService(bindings, attempts, projects, access);
+        service = new ProjectDeviceBindingService(bindings, attempts, projects, access, batches);
     }
 
     @Test
@@ -119,14 +124,33 @@ class ProjectDeviceBindingServiceTest {
     }
 
     @Test
-    void blocksDirectoryChangeAndDeletionWhileStopIsUnconfirmed() {
+    void blocksDirectoryChangeAndDeletionWhileStopIsUnconfirmed() throws NoSuchMethodException {
         ProjectDeviceBinding current = binding(1L, "/work/a", null);
         when(projects.lockProject(6L)).thenReturn(6L);
         when(bindings.selectForUpdate(1L, 6L, "device-A")).thenReturn(current);
         when(attempts.selectCount(any())).thenReturn(1L);
 
+        var wait = assertThrows(ConflictOperationException.class, () -> service.save(1L, 6L, "device-A", "/work/b"));
+        assertThrows(ConflictOperationException.class, () -> service.delete(1L, 6L, "device-A"));
+        verify(batches, times(2)).requestStopForBinding(eq(10L), eq(1L), any());
+        verify(attempts, times(2)).requestStopForBinding(eq(10L), any());
+        verify(bindings, never()).update(isNull(), any());
+        var save = ProjectDeviceBindingService.class.getMethod("save", Long.class, Long.class, String.class, String.class);
+        var transaction = new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource()
+                .getTransactionAttribute(save, ProjectDeviceBindingService.class);
+        assertFalse(transaction.rollbackOn(wait));
+        assertTrue(transaction.rollbackOn(new ConflictOperationException("其他写入冲突")));
+    }
+
+    @Test
+    void blocksDirectoryChangeAndDeletionForAcceptedBatchWithoutTaskAttempt() {
+        ProjectDeviceBinding current = binding(1L, "/work/a", null);
+        when(projects.lockProject(6L)).thenReturn(6L);
+        when(bindings.selectForUpdate(1L, 6L, "device-A")).thenReturn(current);
+        when(batches.countAcceptedByBinding(10L)).thenReturn(1L);
         assertThrows(ConflictOperationException.class, () -> service.save(1L, 6L, "device-A", "/work/b"));
         assertThrows(ConflictOperationException.class, () -> service.delete(1L, 6L, "device-A"));
+        verify(attempts, never()).selectCount(any());
         verify(bindings, never()).update(isNull(), any());
     }
 

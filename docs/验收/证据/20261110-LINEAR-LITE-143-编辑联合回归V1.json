@@ -1,0 +1,30 @@
+{
+  "command": "rtk proxy node --test codex-host/test/executor.test.mjs codex-host/test/executor-acceptance.test.mjs",
+  "exitCode": 0,
+  "tests": 18,
+  "passed": 18,
+  "failed": 0,
+  "skipped": 0,
+  "platform": "macOS",
+  "coverage": [
+    "same-file concurrent edits and stale versions",
+    "physical identity and separate contentVersion",
+    "create/replace/patch/rename/delete",
+    "project and private-state boundary",
+    "actual parent/root directory swap probes",
+    "case aliases and hard links",
+    "attempt-specific sealing",
+    "30-second helper timeout and close ordering",
+    "executable permissions",
+    "startup injection environment",
+    "persistent operation attribution"
+  ],
+  "notes": [
+    "Uses isolated filesystem projects and synthetic helper processes; no real model",
+    "Editing CAS applies to the host-managed editor; it does not cover external editors or writable commands",
+    "Integration with pool/app-server tools belongs to LINEAR-LITE-146"
+  ],
+  "deployed": false,
+  "realModelExecuted": false,
+  "scheduledBatchEnabled": false
+}

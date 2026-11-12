@@ -1,0 +1,20 @@
+{
+  "deviceId": "fdab3753-8643-4852-a48a-aff800e03226",
+  "status": {
+    "deviceId": "fdab3753-8643-4852-a48a-aff800e03226",
+    "hostInstanceId": "030ac49d-b033-4a99-9586-38e0565998cb",
+    "processId": 89435,
+    "connection": "ONLINE",
+    "userId": 6,
+    "grantId": 1,
+    "deviceName": "huangzhiwendeMacBook-Pro.local",
+    "lastHeartbeatAt": "2026-11-10T13:11:22.820708808Z"
+  },
+  "deviceIdentityPreserved": true,
+  "rootsCount": 0,
+  "attemptsCount": 0,
+  "runAtLogin": true,
+  "restartOnExit": true,
+  "scheduledBatchEnabled": false,
+  "installedApplication": "/Users/huangzhiwen/Applications/Linear Lite 协作宿主.app"
+}

@@ -134,14 +134,14 @@ public class ProjectDocumentQueryService {
 
     ProjectDocumentResponse toResponse(ProjectDocument document, boolean favorited) {
         CollaborationNodeClient.SnapshotResponse snapshot = collaborationService.getSnapshot(document.getId(), true);
-        if (!document.getContentFormat().equals(snapshot.contentFormat())) {
+        if (snapshot.version() == null || !document.getContentFormat().equals(snapshot.contentFormat())) {
             throw new IllegalStateException("协作正文类型与文档元数据不一致");
         }
         return new ProjectDocumentResponse(
                 document.getId(), document.getProjectId(), document.getParentDocumentId(),
                 document.getExternalSource(), document.getExternalSourceId(), document.getTitle(),
                 snapshot.content(), "HTML".equals(document.getContentFormat()) ? List.of() : attachmentService.listImageAssets(document.getId()),
-                document.getSortOrder(), document.getVersion(), document.getCreatorId(),
+                document.getSortOrder(), snapshot.version(), document.getCreatorId(),
                 document.getLastEditorId(), favorited, document.getArchivedAt(), document.getCreatedAt(), document.getUpdatedAt(), document.getContentFormat());
     }
 

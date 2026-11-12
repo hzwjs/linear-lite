@@ -387,6 +387,7 @@ onUnmounted(() => {
       @open-favorite-document="openFavoriteDocument"
       @open-analytics="router.push('/analytics')"
       @open-agent-connections="router.push('/settings/agent-connections')"
+      @open-project-collaboration="(id) => router.push(`/projects/${id}/collaboration`)"
       @toggle-projects-collapsed="toggleProjectsCollapsed"
       @reorder-projects="reorderProjects"
       @create-project="createProjectOpen = true"

@@ -62,13 +62,14 @@ public class TaskCollaborationCompletionService {
                     command.attemptId(), request, response);
             return result(response);
         }
-        requireWithinHeldScopes(evidence.changedPaths(), owned.attempt().getHeldWriteScopes());
+
+        CollaborationContextService.requireAllAdopted(owned.attempt(), evidence.contextRefs());
+        TaskPrerequisiteReviewService.requireAdopted(owned.attempt(), evidence.prerequisiteAdoptions());
 
         LocalDateTime now = LocalDateTime.now();
         ObjectNode delivery = json.valueToTree(evidence);
         delivery.put("inputRevision", owned.attempt().getInputRevision());
         delivery.set("prerequisiteVersions", owned.attempt().getPrerequisiteVersions().deepCopy());
-        delivery.set("publicContextRefs", owned.task().getPublicContextRefs().deepCopy());
         ObjectNode stop = json.createObjectNode().put("stopped", true).put("detail", confirmation.detail())
                 .put("hostInstanceId", command.hostInstanceId()).put("agentInstanceId", command.agentInstanceId())
                 .put("confirmedAt", now.toString());
@@ -95,40 +96,24 @@ public class TaskCollaborationCompletionService {
 
     private void validateEvidence(TaskDeliveryEvidence evidence, CollaborationStopConfirmation confirmation) {
         if (evidence == null || evidence.conditions() == null || evidence.conditions().isEmpty()
-                || evidence.changedPaths() == null || evidence.artifactRefs() == null || evidence.artifactRefs().isEmpty()
-                || evidence.projectCheckpoint() == null || evidence.projectCheckpoint().isBlank()) {
+                || evidence.changedPaths() == null || evidence.artifactRefs() == null || evidence.contextRefs() == null || evidence.prerequisiteAdoptions() == null
+                || (!evidence.artifactRefs().isEmpty() && (evidence.projectCheckpoint() == null || evidence.projectCheckpoint().isBlank()))) {
             throw new IllegalArgumentException("交付证据缺少完成条件、产物或项目检查点");
         }
         for (TaskDeliveryEvidence.CompletionCondition condition : evidence.conditions()) {
             if (condition == null || condition.condition() == null || condition.condition().isBlank()
                     || condition.result() == null || condition.result().isBlank()
-                    || condition.evidenceRefs() == null || condition.evidenceRefs().isEmpty()
+                    || condition.evidenceRefs() == null
                     || condition.evidenceRefs().stream().anyMatch(ref -> ref == null || ref.isBlank())) {
                 throw new IllegalArgumentException("完成条件缺少结果或证据引用");
             }
         }
-        if (evidence.artifactRefs().stream().anyMatch(ref -> ref == null || ref.isBlank()))
-            throw new IllegalArgumentException("产物引用无效");
-        CollaborationPathScopeService.validate(evidence.changedPaths());
+        ProjectArtifactPathService.validate(evidence.changedPaths());
+        ProjectArtifactPathService.validate(evidence.artifactRefs());
         if (confirmation == null || !confirmation.stopped() || confirmation.detail() == null
                 || confirmation.detail().isBlank() || confirmation.detail().length() > 2048) {
             throw new IllegalArgumentException("缺少宿主停止事实");
         }
-    }
-
-    private void requireWithinHeldScopes(List<String> changedPaths, List<String> heldScopes) {
-        if (heldScopes == null) throw new IllegalStateException("执行尝试缺少写入范围");
-        for (String path : changedPaths) {
-            String changed = canonicalKey(path);
-            if (heldScopes.stream().map(this::canonicalKey)
-                    .noneMatch(scope -> changed.equals(scope) || changed.startsWith(scope + "/"))) {
-                throw new IllegalArgumentException("交付修改位置超出执行持有范围");
-            }
-        }
-    }
-
-    private String canonicalKey(String path) {
-        return path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
     }
 
     private Result result(JsonNode response) {

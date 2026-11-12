@@ -9,6 +9,7 @@ import com.linearlite.server.exception.ConflictOperationException;
 import com.linearlite.server.exception.ForbiddenOperationException;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.ProjectDeviceBindingMapper;
+import com.linearlite.server.mapper.CollaborationBatchMapper;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskExecutionAttemptMapper;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -28,18 +30,22 @@ public class ProjectDeviceBindingService {
     private final TaskExecutionAttemptMapper attemptMapper;
     private final ProjectMapper projectMapper;
     private final ProjectAccessGuard accessGuard;
+    private final CollaborationBatchMapper batchMapper;
 
     public ProjectDeviceBindingService(ProjectDeviceBindingMapper bindingMapper,
                                        TaskExecutionAttemptMapper attemptMapper,
                                        ProjectMapper projectMapper,
-                                       ProjectAccessGuard accessGuard) {
+                                       ProjectAccessGuard accessGuard,
+                                       CollaborationBatchMapper batchMapper) {
         this.bindingMapper = bindingMapper;
         this.attemptMapper = attemptMapper;
         this.projectMapper = projectMapper;
         this.accessGuard = accessGuard;
+        this.batchMapper = batchMapper;
     }
 
-    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = BindingStoppingException.class,
+            isolation = Isolation.READ_COMMITTED)
     public ProjectDeviceBindingResponse save(Long authenticatedUserId, Long projectId,
                                              String deviceId, String projectDirectory) {
         requireDevice(deviceId);
@@ -59,7 +65,7 @@ public class ProjectDeviceBindingService {
         if (current.getDeletedAt() == null && Objects.equals(current.getProjectDirectory(), projectDirectory)) {
             return ProjectDeviceBindingResponse.from(current);
         }
-        requireNoUnconfirmedExecution(current.getId());
+        stopBindingBeforeChange(current);
         long nextRevision = Math.addExact(current.getRevision(), 1L);
         int updated = bindingMapper.update(null, new LambdaUpdateWrapper<ProjectDeviceBinding>()
                 .eq(ProjectDeviceBinding::getId, current.getId())
@@ -88,13 +94,14 @@ public class ProjectDeviceBindingService {
                 .orderByAsc(ProjectDeviceBinding::getId)).stream().map(ProjectDeviceBindingResponse::from).toList();
     }
 
-    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = BindingStoppingException.class,
+            isolation = Isolation.READ_COMMITTED)
     public void delete(Long authenticatedUserId, Long projectId, String deviceId) {
         requireDevice(deviceId);
         lockProject(authenticatedUserId, projectId);
         ProjectDeviceBinding current = requireActive(
                 bindingMapper.selectForUpdate(authenticatedUserId, projectId, deviceId));
-        requireNoUnconfirmedExecution(current.getId());
+        stopBindingBeforeChange(current);
         int updated = bindingMapper.update(null, new LambdaUpdateWrapper<ProjectDeviceBinding>()
                 .eq(ProjectDeviceBinding::getId, current.getId())
                 .set(ProjectDeviceBinding::getDeletedAt, LocalDateTime.now())
@@ -138,13 +145,22 @@ public class ProjectDeviceBindingService {
         return binding;
     }
 
-    private void requireNoUnconfirmedExecution(Long bindingId) {
+    private void stopBindingBeforeChange(ProjectDeviceBinding binding) {
+        Long bindingId = binding.getId();
+        batchMapper.requestStopForBinding(bindingId, binding.getRevision(), LocalDateTime.now(ZoneOffset.UTC));
+        attemptMapper.requestStopForBinding(bindingId, com.linearlite.server.time.BeijingTime.now());
+        if (batchMapper.countAcceptedByBinding(bindingId) > 0)
+            throw new BindingStoppingException("协作批次等待停止确认，项目绑定保持冻结");
         Long count = attemptMapper.selectCount(new LambdaQueryWrapper<TaskExecutionAttempt>()
                 .eq(TaskExecutionAttempt::getBindingId, bindingId)
                 .isNull(TaskExecutionAttempt::getStopConfirmedAt));
-        if (count > 0) {
-            throw new ConflictOperationException("执行记录等待停止确认，项目绑定保持冻结");
-        }
+        if (count > 0)
+            throw new BindingStoppingException("执行记录等待停止确认，项目绑定保持冻结");
+    }
+
+    /** 提交停止意图后返回冲突，目录与版本在停止确认前保持原值。 */
+    private static final class BindingStoppingException extends ConflictOperationException {
+        BindingStoppingException(String message) { super(message); }
     }
 
     private void requireDevice(String deviceId) {

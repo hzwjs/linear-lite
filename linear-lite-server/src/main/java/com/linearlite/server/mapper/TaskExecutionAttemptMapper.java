@@ -18,7 +18,6 @@ public interface TaskExecutionAttemptMapper extends BaseMapper<TaskExecutionAtte
     @Select("SELECT * FROM task_execution_attempts WHERE id = #{id} FOR UPDATE")
     @Results(id = "attemptWithJson", value = {
             @Result(column = "prerequisite_versions", property = "prerequisiteVersions", typeHandler = JacksonTypeHandler.class),
-            @Result(column = "held_write_scopes", property = "heldWriteScopes", typeHandler = StringListJsonTypeHandler.class),
             @Result(column = "checkpoints", property = "checkpoints", typeHandler = JacksonTypeHandler.class),
             @Result(column = "result_evidence", property = "resultEvidence", typeHandler = JacksonTypeHandler.class),
             @Result(column = "stop_confirmation", property = "stopConfirmation", typeHandler = JacksonTypeHandler.class)
@@ -28,6 +27,10 @@ public interface TaskExecutionAttemptMapper extends BaseMapper<TaskExecutionAtte
     @Select("SELECT * FROM task_execution_attempts WHERE task_id = #{taskId} ORDER BY id")
     @ResultMap("attemptWithJson")
     List<TaskExecutionAttempt> selectByTaskId(@Param("taskId") Long taskId);
+
+    @Select("SELECT a.* FROM task_execution_attempts a JOIN tasks t ON t.id=a.task_id WHERE t.project_id=#{projectId} ORDER BY a.id FOR UPDATE")
+    @ResultMap("attemptWithJson")
+    List<TaskExecutionAttempt> selectByProjectForUpdate(@Param("projectId") Long projectId);
 
     @Select("SELECT a.* FROM task_execution_attempts a JOIN project_device_bindings b ON b.id=a.binding_id WHERE b.project_id=#{projectId} AND a.stop_confirmed_at IS NULL ORDER BY a.id")
     @ResultMap("attemptWithJson")
@@ -41,6 +44,15 @@ public interface TaskExecutionAttemptMapper extends BaseMapper<TaskExecutionAtte
             """)
     int appendCheckpoint(@Param("id") Long id, @Param("expectedCount") int expectedCount,
                          @Param("checkpointJson") String checkpointJson);
+
+    @Update("""
+            UPDATE task_execution_attempts
+            SET status = 'stop_requested', stop_requested_at = COALESCE(stop_requested_at, #{occurredAt}),
+                stop_reason = COALESCE(stop_reason, '项目绑定变更')
+            WHERE binding_id = #{bindingId} AND stop_confirmed_at IS NULL
+              AND status IN ('running', 'stop_requested', 'failed')
+            """)
+    int requestStopForBinding(@Param("bindingId") Long bindingId, @Param("occurredAt") java.time.LocalDateTime occurredAt);
 
     @Update("""
             UPDATE task_execution_attempts

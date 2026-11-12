@@ -19,6 +19,7 @@ import com.linearlite.server.entity.TaskExecutionAttempt;
 import com.linearlite.server.mapper.ProjectMemberMapper;
 import com.linearlite.server.mapper.TaskExecutionAttemptMapper;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -55,7 +56,7 @@ public class TaskExecutionLifecycleService {
         var check = access.checkWritable(owned, command);
         ObjectNode response = response(check.accepted(), check.reason());
         if (check.accepted()) {
-            LocalDateTime leaseUntil = BeijingTime.now().plusMinutes(5).withNano(0);
+            LocalDateTime leaseUntil = CollaborationLeaseTime.bounded(owned.context().runLeaseUntil(), owned.context().deadlineAt());
             if (attempts.update(null, new UpdateWrapper<TaskExecutionAttempt>().eq("id", command.attemptId())
                     .set("lease_until", leaseUntil)) != 1) throw new IllegalStateException("续租失败");
             response.put("leaseUntil", CollaborationLeaseTime.toInstant(leaseUntil).toString());
@@ -69,8 +70,30 @@ public class TaskExecutionLifecycleService {
                              CollaborationAttemptCommand command, TaskExecutionCheckpoint checkpoint) {
         if (command == null || checkpoint == null || !Objects.equals(command.operationId(), checkpoint.operationId())
                 || !Objects.equals(command.agentInstanceId(), checkpoint.agentInstanceId())
-                || checkpoint.occurredAt() == null || checkpoint.artifactRefs() == null) {
+                || checkpoint.occurredAt() == null || checkpoint.artifactRefs() == null || checkpoint.contextRefs() == null
+                || checkpoint.artifactObservations() == null) {
             throw new IllegalArgumentException("检查点参数不完整");
+        }
+        TaskPrerequisiteReviewService.validateObservations(checkpoint.artifactObservations());
+        if (checkpoint.previousPath() != null) {
+            ProjectArtifactPathService.validatePath(checkpoint.previousPath());
+            if (checkpoint.previousPath().endsWith("/") || checkpoint.previousContentVersion() == null
+                    || checkpoint.artifactObservations().size() != 1
+                    || checkpoint.previousPath().equals(checkpoint.artifactObservations().get(0).path())
+                    || !checkpoint.previousContentVersion().equals(checkpoint.artifactObservations().get(0).contentVersion()))
+                throw new IllegalArgumentException("产物移动事实无效");
+        }
+        if (checkpoint.previousContentVersion() != null
+                && (!checkpoint.previousContentVersion().matches("sha256:[0-9a-f]{64}")
+                || checkpoint.artifactObservations().isEmpty())) {
+            throw new IllegalArgumentException("产物前置版本无效");
+        }
+        if (!checkpoint.artifactObservations().isEmpty()
+                && (checkpoint.artifactObservations().size() != 1
+                || !"PRESENT".equals(checkpoint.artifactObservations().get(0).state())
+                || checkpoint.artifactObservations().get(0).path().endsWith("/")
+                || !checkpoint.artifactRefs().equals(List.of(checkpoint.artifactObservations().get(0).path())))) {
+            throw new IllegalArgumentException("产物痕迹与文件引用不一致");
         }
         var owned = access.requireOwnedAttempt(userId, batch, taskId, command);
         ObjectNode request = businessRequest(owned, command);
@@ -82,6 +105,7 @@ public class TaskExecutionLifecycleService {
         var check = access.checkWritable(owned, command);
         ObjectNode response = response(check.accepted(), check.reason());
         if (check.accepted()) {
+            CollaborationContextService.requireAdopted(owned.attempt(), checkpoint.contextRefs());
             JsonNode previous = owned.attempt().getCheckpoints();
             if (previous == null || !previous.isArray()) throw new IllegalStateException("检查点数据无效");
             try {
@@ -96,19 +120,19 @@ public class TaskExecutionLifecycleService {
     }
 
     @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
-    public TaskExecutionAttemptResponse readRecovery(Long userId, Long projectId, Long bindingId, String deviceId,
+    public TaskExecutionAttemptResponse readRecovery(Long userId, String batchToken, Long projectId, Long bindingId, String deviceId,
                                                       Long taskId, CollaborationAttemptCommand command) {
         return TaskExecutionAttemptResponse.from(access.requireRecoveryAttempt(
-                userId, projectId, bindingId, deviceId, taskId, command).attempt());
+                userId, batchToken, projectId, bindingId, deviceId, taskId, command).attempt());
     }
 
     @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
-    public Result requestStop(Long userId, Long projectId, Long bindingId, String deviceId, Long taskId,
+    public Result requestStop(Long userId, String batchToken, Long projectId, Long bindingId, String deviceId, Long taskId,
                               CollaborationAttemptCommand command, String reason) {
         if (reason == null || reason.isBlank() || reason.length() > 2048) throw new IllegalArgumentException("停止原因无效");
-        var owned = access.requireRecoveryAttempt(userId, projectId, bindingId, deviceId, taskId, command);
+        var owned = access.requireRecoveryAttempt(userId, batchToken, projectId, bindingId, deviceId, taskId, command);
         ObjectNode request = recoveryRequest(bindingId, deviceId, taskId, command).put("reason", reason);
-        requireSafe(request, command, null);
+        requireSafe(request, command, batchToken);
         JsonNode replay = operations.findReplay(projectId, userId, command.operationId(), "stop_request", request);
         if (replay != null) return result(replay);
         TaskExecutionAttempt attempt = owned.attempt();
@@ -125,15 +149,15 @@ public class TaskExecutionLifecycleService {
     }
 
     @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
-    public Result confirmStop(Long userId, Long projectId, Long bindingId, String deviceId, Long taskId,
+    public Result confirmStop(Long userId, String batchToken, Long projectId, Long bindingId, String deviceId, Long taskId,
                               CollaborationAttemptCommand command, CollaborationStopConfirmation confirmation) {
         if (confirmation == null || !confirmation.stopped() || confirmation.detail() == null
                 || confirmation.detail().isBlank() || confirmation.detail().length() > 2048) {
             throw new IllegalArgumentException("缺少宿主停止事实");
         }
-        var owned = access.requireRecoveryAttempt(userId, projectId, bindingId, deviceId, taskId, command);
+        var owned = access.requireRecoveryAttempt(userId, batchToken, projectId, bindingId, deviceId, taskId, command);
         ObjectNode request = recoveryRequest(bindingId, deviceId, taskId, command).put("detail", confirmation.detail());
-        requireSafe(request, command, null);
+        requireSafe(request, command, batchToken);
         JsonNode replay = operations.findReplay(projectId, userId, command.operationId(), "stop_confirm", request);
         if (replay != null) return result(replay);
         TaskExecutionAttempt attempt = owned.attempt();
@@ -164,7 +188,7 @@ public class TaskExecutionLifecycleService {
 
         Task task = owned.task();
         String taskStatus = task.getStatus();
-        if (!isTerminal(taskStatus) && Boolean.TRUE.equals(task.getAgentExecutionEnabled())) {
+        if (!isTerminal(taskStatus)) {
             Long count = members.selectCount(new LambdaQueryWrapper<ProjectMember>()
                     .eq(ProjectMember::getProjectId, projectId).eq(ProjectMember::getUserId, userId));
             if (count == null) throw new IllegalStateException("项目成员查询失败");
@@ -207,6 +231,12 @@ public class TaskExecutionLifecycleService {
         if (checkpoint.finding() != null) fact.put("finding", checkpoint.finding());
         if (checkpoint.blockedReason() != null) fact.put("blockedReason", checkpoint.blockedReason());
         fact.set("artifactRefs", json.valueToTree(checkpoint.artifactRefs()));
+        fact.set("contextRefs", json.valueToTree(checkpoint.contextRefs()));
+        fact.set("artifactObservations", json.valueToTree(checkpoint.artifactObservations()));
+        if (checkpoint.previousContentVersion() == null) fact.putNull("previousContentVersion");
+        else fact.put("previousContentVersion", checkpoint.previousContentVersion());
+        if (checkpoint.previousPath() == null) fact.putNull("previousPath");
+        else fact.put("previousPath", checkpoint.previousPath());
         return fact;
     }
 

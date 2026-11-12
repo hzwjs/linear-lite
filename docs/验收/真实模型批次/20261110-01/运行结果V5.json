@@ -1,0 +1,8 @@
+{
+  "startedAt": "2026-11-10T06:30:31.241Z",
+  "finishedAt": "2026-11-10T06:30:54.479Z",
+  "outcome": {
+    "state": "RECOVERY_REQUIRED"
+  },
+  "eventCount": 61
+}

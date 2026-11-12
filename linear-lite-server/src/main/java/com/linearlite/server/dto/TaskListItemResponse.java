@@ -2,7 +2,6 @@ package com.linearlite.server.dto;
 
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.service.AssigneeService;
-import com.fasterxml.jackson.databind.JsonNode;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -22,10 +21,7 @@ public class TaskListItemResponse implements AssigneeService.TaskProjectAssignee
     private LocalDate dueDate;
     private LocalDate plannedStartDate;
     private Integer progressPercent;
-    private Boolean agentExecutionEnabled;
     private Long inputRevision;
-    private List<String> writeScopes;
-    private JsonNode publicContextRefs;
     private LocalDateTime completedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -49,10 +45,7 @@ public class TaskListItemResponse implements AssigneeService.TaskProjectAssignee
         item.setDueDate(task.getDueDate());
         item.setPlannedStartDate(task.getPlannedStartDate());
         item.setProgressPercent(task.getProgressPercent());
-        item.setAgentExecutionEnabled(task.getAgentExecutionEnabled());
         item.setInputRevision(task.getInputRevision());
-        item.setWriteScopes(task.getWriteScopes());
-        item.setPublicContextRefs(task.getPublicContextRefs());
         item.setCompletedAt(task.getCompletedAt());
         item.setCreatedAt(task.getCreatedAt());
         item.setUpdatedAt(task.getUpdatedAt());
@@ -167,14 +160,8 @@ public class TaskListItemResponse implements AssigneeService.TaskProjectAssignee
         this.progressPercent = progressPercent;
     }
 
-    public Boolean getAgentExecutionEnabled() { return agentExecutionEnabled; }
-    public void setAgentExecutionEnabled(Boolean agentExecutionEnabled) { this.agentExecutionEnabled = agentExecutionEnabled; }
     public Long getInputRevision() { return inputRevision; }
     public void setInputRevision(Long inputRevision) { this.inputRevision = inputRevision; }
-    public List<String> getWriteScopes() { return writeScopes; }
-    public void setWriteScopes(List<String> writeScopes) { this.writeScopes = writeScopes; }
-    public JsonNode getPublicContextRefs() { return publicContextRefs; }
-    public void setPublicContextRefs(JsonNode publicContextRefs) { this.publicContextRefs = publicContextRefs; }
 
     public LocalDateTime getCompletedAt() {
         return completedAt;

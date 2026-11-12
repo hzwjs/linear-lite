@@ -81,6 +81,12 @@ const { t } = useI18n()
 const listSubtaskExpanded = ref<Record<string, boolean>>({})
 const openingTaskId = ref<string | null>(null)
 const listRef = ref<InstanceType<typeof TaskListView> | null>(null)
+
+function startCollaboration(taskKeys: string[]) {
+  const projectId = projectStore.activeProjectId
+  if (projectId == null || taskKeys.length === 0) return
+  void router.push({ name: 'project-collaboration', params: { projectId }, query: { tasks: taskKeys } })
+}
 interface BulkStatusSummary {
   status: Status
   total: number
@@ -495,6 +501,7 @@ onUnmounted(() => {
             @create-in-status="openCreateEditor"
             @add-sub-issue="(task) => openCreateEditor(undefined, task.numericId)"
             @bulk-status-change="changeBulkStatus"
+            @start-collaboration="startCollaboration"
           />
         </div>
         <div v-else-if="viewType === 'gantt'" class="gantt-wrap">

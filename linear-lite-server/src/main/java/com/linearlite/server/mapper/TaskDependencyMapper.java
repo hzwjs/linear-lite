@@ -19,7 +19,7 @@ public interface TaskDependencyMapper extends BaseMapper<TaskDependency> {
     @Select("""
             SELECT EXISTS (
               SELECT 1 FROM tasks t WHERE t.id = #{taskId} AND (
-                t.agent_execution_enabled = 1 OR JSON_LENGTH(t.public_context_refs) > 0
+                EXISTS (SELECT 1 FROM collaboration_batch_tasks bt JOIN collaboration_batches b ON b.batch_id = bt.batch_id WHERE bt.task_id = t.id)
                 OR EXISTS (SELECT 1 FROM task_dependencies d WHERE d.task_id = t.id OR d.prerequisite_task_id = t.id)
                 OR EXISTS (SELECT 1 FROM task_execution_attempts a WHERE a.task_id = t.id)
               )

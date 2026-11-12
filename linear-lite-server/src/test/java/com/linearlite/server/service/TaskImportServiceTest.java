@@ -123,6 +123,47 @@ class TaskImportServiceTest {
     }
 
     @Test
+    void importCreatesNewCompletedTasksWithoutUpdatingExistingCollaborativeTasks() {
+        Project project = new Project();
+        project.setId(1L);
+        project.setIdentifier("ENG");
+        TaskImportRowRequest done = new TaskImportRowRequest();
+        done.setImportId("source-1");
+        done.setTitle("Imported completed task");
+        done.setStatus("done");
+        TaskImportRowRequest progress = new TaskImportRowRequest();
+        progress.setImportId("source-2");
+        progress.setTitle("Imported task at full progress");
+        progress.setStatus("todo");
+        progress.setProgressPercent(100);
+        TaskImportRequest request = new TaskImportRequest();
+        request.setProjectId(1L);
+        request.setRows(List.of(done, progress));
+
+        when(projectMapper.selectById(1L)).thenReturn(project);
+        when(taskSequenceService.reserveTaskNumbers(1L, "ENG", 2)).thenReturn(50L);
+        doAnswer(invocation -> {
+            Task task = invocation.getArgument(0);
+            task.setId(task.getTaskKey().equals("ENG-50") ? 50L : 51L);
+            return 1;
+        }).when(taskMapper).insert(any(Task.class));
+
+        TaskImportResponse result = taskImportService.importTasks(request, 7L);
+
+        ArgumentCaptor<Task> inserted = ArgumentCaptor.forClass(Task.class);
+        verify(taskMapper, org.mockito.Mockito.times(2)).insert(inserted.capture());
+        assertEquals(List.of("ENG-50", "ENG-51"), result.getTaskKeys());
+        for (Task task : inserted.getAllValues()) {
+            assertEquals("done", task.getStatus());
+            assertEquals(100, task.getProgressPercent());
+            Assertions.assertNotNull(task.getCompletedAt());
+        }
+        verify(taskMapper, never()).selectById(any());
+        verify(taskMapper, never()).selectByIdForUpdate(any());
+        verify(taskMapper, never()).updateById(any(Task.class));
+    }
+
+    @Test
     void importTasksRegistersAndStoresAnExternalAssigneeKey() {
         Project project = new Project();
         project.setId(1L);

@@ -1,0 +1,38 @@
+{
+  "startedAt": "2026-11-10T06:21:45.358Z",
+  "finishedAt": "2026-11-10T06:21:45.536Z",
+  "outcome": {
+    "state": "FAILED",
+    "message": "process is not defined"
+  },
+  "events": [
+    {
+      "at": "2026-11-10T06:21:45.364Z",
+      "kind": "batch-start",
+      "source": "real-codex-app-server",
+      "slots": 2,
+      "taskIds": [
+        2839,
+        2840,
+        2841
+      ]
+    },
+    {
+      "at": "2026-11-10T06:21:45.532Z",
+      "kind": "service",
+      "route": "bindings/get",
+      "taskId": null,
+      "operationId": null,
+      "accepted": null,
+      "attemptId": null,
+      "state": null,
+      "batchId": null,
+      "leaseUntil": null
+    },
+    {
+      "at": "2026-11-10T06:21:45.536Z",
+      "kind": "batch-error",
+      "message": "process is not defined"
+    }
+  ]
+}

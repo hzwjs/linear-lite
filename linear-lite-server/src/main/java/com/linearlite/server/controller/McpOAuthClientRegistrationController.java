@@ -3,6 +3,7 @@ package com.linearlite.server.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.linearlite.server.config.McpOAuthProperties;
 import com.linearlite.server.security.McpOAuthRedirectUris;
+import com.linearlite.server.security.OAuthResourcePolicy;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -34,7 +35,7 @@ import java.util.UUID;
 @ConditionalOnProperty(prefix = "mcp.oauth", name = "enabled", havingValue = "true")
 public class McpOAuthClientRegistrationController {
 
-    private static final Set<String> SCOPES = Set.of("linear-lite:read", "linear-lite:write", "remote-terminal");
+    private static final Set<String> SCOPES = Set.of("linear-lite:read", "linear-lite:write", "remote-terminal", OAuthResourcePolicy.HOST_SCOPE);
 
     private final RegisteredClientRepository clients;
     private final McpOAuthProperties properties;
@@ -75,6 +76,24 @@ public class McpOAuthClientRegistrationController {
         if (requestedScopes.isEmpty() || requestedScopes.stream().anyMatch(value -> !SCOPES.contains(value))) {
             return invalid("Unsupported scope.");
         }
+        Set<String> scopeSet = Set.copyOf(requestedScopes);
+        try {
+            OAuthResourcePolicy.resourceFor(scopeSet, properties);
+        } catch (IllegalArgumentException exception) {
+            return invalid("Scopes from different purposes cannot be combined.");
+        }
+        boolean host = OAuthResourcePolicy.isHost(scopeSet);
+        JsonNode deviceIdNode = request.path("device_id");
+        JsonNode deviceNameNode = request.path("device_name");
+        String deviceId = host && deviceIdNode.isTextual() ? deviceIdNode.textValue() : "";
+        String deviceName = host && deviceNameNode.isTextual() ? deviceNameNode.textValue() : "";
+        if (host && (!deviceId.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+                || deviceName.isBlank() || !deviceName.equals(deviceName.trim()) || deviceName.length() > 128
+                || deviceName.chars().anyMatch(Character::isISOControl)
+                || !grantTypes.contains("refresh_token")
+                || redirectUris.size() != 1 || !redirectUris.get(0).startsWith("http://127.0.0.1"))) {
+            return invalid("Host clients require a device, refresh token and loopback redirect URI.");
+        }
         JsonNode nameNode = request.path("client_name");
         if (!nameNode.isMissingNode() && !nameNode.isTextual()) {
             return invalid("Invalid client_name.");
@@ -104,10 +123,7 @@ public class McpOAuthClientRegistrationController {
                 .authorizationGrantTypes(grants -> grants.addAll(authorizationGrantTypes))
                 .redirectUris(uris -> uris.addAll(redirectUris))
                 .scopes(scopes -> scopes.addAll(requestedScopes))
-                .clientSettings(ClientSettings.builder()
-                        .requireProofKey(true)
-                        .requireAuthorizationConsent(true)
-                        .build())
+                .clientSettings(clientSettings(host, deviceId, deviceName))
                 .tokenSettings(tokenSettings.build())
                 .build();
         clients.save(client);
@@ -126,6 +142,16 @@ public class McpOAuthClientRegistrationController {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .body(response);
+    }
+
+    private static ClientSettings clientSettings(boolean host, String deviceId, String deviceName) {
+        ClientSettings.Builder settings = ClientSettings.builder()
+                .requireProofKey(true).requireAuthorizationConsent(true);
+        if (host) {
+            settings.setting(OAuthResourcePolicy.DEVICE_ID_SETTING, deviceId);
+            settings.setting(OAuthResourcePolicy.DEVICE_NAME_SETTING, deviceName);
+        }
+        return settings.build();
     }
 
     private static ResponseEntity<Map<String, Object>> invalid(String description) {

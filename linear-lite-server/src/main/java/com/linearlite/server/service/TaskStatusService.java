@@ -47,7 +47,7 @@ public class TaskStatusService {
 
         // 任务状态入口与成果入口使用同一事实，避免普通更新绕过协作交付。
         if (statusChanged && "done".equalsIgnoreCase(status) && requiresDeliveryEvidence(existing.getId())
-                && !hasCurrentDelivery(existing)) {
+                && !hasCompletionEvidence(existing)) {
             throw new ConflictOperationException("协作任务需要完成交付与停止确认");
         }
 
@@ -76,6 +76,19 @@ public class TaskStatusService {
 
     public boolean requiresDeliveryEvidence(Long taskId) {
         return taskDependencyMapper.hasCollaborationParticipation(taskId);
+    }
+
+    /** 协作任务完成所需的证据：当前交付，或已确认的拆分（由子任务汇总完成）。 */
+    public boolean hasCompletionEvidence(Long taskId) {
+        Task task = taskMapper.selectById(taskId);
+        return task != null && hasCompletionEvidence(task);
+    }
+
+    private boolean hasCompletionEvidence(Task task) {
+        if (hasCurrentDelivery(task)) return true;
+        Long children = taskMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Task>()
+                .eq(Task::getParentId, task.getId()));
+        return children != null && children > 0 && TaskSplitFacts.confirmed(taskExecutionAttemptMapper.selectByTaskId(task.getId()));
     }
 
     private boolean hasCurrentDelivery(Task task) {

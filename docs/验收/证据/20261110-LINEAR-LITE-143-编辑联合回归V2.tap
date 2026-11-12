@@ -1,0 +1,144 @@
+TAP version 13
+# Subtest: sealing one attempt leaves another attempt on the same project writable
+ok 1 - sealing one attempt leaves another attempt on the same project writable
+  ---
+  duration_ms: 152.465959
+  type: 'test'
+  ...
+# Subtest: same physical project shares edit consistency even with distinct private state directories
+ok 2 - same physical project shares edit consistency even with distinct private state directories
+  ---
+  duration_ms: 139.134208
+  type: 'test'
+  ...
+# Subtest: atomic content replacement preserves executable permissions
+ok 3 - atomic content replacement preserves executable permissions
+  ---
+  duration_ms: 96.417416
+  type: 'test'
+  ...
+# Subtest: atomic content replacement preserves macOS extended attributes and ACL entries
+ok 4 - atomic content replacement preserves macOS extended attributes and ACL entries
+  ---
+  duration_ms: 110.967917
+  type: 'test'
+  ...
+# Subtest: atomic replacement cannot bypass the original file deny-write ACL
+ok 5 - atomic replacement cannot bypass the original file deny-write ACL
+  ---
+  duration_ms: 89.661709
+  type: 'test'
+  ...
+# Subtest: failed temporary cleanup is recorded as unknown and seals the owning attempt
+ok 6 - failed temporary cleanup is recorded as unknown and seals the owning attempt
+  ---
+  duration_ms: 101.181209
+  type: 'test'
+  ...
+# Subtest: editor helpers do not inherit NODE_OPTIONS injection from the parent environment
+ok 7 - editor helpers do not inherit NODE_OPTIONS injection from the parent environment
+  ---
+  duration_ms: 53.065292
+  type: 'test'
+  ...
+# Subtest: unsupported platforms reject editor startup without an unrestricted fallback
+ok 8 - unsupported platforms reject editor startup without an unrestricted fallback
+  ---
+  duration_ms: 0.798
+  type: 'test'
+  ...
+# Subtest: different attempts edit the same file with shared per-operation consistency
+ok 9 - different attempts edit the same file with shared per-operation consistency
+  ---
+  duration_ms: 276.898375
+  type: 'test'
+  ...
+# Subtest: create, replace, patch, rename and delete respect the observed version
+ok 10 - create, replace, patch, rename and delete respect the observed version
+  ---
+  duration_ms: 659.203041
+  type: 'test'
+  ...
+# Subtest: same-content file replacement changes physical identity and invalidates an edit
+ok 11 - same-content file replacement changes physical identity and invalidates an edit
+  ---
+  duration_ms: 171.417042
+  type: 'test'
+  ...
+# Subtest: project boundary rejects symbolic links, hard links, aliases, private state and credentials
+ok 12 - project boundary rejects symbolic links, hard links, aliases, private state and credentials
+  ---
+  duration_ms: 294.432708
+  type: 'test'
+  ...
+# Subtest: real parent-directory swaps cannot read or write the outside directory
+ok 13 - real parent-directory swaps cannot read or write the outside directory
+  ---
+  duration_ms: 790.945083
+  type: 'test'
+  ...
+# Subtest: real project-root swaps cannot transfer sandbox authority outside the original root
+ok 14 - real project-root swaps cannot transfer sandbox authority outside the original root
+  ---
+  duration_ms: 532.398833
+  type: 'test'
+  ...
+# Subtest: case aliases cannot mutate another file on case-insensitive volumes
+ok 15 - case aliases cannot mutate another file on case-insensitive volumes
+  ---
+  duration_ms: 115.984
+  type: 'test'
+  ...
+# Subtest: worker ignores Node and dynamic-library injection variables
+ok 16 - worker ignores Node and dynamic-library injection variables
+  ---
+  duration_ms: 37.222417
+  type: 'test'
+  ...
+# Subtest: authorization loss and sealing reject new edits and drain the pending operation
+ok 17 - authorization loss and sealing reject new edits and drain the pending operation
+  ---
+  duration_ms: 1.17625
+  type: 'test'
+  ...
+# (node:35710) ExperimentalWarning: The MockTimers API is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: a timed-out helper is killed and the project queue stays held until it exits
+ok 18 - a timed-out helper is killed and the project queue stays held until it exits
+  ---
+  duration_ms: 50.088875
+  type: 'test'
+  ...
+# Subtest: a timed-out read seals its attempt after the helper exits
+ok 19 - a timed-out read seals its attempt after the helper exits
+  ---
+  duration_ms: 1.618875
+  type: 'test'
+  ...
+# Subtest: non-regular files and changed project roots are rejected
+ok 20 - non-regular files and changed project roots are rejected
+  ---
+  duration_ms: 85.828958
+  type: 'test'
+  ...
+# Subtest: failed temporary cleanup records its path and seals only the affected attempt
+ok 21 - failed temporary cleanup records its path and seals only the affected attempt
+  ---
+  duration_ms: 132.908292
+  type: 'test'
+  ...
+# Subtest: durable operation facts carry attempt and operation attribution without file contents
+ok 22 - durable operation facts carry attempt and operation attribution without file contents
+  ---
+  duration_ms: 48.234833
+  type: 'test'
+  ...
+1..22
+# tests 22
+# suites 0
+# pass 22
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3238.64425

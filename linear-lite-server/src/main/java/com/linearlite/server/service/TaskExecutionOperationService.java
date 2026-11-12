@@ -24,7 +24,24 @@ public class TaskExecutionOperationService {
     @Transactional(propagation = Propagation.MANDATORY)
     public JsonNode findReplay(Long projectId, Long userId, String operationId, String kind, JsonNode request) {
         requireKey(projectId, userId, operationId, kind, request);
-        TaskExecutionOperation previous = mapper.selectForUpdate(projectId, userId, operationId);
+        return replay(mapper.selectForUpdate(projectId, userId, operationId), kind, request);
+    }
+
+    /** 已提交回执不可变；未命中后须持有项目锁并调用 findReplay 再检查。 */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public JsonNode findCommittedReplay(Long projectId, Long userId, String operationId, String kind, JsonNode request) {
+        requireKey(projectId, userId, operationId, kind, request);
+        return replay(mapper.selectExisting(projectId, userId, operationId), kind, request);
+    }
+
+    Long findGoalRequestAttempt(Long projectId, Long userId, String operationId) {
+        TaskExecutionOperation source = mapper.selectExisting(projectId, userId, operationId);
+        if (source == null || !("dependency_change".equals(source.getKind()) || "prerequisite_review".equals(source.getKind())))
+            return null;
+        return source.getAttemptId();
+    }
+
+    private JsonNode replay(TaskExecutionOperation previous, String kind, JsonNode request) {
         if (previous == null) return null;
         // JSON 数据库往返不保留 IntNode/LongNode 的 Java 类型差异。
         if (!kind.equals(previous.getKind()) || !read(write(request)).equals(read(previous.getRequestJson()))) {

@@ -1,0 +1,26 @@
+{
+  "command": "rtk proxy node --test codex-host/test/executor.test.mjs codex-host/test/executor-acceptance.test.mjs",
+  "exitCode": 0,
+  "tests": 22,
+  "passed": 22,
+  "failed": 0,
+  "skipped": 0,
+  "platform": "macOS",
+  "coverage": [
+    "same-file multi-gate CAS",
+    "attempt-specific sealing",
+    "physical identity and contentVersion",
+    "project/private boundary and real directory swaps",
+    "0755 mode, macOS extended attributes and ACL preservation",
+    "deny-write ACL enforced",
+    "failed temporary cleanup recorded as unknown",
+    "helper process group timeout and close ordering",
+    "startup injection isolation",
+    "durable attempt/operation attribution"
+  ],
+  "realModelExecuted": false,
+  "databaseScriptExecuted": false,
+  "deployed": false,
+  "scheduledBatchEnabled": false,
+  "rawOutput": "docs/验收/证据/20261110-LINEAR-LITE-143-编辑联合回归V2.tap"
+}

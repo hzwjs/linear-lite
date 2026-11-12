@@ -4,10 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.linearlite.server.dto.TaskLabelResponse;
-import com.linearlite.server.mapper.StringListJsonTypeHandler;
 import com.linearlite.server.service.AssigneeService;
 
 import java.time.LocalDate;
@@ -38,12 +35,7 @@ public class Task implements AssigneeService.TaskProjectAssignee {
     private LocalDate plannedStartDate;
     /** 完成进度 0–100 */
     private Integer progressPercent;
-    private Boolean agentExecutionEnabled;
     private Long inputRevision;
-    @TableField(typeHandler = StringListJsonTypeHandler.class)
-    private List<String> writeScopes;
-    @TableField(typeHandler = JacksonTypeHandler.class)
-    private JsonNode publicContextRefs;
     private LocalDateTime completedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -173,14 +165,6 @@ public class Task implements AssigneeService.TaskProjectAssignee {
         this.progressPercent = progressPercent;
     }
 
-    public Boolean getAgentExecutionEnabled() {
-        return agentExecutionEnabled;
-    }
-
-    public void setAgentExecutionEnabled(Boolean agentExecutionEnabled) {
-        this.agentExecutionEnabled = agentExecutionEnabled;
-    }
-
     public Long getInputRevision() {
         return inputRevision;
     }
@@ -188,17 +172,6 @@ public class Task implements AssigneeService.TaskProjectAssignee {
     public void setInputRevision(Long inputRevision) {
         this.inputRevision = inputRevision;
     }
-
-    public List<String> getWriteScopes() {
-        return writeScopes;
-    }
-
-    public void setWriteScopes(List<String> writeScopes) {
-        this.writeScopes = writeScopes;
-    }
-
-    public JsonNode getPublicContextRefs() { return publicContextRefs; }
-    public void setPublicContextRefs(JsonNode publicContextRefs) { this.publicContextRefs = publicContextRefs; }
 
     public LocalDateTime getCompletedAt() {
         return completedAt;

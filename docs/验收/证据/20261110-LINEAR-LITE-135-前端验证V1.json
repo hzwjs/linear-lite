@@ -1,0 +1,14 @@
+{
+  "task": "LINEAR-LITE-135",
+  "unitAndComponentSuites": 5,
+  "testsPassed": 27,
+  "failures": 0,
+  "typecheck": "vue-tsc -b --pretty false: passed",
+  "productionFrontendBuild": "vite build: passed",
+  "warnings": [
+    "existing dynamic imports and chunks larger than 500 kB"
+  ],
+  "excluded": "docs/** historical source snapshots",
+  "e2e": "not run; user did not explicitly request",
+  "realHostOrCredentialsModified": false
+}

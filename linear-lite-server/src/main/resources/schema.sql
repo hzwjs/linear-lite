@@ -243,10 +243,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     due_date    DATE         DEFAULT NULL COMMENT '预计完成/截止日期',
     planned_start_date DATE   DEFAULT NULL COMMENT '计划开始日期',
     progress_percent TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '完成进度 0–100',
-    agent_execution_enabled BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否授权 Agent 领取',
     input_revision BIGINT NOT NULL DEFAULT 1 COMMENT '协作输入版本',
-    write_scopes JSON NOT NULL DEFAULT (JSON_ARRAY()) COMMENT '计划写入的项目相对路径',
-    public_context_refs JSON NOT NULL DEFAULT (JSON_ARRAY()) COMMENT '公共约定文档及版本引用',
     completed_at DATETIME    DEFAULT NULL COMMENT '实际完成时间，终态时由系统写入',
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -267,17 +264,6 @@ CREATE INDEX idx_tasks_project_assignee ON tasks (project_id, assignee_key);
 CREATE INDEX idx_tasks_project_priority ON tasks (project_id, priority);
 
 -- LINEAR-LITE-114：已有任务表的协作输入字段，与全量定义保持一致。
-SET @stigmergy_agent_enabled_exists = (
-    SELECT COUNT(*) FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'agent_execution_enabled'
-);
-SET @stigmergy_agent_enabled_ddl = IF(@stigmergy_agent_enabled_exists = 0,
-    'ALTER TABLE tasks ADD COLUMN agent_execution_enabled BOOLEAN NOT NULL DEFAULT FALSE COMMENT ''是否授权 Agent 领取''',
-    'SELECT 1');
-PREPARE stigmergy_agent_enabled_stmt FROM @stigmergy_agent_enabled_ddl;
-EXECUTE stigmergy_agent_enabled_stmt;
-DEALLOCATE PREPARE stigmergy_agent_enabled_stmt;
-
 SET @stigmergy_input_revision_exists = (
     SELECT COUNT(*) FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'input_revision'
@@ -289,28 +275,19 @@ PREPARE stigmergy_input_revision_stmt FROM @stigmergy_input_revision_ddl;
 EXECUTE stigmergy_input_revision_stmt;
 DEALLOCATE PREPARE stigmergy_input_revision_stmt;
 
-SET @stigmergy_write_scopes_exists = (
-    SELECT COUNT(*) FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'write_scopes'
-);
-SET @stigmergy_write_scopes_ddl = IF(@stigmergy_write_scopes_exists = 0,
-    'ALTER TABLE tasks ADD COLUMN write_scopes JSON NOT NULL DEFAULT (JSON_ARRAY()) COMMENT ''计划写入的项目相对路径''',
-    'SELECT 1');
-PREPARE stigmergy_write_scopes_stmt FROM @stigmergy_write_scopes_ddl;
-EXECUTE stigmergy_write_scopes_stmt;
-DEALLOCATE PREPARE stigmergy_write_scopes_stmt;
-
--- LINEAR-LITE-116：任务公共约定沿文档及版本引用保存。
-SET @stigmergy_context_refs_exists = (
-    SELECT COUNT(*) FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'public_context_refs'
-);
-SET @stigmergy_context_refs_ddl = IF(@stigmergy_context_refs_exists = 0,
-    'ALTER TABLE tasks ADD COLUMN public_context_refs JSON NOT NULL DEFAULT (JSON_ARRAY()) COMMENT ''公共约定文档及版本引用''',
-    'SELECT 1');
-PREPARE stigmergy_context_refs_stmt FROM @stigmergy_context_refs_ddl;
-EXECUTE stigmergy_context_refs_stmt;
-DEALLOCATE PREPARE stigmergy_context_refs_stmt;
+-- LINEAR-LITE-130：每次用户确认的宿主 OAuth 授权保留独立身份。
+CREATE TABLE IF NOT EXISTS host_device_authorizations (
+    id                     BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id                BIGINT NOT NULL,
+    device_id              VARCHAR(128) NOT NULL,
+    device_name            VARCHAR(128) NOT NULL,
+    oauth_authorization_id VARCHAR(100) NOT NULL,
+    last_heartbeat_at      DATETIME(6) DEFAULT NULL COMMENT 'UTC',
+    revoked_at             DATETIME(6) DEFAULT NULL COMMENT 'UTC',
+    created_at             DATETIME(6) NOT NULL COMMENT 'UTC',
+    UNIQUE KEY uk_host_device_oauth_authorization (oauth_authorization_id),
+    KEY idx_host_device_active (user_id, device_id, revoked_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS project_device_bindings (
     id                BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -368,7 +345,6 @@ CREATE TABLE IF NOT EXISTS task_execution_attempts (
     claim_token_hash        CHAR(64) NOT NULL COMMENT '领取标识摘要',
     input_revision          BIGINT NOT NULL,
     prerequisite_versions   JSON NOT NULL COMMENT '前置成果版本快照',
-    held_write_scopes       JSON NOT NULL COMMENT '本次持有的路径范围',
     status                  VARCHAR(32) NOT NULL COMMENT '执行尝试状态',
     lease_until             DATETIME NOT NULL COMMENT '本次租约到期时间',
     checkpoints             JSON NOT NULL DEFAULT (JSON_ARRAY()) COMMENT '按序追加的执行检查点',
@@ -386,6 +362,43 @@ CREATE TABLE IF NOT EXISTS task_execution_attempts (
     KEY idx_task_execution_attempt_batch (batch_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- LINEAR-LITE-139：备份旧字段与执行事实后，移除任务级范围和预配置授权。
+SET @v2_drop_write_scopes_ddl = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'write_scopes') > 0,
+    'ALTER TABLE tasks DROP COLUMN write_scopes',
+    'SELECT 1');
+PREPARE v2_drop_write_scopes_stmt FROM @v2_drop_write_scopes_ddl;
+EXECUTE v2_drop_write_scopes_stmt;
+DEALLOCATE PREPARE v2_drop_write_scopes_stmt;
+
+SET @v2_drop_agent_execution_enabled_ddl = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'agent_execution_enabled') > 0,
+    'ALTER TABLE tasks DROP COLUMN agent_execution_enabled',
+    'SELECT 1');
+PREPARE v2_drop_agent_execution_enabled_stmt FROM @v2_drop_agent_execution_enabled_ddl;
+EXECUTE v2_drop_agent_execution_enabled_stmt;
+DEALLOCATE PREPARE v2_drop_agent_execution_enabled_stmt;
+
+SET @v2_drop_public_context_refs_ddl = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'public_context_refs') > 0,
+    'ALTER TABLE tasks DROP COLUMN public_context_refs',
+    'SELECT 1');
+PREPARE v2_drop_public_context_refs_stmt FROM @v2_drop_public_context_refs_ddl;
+EXECUTE v2_drop_public_context_refs_stmt;
+DEALLOCATE PREPARE v2_drop_public_context_refs_stmt;
+
+SET @v2_drop_held_write_scopes_ddl = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'task_execution_attempts' AND COLUMN_NAME = 'held_write_scopes') > 0,
+    'ALTER TABLE task_execution_attempts DROP COLUMN held_write_scopes',
+    'SELECT 1');
+PREPARE v2_drop_held_write_scopes_stmt FROM @v2_drop_held_write_scopes_ddl;
+EXECUTE v2_drop_held_write_scopes_stmt;
+DEALLOCATE PREPARE v2_drop_held_write_scopes_stmt;
+
 -- 117/118 增量：执行操作回执，用于请求幂等回放，不承载当前任务状态。
 CREATE TABLE IF NOT EXISTS task_execution_operations (
     id              BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -399,6 +412,40 @@ CREATE TABLE IF NOT EXISTS task_execution_operations (
     created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_task_execution_operation (project_id, user_id, operation_id),
     KEY idx_task_execution_operation_attempt (attempt_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- LINEAR-LITE-131：批次控制意图与宿主运行归属；任务事实来自原任务与执行记录。
+CREATE TABLE IF NOT EXISTS collaboration_batches (
+    batch_id              VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+    project_id            BIGINT NOT NULL,
+    user_id               BIGINT NOT NULL,
+    binding_id            BIGINT NOT NULL,
+    binding_revision      BIGINT NOT NULL,
+    host_authorization_id BIGINT NOT NULL,
+    max_slots             INT NOT NULL,
+    max_duration_ms       BIGINT NOT NULL,
+    max_attempts          INT NOT NULL,
+    desired_intent        VARCHAR(16) NOT NULL,
+    intent_revision       BIGINT NOT NULL,
+    lifecycle             VARCHAR(24) NOT NULL,
+    host_instance_id      VARCHAR(128) DEFAULT NULL,
+    run_epoch             BIGINT NOT NULL,
+    run_lease_until       DATETIME(6) DEFAULT NULL COMMENT 'UTC',
+    started_at            DATETIME(6) DEFAULT NULL COMMENT 'UTC',
+    deadline_at           DATETIME(6) DEFAULT NULL COMMENT 'UTC',
+    ended_at              DATETIME(6) DEFAULT NULL COMMENT 'UTC',
+    end_reason            VARCHAR(128) DEFAULT NULL,
+    created_at            DATETIME(6) NOT NULL COMMENT 'UTC',
+    KEY idx_collaboration_batches_user_project (project_id, user_id, created_at, batch_id),
+    KEY idx_collaboration_batches_grant (host_authorization_id, lifecycle, batch_id),
+    KEY idx_collaboration_batches_binding (binding_id, lifecycle, batch_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS collaboration_batch_tasks (
+    batch_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    task_id  BIGINT NOT NULL,
+    PRIMARY KEY (batch_id, task_id),
+    KEY idx_collaboration_batch_tasks_task (task_id, batch_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS agent_task_sessions (

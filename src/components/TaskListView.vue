@@ -66,6 +66,7 @@ const emit = defineEmits<{
   createInStatus: [status?: Status]
   addSubIssue: [task: Task]
   bulkStatusChange: [taskIds: string[], status: Status]
+  startCollaboration: [taskIds: string[]]
 }>()
 
 const subtaskExpanded = defineModel<Record<string, boolean>>('subtaskExpanded', { default: () => ({}) })
@@ -108,6 +109,7 @@ let copyFeedbackClearTimer: ReturnType<typeof setTimeout> | null = null
 const COPY_FEEDBACK_MS = 1800
 
 const selectedTaskIds = ref<Set<string>>(new Set())
+watch(() => props.projectId, () => { selectedTaskIds.value = new Set() })
 const bulkCommandsOpen = ref(false)
 
 type BulkSubmenu = 'none' | 'assign' | 'status' | 'priority' | 'labels' | 'dueDate'
@@ -1059,6 +1061,9 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
             </button>
             <button type="button" class="bulk-bar-pill bulk-action-btn" @click="bulkCommandsOpen = true">
               <span class="bulk-kbd">⌘</span> <span class="bulk-text">{{ t('taskList.bulk.actions') }}</span>
+            </button>
+            <button v-if="projectId != null" type="button" class="bulk-bar-pill bulk-action-btn" @click="emit('startCollaboration', [...selectedTaskIds])">
+              <span class="bulk-text">{{ t('collaborationBatch.start') }}</span>
             </button>
           </div>
         </div>

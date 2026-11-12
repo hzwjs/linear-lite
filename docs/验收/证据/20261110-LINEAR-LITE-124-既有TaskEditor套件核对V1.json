@@ -1,0 +1,30 @@
+{
+  "scope": "LINEAR-LITE-124 TaskEditor existing tests",
+  "command": "npm exec -- vitest run --exclude 'docs/**' --exclude '**/.worktrees/**' --exclude '**/pi-bridge/**' src/components/TaskEditorAttachments.test.ts src/components/TaskEditor.labelSuggestions.test.ts src/components/TaskEditorFullscreen.test.ts src/components/TaskEditorDocumentMentions.test.ts",
+  "result": {
+    "failedFiles": 3,
+    "passedFiles": 1,
+    "failedTests": 3,
+    "passedTests": 9,
+    "unhandledErrors": 9054
+  },
+  "observations": [
+    {
+      "test": "TaskEditorFullscreen: wires the description section toggle",
+      "reason": "assertion expects :min-height 520 : 96; HEAD component contains 520 : 64",
+      "baseline_source": "git show HEAD:src/components/TaskEditor.vue line 1807"
+    },
+    {
+      "test": "TaskEditorAttachments: shows uploading row and disables paperclip",
+      "reason": "test queries .content-actions; HEAD component contains no such class",
+      "baseline_source": "git show HEAD:src/components/TaskEditor.vue"
+    },
+    {
+      "test": "TaskEditor.labelSuggestions: closes suggestions when focus moves",
+      "reason": "test queries #task-due; HEAD has it inside v-if=false while visible field is #task-due-sidebar",
+      "baseline_source": "git show HEAD:src/components/TaskEditor.vue lines 1820,1882,2334"
+    }
+  ],
+  "unhandled": "window.matchMedia missing and mocked router lacks currentRoute; related test scaffolding and existing editor integrations",
+  "limitations": "Static HEAD comparison identifies obsolete assertions. No clean-HEAD test run was performed."
+}

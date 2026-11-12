@@ -1,0 +1,20 @@
+[
+  {
+    "attemptId": 7,
+    "taskId": 2839,
+    "projectCheckpoint": "linear-lite-snapshot:621e6939-0004-4242-9b1a-abd692f398f7",
+    "available": true
+  },
+  {
+    "attemptId": 8,
+    "taskId": 2840,
+    "projectCheckpoint": "linear-lite-snapshot:8e3a6c10-e19f-4b7f-af05-7ce2f8850750",
+    "available": true
+  },
+  {
+    "attemptId": 9,
+    "taskId": 2841,
+    "projectCheckpoint": "linear-lite-snapshot:1054ed99-ef52-4511-963c-eca0fc7b7285",
+    "available": true
+  }
+]

@@ -1,0 +1,25 @@
+{
+  "suites": 18,
+  "testsPassed": 126,
+  "failures": 0,
+  "typecheck": {
+    "command": "vue-tsc -b --pretty false",
+    "exitCode": 0
+  },
+  "build": {
+    "command": "vite build",
+    "exitCode": 0,
+    "warnings": [
+      "dynamic imports",
+      "chunks larger than 500 kB"
+    ]
+  },
+  "exclusions": [
+    "docs/**",
+    "**/.worktrees/**",
+    "**/pi-bridge/**"
+  ],
+  "e2e": "not run; user selected development and protocol verification",
+  "realModelRuns": 0,
+  "fullTaskEditorLegacySuitePassed": false
+}

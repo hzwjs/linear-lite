@@ -47,69 +47,9 @@ public class TaskCollaborationController {
         return invoke("list_project_device_bindings", request, body);
     }
 
-    @PostMapping("/batches/issue")
-    public ResponseEntity<ApiResponse<JsonNode>> issueBatch(HttpServletRequest request, @RequestBody JsonNode body) {
-        return invoke("issue_collaboration_batch", request, body);
-    }
-
-    @PostMapping("/inputs/replace")
-    public ResponseEntity<ApiResponse<JsonNode>> replaceInputs(HttpServletRequest request, @RequestBody JsonNode body) {
-        return invoke("replace_task_collaboration_inputs", request, body);
-    }
-
     @PostMapping("/inputs/get")
     public ResponseEntity<ApiResponse<JsonNode>> getInputs(HttpServletRequest request, @RequestBody JsonNode body) {
         return invoke("get_task_collaboration_inputs", request, body);
-    }
-
-    @PostMapping("/environment/observe")
-    public ResponseEntity<ApiResponse<JsonNode>> observe(HttpServletRequest request, @RequestBody JsonNode body) {
-        return invoke("observe_collaboration_environment", request, body);
-    }
-
-    @PostMapping("/tasks/claim")
-    public ResponseEntity<ApiResponse<JsonNode>> claim(HttpServletRequest request, @RequestBody JsonNode body) {
-        return invoke("claim_collaboration_task", request, body);
-    }
-
-    @PostMapping("/attempts/expand-scopes")
-    public ResponseEntity<ApiResponse<JsonNode>> expandScopes(HttpServletRequest request, @RequestBody JsonNode body) {
-        return invoke("expand_collaboration_write_scopes", request, body);
-    }
-
-    @PostMapping("/attempts/renew")
-    public ResponseEntity<ApiResponse<JsonNode>> renew(HttpServletRequest request, @RequestBody JsonNode body) {
-        return invoke("renew_collaboration_attempt", request, body);
-    }
-
-    @PostMapping("/attempts/checkpoint")
-    public ResponseEntity<ApiResponse<JsonNode>> checkpoint(HttpServletRequest request, @RequestBody JsonNode body) {
-        return invoke("append_collaboration_checkpoint", request, body);
-    }
-
-    @PostMapping("/attempts/complete")
-    public ResponseEntity<ApiResponse<JsonNode>> complete(HttpServletRequest request, @RequestBody JsonNode body) {
-        return invoke("complete_collaboration_task", request, body);
-    }
-
-    @PostMapping("/attempts/request-stop")
-    public ResponseEntity<ApiResponse<JsonNode>> requestStop(HttpServletRequest request, @RequestBody JsonNode body) {
-        return invoke("request_collaboration_stop", request, body);
-    }
-
-    @PostMapping("/attempts/recovery")
-    public ResponseEntity<ApiResponse<JsonNode>> readRecovery(HttpServletRequest request, @RequestBody JsonNode body) {
-        return invoke("get_collaboration_recovery", request, body);
-    }
-
-    @PostMapping("/attempts/recover-claim")
-    public ResponseEntity<ApiResponse<JsonNode>> recoverClaim(HttpServletRequest request, @RequestBody JsonNode body) {
-        return invoke("recover_unacknowledged_claim", request, body);
-    }
-
-    @PostMapping("/attempts/confirm-stop")
-    public ResponseEntity<ApiResponse<JsonNode>> confirmStop(HttpServletRequest request, @RequestBody JsonNode body) {
-        return invoke("confirm_collaboration_stop", request, body);
     }
 
     private ResponseEntity<ApiResponse<JsonNode>> invoke(String name, HttpServletRequest request, JsonNode body) {

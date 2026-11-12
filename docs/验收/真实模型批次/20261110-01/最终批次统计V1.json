@@ -1,0 +1,60 @@
+{
+  "batchId": "3bf3ba1d-15dd-4487-ab6f-3f56fda0e9bd",
+  "realThreads": 3,
+  "serviceCalls": {
+    "bindings/get": 1,
+    "batches/issue": 1,
+    "environment/observe": 144,
+    "tasks/claim": 3,
+    "attempts/renew": 8,
+    "attempts/checkpoint": 3,
+    "attempts/complete": 3
+  },
+  "failedServiceCalls": 0,
+  "claimedTasks": [
+    {
+      "taskId": 2839,
+      "attemptId": 7,
+      "at": "2026-11-10T06:37:50.118Z",
+      "available": []
+    },
+    {
+      "taskId": 2840,
+      "attemptId": 8,
+      "at": "2026-11-10T06:38:03.189Z",
+      "available": []
+    },
+    {
+      "taskId": 2841,
+      "attemptId": 9,
+      "at": "2026-11-10T06:38:44.213Z",
+      "available": [
+        {
+          "attemptId": 7,
+          "inputRevision": 3
+        },
+        {
+          "attemptId": 8,
+          "inputRevision": 3
+        }
+      ]
+    }
+  ],
+  "completedTasks": [
+    {
+      "taskId": 2839,
+      "attemptId": 7,
+      "at": "2026-11-10T06:38:16.065Z"
+    },
+    {
+      "taskId": 2840,
+      "attemptId": 8,
+      "at": "2026-11-10T06:38:27.891Z"
+    },
+    {
+      "taskId": 2841,
+      "attemptId": 9,
+      "at": "2026-11-10T06:39:31.680Z"
+    }
+  ]
+}

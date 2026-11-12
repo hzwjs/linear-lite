@@ -1,0 +1,44 @@
+{
+  "sourceCommit": "10ff318ddb00b0eaa66b2072f9520a3354dd369c",
+  "candidateBytes": 52518050,
+  "candidateSha256": "df81cb0636fb2b7c6e801a356fcd4f3584d7f6aae4a9fa65c87d39440ad724dc",
+  "previousJarSha256": "d0996502df5cf1424ceebe4de2f7ca2e7c1993e0ef23c31656b558b4c6147f0f",
+  "database": "linear-lite",
+  "databaseBackupTable": "tasks_bak_stigmergy_20261110_10ff318",
+  "taskCount": 2816,
+  "originalRowDifferences": 0,
+  "addedColumns": 4,
+  "addedTables": 4,
+  "host": "124.223.84.101",
+  "releaseDirectory": "/home/deploy/linear-lite/releases/20261110-10ff318-stigmergy",
+  "runtime": {
+    "pid": 826473,
+    "processAlive": true,
+    "activeJarSha256": "df81cb0636fb2b7c6e801a356fcd4f3584d7f6aae4a9fa65c87d39440ad724dc",
+    "configUnchanged": true,
+    "http": {
+      "/": {
+        "status": 200,
+        "contentType": "text/html;charset=UTF-8"
+      },
+      "/api/tasks": {
+        "status": 401,
+        "contentType": "application/json;charset=UTF-8"
+      },
+      "/api/collaboration/bindings/list": {
+        "status": 401,
+        "contentType": "application/json;charset=UTF-8"
+      }
+    },
+    "startupMessages": [
+      "2026-11-10T14:15:44.094+08:00  INFO 826473 --- [linear-lite-server] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 9080 (http) with context path ''",
+      "2026-11-10T14:15:44.110+08:00  INFO 826473 --- [linear-lite-server] [           main] c.l.server.LinearLiteServerApplication   : Started LinearLiteServerApplication in 6.985 seconds (process running for 7.684)"
+    ],
+    "collaborationService": "active"
+  },
+  "publicIndexMatchesJar": true,
+  "publicEntryBundleMatchesJar": true,
+  "authenticatedMcpReadVerified": true,
+  "modelBatchStarted": false,
+  "scheduleEnabledByThisRelease": false
+}

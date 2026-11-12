@@ -25,8 +25,6 @@ public class TaskExecutionAttempt {
     private Long inputRevision;
     @TableField(typeHandler = JacksonTypeHandler.class)
     private JsonNode prerequisiteVersions;
-    @TableField(typeHandler = StringListJsonTypeHandler.class)
-    private List<String> heldWriteScopes;
     private String status;
     private LocalDateTime leaseUntil;
     @TableField(typeHandler = JacksonTypeHandler.class)
@@ -60,8 +58,6 @@ public class TaskExecutionAttempt {
     public void setInputRevision(Long inputRevision) { this.inputRevision = inputRevision; }
     public JsonNode getPrerequisiteVersions() { return prerequisiteVersions; }
     public void setPrerequisiteVersions(JsonNode prerequisiteVersions) { this.prerequisiteVersions = prerequisiteVersions; }
-    public List<String> getHeldWriteScopes() { return heldWriteScopes; }
-    public void setHeldWriteScopes(List<String> heldWriteScopes) { this.heldWriteScopes = heldWriteScopes; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public LocalDateTime getLeaseUntil() { return leaseUntil; }

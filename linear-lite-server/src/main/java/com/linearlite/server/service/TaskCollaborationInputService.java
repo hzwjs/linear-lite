@@ -4,18 +4,17 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.linearlite.server.dto.PublicContextRef;
+import com.linearlite.server.dto.ArtifactObservation;
 import com.linearlite.server.dto.TaskCollaborationInputs;
 import com.linearlite.server.entity.ProjectDeviceBinding;
-import com.linearlite.server.entity.ProjectDocument;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskDependency;
 import com.linearlite.server.entity.TaskExecutionAttempt;
 import com.linearlite.server.exception.ConflictOperationException;
 import com.linearlite.server.exception.ResourceNotFoundException;
 import com.linearlite.server.mapper.ProjectDeviceBindingMapper;
+import com.linearlite.server.mapper.CollaborationBatchMapper;
 import com.linearlite.server.mapper.ProjectDocumentMapper;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskDependencyMapper;
@@ -31,22 +30,23 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
 @Service
 public class TaskCollaborationInputService {
+    static final String TRACE_PENDING = "前置成果等待本机核验";
     private final ProjectMapper projectMapper;
     private final TaskMapper taskMapper;
     private final TaskDependencyMapper dependencyMapper;
     private final TaskExecutionAttemptMapper attemptMapper;
     private final TaskExecutionOperationMapper operationMapper;
+    private final CollaborationBatchMapper batchMapper;
     private final ProjectDocumentMapper documentMapper;
     private final ProjectDeviceBindingMapper bindingMapper;
     private final TaskPermissionGuard permissionGuard;
@@ -59,70 +59,20 @@ public class TaskCollaborationInputService {
                                          ProjectDocumentMapper documentMapper, ProjectDeviceBindingMapper bindingMapper,
                                          TaskPermissionGuard permissionGuard, ProjectAccessGuard accessGuard,
                                          TaskStatusService taskStatusService, ObjectMapper objectMapper,
-                                         TaskExecutionOperationMapper operationMapper) {
+                                         TaskExecutionOperationMapper operationMapper,
+                                         CollaborationBatchMapper batchMapper) {
         this.projectMapper = projectMapper;
         this.taskMapper = taskMapper;
         this.dependencyMapper = dependencyMapper;
         this.attemptMapper = attemptMapper;
         this.operationMapper = operationMapper;
+        this.batchMapper = batchMapper;
         this.documentMapper = documentMapper;
         this.bindingMapper = bindingMapper;
         this.permissionGuard = permissionGuard;
         this.accessGuard = accessGuard;
         this.taskStatusService = taskStatusService;
         this.objectMapper = objectMapper;
-    }
-
-    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
-    public Task replaceInputs(String taskKey, TaskCollaborationInputs input, Long userId) {
-        if (input == null || input.inputRevision() == null || input.agentExecutionEnabled() == null
-                || input.writeScopes() == null || input.publicContextRefs() == null
-                || input.prerequisiteTaskIds() == null) {
-            throw new IllegalArgumentException("协作输入参数不完整");
-        }
-        Task observed = permissionGuard.requireTaskAccessByKey(taskKey, userId);
-        requireProjectLock(observed.getProjectId());
-        Task current = requireTaskForUpdate(observed.getId(), observed.getProjectId());
-        permissionGuard.requireProjectMember(current.getProjectId(), userId);
-        requireRevision(current, input.inputRevision());
-        requireLeaf(current);
-
-        List<String> scopes = CollaborationPathScopeService.validate(input.writeScopes());
-        List<PublicContextRef> refs = validateReferences(current.getProjectId(), input.publicContextRefs());
-        List<Long> prerequisites = validateDependencies(current, input.prerequisiteTaskIds());
-        List<Long> previousDependencies = dependencyMapper.selectByTaskId(current.getId()).stream()
-                .map(TaskDependency::getPrerequisiteTaskId).sorted().toList();
-        JsonNode nextRefs = objectMapper.valueToTree(refs);
-        boolean changed = !Objects.equals(current.getAgentExecutionEnabled(), input.agentExecutionEnabled())
-                || !Objects.equals(current.getWriteScopes(), scopes)
-                || !Objects.equals(current.getPublicContextRefs(), nextRefs)
-                || !previousDependencies.equals(prerequisites);
-        if (!changed) return current;
-
-        boolean wasParticipating = dependencyMapper.hasCollaborationParticipation(current.getId());
-
-        Task replacement = new Task();
-        replacement.setId(current.getId());
-        replacement.setAgentExecutionEnabled(input.agentExecutionEnabled());
-        replacement.setWriteScopes(scopes);
-        replacement.setPublicContextRefs(nextRefs);
-        taskMapper.updateById(replacement);
-        if (!previousDependencies.equals(prerequisites)) {
-            dependencyMapper.delete(new LambdaQueryWrapper<TaskDependency>().eq(TaskDependency::getTaskId, current.getId()));
-            for (Long prerequisite : prerequisites) {
-                TaskDependency edge = new TaskDependency();
-                edge.setTaskId(current.getId());
-                edge.setPrerequisiteTaskId(prerequisite);
-                dependencyMapper.insert(edge);
-            }
-        }
-        boolean willParticipate = input.agentExecutionEnabled() || !prerequisites.isEmpty() || !refs.isEmpty();
-        if (wasParticipating || willParticipate) {
-            invalidate(current.getProjectId(), Set.of(current.getId()), userId, "协作输入变更");
-        } else {
-            incrementRevision(current);
-        }
-        return taskMapper.selectById(current.getId());
     }
 
     @Transactional(readOnly = true)
@@ -140,8 +90,7 @@ public class TaskCollaborationInputService {
         permissionGuard.requireProjectMember(current.getProjectId(), userId);
         List<Long> prerequisites = dependencyMapper.selectByTaskId(current.getId()).stream()
                 .map(TaskDependency::getPrerequisiteTaskId).sorted().toList();
-        return new TaskCollaborationInputs(current.getInputRevision(), current.getAgentExecutionEnabled(),
-                current.getWriteScopes(), decodeReferences(current.getPublicContextRefs()), prerequisites);
+        return new TaskCollaborationInputs(current.getInputRevision(), prerequisites);
     }
 
     /** 交付入口在项目事务内调用该方法；领取与交付操作由后续服务承担。 */
@@ -156,47 +105,293 @@ public class TaskCollaborationInputService {
         if (!evaluation.ready()) throw new ConflictOperationException(evaluation.reason());
     }
 
-    /** 项目锁由调用方持有；不以异常表达可预期的就绪阻塞。 */
+    /** 配置有效性与前置成果就绪分开；项目锁由调用方持有。 */
     @Transactional(propagation = Propagation.MANDATORY)
-    public InputEvaluation evaluateInputs(Task current, Long expectedRevision, Long bindingId) {
+    public InputEvaluation evaluateConfiguration(Task current, Long expectedRevision) {
         if (expectedRevision == null || !Objects.equals(current.getInputRevision(), expectedRevision))
             return new InputEvaluation(false, "任务输入版本已变化", List.of());
         Long children = taskMapper.selectCount(new LambdaQueryWrapper<Task>().eq(Task::getParentId, current.getId()));
         if (children == null) throw new IllegalStateException("子任务数量查询失败");
         if (children > 0) return new InputEvaluation(false, "协作执行要求叶子任务", List.of());
-        for (PublicContextRef ref : decodeReferences(current.getPublicContextRefs())) {
-            ProjectDocument document = documentMapper.selectById(ref.documentId());
-            if (document == null || document.getArchivedAt() != null
-                    || !Objects.equals(current.getProjectId(), document.getProjectId())
-                    || !Objects.equals(ref.version(), document.getVersion()))
-                return new InputEvaluation(false, "公共约定不可用或版本已变化", List.of());
-        }
-        List<PrerequisiteResult> results = new ArrayList<>();
         for (TaskDependency edge : dependencyMapper.selectByTaskId(current.getId())) {
             Task prerequisite = taskMapper.selectById(edge.getPrerequisiteTaskId());
-            if (prerequisite == null || !Objects.equals(prerequisite.getProjectId(), current.getProjectId())
-                    || !"done".equalsIgnoreCase(prerequisite.getStatus())) {
-                return new InputEvaluation(false, "前置任务缺少成功成果", results);
-            }
+            if (prerequisite == null || !Objects.equals(prerequisite.getProjectId(), current.getProjectId()))
+                return new InputEvaluation(false, "前置任务必须属于同一项目", List.of());
             Long prerequisiteChildren = taskMapper.selectCount(new LambdaQueryWrapper<Task>()
                     .eq(Task::getParentId, prerequisite.getId()));
             if (prerequisiteChildren == null) throw new IllegalStateException("子任务数量查询失败");
-            if (prerequisiteChildren > 0) return new InputEvaluation(false, "前置任务不是叶子任务", results);
-            TaskExecutionAttempt delivered = attemptMapper.selectByTaskId(prerequisite.getId()).stream()
-                    .filter(attempt -> Objects.equals(bindingId, attempt.getBindingId())
-                            && Objects.equals(prerequisite.getInputRevision(), attempt.getInputRevision())
-                            && "succeeded".equals(attempt.getStatus()) && attempt.getStopConfirmedAt() != null
-                            && attempt.getResultEvidence() != null && !attempt.getResultEvidence().isNull())
-                    .reduce((first, second) -> second).orElse(null);
-            if (delivered == null) return new InputEvaluation(false, "前置任务缺少同绑定有效成果", results);
-            results.add(new PrerequisiteResult(prerequisite.getId(), delivered.getId(), delivered.getInputRevision(),
-                    delivered.getResultEvidence()));
+            if (prerequisiteChildren > 0) return new InputEvaluation(false, "前置任务不是叶子任务", List.of());
         }
-        return new InputEvaluation(true, null, results);
+        return new InputEvaluation(true, null, List.of());
     }
 
-    public record PrerequisiteResult(Long taskId, Long attemptId, Long inputRevision, JsonNode evidence) { }
+    /** 项目锁由调用方持有；不以异常表达可预期的就绪阻塞。 */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public InputEvaluation evaluateInputs(Task current, Long expectedRevision, Long bindingId) {
+        return evaluateInputs(current, expectedRevision, bindingId, null);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public InputEvaluation evaluateInputs(Task current, Long expectedRevision, Long bindingId, String batchId) {
+        InputEvaluation configuration = evaluateConfiguration(current, expectedRevision);
+        if (!configuration.ready()) return configuration;
+        List<PrerequisiteResult> results = new ArrayList<>();
+        boolean needsObservation = false;
+        for (TaskDependency edge : dependencyMapper.selectByTaskId(current.getId())) {
+            Task prerequisite = taskMapper.selectById(edge.getPrerequisiteTaskId());
+            if (prerequisite == null || !Objects.equals(prerequisite.getProjectId(), current.getProjectId()))
+                return new InputEvaluation(false, "前置任务缺少成果", results);
+            TaskExecutionAttempt delivered = currentDelivery(prerequisite, bindingId);
+            PrerequisiteResult trace = currentTrace(prerequisite, bindingId,
+                    batchId == null ? Set.of() : waitingPaths(current, prerequisite.getId(), batchId));
+            if (trace != null) {
+                results.add(trace);
+                needsObservation = true;
+                continue;
+            }
+            if (delivered != null && delivered.getResultEvidence().path("artifactRefs").isArray()
+                    && delivered.getResultEvidence().path("artifactRefs").isEmpty()) {
+                if (!delivered.getResultEvidence().isObject())
+                    return new InputEvaluation(false, "前置成果记录无效", results);
+                ObjectNode evidence = ((ObjectNode) delivered.getResultEvidence()).deepCopy();
+                evidence.set("artifactObservations", objectMapper.createArrayNode());
+                evidence.set("traceOperationIds", objectMapper.createObjectNode());
+                results.add(new PrerequisiteResult(prerequisite.getId(), delivered.getId(), delivered.getInputRevision(),
+                        evidence, List.of()));
+                continue;
+            }
+            return new InputEvaluation(false, "前置任务缺少可核验成果", results);
+        }
+        return needsObservation ? new InputEvaluation(false, TRACE_PENDING, results)
+                : new InputEvaluation(true, null, results);
+    }
+
+    PrerequisiteResult currentTrace(Task source, Long bindingId) {
+        return currentTrace(source, bindingId, Set.of());
+    }
+
+    private Set<String> waitingPaths(Task current, Long sourceId, String batchId) {
+        List<TaskExecutionAttempt> history = attemptMapper.selectByTaskId(current.getId());
+        for (int i = history.size() - 1; i >= 0; i--) {
+            TaskExecutionAttempt attempt = history.get(i);
+            if (!Objects.equals(attempt.getBatchId(), batchId) || !Objects.equals(attempt.getInputRevision(), current.getInputRevision())
+                    || attempt.getCheckpoints() == null || !attempt.getCheckpoints().isArray()) continue;
+            JsonNode points = attempt.getCheckpoints();
+            for (int j = points.size() - 1; j >= 0; j--) {
+                JsonNode point = points.get(j);
+                JsonNode review = point.path("review");
+                if (!"PREREQUISITE_REVIEW".equals(point.path("kind").asText())
+                        || review.path("sourceTaskId").asLong() != sourceId) continue;
+                if (!"WAIT_FOR_CHANGE".equals(point.path("outcome").asText())) return Set.of();
+                Set<String> paths = new LinkedHashSet<>();
+                for (JsonNode observation : review.path("observations")) {
+                    String path = observation.path("path").asText();
+                    if (!path.isBlank()) paths.add(path);
+                }
+                return paths;
+            }
+        }
+        return Set.of();
+    }
+
+    private PrerequisiteResult currentTrace(Task source, Long bindingId, Set<String> waitingPaths) {
+        if ("canceled".equalsIgnoreCase(source.getStatus()) || "duplicate".equalsIgnoreCase(source.getStatus())) return null;
+        ProjectDeviceBinding binding = bindingMapper.selectById(bindingId);
+        if (binding == null || binding.getDeletedAt() != null || !Objects.equals(binding.getProjectId(), source.getProjectId())) return null;
+        List<TaskExecutionAttempt> history = attemptMapper.selectByTaskId(source.getId());
+        List<TraceCandidate> candidates = new ArrayList<>();
+        List<TraceCandidate> relatedCandidates = new ArrayList<>();
+        Set<String> seenPaths = new HashSet<>();
+        for (int i = history.size() - 1; i >= 0; i--) {
+            TaskExecutionAttempt attempt = history.get(i);
+            if (!validTraceOwner(source, binding, attempt) || attempt.getCheckpoints() == null || !attempt.getCheckpoints().isArray()) continue;
+            JsonNode checkpoints = attempt.getCheckpoints();
+            Map<String, JsonNode> traces = new LinkedHashMap<>();
+            for (int j = checkpoints.size() - 1; j >= 0; j--) {
+                JsonNode checkpoint = checkpoints.get(j);
+                JsonNode observations = checkpoint.path("artifactObservations");
+                JsonNode refs = checkpoint.path("artifactRefs");
+                String operationId = checkpoint.path("operationId").asText("");
+                if (!observations.isArray() || observations.size() != 1 || !refs.isArray() || refs.size() != 1 || operationId.isBlank()) continue;
+                try {
+                    ArtifactObservation observation = objectMapper.treeToValue(observations.get(0), ArtifactObservation.class);
+                    TaskPrerequisiteReviewService.validateObservations(List.of(observation));
+                    if (!"PRESENT".equals(observation.state()) || observation.path().endsWith("/")
+                            || !Objects.equals(observation.path(), refs.get(0).asText())) continue;
+                    if (!seenPaths.contains(observation.path())) traces.putIfAbsent(observation.path(), checkpoint);
+                } catch (Exception ignored) {
+                    // 损坏的历史事实不构成可用材料。
+                }
+            }
+            if (!traces.isEmpty()) {
+                seenPaths.addAll(traces.keySet());
+                ObjectNode evidence = objectMapper.createObjectNode();
+                var refs = evidence.putArray("artifactRefs");
+                var observations = evidence.putArray("artifactObservations");
+                ObjectNode operationIds = evidence.putObject("traceOperationIds");
+                traces.forEach((path, point) -> {
+                    refs.add(path);
+                    observations.add(point.path("artifactObservations").get(0).deepCopy());
+                    operationIds.put(path, point.path("operationId").asText());
+                });
+                TraceCandidate candidate = new TraceCandidate(attempt.getId(), attempt.getInputRevision(), evidence);
+                if (!waitingPaths.isEmpty() && traces.keySet().stream().anyMatch(waitingPaths::contains)) relatedCandidates.add(candidate);
+                else candidates.add(candidate);
+            }
+        }
+        relatedCandidates.addAll(candidates);
+        candidates = relatedCandidates;
+        if (candidates.isEmpty()) return null;
+        TraceCandidate selected = candidates.get(0);
+        return new PrerequisiteResult(source.getId(), selected.attemptId(), selected.inputRevision(), selected.evidence(), List.copyOf(candidates));
+    }
+
+    private boolean validTraceOwner(Task source, ProjectDeviceBinding binding, TaskExecutionAttempt attempt) {
+        if ("canceled".equalsIgnoreCase(source.getStatus()) || "duplicate".equalsIgnoreCase(source.getStatus())
+                || attempt == null || !Objects.equals(attempt.getTaskId(), source.getId())
+                || !Objects.equals(attempt.getBindingId(), binding.getId())
+                || !Objects.equals(attempt.getInputRevision(), source.getInputRevision())) return false;
+        boolean running = ("running".equals(attempt.getStatus()) || "stop_requested".equals(attempt.getStatus()))
+                && attempt.getStopConfirmedAt() == null;
+        boolean stopped = attempt.getStopConfirmedAt() != null
+                && ("stopped".equals(attempt.getStatus()) || "succeeded".equals(attempt.getStatus()));
+        if (!running && !stopped) return false;
+        var sourceBatch = batchMapper.selectById(attempt.getBatchId());
+        return sourceBatch != null && Objects.equals(sourceBatch.getProjectId(), source.getProjectId())
+                && Objects.equals(sourceBatch.getBindingId(), binding.getId())
+                && Objects.equals(sourceBatch.getBindingRevision(), binding.getRevision());
+    }
+
+    /** 领取快照引用的来源在后续追加新痕迹或完成交付时保持有效。 */
+    boolean matchesPrerequisiteSnapshot(Task current, TaskExecutionAttempt attempt) {
+        if (!evaluateConfiguration(current, attempt.getInputRevision()).ready()) return false;
+        JsonNode snapshot = attempt.getPrerequisiteVersions();
+        List<TaskDependency> edges = dependencyMapper.selectByTaskId(current.getId());
+        if (snapshot == null || !snapshot.isArray() || snapshot.size() != edges.size()) return false;
+        for (TaskDependency edge : edges) {
+            JsonNode saved = null;
+            for (JsonNode item : snapshot) if (item.path("taskId").asLong() == edge.getPrerequisiteTaskId()) {
+                if (saved != null) return false;
+                saved = item;
+            }
+            if (saved == null) return false;
+            Task source = taskMapper.selectById(edge.getPrerequisiteTaskId());
+            TaskExecutionAttempt owner = attemptMapper.selectById(saved.path("attemptId").asLong());
+            if (source == null || owner == null || !Objects.equals(source.getProjectId(), current.getProjectId())
+                    || !Objects.equals(owner.getInputRevision(), source.getInputRevision())
+                    || !Objects.equals(owner.getInputRevision(), saved.path("inputRevision").longValue())) return false;
+            JsonNode evidence = saved.path("evidence");
+            if (!evidence.path("artifactObservations").isArray() || evidence.path("artifactObservations").isEmpty()) {
+                ProjectDeviceBinding binding = bindingMapper.selectById(attempt.getBindingId());
+                if ("canceled".equalsIgnoreCase(source.getStatus()) || "duplicate".equalsIgnoreCase(source.getStatus())
+                        || !Objects.equals(owner.getTaskId(), source.getId())
+                        || !Objects.equals(owner.getBindingId(), attempt.getBindingId())
+                        || !"succeeded".equals(owner.getStatus()) || owner.getStopConfirmedAt() == null
+                        || owner.getResultEvidence() == null || owner.getResultEvidence().isNull()
+                        || binding == null || binding.getDeletedAt() != null || !validTraceOwner(source, binding, owner)) return false;
+                continue;
+            }
+            ProjectDeviceBinding binding = bindingMapper.selectById(attempt.getBindingId());
+            if (binding == null || binding.getDeletedAt() != null || !validTraceOwner(source, binding, owner)
+                    || owner.getCheckpoints() == null || !owner.getCheckpoints().isArray()) return false;
+            for (JsonNode observed : evidence.path("artifactObservations")) {
+                String path = observed.path("path").asText();
+                String operationId = evidence.path("traceOperationIds").path(path).asText();
+                boolean found = false;
+                for (JsonNode point : owner.getCheckpoints()) {
+                    if (operationId.equals(point.path("operationId").asText())
+                            && point.path("artifactObservations").isArray() && point.path("artifactObservations").size() == 1
+                            && observed.equals(point.path("artifactObservations").get(0))) found = true;
+                }
+                if (operationId.isBlank() || !found) return false;
+            }
+        }
+        return true;
+    }
+
+    TaskExecutionAttempt currentDelivery(Task task, Long bindingId) {
+        if (!"done".equalsIgnoreCase(task.getStatus())) return null;
+        ProjectDeviceBinding binding = bindingMapper.selectById(bindingId);
+        if (binding == null || binding.getDeletedAt() != null || !Objects.equals(binding.getProjectId(), task.getProjectId())) return null;
+        return attemptMapper.selectByTaskId(task.getId()).stream()
+                .filter(attempt -> Objects.equals(bindingId, attempt.getBindingId())
+                        && Objects.equals(task.getInputRevision(), attempt.getInputRevision())
+                        && "succeeded".equals(attempt.getStatus()) && attempt.getStopConfirmedAt() != null
+                        && attempt.getResultEvidence() != null && !attempt.getResultEvidence().isNull()
+                        && validTraceOwner(task, binding, attempt))
+                .reduce((first, second) -> second).orElse(null);
+    }
+
+    /** 已拆分的父任务：存在子任务且拆分事实已停止确认；完成由子任务汇总决定。 */
+    boolean splitParent(Task task) {
+        Long children = taskMapper.selectCount(new LambdaQueryWrapper<Task>().eq(Task::getParentId, task.getId()));
+        return children != null && children > 0 && TaskSplitFacts.confirmed(attemptMapper.selectByTaskId(task.getId()));
+    }
+
+    boolean hasExplanatoryDelivery(Task task, Long bindingId) {
+        TaskExecutionAttempt delivery = currentDelivery(task, bindingId);
+        return delivery != null && delivery.getResultEvidence().path("artifactRefs").isArray()
+                && delivery.getResultEvidence().path("artifactRefs").isEmpty();
+    }
+
+    public record TraceCandidate(Long attemptId, Long inputRevision, JsonNode evidence) { }
+    public record PrerequisiteResult(Long taskId, Long attemptId, Long inputRevision, JsonNode evidence,
+                                     List<TraceCandidate> traceCandidates) { }
     public record InputEvaluation(boolean ready, String reason, List<PrerequisiteResult> prerequisites) { }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean hasDependency(Long taskId, Long prerequisiteId) {
+        return dependencyMapper.selectByTaskId(taskId).stream()
+                .anyMatch(edge -> Objects.equals(edge.getPrerequisiteTaskId(), prerequisiteId));
+    }
+
+    /** 调用方持有项目协调锁及当前尝试行锁。 */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean changeDependency(Task current, Long prerequisiteId, boolean add, Long actorUserId) {
+        if (prerequisiteId == null || prerequisiteId <= 0 || Objects.equals(current.getId(), prerequisiteId))
+            throw new IllegalArgumentException("依赖关系不能指向自身");
+        Task prerequisite = requireTaskForUpdate(prerequisiteId, current.getProjectId());
+        Long children = taskMapper.selectCount(new LambdaQueryWrapper<Task>().eq(Task::getParentId, current.getId()));
+        Long prerequisiteChildren = taskMapper.selectCount(new LambdaQueryWrapper<Task>().eq(Task::getParentId, prerequisiteId));
+        if (children == null || prerequisiteChildren == null) throw new IllegalStateException("子任务数量查询失败");
+        if (children > 0 || prerequisiteChildren > 0) throw new ConflictOperationException("协作关系要求叶子任务");
+        boolean exists = dependencyMapper.selectByTaskId(current.getId()).stream()
+                .anyMatch(edge -> Objects.equals(edge.getPrerequisiteTaskId(), prerequisiteId));
+        if (exists == add) return false;
+        if (add) {
+            Set<Long> visited = new LinkedHashSet<>();
+            ArrayDeque<Long> queue = new ArrayDeque<>();
+            queue.add(prerequisite.getId());
+            while (!queue.isEmpty()) {
+                Long id = queue.removeFirst();
+                if (Objects.equals(id, current.getId())) throw new ConflictOperationException("协作关系形成循环");
+                if (visited.add(id)) {
+                    for (TaskDependency edge : dependencyMapper.selectByTaskId(id)) queue.addLast(edge.getPrerequisiteTaskId());
+                }
+            }
+            TaskDependency edge = new TaskDependency();
+            edge.setTaskId(current.getId());
+            edge.setPrerequisiteTaskId(prerequisiteId);
+            if (dependencyMapper.insert(edge) != 1) throw new IllegalStateException("协作关系保存失败");
+        } else {
+            int removed = dependencyMapper.delete(new LambdaQueryWrapper<TaskDependency>()
+                    .eq(TaskDependency::getTaskId, current.getId()).eq(TaskDependency::getPrerequisiteTaskId, prerequisiteId));
+            if (removed != 1) throw new IllegalStateException("协作关系撤销失败");
+        }
+        invalidate(current.getProjectId(), Set.of(current.getId()), actorUserId, "协作关系变化");
+        return true;
+    }
+
+    /** 复核服务校验来源交付与批次授权后，在同一协调事务中使其和下游失效。 */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean reopenForRework(Long projectId, Long sourceTaskId, Long actorUserId) {
+        Task source = requireTaskForUpdate(sourceTaskId, projectId);
+        if ("todo".equalsIgnoreCase(source.getStatus()) || "in_progress".equalsIgnoreCase(source.getStatus())) return false;
+        if (!"done".equalsIgnoreCase(source.getStatus()))
+            throw new ConflictOperationException("前置交付已变化，请重新观察");
+        invalidate(projectId, Set.of(sourceTaskId), actorUserId, "前置成果需要返工");
+        return true;
+    }
 
     @EventListener
     @Transactional(propagation = Propagation.MANDATORY)
@@ -218,54 +413,28 @@ public class TaskCollaborationInputService {
         }
     }
 
-    @EventListener
-    @Transactional(propagation = Propagation.MANDATORY)
-    public void onDocumentChanged(CollaborationDocumentChangedEvent event) {
-        Map<Long, Task> roots = new LinkedHashMap<>();
-        Set<Long> changedRefs = new HashSet<>();
-        for (CollaborationDocumentChangedEvent.Change change : event.changes()) {
-            if (change.available() && change.version() == null) throw new IllegalArgumentException("文档版本不能为空");
-            for (Task observed : taskMapper.selectReferencingDocumentForUpdate(event.projectId(), change.documentId())) {
-                Task task = roots.computeIfAbsent(observed.getId(), ignored -> observed);
-                if (change.available()) {
-                    ArrayNode updated = ((ArrayNode) task.getPublicContextRefs()).deepCopy();
-                    for (JsonNode node : updated) {
-                        if (node.path("documentId").asLong() == change.documentId()) {
-                            ((ObjectNode) node).put("version", change.version());
-                        }
-                    }
-                    task.setPublicContextRefs(updated);
-                    changedRefs.add(task.getId());
-                }
-            }
-        }
-        for (Long id : changedRefs) {
-            Task patch = new Task();
-            patch.setId(id);
-            patch.setPublicContextRefs(roots.get(id).getPublicContextRefs());
-            taskMapper.updateById(patch);
-        }
-        if (!roots.isEmpty()) invalidate(event.projectId(), roots.keySet(), event.actorUserId(), "公共约定变更");
-    }
-
     /** 调用方在项目协调事务内使用，保留冻结范围直到宿主确认停止。 */
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean requestProjectStop(Long projectId, Long userId) {
         requireProjectLock(projectId);
         accessGuard.requireOwner(projectId, userId);
+        batchMapper.requestProjectStop(projectId, LocalDateTime.now(java.time.ZoneOffset.UTC));
+        boolean batchPending = batchMapper.countAcceptedByProject(projectId) > 0;
         List<Long> bindingIds = bindingMapper.selectList(new LambdaQueryWrapper<ProjectDeviceBinding>()
                 .eq(ProjectDeviceBinding::getProjectId, projectId)).stream().map(ProjectDeviceBinding::getId).toList();
-        if (bindingIds.isEmpty()) return false;
+        if (bindingIds.isEmpty()) return batchPending;
         List<TaskExecutionAttempt> pending = attemptMapper.selectList(new LambdaQueryWrapper<TaskExecutionAttempt>()
                 .in(TaskExecutionAttempt::getBindingId, bindingIds).isNull(TaskExecutionAttempt::getStopConfirmedAt));
         for (Long taskId : pending.stream().map(TaskExecutionAttempt::getTaskId).distinct().toList()) {
             attemptMapper.requestStopForTask(taskId, LocalDateTime.now(), "项目删除");
         }
-        return !pending.isEmpty();
+        return batchPending || !pending.isEmpty();
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void clearProjectFacts(Long projectId, List<Long> taskIds) {
+        if (batchMapper.countAcceptedByProject(projectId) > 0)
+            throw new ConflictOperationException("协作批次等待停止确认");
         List<Long> bindingIds = bindingMapper.selectList(new LambdaQueryWrapper<ProjectDeviceBinding>()
                 .eq(ProjectDeviceBinding::getProjectId, projectId)).stream().map(ProjectDeviceBinding::getId).toList();
         if (!bindingIds.isEmpty()) {
@@ -276,6 +445,8 @@ public class TaskCollaborationInputService {
             operationMapper.deleteByProjectId(projectId);
             attemptMapper.delete(new LambdaQueryWrapper<TaskExecutionAttempt>().in(TaskExecutionAttempt::getBindingId, bindingIds));
         }
+        batchMapper.deleteTasksByProject(projectId);
+        batchMapper.deleteByProject(projectId);
         if (bindingIds.isEmpty()) operationMapper.deleteByProjectId(projectId);
         if (!taskIds.isEmpty()) dependencyMapper.delete(new LambdaQueryWrapper<TaskDependency>()
                 .in(TaskDependency::getTaskId, taskIds));
@@ -314,60 +485,5 @@ public class TaskCollaborationInputService {
         if (projectMapper.lockProject(projectId) == null) throw new ResourceNotFoundException("项目不存在: " + projectId);
     }
 
-    private void requireLeaf(Task task) {
-        Long children = taskMapper.selectCount(new LambdaQueryWrapper<Task>().eq(Task::getParentId, task.getId()));
-        if (children == null) throw new IllegalStateException("子任务数量查询失败");
-        if (children > 0) throw new IllegalArgumentException("协作执行和依赖要求叶子任务");
-    }
-
-    private void requireRevision(Task task, Long revision) {
-        if (revision == null || !Objects.equals(task.getInputRevision(), revision)) throw new ConflictOperationException("任务输入版本已变化");
-    }
-
-    private List<Long> validateDependencies(Task current, List<Long> input) {
-        if (input.stream().anyMatch(Objects::isNull) || new HashSet<>(input).size() != input.size())
-            throw new IllegalArgumentException("前置任务存在空值或重复");
-        for (Long id : input) {
-            if (id.equals(current.getId())) throw new IllegalArgumentException("任务不能依赖自身");
-            Task prerequisite = taskMapper.selectById(id);
-            if (prerequisite == null || !Objects.equals(current.getProjectId(), prerequisite.getProjectId()))
-                throw new IllegalArgumentException("前置任务必须属于同一项目");
-            requireLeaf(prerequisite);
-            Set<Long> seen = new HashSet<>();
-            ArrayDeque<Long> queue = new ArrayDeque<>();
-            queue.add(id);
-            while (!queue.isEmpty()) {
-                Long next = queue.removeFirst();
-                if (next.equals(current.getId())) throw new IllegalArgumentException("任务依赖不能形成环");
-                if (seen.add(next)) dependencyMapper.selectByTaskId(next).stream()
-                        .map(TaskDependency::getPrerequisiteTaskId).forEach(queue::addLast);
-            }
-        }
-        return input.stream().sorted().toList();
-    }
-
-    private List<PublicContextRef> validateReferences(Long projectId, List<PublicContextRef> input) {
-        Set<Long> seen = new HashSet<>();
-        for (PublicContextRef ref : input) {
-            if (ref == null || ref.documentId() == null || ref.version() == null || !seen.add(ref.documentId()))
-                throw new IllegalArgumentException("公共约定引用存在空值或重复");
-            ProjectDocument document = documentMapper.selectById(ref.documentId());
-            if (document == null || document.getArchivedAt() != null || !Objects.equals(projectId, document.getProjectId())
-                    || !Objects.equals(ref.version(), document.getVersion()))
-                throw new ConflictOperationException("公共约定不可用或版本已变化");
-        }
-        return input.stream().sorted(Comparator.comparing(PublicContextRef::documentId)).toList();
-    }
-
-    private List<PublicContextRef> decodeReferences(JsonNode refs) {
-        if (refs == null || !refs.isArray()) throw new IllegalStateException("公共约定引用格式无效");
-        List<PublicContextRef> result = new ArrayList<>();
-        for (JsonNode ref : refs) {
-            if (!ref.isObject() || !ref.path("documentId").isIntegralNumber() || !ref.path("version").isIntegralNumber())
-                throw new IllegalStateException("公共约定引用格式无效");
-            result.add(new PublicContextRef(ref.get("documentId").longValue(), ref.get("version").longValue()));
-        }
-        return result;
-    }
 
 }

@@ -1,22 +1,27 @@
 import http from 'node:http'
 import { HostError, validateProjectDirectory } from './device.mjs'
+import { HOST_PROTOCOL_VERSION } from './protocol.mjs'
 
 export const HOST_PORT = 9781
 
-/** 只提供本机身份与目录核验；执行写入接口禁止复用此 Origin 信任边界。 */
-export function createHostServer({ identity, allowedOrigin, port = HOST_PORT }) {
+/** 本机接口承担身份、目录和授权引导，不接收网页登录或执行凭据。 */
+export function createHostServer({ identity, allowedOrigin, auth, port = HOST_PORT }) {
   const origin = new URL(allowedOrigin)
   if (!['http:', 'https:'].includes(origin.protocol) || origin.origin !== allowedOrigin)
     throw new Error('宿主来源须为单个HTTP或HTTPS origin')
+  if (!auth || typeof auth.status !== 'function' || typeof auth.connect !== 'function' || typeof auth.disconnect !== 'function')
+    throw new Error('缺少宿主授权服务')
   return http.createServer(async (request, response) => {
     const send = (status, body) => {
       response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
-      response.end(JSON.stringify(body))
+      response.end(JSON.stringify(status < 300 ? { ...body, protocolVersion: HOST_PROTOCOL_VERSION } : body))
     }
     try {
       const expectedPort = port === 0 ? request.socket.localPort : port
       if (request.headers.host !== `127.0.0.1:${expectedPort}` || request.headers.origin !== allowedOrigin)
         throw new HostError(403, 'ORIGIN_DENIED', '宿主请求来源无效')
+      if (request.headers.authorization !== undefined)
+        throw new HostError(403, 'AUTH_HEADER_DENIED', '本机接口不接受认证凭据')
       response.setHeader('Access-Control-Allow-Origin', allowedOrigin)
       response.setHeader('Vary', 'Origin')
       if (request.method === 'OPTIONS') {
@@ -31,7 +36,8 @@ export function createHostServer({ identity, allowedOrigin, port = HOST_PORT }) 
         response.writeHead(204); response.end(); return
       }
       if (request.method === 'GET' && request.url === '/identity') { send(200, identity); return }
-      if (request.method !== 'POST' || request.url !== '/validate-directory')
+      if (request.method === 'GET' && request.url === '/status') { send(200, publicStatus(identity, auth)); return }
+      if (request.method !== 'POST' || !['/validate-directory', '/connect', '/disconnect'].includes(request.url))
         throw new HostError(404, 'ROUTE_NOT_FOUND', '宿主操作不存在')
       if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json')
         throw new HostError(415, 'CONTENT_TYPE_INVALID', '宿主请求须为JSON')
@@ -42,8 +48,16 @@ export function createHostServer({ identity, allowedOrigin, port = HOST_PORT }) 
         chunks.push(chunk)
       }
       let input
-      try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { throw new HostError(400, 'PARAMETER_INVALID', '目录参数JSON无效') }
-      send(200, await validateProjectDirectory(identity, input))
+      try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { throw new HostError(400, 'PARAMETER_INVALID', '宿主参数 JSON 无效') }
+      if (request.url === '/validate-directory') { send(200, await validateProjectDirectory(identity, input)); return }
+      if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).length !== 0)
+        throw new HostError(400, 'PARAMETER_INVALID', '授权操作不接受参数')
+      if (request.url === '/connect') {
+        await auth.connect()
+        send(202, publicStatus(identity, auth)); return
+      }
+      await auth.disconnect()
+      send(200, publicStatus(identity, auth))
     } catch (error) {
       const expected = error instanceof HostError
       send(expected ? error.status : 500, {
@@ -51,4 +65,10 @@ export function createHostServer({ identity, allowedOrigin, port = HOST_PORT }) 
       })
     }
   })
+}
+
+function publicStatus(identity, auth) {
+  const status = auth.status()
+  return { deviceId: identity.deviceId, hostInstanceId: identity.hostInstanceId, processId: process.pid, connection: status.connection,
+    userId: status.userId, grantId: status.grantId, deviceName: status.deviceName, lastHeartbeatAt: status.lastHeartbeatAt }
 }

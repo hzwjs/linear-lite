@@ -1,5 +1,6 @@
 package com.linearlite.server.security;
 
+import com.linearlite.server.service.HostDeviceAuthorizationService;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
@@ -7,6 +8,7 @@ import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.OAuth2RefreshToken;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
+import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2ClientAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2TokenRevocationAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2TokenRevocationAuthenticationToken;
@@ -22,15 +24,18 @@ public final class McpOAuthTokenRevocationAuthenticationProvider implements Auth
     private final OAuth2AuthorizationService authorizationService;
     private final OAuth2TokenRevocationAuthenticationProvider fallback;
     private final TransactionTemplate transactionTemplate;
+    private final HostDeviceAuthorizationService hostAuthorizations;
 
     public McpOAuthTokenRevocationAuthenticationProvider(
             McpOAuthRefreshTokenStore refreshTokenStore,
             OAuth2AuthorizationService authorizationService,
-            TransactionTemplate transactionTemplate) {
+            TransactionTemplate transactionTemplate,
+            HostDeviceAuthorizationService hostAuthorizations) {
         this.refreshTokenStore = refreshTokenStore;
         this.authorizationService = authorizationService;
         this.fallback = new OAuth2TokenRevocationAuthenticationProvider(authorizationService);
         this.transactionTemplate = transactionTemplate;
+        this.hostAuthorizations = hostAuthorizations;
     }
 
     @Override
@@ -49,6 +54,9 @@ public final class McpOAuthTokenRevocationAuthenticationProvider implements Auth
             }
             OAuth2Authorization authorization = authorizationService.findById(result.authorizationId());
             if (authorization != null && client.getId().equals(authorization.getRegisteredClientId())) {
+                if (OAuthResourcePolicy.isHost(authorization.getAuthorizedScopes())) {
+                    hostAuthorizations.revokeAuthorization(authorization.getId());
+                }
                 OAuth2Authorization.Token<org.springframework.security.oauth2.core.OAuth2AccessToken> accessToken =
                         authorization.getAccessToken();
                 if (accessToken != null && !accessToken.isInvalidated()) {
@@ -61,7 +69,17 @@ public final class McpOAuthTokenRevocationAuthenticationProvider implements Auth
             return result;
         });
         if (revocation == null) {
-            return fallback.authenticate(authentication);
+            return transactionTemplate.execute(status -> {
+                OAuth2Authorization authorization = authorizationService.findByToken(
+                        request.getToken(), OAuth2TokenType.ACCESS_TOKEN);
+                Authentication result = fallback.authenticate(authentication);
+                if (result != null && authorization != null
+                        && client.getId().equals(authorization.getRegisteredClientId())
+                        && OAuthResourcePolicy.isHost(authorization.getAuthorizedScopes())) {
+                    hostAuthorizations.revokeAuthorization(authorization.getId());
+                }
+                return result;
+            });
         }
         return new OAuth2TokenRevocationAuthenticationToken(
                 new OAuth2RefreshToken(request.getToken(), Instant.now()), clientPrincipal);

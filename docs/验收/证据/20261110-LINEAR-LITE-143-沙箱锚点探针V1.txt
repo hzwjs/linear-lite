@@ -1,0 +1,9 @@
+执行方式：rtk proxy node -，标准输入为同目录《20261110-LINEAR-LITE-143-沙箱锚点探针V1.cjs》的程序内容。
+执行日期：2026-11-10，macOS，本机 Node 22.23.4。
+退出码：0
+
+root-confirmed
+WRITE_EPERM
+{"outsideFile":false}
+
+探针在创建沙箱时将项目根目录指向项目外路径；helper 启动后还原原目录并核验 inode，再换回外部路径尝试写入。结果为 EPERM，项目外没有出现目标文件。结果覆盖本机该执行时序，不推断其他系统版本的沙箱行为。

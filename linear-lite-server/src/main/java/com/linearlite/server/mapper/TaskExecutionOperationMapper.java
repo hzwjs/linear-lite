@@ -6,15 +6,32 @@ import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import java.util.List;
 
 @Mapper
 public interface TaskExecutionOperationMapper extends BaseMapper<TaskExecutionOperation> {
+    @Select("""
+            SELECT * FROM task_execution_operations
+            WHERE project_id = #{projectId} AND kind = 'dependency_change'
+              AND JSON_EXTRACT(request_json, '$.taskId') = #{taskId}
+            ORDER BY id
+            """)
+    List<TaskExecutionOperation> selectDependencyFacts(@Param("projectId") Long projectId,
+                                                       @Param("taskId") Long taskId);
     @Select("""
             SELECT * FROM task_execution_operations
             WHERE project_id = #{projectId} AND user_id = #{userId} AND operation_id = #{operationId}
             FOR UPDATE
             """)
     TaskExecutionOperation selectForUpdate(@Param("projectId") Long projectId,
+                                          @Param("userId") Long userId,
+                                          @Param("operationId") String operationId);
+
+    @Select("""
+            SELECT * FROM task_execution_operations
+            WHERE project_id = #{projectId} AND user_id = #{userId} AND operation_id = #{operationId}
+            """)
+    TaskExecutionOperation selectExisting(@Param("projectId") Long projectId,
                                           @Param("userId") Long userId,
                                           @Param("operationId") String operationId);
 

@@ -1,0 +1,408 @@
+TAP version 13
+# Subtest: client sends credentials in headers, rejects redirects and reads one response path
+ok 1 - client sends credentials in headers, rejects redirects and reads one response path
+  ---
+  duration_ms: 13.417792
+  type: 'test'
+  ...
+# Subtest: missing server clock and raw network errors fail without exposing credentials
+ok 2 - missing server clock and raw network errors fail without exposing credentials
+  ---
+  duration_ms: 0.37325
+  type: 'test'
+  ...
+# Subtest: recovery uses only the batch capability and execution credentials rotate through one provider
+ok 3 - recovery uses only the batch capability and execution credentials rotate through one provider
+  ---
+  duration_ms: 1.606416
+  type: 'test'
+  ...
+# Subtest: monotonic lease uses fresh server time and never revives a replayed expiry
+ok 4 - monotonic lease uses fresh server time and never revives a replayed expiry
+  ---
+  duration_ms: 0.140292
+  type: 'test'
+  ...
+# Subtest: budget uses the original response receipt and accepts an elapsed deadline for stop-only finalization
+ok 5 - budget uses the original response receipt and accepts an elapsed deadline for stop-only finalization
+  ---
+  duration_ms: 0.133583
+  type: 'test'
+  ...
+# Subtest: turn completion belongs to the active thread and turn
+ok 6 - turn completion belongs to the active thread and turn
+  ---
+  duration_ms: 8.1805
+  type: 'test'
+  ...
+# Subtest: checkpoint stores recoverable artifacts and detects changed shared files
+ok 7 - checkpoint stores recoverable artifacts and detects changed shared files
+  ---
+  duration_ms: 29.793083
+  type: 'test'
+  ...
+# Subtest: checkpoint rejects known credentials crossing stream chunks and cleans incomplete snapshot
+ok 8 - checkpoint rejects known credentials crossing stream chunks and cleans incomplete snapshot
+  ---
+  duration_ms: 4.936834
+  type: 'test'
+  ...
+# Subtest: daemon serves configured origin and leaves root and recovery state on restart
+ok 9 - daemon serves configured origin and leaves root and recovery state on restart
+  ---
+  duration_ms: 30.236084
+  type: 'test'
+  ...
+# Subtest: legacy run command no longer accepts a user token
+ok 10 - legacy run command no longer accepts a user token
+  ---
+  duration_ms: 39.373917
+  type: 'test'
+  ...
+# Subtest: plan prints a disabled Asia Shanghai schedule
+ok 11 - plan prints a disabled Asia Shanghai schedule
+  ---
+  duration_ms: 36.282042
+  type: 'test'
+  ...
+# Subtest: device persists per host user state and instance changes on restart
+ok 12 - device persists per host user state and instance changes on restart
+  ---
+  duration_ms: 17.665167
+  type: 'test'
+  ...
+# Subtest: directory identity validation resolves physical root and derives docs without storing mapping
+ok 13 - directory identity validation resolves physical root and derives docs without storing mapping
+  ---
+  duration_ms: 5.718333
+  type: 'test'
+  ...
+# Subtest: host writes only held paths and rejects symlink escape
+ok 14 - host writes only held paths and rejects symlink escape
+  ---
+  duration_ms: 18.328041
+  type: 'test'
+  ...
+# Subtest: hard-linked files cannot mutate paths outside the held scope
+ok 15 - hard-linked files cannot mutate paths outside the held scope
+  ---
+  duration_ms: 5.1855
+  type: 'test'
+  ...
+# Subtest: case aliases cannot mutate another path, including concurrent creation
+ok 16 - case aliases cannot mutate another path, including concurrent creation
+  ---
+  duration_ms: 7.055042
+  type: 'test'
+  ...
+# Subtest: sealing or lease loss rejects writes and waits for queued work
+ok 17 - sealing or lease loss rejects writes and waits for queued work
+  ---
+  duration_ms: 0.957167
+  type: 'test'
+  ...
+# Subtest: named pipes are rejected without leaving an in-flight writer that blocks stop
+ok 18 - named pipes are rejected without leaving an in-flight writer that blocks stop
+  ---
+  duration_ms: 6.345375
+  type: 'test'
+  ...
+# Subtest: user installer registers one LaunchAgent, offers status and preserves device on uninstall
+ok 19 - user installer registers one LaunchAgent, offers status and preserves device on uninstall
+  ---
+  duration_ms: 37.400791
+  type: 'test'
+  ...
+# Subtest: frozen work, foreign app and foreign launch service cannot be overwritten
+ok 20 - frozen work, foreign app and foreign launch service cannot be overwritten
+  ---
+  duration_ms: 8.20975
+  type: 'test'
+  ...
+# Subtest: failed replacement restores prior managed app, configuration and launch job
+ok 21 - failed replacement restores prior managed app, configuration and launch job
+  ---
+  duration_ms: 16.344125
+  type: 'test'
+  ...
+# Subtest: status and connect refuse a port owned by another process
+ok 22 - status and connect refuse a port owned by another process
+  ---
+  duration_ms: 7.212916
+  type: 'test'
+  ...
+# Subtest: installer refuses an unmanaged listening process before registering or stopping a job
+ok 23 - installer refuses an unmanaged listening process before registering or stopping a job
+  ---
+  duration_ms: 2.748625
+  type: 'test'
+  ...
+# Subtest: failed startup removes the new launch job and preserves the device identity
+ok 24 - failed startup removes the new launch job and preserves the device identity
+  ---
+  duration_ms: 18.548084
+  type: 'test'
+  ...
+# Subtest: keychain secret uses stdin, not arguments
+ok 25 - keychain secret uses stdin, not arguments
+  ---
+  duration_ms: 0.550708
+  type: 'test'
+  ...
+# Subtest: missing Keychain item can be removed without changing another item
+ok 26 - missing Keychain item can be removed without changing another item
+  ---
+  duration_ms: 0.271334
+  type: 'test'
+  ...
+# Subtest: oversized command is rejected before invoking security
+ok 27 - oversized command is rejected before invoking security
+  ---
+  duration_ms: 0.731334
+  type: 'test'
+  ...
+# Subtest: OAuth login validates state and S256 and stores one Keychain bundle
+ok 28 - OAuth login validates state and S256 and stores one Keychain bundle
+  ---
+  duration_ms: 17.435625
+  type: 'test'
+  ...
+# Subtest: concurrent refresh rotates one bundle and disconnect revokes it
+ok 29 - concurrent refresh rotates one bundle and disconnect revokes it
+  ---
+  duration_ms: 7.732
+  type: 'test'
+  ...
+# Subtest: reauthorization waits for an in-flight refresh to persist its rotated token
+ok 30 - reauthorization waits for an in-flight refresh to persist its rotated token
+  ---
+  duration_ms: 4.795167
+  type: 'test'
+  ...
+# Subtest: disconnect waits for an in-flight refresh and revokes the rotated token
+ok 31 - disconnect waits for an in-flight refresh and revokes the rotated token
+  ---
+  duration_ms: 5.495
+  type: 'test'
+  ...
+# Subtest: cancelled reauthorization checks the existing grant without opening another browser
+ok 32 - cancelled reauthorization checks the existing grant without opening another browser
+  ---
+  duration_ms: 2.691958
+  type: 'test'
+  ...
+# Subtest: offline heartbeat recovers and revoked authorization waits for user action
+ok 33 - offline heartbeat recovers and revoked authorization waits for user action
+  ---
+  duration_ms: 2.768
+  type: 'test'
+  ...
+# Subtest: restart reads the Keychain bundle and refuses a different issuer
+ok 34 - restart reads the Keychain bundle and refuses a different issuer
+  ---
+  duration_ms: 2.575417
+  type: 'test'
+  ...
+# Subtest: disconnect during startup waits for the stored grant and revokes it
+ok 35 - disconnect during startup waits for the stored grant and revokes it
+  ---
+  duration_ms: 2.258166
+  type: 'test'
+  ...
+# Subtest: connect and token access wait for the startup Keychain read
+ok 36 - connect and token access wait for the startup Keychain read
+  ---
+  duration_ms: 4.185709
+  type: 'test'
+  ...
+# Subtest: closing during startup prevents waiting controls from running
+ok 37 - closing during startup prevents waiting controls from running
+  ---
+  duration_ms: 1.95375
+  type: 'test'
+  ...
+# Subtest: callback rejects wrong state, duplicate parameters and Host alias
+ok 38 - callback rejects wrong state, duplicate parameters and Host alias
+  ---
+  duration_ms: 2.661958
+  type: 'test'
+  ...
+# Subtest: issuer validation rejects insecure, path and credential-bearing addresses
+ok 39 - issuer validation rejects insecure, path and credential-bearing addresses
+  ---
+  duration_ms: 0.139917
+  type: 'test'
+  ...
+# Subtest: one slot serializes claims, writes within scope and delivers a content snapshot
+ok 40 - one slot serializes claims, writes within scope and delivers a content snapshot
+  ---
+  duration_ms: 26.678958
+  type: 'test'
+  ...
+# Subtest: invalid optional checkpoint text stays local and can be corrected before service submission
+ok 41 - invalid optional checkpoint text stays local and can be corrected before service submission
+  ---
+  duration_ms: 23.444666
+  type: 'test'
+  ...
+# Subtest: ambiguous claim keeps recovery metadata and freezes the project lock
+ok 42 - ambiguous claim keeps recovery metadata and freezes the project lock
+  ---
+  duration_ms: 6.528541
+  type: 'test'
+  ...
+# Subtest: a rejected claim does not prevent a later ready task from getting a slot
+ok 43 - a rejected claim does not prevent a later ready task from getting a slot
+  ---
+  duration_ms: 11.353834
+  type: 'test'
+  ...
+# Subtest: a stop during agent creation does not start a turn
+ok 44 - a stop during agent creation does not start a turn
+  ---
+  duration_ms: 4.425833
+  type: 'test'
+  ...
+# (node:97911) ExperimentalWarning: The MockTimers API is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: a stop during turn start interrupts the returned turn
+ok 45 - a stop during turn start interrupts the returned turn
+  ---
+  duration_ms: 3.720625
+  type: 'test'
+  ...
+# Subtest: completion waits for an in-flight heartbeat before reporting delivery
+ok 46 - completion waits for an in-flight heartbeat before reporting delivery
+  ---
+  duration_ms: 38.291042
+  type: 'test'
+  ...
+# Subtest: a definitive batch rejection releases the root without starting a model
+ok 47 - a definitive batch rejection releases the root without starting a model
+  ---
+  duration_ms: 4.647625
+  type: 'test'
+  ...
+# Subtest: an unknown accept outcome preserves the root even with no attempt journal
+ok 48 - an unknown accept outcome preserves the root even with no attempt journal
+  ---
+  duration_ms: 4.799208
+  type: 'test'
+  ...
+# Subtest: restart finishes an accepted zero-attempt batch before releasing its root
+ok 49 - restart finishes an accepted zero-attempt batch before releasing its root
+  ---
+  duration_ms: 31.716959
+  type: 'test'
+  ...
+# Subtest: a batch finish rejection retains its capability and physical lock
+ok 50 - a batch finish rejection retains its capability and physical lock
+  ---
+  duration_ms: 4.692458
+  type: 'test'
+  ...
+# Subtest: server batch stop seals writes before the stop acknowledgement and finishes the same batch
+ok 51 - server batch stop seals writes before the stop acknowledgement and finishes the same batch
+  ---
+  duration_ms: 5.543542
+  type: 'test'
+  ...
+# Subtest: an elapsed fixed deadline finalizes through recovery without a post-deadline observe
+ok 52 - an elapsed fixed deadline finalizes through recovery without a post-deadline observe
+  ---
+  duration_ms: 3.815708
+  type: 'test'
+  ...
+# Subtest: observe crossing the deadline is a budget stop rather than an unknown execution
+ok 53 - observe crossing the deadline is a budget stop rather than an unknown execution
+  ---
+  duration_ms: 4.490333
+  type: 'test'
+  ...
+# Subtest: STOP observed before batch renewal confirms attempts and finishes without freezing
+ok 54 - STOP observed before batch renewal confirms attempts and finishes without freezing
+  ---
+  duration_ms: 5.271875
+  type: 'test'
+  ...
+# Subtest: checkpoint connection loss seals the active write capability
+ok 55 - checkpoint connection loss seals the active write capability
+  ---
+  duration_ms: 4.459333
+  type: 'test'
+  ...
+# Subtest: stop during a pending claim sends stop after the grant arrives
+ok 56 - stop during a pending claim sends stop after the grant arrives
+  ---
+  duration_ms: 4.839458
+  type: 'test'
+  ...
+# Subtest: a locally stale claim does not block refilling a ready task
+ok 57 - a locally stale claim does not block refilling a ready task
+  ---
+  duration_ms: 5.711834
+  type: 'test'
+  ...
+# Subtest: a rejected checkpoint seals the active write capability
+ok 58 - a rejected checkpoint seals the active write capability
+  ---
+  duration_ms: 4.482458
+  type: 'test'
+  ...
+# Subtest: an agent stop returns its decision reason without claiming the task again
+ok 59 - an agent stop returns its decision reason without claiming the task again
+  ---
+  duration_ms: 4.468041
+  type: 'test'
+  ...
+# Subtest: journal records only execution association and rejects credentials
+ok 60 - journal records only execution association and rejects credentials
+  ---
+  duration_ms: 8.704875
+  type: 'test'
+  ...
+# Subtest: recovery requires previous host exit and confirms stop before cleanup
+ok 61 - recovery requires previous host exit and confirms stop before cleanup
+  ---
+  duration_ms: 29.180834
+  type: 'test'
+  ...
+# Subtest: unknown claim outcome uses the batch credential and preserves the record on failure
+ok 62 - unknown claim outcome uses the batch credential and preserves the record on failure
+  ---
+  duration_ms: 25.473
+  type: 'test'
+  ...
+# Subtest: same physical root excludes another project and alias until owner releases
+ok 63 - same physical root excludes another project and alias until owner releases
+  ---
+  duration_ms: 20.612375
+  type: 'test'
+  ...
+# Subtest: a replacement host cannot steal a root merely because the old lease looks stale
+ok 64 - a replacement host cannot steal a root merely because the old lease looks stale
+  ---
+  duration_ms: 7.277458
+  type: 'test'
+  ...
+# Subtest: recovery requires old process exit and successful stop confirmations before unlocking
+ok 65 - recovery requires old process exit and successful stop confirmations before unlocking
+  ---
+  duration_ms: 40.217333
+  type: 'test'
+  ...
+# Subtest: local metadata API checks Host, Origin, preflight, device and directory
+ok 66 - local metadata API checks Host, Origin, preflight, device and directory
+  ---
+  duration_ms: 21.629541
+  type: 'test'
+  ...
+1..66
+# tests 66
+# suites 0
+# pass 66
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 10189.953667

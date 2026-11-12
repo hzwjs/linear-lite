@@ -1,0 +1,144 @@
+{
+  "before.json": {
+    "releaseDirectory": "/home/deploy/linear-lite/releases/20261110-130137-webcollab",
+    "previousJar": {
+      "bytes": 52518050,
+      "sha256": "df81cb0636fb2b7c6e801a356fcd4f3584d7f6aae4a9fa65c87d39440ad724dc"
+    },
+    "configs": [
+      {
+        "path": "/home/deploy/linear-lite/.env",
+        "sha256": "427c5bb1100f77c8bc4ebf76c828ca5e669a70081fe1138d096d7c84b05b88ee"
+      },
+      {
+        "path": "/home/deploy/linear-lite/start-server.sh",
+        "sha256": "5ebfd871a91d633c2cac2d29b1aa946456824c95b8821ce4feac5414c866b4be"
+      },
+      {
+        "path": "/home/deploy/linear-lite/config/application.yml",
+        "sha256": "722a18f132f4c1062843f3d8ee74c0da8b2bba8036a7a25b1d1568eb250be61e"
+      },
+      {
+        "path": "/home/deploy/linear-lite/config/application.yml.bak-codex-upload-20260828",
+        "sha256": "2a60be19861f4b10a1f5767bfa27b5f41a5d9d08b11a0917957164650caf91ed"
+      }
+    ],
+    "pid": "826473",
+    "collaborationService": "active"
+  },
+  "after.json": {
+    "status": "deployed",
+    "pid": "996846",
+    "jarBytes": 93076311,
+    "jarSha256": "90a67c64f50f5eebf18b7dfdee28dbdbba06f5c273da91d235304b504f351196",
+    "issuer": "https://linearlite.eobua.cn",
+    "scopes": [
+      "linear-lite:read",
+      "linear-lite:write",
+      "remote-terminal",
+      "collaboration-host"
+    ],
+    "configurationUnchanged": true,
+    "timeUtc": "2026-11-10T12:48:12Z"
+  },
+  "http-checks.json": [
+    {
+      "path": "/",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/projects/6/settings",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/projects/6/collaboration",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/tasks",
+      "method": "GET",
+      "status": 401
+    },
+    {
+      "path": "/api/collaboration/host-installer",
+      "method": "GET",
+      "status": 401
+    },
+    {
+      "path": "/api/collaboration/batches/list",
+      "method": "POST",
+      "status": 401
+    },
+    {
+      "path": "/api/collaboration/tasks/state",
+      "method": "POST",
+      "status": 401
+    },
+    {
+      "path": "/.well-known/oauth-authorization-server",
+      "status": 200,
+      "issuer": "https://linearlite.eobua.cn",
+      "hostScope": true
+    },
+    {
+      "path": "/assets/CollaborationExecutionView-jPTrqxCW.js",
+      "status": 200,
+      "matchesPackagedAsset": true
+    },
+    {
+      "configurationUnchanged": true,
+      "existingSemanticIndexErrors": 5,
+      "otherApplicationErrors": 0,
+      "collaborationService": "active"
+    }
+  ],
+  "artifact": {
+    "bytes": 93076311,
+    "sha256": "90a67c64f50f5eebf18b7dfdee28dbdbba06f5c273da91d235304b504f351196",
+    "applicationConfigSha256": "8d1a41362bf3d44b1daa29fe371e8628a6309f744c4882375757a141505f98fe",
+    "installerBytes": 42228460,
+    "installerSha256": "92cd03d9c76677e57a5e03bc7ef6bd2d5c5b8b6cd2471b9d48aee4473c0c5f20",
+    "collaborationAsset": "BOOT-INF/classes/static/assets/CollaborationExecutionView-jPTrqxCW.js",
+    "manifest": "Manifest-Version: 1.0\r\nCreated-By: Maven JAR Plugin 3.3.0\r\nBuild-Jdk-Spec: 21\r\nImplementation-Title: linear-lite-server\r\nImplementation-Version: 0.1.0-SNAPSHOT\r\nMain-Class: org.springframework.boot.loader.launch.JarLauncher\r\nStart-Class: com.linearlite.server.LinearLiteServerApplication\r\nSpring-Boot-Version: 3.2.5\r\nSpring-Boot-Classes: BOOT-INF/classes/\r\nSpring-Boot-Lib: BOOT-INF/lib/\r\nSpring-Boot-Classpath-Index: BOOT-INF/classpath.idx\r\nSpring-Boot-Layers-Index: BOOT-INF/layers.idx\r\n\r\n",
+    "zipIntegrity": "passed"
+  },
+  "source": {
+    "kind": "local-workspace",
+    "localConfigExcluded": true
+  },
+  "database": {
+    "database": "linear-lite",
+    "connectionName": "Linear-Lite",
+    "tool": "DBX",
+    "newTables": [
+      "host_device_authorizations",
+      "collaboration_batches",
+      "collaboration_batch_tasks"
+    ],
+    "newTableCounts": [
+      0,
+      0,
+      0
+    ],
+    "backups": {
+      "tasks_bak_web_20261110": 2830,
+      "project_device_bindings_bak_web_20261110": 2,
+      "task_dependencies_bak_web_20261110": 2,
+      "task_execution_attempts_bak_web_20261110": 9,
+      "task_execution_operations_bak_web_20261110": 42
+    },
+    "businessRowCountsUnchanged": true
+  },
+  "validation": {
+    "frontendTypecheck": "passed",
+    "viteBuild": "passed",
+    "mavenPackage": "passed; skipped tests",
+    "authenticatedTaskRead": "LINEAR-LITE-136 returned task 2851",
+    "modelBatchRun": false,
+    "scheduledBatchEnabled": false,
+    "browserE2E": false
+  }
+}

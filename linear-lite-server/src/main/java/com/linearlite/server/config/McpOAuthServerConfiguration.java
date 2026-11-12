@@ -8,6 +8,9 @@ import com.linearlite.server.security.McpOAuthAuthorizationCodeAuthenticationPro
 import com.linearlite.server.security.McpOAuthRefreshTokenAuthenticationProvider;
 import com.linearlite.server.security.McpOAuthRefreshTokenStore;
 import com.linearlite.server.security.McpOAuthTokenRevocationAuthenticationProvider;
+import com.linearlite.server.security.OAuthResourcePolicy;
+import com.linearlite.server.security.OAuthPublicTokenClientAuthentication;
+import com.linearlite.server.service.HostDeviceAuthorizationService;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.OctetSequenceKey;
@@ -83,7 +86,8 @@ public class McpOAuthServerConfiguration {
             OAuth2TokenGenerator<?> tokenGenerator,
             McpOAuthRefreshTokenStore refreshTokenStore,
             PlatformTransactionManager transactionManager,
-            McpOAuthProperties oauthProperties) throws Exception {
+            McpOAuthProperties oauthProperties,
+            HostDeviceAuthorizationService hostAuthorizations) throws Exception {
         if (!mcpProperties.isEnabled()) {
             throw new IllegalStateException("mcp.enabled must be true when MCP OAuth is enabled.");
         }
@@ -97,6 +101,11 @@ public class McpOAuthServerConfiguration {
                         .authorizationConsentService(consentService)
                         .authorizationServerSettings(authorizationServerSettings)
                         .tokenGenerator(tokenGenerator)
+                        .clientAuthentication(client -> {
+                            OAuthPublicTokenClientAuthentication publicTokenClient =
+                                    new OAuthPublicTokenClientAuthentication(registeredClientRepository);
+                            client.authenticationConverter(publicTokenClient).authenticationProvider(publicTokenClient);
+                        })
                         .authorizationEndpoint(endpoint -> endpoint
                                 .consentPage("/oauth2/consent")
                                 .authenticationProviders(providers -> providers.forEach(provider -> {
@@ -120,25 +129,25 @@ public class McpOAuthServerConfiguration {
                                 if (providers.get(index) instanceof OAuth2AuthorizationCodeAuthenticationProvider codeProvider) {
                                     providers.set(index, new McpOAuthAuthorizationCodeAuthenticationProvider(
                                             codeProvider, authorizationService, refreshTokenStore, oauthProperties,
-                                            transactionTemplate));
+                                            transactionTemplate, hostAuthorizations));
                                 }
                             }
                             providers.removeIf(OAuth2RefreshTokenAuthenticationProvider.class::isInstance);
                             providers.add(new McpOAuthRefreshTokenAuthenticationProvider(
                                     authorizationService, refreshTokenStore, tokenGenerator, oauthProperties,
-                                    transactionTemplate));
+                                    transactionTemplate, hostAuthorizations));
                         }))
                         .tokenRevocationEndpoint(endpoint -> endpoint.authenticationProviders(providers -> {
                             providers.removeIf(OAuth2TokenRevocationAuthenticationProvider.class::isInstance);
                             providers.add(0, new McpOAuthTokenRevocationAuthenticationProvider(
-                                    refreshTokenStore, authorizationService, transactionTemplate));
+                                    refreshTokenStore, authorizationService, transactionTemplate, hostAuthorizations));
                         }))
                         .authorizationServerMetadataEndpoint(endpoint -> endpoint
                                 .authorizationServerMetadataCustomizer(metadata -> {
                                     metadata.claim("registration_endpoint", properties.getIssuer() + "/oauth2/register");
                                     metadata.claim("token_endpoint_auth_methods_supported", List.of("none"));
                                     metadata.claim("code_challenge_methods_supported", List.of("S256"));
-                                    metadata.claim("scopes_supported", List.of("linear-lite:read", "linear-lite:write", "remote-terminal"));
+                                    metadata.claim("scopes_supported", List.of("linear-lite:read", "linear-lite:write", "remote-terminal", OAuthResourcePolicy.HOST_SCOPE));
                                     metadata.claim("grant_types_supported", List.of("authorization_code", "refresh_token"));
                                     metadata.claim("revocation_endpoint_auth_methods_supported", List.of("none"));
                                     metadata.claims(claims -> {
@@ -264,8 +273,12 @@ public class McpOAuthServerConfiguration {
             context.getClaims()
                     .subject(String.valueOf(user.getUserId()))
                     .issuer(properties.getIssuer())
-                    .audience(new ArrayList<>(List.of(properties.getResource())))
+                    .audience(new ArrayList<>(List.of(OAuthResourcePolicy.resourceFor(context.getAuthorizedScopes(), properties))))
                     .claim("scope", new ArrayList<>(context.getAuthorizedScopes()));
+            if (OAuthResourcePolicy.isHost(context.getAuthorizedScopes())) {
+                if (context.getAuthorization() == null) throw new IllegalStateException("宿主授权信息不可用");
+                context.getClaims().claim(OAuthResourcePolicy.AUTHORIZATION_ID_CLAIM, context.getAuthorization().getId());
+            }
         };
     }
 

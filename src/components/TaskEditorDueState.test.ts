@@ -304,8 +304,8 @@ describe('TaskEditor due state', () => {
     const view = await mountEditor(createTask({ progressPercent: 0 }))
 
     try {
-      const statusSelect = view.container.querySelector<HTMLSelectElement>('#task-status')
-      const progressInput = view.container.querySelector<HTMLInputElement>('#task-progress')
+      const statusSelect = view.container.querySelector<HTMLSelectElement>('#task-status-sidebar')
+      const progressInput = view.container.querySelector<HTMLInputElement>('#task-progress-sidebar')
       expect(statusSelect).not.toBeNull()
       expect(progressInput?.value).toBe('0')
 

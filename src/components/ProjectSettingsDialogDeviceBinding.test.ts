@@ -3,12 +3,14 @@ import { createI18n } from 'vue-i18n'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import zhCN from '../i18n/messages/zh-CN'
 import ProjectSettingsDialog from './ProjectSettingsDialog.vue'
-import { getCodexHostIdentity } from '../services/codexHost'
+import { getCodexHostIdentity, getCodexHostStatus } from '../services/codexHost'
+import { collaborationHostApi } from '../services/api/collaborationHost'
 import { projectDeviceBindingApi } from '../services/api/projectDeviceBinding'
 import { getPiBridgeHealth } from '../services/piBridge'
 
 vi.mock('../store/authStore', () => ({ useAuthStore: () => ({ currentUser: { id: 7, username: 'Alice' } }) }))
-vi.mock('../services/codexHost', () => ({ getCodexHostIdentity: vi.fn(), validateCodexProjectDirectory: vi.fn() }))
+vi.mock('../services/codexHost', () => ({ getCodexHostIdentity: vi.fn(), getCodexHostStatus: vi.fn(), connectCodexHost: vi.fn(), validateCodexProjectDirectory: vi.fn() }))
+vi.mock('../services/api/collaborationHost', () => ({ collaborationHostApi: { list: vi.fn(), revoke: vi.fn(), installer: vi.fn(), batches: vi.fn(), stop: vi.fn() } }))
 vi.mock('../services/api/projectDeviceBinding', () => ({ projectDeviceBindingApi: { list: vi.fn(), save: vi.fn(), delete: vi.fn() } }))
 vi.mock('../services/piBridge', () => ({
   configurePiBridgeInstance: vi.fn(), detectPiBridgePlatform: vi.fn(() => 'darwin'), getPiBridgeHealth: vi.fn(),
@@ -22,6 +24,9 @@ describe('project settings binding entry', () => {
     document.body.innerHTML = ''
     vi.clearAllMocks()
     vi.mocked(getCodexHostIdentity).mockResolvedValue({ deviceId: 'device-a', hostInstanceId: 'host-a' })
+    vi.mocked(getCodexHostStatus).mockResolvedValue({ protocolVersion: 3, deviceId: 'device-a', hostInstanceId: 'host-a', processId: 9,
+      connection: 'AUTH_REQUIRED', userId: null, grantId: null, deviceName: null, lastHeartbeatAt: null })
+    vi.mocked(collaborationHostApi.list).mockResolvedValue([])
     vi.mocked(projectDeviceBindingApi.list).mockResolvedValue([{
       id: 1, userId: 7, projectId: 12, deviceId: 'device-a', projectDirectory: '/work/project', revision: 1,
       createdAt: '2026-11-10T10:00:00', updatedAt: '2026-11-10T10:00:00',
