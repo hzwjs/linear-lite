@@ -83,6 +83,7 @@ const documentId = computed(() => {
 })
 const activeProject = computed(() => projectStore.projects.find((project) => project.id === projectId.value) ?? null)
 const hasDocumentSearch = computed(() => documentSearchQuery.value.trim().length > 0)
+const isArticleTab = computed(() => route.query.documentView === 'article')
 
 function cancelDocumentSearch() {
   documentSearchSequence += 1
@@ -132,7 +133,8 @@ function scheduleDocumentSearch(value: string) {
 watch(documentSearchQuery, scheduleDocumentSearch)
 
 function documentRoute(id: number) {
-  return `/projects/${projectId.value}/documents/${id}`
+  const path = `/projects/${projectId.value}/documents/${id}`
+  return route.query.documentView === 'directory' ? `${path}?documentView=directory` : path
 }
 
 function latestRootDocumentId(): number | null {
@@ -333,7 +335,8 @@ async function finishMarkdownImport(requestedProjectId: number, documentIdToOpen
   try {
     await store.loadTree(requestedProjectId)
     if (workspaceDisposed || projectId.value !== requestedProjectId) return
-    await openDocument(documentIdToOpen)
+    await store.flushSaves()
+    await router.push(documentRoute(documentIdToOpen))
   } catch {
     // 文档创建成功后不重传文件；目录刷新失败提供独立重试入口。
     importWorkspaceError.value = true
@@ -373,26 +376,23 @@ async function retryMarkdownImport(item: MarkdownImport) {
   }
 }
 
-async function openDocument(id: number) {
+function openDocument(id: number) {
   const node = store.treeNodes.find((item) => item.id === id)
   if (node?.contentFormat === 'HTML') {
     window.open(htmlDocumentPath(projectId.value, id), '_blank', 'noopener,noreferrer')
     return
   }
-  if (id === documentId.value) return
-  await store.flushSaves()
-  await router.push(documentRoute(id))
+  window.open(`/projects/${projectId.value}/documents/${id}?documentView=article`, '_blank', 'noopener,noreferrer')
 }
 
-async function openDocumentSearchResult(result: ProjectContentSearchResult) {
+function openDocumentSearchResult(result: ProjectContentSearchResult) {
   const id = Number(result.resourceId)
   if (!Number.isInteger(id)) return
-  clearDocumentSearch()
   if (result.contentFormat === 'HTML') {
     window.open(htmlDocumentPath(result.projectId, id), '_blank', 'noopener,noreferrer')
     return
   }
-  await openDocument(id)
+  openDocument(id)
 }
 
 async function createDocument(parentDocumentId: number | null) {
@@ -459,7 +459,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="documents-view">
     <div class="documents-view__workspace">
-      <aside class="documents-sidebar" :aria-label="t('documents.title')">
+      <aside v-if="!isArticleTab" class="documents-sidebar" :aria-label="t('documents.title')">
         <header>
           <div>
             <span class="documents-sidebar__project" :title="activeProject?.name">{{ activeProject?.name }}</span>

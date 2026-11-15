@@ -75,9 +75,11 @@ describe('DocumentsView navigation', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
-  it('navigates between documents without reloading the document tree', async () => {
+  it('opens a document in a new tab without changing the current document', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -97,13 +99,40 @@ describe('DocumentsView navigation', () => {
     await flushNavigation()
 
     expect(documentApi.listTree).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(host.querySelector('[data-document-tree-id="2"]')).not.toBeNull())
     ;(host.querySelector('[data-document-tree-id="2"]') as HTMLButtonElement).click()
     await new Promise((resolve) => setTimeout(resolve, 0))
     await flushNavigation()
 
-    expect(router.currentRoute.value.params.documentId).toBe('2')
-    expect(documentApi.get).toHaveBeenLastCalledWith(2)
+    expect(open).toHaveBeenCalledWith('/projects/7/documents/2?documentView=article', '_blank', 'noopener,noreferrer')
+    expect(router.currentRoute.value.params.documentId).toBe('1')
+    expect(documentApi.get).toHaveBeenLastCalledWith(1)
     expect(documentApi.listTree).toHaveBeenCalledTimes(1)
+    app.unmount()
+  })
+
+  it('keeps the directory layout after selecting the default document and hides it in an article tab', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/projects/:projectId/documents', component: DocumentsView },
+        { path: '/projects/:projectId/documents/:documentId', component: DocumentsView }
+      ]
+    })
+    await router.push('/projects/7/documents?documentView=directory')
+    await router.isReady()
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const app = createApp({ template: '<RouterView />' }).use(createPinia()).use(router).use(i18n)
+    app.mount(host)
+    await vi.waitFor(() => expect(router.currentRoute.value.params.documentId).toBe('1'))
+    expect(router.currentRoute.value.query.documentView).toBe('directory')
+    expect(host.querySelector('.documents-sidebar')).not.toBeNull()
+
+    await router.push('/projects/7/documents/2?documentView=article')
+    await flushNavigation()
+    expect(host.querySelector('.documents-sidebar')).toBeNull()
+    expect(host.querySelector('.documents-content')).not.toBeNull()
     app.unmount()
   })
 
@@ -192,7 +221,8 @@ describe('DocumentsView navigation', () => {
     app.unmount()
   })
 
-  it('debounces server search, replaces the tree with flat results, and clears search after navigation', async () => {
+  it('opens a search result in a new tab and retains the search', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
     vi.useFakeTimers()
     vi.mocked(documentApi.search).mockResolvedValue([{
       contentType: 'document', contentFormat: 'BLOCKNOTE', resourceId: '2', projectId: 7, projectIdentifier: 'JLNX', projectName: 'JLNX',
@@ -230,11 +260,12 @@ describe('DocumentsView navigation', () => {
     expect(host.querySelector('.document-search-results__path')?.textContent).toBe('文档')
     expect(host.textContent).toContain('Review the security checklist')
     ;(host.querySelector('.document-search-results li button') as HTMLButtonElement).click()
-    await vi.waitFor(() => expect(router.currentRoute.value.params.documentId).toBe('2'))
     await flushNavigation()
 
-    expect(input.value).toBe('')
-    expect(host.querySelector('.document-tree')).not.toBeNull()
+    expect(open).toHaveBeenCalledWith('/projects/7/documents/2?documentView=article', '_blank', 'noopener,noreferrer')
+    expect(router.currentRoute.value.params.documentId).toBe('1')
+    expect(input.value).toBe('security')
+    expect(host.querySelector('.document-search-results')).not.toBeNull()
     app.unmount()
   })
 

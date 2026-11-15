@@ -59,9 +59,17 @@
           linear-gradient(var(--shell-muted), var(--shell-muted)) 16px 116px / calc(100% - 32px) 32px no-repeat,
           #ffffff;
       }
+      html.document-tab #app:empty::before { display: none; }
+      html.document-tab #app:empty::after { display: none; }
     </style>
     <script>
       performance.mark("appStart")
+      const documentView = new URLSearchParams(location.search).get("documentView")
+      const documentPath = /^\/projects\/[^/]+\/documents(?:\/[^/]+)?\/?$/.test(location.pathname)
+      const htmlDocumentPath = /^\/projects\/[^/]+\/documents\/[^/]+\/html\/?$/.test(location.pathname)
+      if ((documentPath && (documentView === "directory" || documentView === "article")) || htmlDocumentPath) {
+        document.documentElement.classList.add("document-tab")
+      }
       try {
         if (localStorage.getItem("linear-lite.sidebarHidden") === "1") {
           document.documentElement.classList.add("sidebar-hidden")

@@ -208,6 +208,11 @@ const paletteCommands = computed<CommandItem[]>(() => [
 
 const isLoginRoute = computed(() => route.path === '/login')
 const isStandaloneRoute = computed(() => route.meta.standalone === true)
+const isDocumentTab = computed(() =>
+  route.name === 'html-document-read'
+  || ((route.name === 'project-documents' || route.name === 'project-document-detail')
+    && (route.query.documentView === 'directory' || route.query.documentView === 'article'))
+)
 
 function ensureProjects() {
   if (authStore.isLoggedIn && !isLoginRoute.value) {
@@ -242,8 +247,7 @@ function selectProject(id: number) {
 }
 
 function openProjectDocuments(id: number) {
-  projectStore.setActiveProject(id)
-  void router.push(`/projects/${id}/documents`)
+  window.open(`/projects/${id}/documents?documentView=directory`, '_blank', 'noopener,noreferrer')
 }
 
 async function reorderProjects(projectIds: number[]) {
@@ -366,6 +370,7 @@ onUnmounted(() => {
   </template>
   <div v-else class="app-layout" :class="{ 'app-layout--task-workspace': isTaskWorkspaceRoute }">
     <SidebarNavigation
+      v-if="!isDocumentTab"
       :mode="sidebarMode"
       :user-name="authStore.currentUser?.username"
       :user-initial="userInitial"

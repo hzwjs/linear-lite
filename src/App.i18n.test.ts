@@ -67,4 +67,12 @@ describe('shell translations', () => {
     expect(handler).toBeDefined()
     expect(handler).not.toContain('taskStore.fetchTasks()')
   })
+
+  it('opens the project documents entry in a new tab without changing the current project', () => {
+    const handler = appSource.match(/function openProjectDocuments\([\s\S]*?\n\}/)?.[0]
+
+    expect(handler).toContain("window.open(`/projects/${id}/documents?documentView=directory`, '_blank', 'noopener,noreferrer')")
+    expect(handler).not.toContain('setActiveProject')
+    expect(handler).not.toContain('router.push')
+  })
 })
