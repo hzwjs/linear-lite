@@ -21,7 +21,7 @@ public class HostInstallerController {
     private final Resource installer;
 
     public HostInstallerController() {
-        this(new ClassPathResource("host-distribution/Linear-Lite协作宿主-macOS-arm64-V3.1.0.dmg"));
+        this(new ClassPathResource("host-distribution/Linear-Lite协作宿主-macOS-arm64-V3.1.5.dmg"));
     }
 
     HostInstallerController(Resource installer) { this.installer = installer; }
@@ -36,7 +36,7 @@ public class HostInstallerController {
                 .contentType(MediaType.parseMediaType("application/x-apple-diskimage"))
                 .contentLength(installer.contentLength())
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
-                        .filename("linear-lite-host-macos-arm64-V3.1.0.dmg").build().toString())
+                        .filename("linear-lite-host-macos-arm64-V3.1.5.dmg").build().toString())
                 .body(installer);
     }
 }

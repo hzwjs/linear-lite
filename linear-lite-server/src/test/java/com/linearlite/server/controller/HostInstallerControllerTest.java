@@ -16,7 +16,7 @@ class HostInstallerControllerTest {
         mvc.perform(get("/api/collaboration/host-installer").requestAttr(JwtAuthFilter.REQUEST_ATTR_USER_ID, 7L))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
-                .andExpect(header().string("Content-Disposition", "attachment; filename=\"linear-lite-host-macos-arm64-V3.1.0.dmg\""))
+                .andExpect(header().string("Content-Disposition", "attachment; filename=\"linear-lite-host-macos-arm64-V3.1.5.dmg\""))
                 .andExpect(content().contentType("application/x-apple-diskimage"))
                 .andExpect(content().bytes(new byte[] {1, 2, 3}));
     }

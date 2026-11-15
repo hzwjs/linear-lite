@@ -177,8 +177,8 @@
                                     <directory>../docs/交付产物</directory>
                                     <filtering>false</filtering>
                                     <includes>
-                                        <include>Linear-Lite协作宿主-macOS-arm64-V3.1.0.dmg</include>
-                                        <include>Linear-Lite协作宿主-macOS-arm64-V3.1.0.dmg.json</include>
+                                        <include>Linear-Lite协作宿主-macOS-arm64-V3.1.5.dmg</include>
+                                        <include>Linear-Lite协作宿主-macOS-arm64-V3.1.5.dmg.json</include>
                                     </includes>
                                 </resource>
                             </resources>

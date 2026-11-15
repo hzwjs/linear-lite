@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { verifyDistribution } from './distribution-manifest.mjs'
 
 const hostDirectory = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
-const image = path.join(path.dirname(hostDirectory), 'docs', '交付产物', 'Linear-Lite协作宿主-macOS-arm64-V3.1.0.dmg')
+const image = path.join(path.dirname(hostDirectory), 'docs', '交付产物', 'Linear-Lite协作宿主-macOS-arm64-V3.1.5.dmg')
 
 try {
   const metadata = await verifyDistribution({ hostDirectory, image, manifestPath: `${image}.json` })
