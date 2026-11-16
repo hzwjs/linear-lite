@@ -6,6 +6,7 @@ import { i18n } from '../i18n'
 import { documentApi } from '../services/api/documents'
 import { documentCollaborationApi, type DocumentCollaborationSession } from '../services/api/documentCollaboration'
 import { projectApi } from '../services/api/project'
+import { useAuthStore } from '../store/authStore'
 import { useDocumentStore } from '../store/documentStore'
 import type { ProjectDocument, ProjectDocumentTreeNode } from '../types/document'
 import DocumentsView from './DocumentsView.vue'
@@ -61,6 +62,14 @@ async function flushNavigation() {
   await nextTick()
 }
 
+function setupTestPinia() {
+  const pinia = createPinia()
+  const authStore = useAuthStore(pinia)
+  authStore.currentUser = { id: 7, username: 'Ada' }
+  vi.spyOn(authStore, 'getConsistentAccessToken').mockReturnValue('token')
+  return pinia
+}
+
 describe('DocumentsView navigation', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
@@ -78,8 +87,7 @@ describe('DocumentsView navigation', () => {
     vi.restoreAllMocks()
   })
 
-  it('opens a document in a new tab without changing the current document', async () => {
-    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+  it('opens a document in a content area tab when clicking a tree node and updates route', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -91,8 +99,9 @@ describe('DocumentsView navigation', () => {
 
     const host = document.createElement('div')
     document.body.appendChild(host)
+    const pinia = setupTestPinia()
     const app = createApp({ template: '<RouterView />' })
-    app.use(createPinia())
+    app.use(pinia)
     app.use(router)
     app.use(i18n)
     app.mount(host)
@@ -100,14 +109,58 @@ describe('DocumentsView navigation', () => {
 
     expect(documentApi.listTree).toHaveBeenCalledTimes(1)
     await vi.waitFor(() => expect(host.querySelector('[data-document-tree-id="2"]')).not.toBeNull())
+
+    // 默认文档 1 对应的 Tab 已高亮
+    expect(host.querySelector('.document-tab--active')?.textContent).toContain('First')
+
+    // 点击文档树中的文档 2
     ;(host.querySelector('[data-document-tree-id="2"]') as HTMLButtonElement).click()
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await vi.waitFor(() => expect(router.currentRoute.value.params.documentId).toBe('2'))
     await flushNavigation()
 
-    expect(open).toHaveBeenCalledWith('/projects/7/documents/2?documentView=article', '_blank', 'noopener,noreferrer')
-    expect(router.currentRoute.value.params.documentId).toBe('1')
-    expect(documentApi.get).toHaveBeenLastCalledWith(1)
-    expect(documentApi.listTree).toHaveBeenCalledTimes(1)
+    // 路由就地更新，正文在内容区加载，新 Tab 处于激活状态
+    expect(documentApi.get).toHaveBeenLastCalledWith(2)
+    expect(host.querySelector('.document-tab--active')?.textContent).toContain('Second')
+    expect(host.querySelectorAll('.document-tab')).toHaveLength(2)
+    app.unmount()
+  })
+
+  it('closes a tab when clicking tab close button and navigates to the adjacent tab', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/projects/:projectId/documents/:documentId', component: DocumentsView },
+        { path: '/projects/:projectId/documents', component: DocumentsView }
+      ]
+    })
+    await router.push('/projects/7/documents/1')
+    await router.isReady()
+
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const pinia = setupTestPinia()
+    const app = createApp({ template: '<RouterView />' })
+    app.use(pinia)
+    app.use(router)
+    app.use(i18n)
+    app.mount(host)
+    await flushNavigation()
+
+    await vi.waitFor(() => expect(host.querySelector('[data-document-tree-id="2"]')).not.toBeNull())
+    ;(host.querySelector('[data-document-tree-id="2"]') as HTMLButtonElement).click()
+    await vi.waitFor(() => expect(router.currentRoute.value.params.documentId).toBe('2'))
+    await flushNavigation()
+    expect(host.querySelectorAll('.document-tab')).toHaveLength(2)
+
+    // 关闭当前激活的标签页（文档 2）
+    const closeBtn = host.querySelectorAll('.document-tab__close')[1] as HTMLButtonElement
+    closeBtn.click()
+    await vi.waitFor(() => expect(router.currentRoute.value.params.documentId).toBe('1'))
+    await flushNavigation()
+
+    // 自动切换到相邻标签页（文档 1）并更新路由
+    expect(host.querySelectorAll('.document-tab')).toHaveLength(1)
+    expect(host.querySelector('.document-tab--active')?.textContent).toContain('First')
     app.unmount()
   })
 
@@ -127,7 +180,8 @@ describe('DocumentsView navigation', () => {
     await router.isReady()
     const host = document.createElement('div')
     document.body.appendChild(host)
-    const app = createApp({ template: '<RouterView />' }).use(createPinia()).use(router).use(i18n)
+    const pinia = setupTestPinia()
+    const app = createApp({ template: '<RouterView />' }).use(pinia).use(router).use(i18n)
     app.mount(host)
     await vi.waitFor(() => expect(router.currentRoute.value.params.documentId).toBe('1'))
     expect(router.currentRoute.value.query.documentView).toBe('directory')
@@ -161,8 +215,9 @@ describe('DocumentsView navigation', () => {
 
     const host = document.createElement('div')
     document.body.appendChild(host)
+    const pinia = setupTestPinia()
     const app = createApp({ template: '<RouterView />' })
-    app.use(createPinia())
+    app.use(pinia)
     app.use(router)
     app.use(i18n)
     app.mount(host)
@@ -192,13 +247,14 @@ describe('DocumentsView navigation', () => {
 
     const host = document.createElement('div')
     document.body.appendChild(host)
-    const pinia = createPinia()
+    const pinia = setupTestPinia()
     const app = createApp({ template: '<RouterView />' })
     app.use(pinia)
     app.use(router)
     app.use(i18n)
     app.mount(host)
     await flushNavigation()
+    await vi.waitFor(() => expect(host.querySelector('.document-tree')).not.toBeNull())
     const firstTreeInstance = host.querySelector('.document-tree')
 
     let resolveMovedTree!: (nodes: ProjectDocumentTreeNode[]) => void
@@ -225,8 +281,7 @@ describe('DocumentsView navigation', () => {
     app.unmount()
   })
 
-  it('opens a search result in a new tab and retains the search', async () => {
-    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+  it('opens a search result in a content area tab and updates route', async () => {
     vi.useFakeTimers()
     vi.mocked(documentApi.search).mockResolvedValue([{
       contentType: 'document', contentFormat: 'BLOCKNOTE', resourceId: '2', projectId: 7, projectIdentifier: 'JLNX', projectName: 'JLNX',
@@ -241,8 +296,9 @@ describe('DocumentsView navigation', () => {
 
     const host = document.createElement('div')
     document.body.appendChild(host)
+    const pinia = setupTestPinia()
     const app = createApp({ template: '<RouterView />' })
-    app.use(createPinia())
+    app.use(pinia)
     app.use(router)
     app.use(i18n)
     app.mount(host)
@@ -264,12 +320,11 @@ describe('DocumentsView navigation', () => {
     expect(host.querySelector('.document-search-results__path')?.textContent).toBe('文档')
     expect(host.textContent).toContain('Review the security checklist')
     ;(host.querySelector('.document-search-results li button') as HTMLButtonElement).click()
+    await vi.waitFor(() => expect(router.currentRoute.value.params.documentId).toBe('2'))
     await flushNavigation()
 
-    expect(open).toHaveBeenCalledWith('/projects/7/documents/2?documentView=article', '_blank', 'noopener,noreferrer')
-    expect(router.currentRoute.value.params.documentId).toBe('1')
-    expect(input.value).toBe('security')
-    expect(host.querySelector('.document-search-results')).not.toBeNull()
+    expect(documentApi.get).toHaveBeenLastCalledWith(2)
+    expect(host.querySelector('.document-tab--active')?.textContent).toContain('Second')
     app.unmount()
   })
 
@@ -291,8 +346,9 @@ describe('DocumentsView navigation', () => {
 
     const host = document.createElement('div')
     document.body.appendChild(host)
+    const pinia = setupTestPinia()
     const app = createApp({ template: '<RouterView />' })
-    app.use(createPinia())
+    app.use(pinia)
     app.use(router)
     app.use(i18n)
     app.mount(host)

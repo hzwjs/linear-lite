@@ -7,11 +7,13 @@ import { htmlDocumentPath } from '../utils/htmlDocument'
 import DocumentEditor from '../components/documents/DocumentEditor.vue'
 import DocumentHistoryPanel from '../components/documents/DocumentHistoryPanel.vue'
 import DocumentSearchResults from '../components/documents/DocumentSearchResults.vue'
+import DocumentTabs from '../components/documents/DocumentTabs.vue'
 import DocumentTree from '../components/documents/DocumentTree.vue'
 import { documentApi } from '../services/api/documents'
 import { documentCollaborationApi, type DocumentCollaborationSession } from '../services/api/documentCollaboration'
 import { projectApi } from '../services/api/project'
 import { useDocumentStore } from '../store/documentStore'
+import { useDocumentTabsStore } from '../store/documentTabsStore'
 import { useProjectStore } from '../store/projectStore'
 import { useAuthStore } from '../store/authStore'
 import { documentDraftId, listDocumentDrafts, type DocumentLocalDraft } from '../utils/documentDraftStorage'
@@ -23,6 +25,8 @@ const { t } = useI18n()
 const store = useDocumentStore()
 const projectStore = useProjectStore()
 const authStore = useAuthStore()
+const tabsStore = useDocumentTabsStore()
+const currentProjectTabs = computed(() => tabsStore.getTabs(projectId.value))
 const draftCandidates = ref<Array<{ draftId: string; draft: DocumentLocalDraft }>>([])
 function refreshDraftCandidates() {
   const owner = authStore.currentUser?.id
@@ -180,6 +184,12 @@ async function loadWorkspace() {
   if (sequence !== workspaceLoadSequence) return
   members.value = memberList.map((member) => ({ id: member.id, label: member.username }))
   if (requestedDocumentId == null) {
+    const existingTabs = tabsStore.getTabs(id)
+    if (existingTabs.length > 0) {
+      store.activeDocument = null
+      await router.replace(documentRoute(existingTabs[0]!.id))
+      return
+    }
     const firstId = firstRootDocumentId()
     store.activeDocument = null
     if (firstId != null) await router.replace(documentRoute(firstId))
@@ -187,6 +197,15 @@ async function loadWorkspace() {
   }
   if (routedDocument != null && routedDocument.projectId !== id) {
     await router.replace(`/projects/${id}/documents`)
+    return
+  }
+  if (routedDocument != null) {
+    tabsStore.openTab({
+      id: routedDocument.id,
+      projectId: routedDocument.projectId,
+      title: routedDocument.title,
+      contentFormat: routedDocument.contentFormat
+    })
   }
 }
 
@@ -199,6 +218,12 @@ async function loadRoutedDocument(sequence: number, id: number, requestedDocumen
   if (sequence !== workspaceLoadSequence) return
   prefetchCollaboration(requestedDocumentId)
   if (requestedDocumentId == null) {
+    const existingTabs = tabsStore.getTabs(id)
+    if (existingTabs.length > 0) {
+      store.activeDocument = null
+      await router.replace(documentRoute(existingTabs[0]!.id))
+      return
+    }
     const firstId = firstRootDocumentId()
     store.activeDocument = null
     if (firstId != null) await router.replace(documentRoute(firstId))
@@ -206,7 +231,16 @@ async function loadRoutedDocument(sequence: number, id: number, requestedDocumen
   }
   const document = await store.loadDocument(requestedDocumentId)
   if (sequence !== workspaceLoadSequence) return
-  if (document.projectId !== id) await router.replace(`/projects/${id}/documents`)
+  if (document.projectId !== id) {
+    await router.replace(`/projects/${id}/documents`)
+    return
+  }
+  tabsStore.openTab({
+    id: document.id,
+    projectId: document.projectId,
+    title: document.title,
+    contentFormat: document.contentFormat
+  })
 }
 
 watch(
@@ -389,13 +423,23 @@ async function retryMarkdownImport(item: MarkdownImport) {
   }
 }
 
-function openDocument(id: number) {
+async function openDocument(id: number) {
   const node = store.treeNodes.find((item) => item.id === id)
   if (node?.contentFormat === 'HTML') {
     window.open(htmlDocumentPath(projectId.value, id), '_blank', 'noopener,noreferrer')
     return
   }
-  window.open(`/projects/${projectId.value}/documents/${id}?documentView=article`, '_blank', 'noopener,noreferrer')
+  if (node) {
+    tabsStore.openTab({
+      id: node.id,
+      projectId: node.projectId,
+      title: node.title,
+      contentFormat: node.contentFormat
+    })
+  }
+  if (id === documentId.value) return
+  await store.flushSaves()
+  await router.push(documentRoute(id))
 }
 
 function openDocumentSearchResult(result: ProjectContentSearchResult) {
@@ -405,14 +449,73 @@ function openDocumentSearchResult(result: ProjectContentSearchResult) {
     window.open(htmlDocumentPath(result.projectId, id), '_blank', 'noopener,noreferrer')
     return
   }
-  openDocument(id)
+  void openDocument(id)
 }
+
+async function onSelectTab(targetId: number) {
+  if (targetId === documentId.value) return
+  await store.flushSaves()
+  await router.push(documentRoute(targetId))
+}
+
+async function onCloseTab(tabId: number) {
+  const nextId = tabsStore.closeTab(projectId.value, tabId)
+  if (documentId.value === tabId) {
+    await store.flushSaves()
+    if (nextId != null) {
+      await router.push(documentRoute(nextId))
+    } else {
+      store.activeDocument = null
+      await router.push(`/projects/${projectId.value}/documents`)
+    }
+  }
+}
+
+function onCloseOtherTabs(tabId: number) {
+  tabsStore.closeOtherTabs(projectId.value, tabId)
+  if (documentId.value !== tabId) {
+    void onSelectTab(tabId)
+  }
+}
+
+async function onCloseAllTabs() {
+  tabsStore.closeAllTabs(projectId.value)
+  store.activeDocument = null
+  await store.flushSaves()
+  await router.push(`/projects/${projectId.value}/documents`)
+}
+
+watch(
+  () => store.activeDocument?.title,
+  (newTitle) => {
+    const active = store.activeDocument
+    if (active && newTitle != null) {
+      tabsStore.updateTabTitle(projectId.value, active.id, newTitle)
+    }
+  }
+)
+
+watch(
+  () => store.treeNodes,
+  (nodes) => {
+    if (nodes.length > 0) {
+      tabsStore.syncTabsWithTree(projectId.value, nodes)
+    }
+  },
+  { deep: true }
+)
 
 async function createDocument(parentDocumentId: number | null) {
   if (creating.value || importing.value) return
   creating.value = true
   try {
     const document = await store.createDocument(projectId.value, parentDocumentId, t('documents.untitled'))
+    tabsStore.openTab({
+      id: document.id,
+      projectId: document.projectId,
+      title: document.title,
+      contentFormat: document.contentFormat
+    })
     await router.push(documentRoute(document.id))
   } finally {
     creating.value = false
@@ -433,8 +536,18 @@ async function archiveDocument(id: number) {
   const node = store.treeNodes.find((candidate) => candidate.id === id)
   if (!node || !window.confirm(t('documents.archiveConfirm', { title: node.title }))) return
   const wasActive = store.activeDocument?.id === id
+  const nextTabId = tabsStore.closeTab(projectId.value, id)
   await store.archiveDocument(id)
-  if (wasActive) await router.replace(`/projects/${projectId.value}/documents`)
+  if (wasActive) {
+    historyOpen.value = false
+    await store.flushSaves()
+    if (nextTabId != null) {
+      await router.push(documentRoute(nextTabId))
+    } else {
+      store.activeDocument = null
+      await router.replace(`/projects/${projectId.value}/documents`)
+    }
+  }
 }
 
 async function openArchive() {
@@ -577,6 +690,7 @@ onBeforeUnmount(() => {
           </div>
           <DocumentTree
             v-else-if="!hasDocumentSearch"
+            :key="store.treeSnapshotVersion"
             :project-id="projectId"
             :nodes="store.treeNodes"
             :active-id="documentId"
@@ -599,72 +713,84 @@ onBeforeUnmount(() => {
       </aside>
 
       <main class="documents-content">
-        <div v-if="store.loadingDocument" class="documents-content__state">
-          <Loader2 class="spin" aria-hidden="true" />{{ t('documents.loadingDocument') }}
-        </div>
-        <div v-else-if="store.error && !store.activeDocument" class="documents-content__state" role="alert">
-          <TriangleAlert aria-hidden="true" />
-          <span>{{ t('documents.loadFailed') }}</span>
-          <button type="button" @click="retryWorkspace">{{ t('common.retry') }}</button>
-        </div>
-        <div v-else-if="archiveOpen" class="documents-archive">
-          <header>
-            <div><h2>{{ t('documents.archived') }}</h2><p>{{ t('documents.archivedDescription') }}</p></div>
-            <button type="button" :aria-label="t('common.close')" @click="archiveOpen = false"><X aria-hidden="true" /></button>
-          </header>
-          <ul v-if="store.archivedTreeNodes.length > 0">
-            <li v-for="node in store.archivedTreeNodes" :key="node.id">
-              <span>{{ node.title }}</span>
-              <button type="button" @click="restoreArchived(node.id)">
-                <ArchiveRestore aria-hidden="true" />{{ t('documents.restore') }}
-              </button>
-            </li>
-          </ul>
-          <div v-else class="documents-content__state">{{ t('documents.noArchived') }}</div>
-        </div>
-        <DocumentHistoryPanel
-          v-else-if="store.activeDocument && historyOpen"
-          :open="historyOpen"
-          :document="store.activeDocument"
-          @close="historyOpen = false"
-          @restored="historyOpen = false"
+        <DocumentTabs
+          v-if="!isArticleTab"
+          :tabs="currentProjectTabs"
+          :active-id="documentId"
+          @select="onSelectTab"
+          @close="onCloseTab"
+          @close-others="onCloseOtherTabs"
+          @close-all="onCloseAllTabs"
         />
-        <div v-else-if="store.activeDocument?.contentFormat === 'HTML'" class="documents-content__state">
-          <a :href="htmlDocumentPath(projectId, store.activeDocument.id)" target="_blank" rel="noopener noreferrer">
-            <ExternalLink aria-hidden="true" />{{ t('documents.html.open') }}
-          </a>
-        </div>
-        <DocumentEditor
-          :key="store.activeDocument.id"
-          v-else-if="store.activeDocument?.contentFormat === 'BLOCKNOTE'"
-          :document="store.activeDocument"
-          :initial-session="collaborationPrefetch?.documentId === store.activeDocument.id ? collaborationPrefetch.promise : undefined"
-          :tree-nodes="store.treeNodes"
-          :save-state="store.saveState"
-          :conflict-version="store.conflictVersion"
-          :has-restored-draft="store.hasRestoredDraft"
-          :restored-draft-time="store.restoredDraftTime"
-          :title-draft-cached="store.titleDraftCached"
-          :title-draft-cache-failed="store.titleDraftCacheFailed"
-          :draft-candidates="draftCandidates"
-          :draft-owner-id="authStore.currentUser?.id"
-          :mention-members="members"
-          :mention-documents="store.treeNodes.map((node) => ({ id: node.id, title: node.title, projectId: node.projectId }))"
-          :favorite-pending="store.favoritePendingIds.has(store.activeDocument.id)"
-          @update-title="store.updateDraft({ title: $event })"
-          @commit-title="store.saveNow"
-          @discard-draft="store.discardDraft(store.activeDocument.id)"
-          @dismiss-draft-banner="store.dismissDraftBanner"
-          @restore-draft-title="store.restoreDraftTitle"
-          @archive="archiveDocument(store.activeDocument.id)"
-          @history="openHistory"
-          @reload="store.reloadAfterConflict"
-          @retry="store.saveNow"
-          @toggle-favorite="store.toggleFavorite(store.activeDocument)"
-        />
-        <div v-else class="documents-content__state">
-          <FilePlus2 aria-hidden="true" />
-          <span>{{ t('documents.selectDocument') }}</span>
+
+        <div class="documents-content__body">
+          <div v-if="store.loadingDocument" class="documents-content__state">
+            <Loader2 class="spin" aria-hidden="true" />{{ t('documents.loadingDocument') }}
+          </div>
+          <div v-else-if="store.error && !store.activeDocument" class="documents-content__state" role="alert">
+            <TriangleAlert aria-hidden="true" />
+            <span>{{ t('documents.loadFailed') }}</span>
+            <button type="button" @click="retryWorkspace">{{ t('common.retry') }}</button>
+          </div>
+          <div v-else-if="archiveOpen" class="documents-archive">
+            <header>
+              <div><h2>{{ t('documents.archived') }}</h2><p>{{ t('documents.archivedDescription') }}</p></div>
+              <button type="button" :aria-label="t('common.close')" @click="archiveOpen = false"><X aria-hidden="true" /></button>
+            </header>
+            <ul v-if="store.archivedTreeNodes.length > 0">
+              <li v-for="node in store.archivedTreeNodes" :key="node.id">
+                <span>{{ node.title }}</span>
+                <button type="button" @click="restoreArchived(node.id)">
+                  <ArchiveRestore aria-hidden="true" />{{ t('documents.restore') }}
+                </button>
+              </li>
+            </ul>
+            <div v-else class="documents-content__state">{{ t('documents.noArchived') }}</div>
+          </div>
+          <DocumentHistoryPanel
+            v-else-if="store.activeDocument && historyOpen"
+            :open="historyOpen"
+            :document="store.activeDocument"
+            @close="historyOpen = false"
+            @restored="historyOpen = false"
+          />
+          <div v-else-if="store.activeDocument?.contentFormat === 'HTML'" class="documents-content__state">
+            <a :href="htmlDocumentPath(projectId, store.activeDocument.id)" target="_blank" rel="noopener noreferrer">
+              <ExternalLink aria-hidden="true" />{{ t('documents.html.open') }}
+            </a>
+          </div>
+          <DocumentEditor
+            :key="store.activeDocument.id"
+            v-else-if="store.activeDocument?.contentFormat === 'BLOCKNOTE'"
+            :document="store.activeDocument"
+            :initial-session="collaborationPrefetch?.documentId === store.activeDocument.id ? collaborationPrefetch.promise : undefined"
+            :tree-nodes="store.treeNodes"
+            :save-state="store.saveState"
+            :conflict-version="store.conflictVersion"
+            :has-restored-draft="store.hasRestoredDraft"
+            :restored-draft-time="store.restoredDraftTime"
+            :title-draft-cached="store.titleDraftCached"
+            :title-draft-cache-failed="store.titleDraftCacheFailed"
+            :draft-candidates="draftCandidates"
+            :draft-owner-id="authStore.currentUser?.id"
+            :mention-members="members"
+            :mention-documents="store.treeNodes.map((node) => ({ id: node.id, title: node.title, projectId: node.projectId }))"
+            :favorite-pending="store.favoritePendingIds.has(store.activeDocument.id)"
+            @update-title="store.updateDraft({ title: $event })"
+            @commit-title="store.saveNow"
+            @discard-draft="store.discardDraft(store.activeDocument.id)"
+            @dismiss-draft-banner="store.dismissDraftBanner"
+            @restore-draft-title="store.restoreDraftTitle"
+            @archive="archiveDocument(store.activeDocument.id)"
+            @history="openHistory"
+            @reload="store.reloadAfterConflict"
+            @retry="store.saveNow"
+            @toggle-favorite="store.toggleFavorite(store.activeDocument)"
+          />
+          <div v-else class="documents-content__state">
+            <FilePlus2 aria-hidden="true" />
+            <span>{{ t('documents.selectDocument') }}</span>
+          </div>
         </div>
 
       </main>
@@ -740,7 +866,8 @@ onBeforeUnmount(() => {
 .documents-sidebar footer button:hover,
 .documents-sidebar footer button.active { background: var(--color-bg-hover); color: var(--color-text-primary); }
 .documents-sidebar footer svg { width: 14px; height: 14px; }
-.documents-content { display: flex; min-width: 0; min-height: 0; flex: 1; }
+.documents-content { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
+.documents-content__body { display: flex; min-width: 0; min-height: 0; flex: 1; position: relative; overflow: hidden; }
 .documents-content__state { display: flex; min-height: 240px; flex: 1; align-items: center; justify-content: center; gap: 8px; color: var(--color-text-muted); }
 .documents-content__state svg { width: 18px; height: 18px; }
 .documents-archive { width: min(100%, 860px); margin: 0 auto; padding: 48px 56px; overflow-y: auto; }
