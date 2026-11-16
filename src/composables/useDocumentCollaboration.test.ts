@@ -272,4 +272,89 @@ describe('document collaboration session renewal', () => {
     expect(mockProviders[1]!.sendToken).not.toHaveBeenCalled()
     expect(vi.getTimerCount()).toBe(1)
   })
+
+  it('restores local draft updates when starting a session', async () => {
+    localStorage.clear()
+    const draftDoc = new Y.Doc()
+    const frag = draftDoc.getXmlFragment('document-store')
+    draftDoc.transact(() => {
+      const el = new Y.XmlElement('paragraph')
+      el.setAttribute('id', 'local-draft-block')
+      frag.insert(0, [el])
+    })
+    const update = Y.encodeStateAsUpdate(draftDoc)
+    const updateBase64 = btoa(String.fromCharCode(...update))
+
+    localStorage.setItem(
+      'linear-lite.doc-draft.v1:19',
+      JSON.stringify({
+        documentId: 19,
+        format: 'BLOCKNOTE',
+        title: 'Draft',
+        ydocUpdate: updateBase64,
+        serverVersion: 1,
+        savedAt: Date.now(),
+        hasUnsavedChanges: true,
+      })
+    )
+
+    vi.mocked(documentCollaborationApi.createSession).mockResolvedValue(makeSession('1'))
+    app = createApp(defineComponent({
+      setup() {
+        state = useDocumentCollaboration(19, 'BLOCKNOTE')
+        return () => h('div')
+      },
+    }))
+    app.mount(document.createElement('div'))
+    await state!.start()
+
+    expect(state!.draftRestored.value).toBe(true)
+    expect(state!.isLocallyCached.value).toBe(true)
+    const stored = state!.ydoc.value.getXmlFragment('document-store')
+    expect(stored.length).toBeGreaterThan(0)
+    expect((stored.get(0) as Y.XmlElement).getAttribute('id')).toBe('local-draft-block')
+  })
+
+  it('falls back to local draft when collaboration session fetch fails offline', async () => {
+    localStorage.clear()
+    const draftDoc = new Y.Doc()
+    const frag = draftDoc.getXmlFragment('document-store')
+    draftDoc.transact(() => {
+      const el = new Y.XmlElement('paragraph')
+      el.setAttribute('id', 'offline-only-block')
+      frag.insert(0, [el])
+    })
+    const update = Y.encodeStateAsUpdate(draftDoc)
+    const updateBase64 = btoa(String.fromCharCode(...update))
+
+    localStorage.setItem(
+      'linear-lite.doc-draft.v1:19',
+      JSON.stringify({
+        documentId: 19,
+        format: 'BLOCKNOTE',
+        title: 'Draft',
+        ydocUpdate: updateBase64,
+        serverVersion: 1,
+        savedAt: Date.now(),
+        hasUnsavedChanges: true,
+      })
+    )
+
+    vi.mocked(documentCollaborationApi.createSession).mockRejectedValue(new Error('Network error'))
+    app = createApp(defineComponent({
+      setup() {
+        state = useDocumentCollaboration(19, 'BLOCKNOTE')
+        return () => h('div')
+      },
+    }))
+    app.mount(document.createElement('div'))
+    await state!.start()
+
+    expect(state!.draftRestored.value).toBe(true)
+    expect(state!.connectionState.value).toBe('offline')
+    expect(state!.hasSynced.value).toBe(true)
+    const stored = state!.ydoc.value.getXmlFragment('document-store')
+    expect(stored.length).toBeGreaterThan(0)
+    expect((stored.get(0) as Y.XmlElement).getAttribute('id')).toBe('offline-only-block')
+  })
 })

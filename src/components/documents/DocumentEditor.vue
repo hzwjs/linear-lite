@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Archive, Check, Clock3, Copy, Download, FileDown, Loader2, MoreHorizontal, RefreshCw, Star, Trash2, TriangleAlert } from 'lucide-vue-next'
+import { Archive, Check, Clock3, Copy, Download, FileDown, HardDrive, Loader2, MoreHorizontal, RefreshCw, Star, Trash2, TriangleAlert } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StructuredDocumentEditor from '../StructuredDocumentEditor.vue'
@@ -22,8 +22,12 @@ const props = withDefaults(defineProps<{
   mentionDocuments: Array<{ id: number; title: string; projectId: number }>
   favoritePending?: boolean
   initialSession?: Promise<DocumentCollaborationSession>
+  hasRestoredDraft?: boolean
+  restoredDraftTime?: number | null
 }>(), {
-  favoritePending: false
+  favoritePending: false,
+  hasRestoredDraft: false,
+  restoredDraftTime: null
 })
 
 const emit = defineEmits<{
@@ -35,6 +39,8 @@ const emit = defineEmits<{
   reload: []
   retry: []
   toggleFavorite: []
+  discardDraft: []
+  dismissDraftBanner: []
 }>()
 
 const { t } = useI18n()
@@ -65,6 +71,30 @@ const collaborationOptions = computed(() => {
   }
 })
 const liveReady = ref(false)
+const showDraftBanner = ref(true)
+watch(() => props.hasRestoredDraft, (val) => {
+  if (val) showDraftBanner.value = true
+})
+const isLocallyCached = computed(() => {
+  return collaborationState.isLocallyCached?.value || props.hasRestoredDraft ||
+    props.saveState === 'failed' || props.saveState === 'dirty' ||
+    collaborationStatusKey.value === 'offline'
+})
+const restoredTimeAgo = computed(() => {
+  if (!props.restoredDraftTime) return t('documents.updatedTime.justNow')
+  return formatRelativeTime(new Date(props.restoredDraftTime).toISOString(), t, 'documents.updatedTime', relativeTimeClock.value)
+})
+
+function handleDiscardDraft() {
+  showDraftBanner.value = false
+  collaborationState.discardDraft?.()
+  emit('discardDraft')
+}
+
+function handleDismissDraft() {
+  showDraftBanner.value = false
+  emit('dismissDraftBanner')
+}
 
 async function onLiveReady() {
   if (liveReady.value || !collaborationOptions.value) return
@@ -375,6 +405,10 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
           <Check v-else aria-hidden="true" />
           {{ t(`documents.collaboration.${collaborationStatusKey}`) }}
         </span>
+        <span v-if="isLocallyCached" class="document-editor__save-state document-editor__save-state--cached" :title="t('documents.locallyCachedTooltip')" role="status">
+          <HardDrive aria-hidden="true" />
+          {{ t('documents.locallyCached') }}
+        </span>
         <div class="document-editor__collaborators" :aria-label="t('documents.collaboration.people')">
           <span v-for="person in collaborationState.collaborators.value" :key="person.id" :title="person.name" :style="{ '--collaborator-color': person.color }">
             {{ person.name.slice(0, 1).toUpperCase() }}
@@ -408,6 +442,20 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
         </div>
       </div>
     </header>
+
+    <div v-if="hasRestoredDraft && showDraftBanner" class="document-editor__conflict document-editor__draft-banner" role="status">
+      <Clock3 aria-hidden="true" />
+      <div>
+        <strong>{{ t('documents.draftRestoredTitle') }}</strong>
+        <p>{{ t('documents.draftRestoredDescription', { time: restoredTimeAgo }) }}</p>
+      </div>
+      <button type="button" @click="handleDiscardDraft">
+        <Trash2 aria-hidden="true" />{{ t('documents.discardDraft') }}
+      </button>
+      <button type="button" class="document-editor__draft-keep-btn" @click="handleDismissDraft">
+        <Check aria-hidden="true" />{{ t('documents.keepDraft') }}
+      </button>
+    </div>
 
     <div v-if="saveState === 'conflict'" class="document-editor__conflict" role="alert">
       <TriangleAlert aria-hidden="true" />
@@ -640,6 +688,11 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
 .document-editor__conflict p { margin: 2px 0 0; color: var(--color-text-secondary); font-size: var(--font-size-caption); }
 .document-editor__conflict button { display: flex; align-items: center; gap: 6px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg-base); }
 .document-editor__conflict button svg { width: 14px; height: 14px; }
+.document-editor__save-state--cached { color: var(--color-accent); }
+.document-editor__draft-banner { border-bottom: 1px solid var(--color-accent); background: var(--color-accent-subtle, rgba(59, 130, 246, 0.08)); }
+.document-editor__draft-banner > svg { color: var(--color-accent); }
+.document-editor__draft-keep-btn { background: var(--color-accent) !important; color: #fff !important; border-color: var(--color-accent) !important; padding: 4px 10px; }
+.document-editor__draft-keep-btn:hover { opacity: 0.9; }
 
 .document-editor__page {
   /* 阅读区域居中，滚动容器保留整页宽度供导航和编辑操作使用。 */

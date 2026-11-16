@@ -11,6 +11,7 @@ import { documentCollaborationApi, type DocumentCollaborationSession } from '../
 import { useDocumentStore } from '../store/documentStore'
 import type { ProjectDocument } from '../types/document'
 import { downloadHtmlDocument, HTML_DOCUMENT_MAX_BYTES, htmlDocumentPath, readHtmlDocumentFile } from '../utils/htmlDocument'
+import { clearDocumentDraft, readDocumentDraft, saveDocumentDraft } from '../utils/documentDraftStorage'
 import { JWT_STORAGE_KEY, USER_STORAGE_KEY } from '../services/api/constants'
 
 const route = useRoute()
@@ -40,7 +41,25 @@ const collaborationPrefetch = shallowRef<{ documentId: number; promise: Promise<
 let fileReadSequence = 0
 let draftRevision = 0
 let createdNavigationPending = false
-watch([title, content], () => { draftRevision += 1 }, { flush: 'sync' })
+let htmlDraftTimer: ReturnType<typeof setTimeout> | null = null
+watch([title, content], ([newTitle, newContent]) => {
+  draftRevision += 1
+  const docId = document.value?.id
+  if (!docId) return
+  if (htmlDraftTimer != null) clearTimeout(htmlDraftTimer)
+  htmlDraftTimer = setTimeout(() => {
+    saveDocumentDraft({
+      documentId: docId,
+      projectId: projectId.value,
+      format: 'HTML',
+      title: newTitle,
+      content: newContent,
+      serverVersion: document.value?.version ?? 1,
+      savedAt: Date.now(),
+      hasUnsavedChanges: true,
+    })
+  }, 400)
+}, { flush: 'sync' })
 const fileInput = ref<HTMLInputElement | null>(null)
 let sequence = 0
 const projectId = computed(() => Number(route.params.projectId))
@@ -107,6 +126,11 @@ async function load() {
     }
     // Existing document bodies enter the page through the collaboration checkpoint.
     acceptDocument(value, '')
+    const draft = readDocumentDraft(id)
+    if (draft && draft.hasUnsavedChanges && (draft.title !== value.title || (draft.content && draft.content !== value.content))) {
+      acceptDocument(value, draft.content || '')
+      if (draft.title) title.value = draft.title
+    }
     mode.value = 'preview'
   } catch {
     if (request === sequence) error.value = t('documents.html.loadFailed')
@@ -147,6 +171,7 @@ async function save() {
       document.value = { ...current, ...saved }
       title.value = saved.title
       window.document.title = `${saved.title} · Linear Lite`
+      clearDocumentDraft(current.id)
     }
     conflict.value = false
     mode.value = 'preview'
@@ -226,6 +251,7 @@ onBeforeRouteUpdate(confirmNavigation)
 onBeforeUnmount(() => {
   sequence += 1
   fileReadSequence += 1
+  if (htmlDraftTimer != null) clearTimeout(htmlDraftTimer)
   window.removeEventListener('beforeunload', preventUnsavedExit)
   window.removeEventListener('storage', refreshSession)
 })

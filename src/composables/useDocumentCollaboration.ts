@@ -5,6 +5,13 @@ import { YSyncConfig } from 'y-codemirror.next'
 import { ySyncPluginKey } from 'y-prosemirror'
 import { documentCollaborationApi, type DocumentCollaborationRenewal, type DocumentCollaborationSession } from '../services/api/documentCollaboration'
 import { acquireSharedCollaborationSocket } from './sharedCollaborationSocket'
+import {
+  clearDocumentDraft,
+  decodeBase64ToUint8Array,
+  encodeUint8ArrayToBase64,
+  readDocumentDraft,
+  saveDocumentDraft,
+} from '../utils/documentDraftStorage'
 
 export type CollaborationConnectionState = 'connecting' | 'connected' | 'offline' | 'error'
 export type CollaborationSaveState = 'saved' | 'saving' | 'offline'
@@ -97,16 +104,43 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
   const pendingCounters = ref(new Map<string, number>())
   const epochChanged = ref(false)
   const collaborators = ref<Array<{ id: number; name: string; color: string }>>([])
+  const draftRestored = ref(false)
+  const isLocallyCached = ref(false)
   const saveState = computed<CollaborationSaveState>(() => {
     if (connectionState.value === 'offline' || connectionState.value === 'error') return 'offline'
     return pendingCounters.value.size > 0 ? 'saving' : 'saved'
   })
   let disposed = false
   let renewTimer: ReturnType<typeof setTimeout> | null = null
+  let draftSaveTimer: ReturnType<typeof setTimeout> | null = null
   let sessionPromise: Promise<DocumentCollaborationSession> | null = null
   let refreshPromise: { sessionId: string; promise: Promise<DocumentCollaborationRenewal> } | null = null
   let releaseSocket: (() => void) | null = null
   let generation = 0
+
+  function scheduleLocalDraftSave() {
+    if (draftSaveTimer != null) clearTimeout(draftSaveTimer)
+    draftSaveTimer = setTimeout(() => {
+      if (disposed) return
+      try {
+        const update = Y.encodeStateAsUpdate(ydoc.value)
+        const updateBase64 = encodeUint8ArrayToBase64(update)
+        const existing = readDocumentDraft(documentId)
+        saveDocumentDraft({
+          documentId,
+          format: contentFormat,
+          title: existing?.title ?? '',
+          ydocUpdate: updateBase64,
+          serverVersion: serverVersion.value,
+          savedAt: Date.now(),
+          hasUnsavedChanges: true,
+        })
+        isLocallyCached.value = true
+      } catch {
+        /* storage quota or unavailable */
+      }
+    }, 400)
+  }
 
   function trackLocalEdits(doc: Y.Doc) {
     attachSessionCounterTracking(doc, () => session.value, () => !epochChanged.value && doc === ydoc.value, (sessionId, next) => {
@@ -114,6 +148,7 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
       const pending = new Map(pendingCounters.value)
       pending.set(sessionId, next)
       pendingCounters.value = pending
+      scheduleLocalDraftSave()
     })
   }
   trackLocalEdits(ydoc.value)
@@ -239,6 +274,22 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
         pendingCounters.value = acknowledgeCounters(pendingCounters.value, event.counters)
         serverVersion.value = event.version
         commitSeq.value = event.commitSeq
+        if (pendingCounters.value.size === 0) {
+          const draft = readDocumentDraft(documentId)
+          if (draft) {
+            if (!draft.hasUnsavedChanges || !draft.title) {
+              clearDocumentDraft(documentId)
+              isLocallyCached.value = false
+            } else {
+              saveDocumentDraft({
+                ...draft,
+                ydocUpdate: undefined,
+                serverVersion: event.version,
+                savedAt: Date.now(),
+              })
+            }
+          }
+        }
       },
       onAuthenticationFailed: () => {
         if (!isCurrent()) return
@@ -271,17 +322,48 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
       const preview = new Y.Doc()
       Y.applyUpdate(preview, state)
       Y.applyUpdate(ydoc.value, state)
+
+      // Restore local draft update if available
+      const draft = readDocumentDraft(documentId)
+      if (draft?.ydocUpdate && draft.hasUnsavedChanges) {
+        try {
+          const draftBytes = decodeBase64ToUint8Array(draft.ydocUpdate)
+          Y.applyUpdate(preview, draftBytes)
+          Y.applyUpdate(ydoc.value, draftBytes)
+          draftRestored.value = true
+          isLocallyCached.value = true
+        } catch {
+          /* ignore corrupted draft bytes */
+        }
+      }
+
       previewDoc.value?.destroy()
       previewDoc.value = preview
       commitSeq.value = current.commitSeq
       await createProvider(current)
     } catch {
       if (currentGeneration === generation && !disposed) {
+        const draft = readDocumentDraft(documentId)
+        if (draft?.ydocUpdate) {
+          try {
+            const draftBytes = decodeBase64ToUint8Array(draft.ydocUpdate)
+            const preview = new Y.Doc()
+            Y.applyUpdate(preview, draftBytes)
+            Y.applyUpdate(ydoc.value, draftBytes)
+            previewDoc.value?.destroy()
+            previewDoc.value = preview
+            hasSynced.value = true
+            draftRestored.value = true
+            isLocallyCached.value = true
+          } catch {
+            /* ignore */
+          }
+        }
         provider.value?.destroy()
         provider.value = null
         releaseSocket?.()
         releaseSocket = null
-        connectionState.value = 'error'
+        connectionState.value = draft?.ydocUpdate ? 'offline' : 'error'
       }
     }
   }
@@ -315,11 +397,20 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
     await start()
   }
 
+  function discardDraft() {
+    clearDocumentDraft(documentId)
+    draftRestored.value = false
+    isLocallyCached.value = false
+    void restartForEpoch()
+  }
+
   function dispose() {
     disposed = true
     generation += 1
     if (renewTimer != null) clearTimeout(renewTimer)
     renewTimer = null
+    if (draftSaveTimer != null) clearTimeout(draftSaveTimer)
+    draftSaveTimer = null
     provider.value?.destroy()
     provider.value = null
     releaseSocket?.()
@@ -342,6 +433,9 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
     commitSeq: readonly(commitSeq),
     epochChanged: readonly(epochChanged),
     collaborators: readonly(collaborators),
+    draftRestored: readonly(draftRestored),
+    isLocallyCached: readonly(isLocallyCached),
+    discardDraft,
     start,
     retirePreview,
     restartForEpoch,

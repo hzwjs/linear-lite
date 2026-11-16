@@ -324,4 +324,87 @@ describe('documentStore title saves', () => {
     resolveMove()
     await movePromise
   })
+
+  it('restores unsaved title draft when loading document after a refresh in weak network', async () => {
+    localStorage.clear()
+    const store = useDocumentStore()
+    vi.mocked(documentApi.get).mockResolvedValue(document({ id: 8, title: 'Server Title' }))
+
+    // Simulate an existing draft from before refresh with unsaved title
+    localStorage.setItem(
+      'linear-lite.doc-draft.v1:8',
+      JSON.stringify({
+        documentId: 8,
+        format: 'BLOCKNOTE',
+        title: 'Restored Offline Title',
+        serverVersion: 1,
+        savedAt: Date.now() - 5000,
+        hasUnsavedChanges: true,
+      })
+    )
+
+    await store.loadDocument(8)
+
+    expect(store.activeDocument?.title).toBe('Restored Offline Title')
+    expect(store.saveState).toBe('dirty')
+    expect(store.hasRestoredDraft).toBe(true)
+    expect(store.restoredDraftTime).toBeTypeOf('number')
+  })
+
+  it('falls back to local draft when loading document fails due to network error', async () => {
+    localStorage.clear()
+    const store = useDocumentStore()
+    vi.mocked(documentApi.get).mockRejectedValue(new Error('Network error'))
+
+    localStorage.setItem(
+      'linear-lite.doc-draft.v1:8',
+      JSON.stringify({
+        documentId: 8,
+        projectId: 3,
+        format: 'BLOCKNOTE',
+        title: 'Cached Offline Document',
+        content: '[{"type":"paragraph"}]',
+        serverVersion: 2,
+        savedAt: Date.now() - 10000,
+        hasUnsavedChanges: true,
+      })
+    )
+
+    const doc = await store.loadDocument(8)
+
+    expect(doc?.title).toBe('Cached Offline Document')
+    expect(store.activeDocument?.title).toBe('Cached Offline Document')
+    expect(store.hasRestoredDraft).toBe(true)
+    expect(store.saveState).toBe('dirty')
+    expect(store.error).toBeNull()
+  })
+
+  it('discards a restored draft and reverts to acknowledged server title', async () => {
+    localStorage.clear()
+    const store = useDocumentStore()
+    vi.mocked(documentApi.get).mockResolvedValue(document({ id: 8, title: 'Server Title' }))
+
+    localStorage.setItem(
+      'linear-lite.doc-draft.v1:8',
+      JSON.stringify({
+        documentId: 8,
+        format: 'BLOCKNOTE',
+        title: 'Unwanted Draft',
+        serverVersion: 1,
+        savedAt: Date.now(),
+        hasUnsavedChanges: true,
+      })
+    )
+
+    await store.loadDocument(8)
+    expect(store.activeDocument?.title).toBe('Unwanted Draft')
+    expect(store.hasRestoredDraft).toBe(true)
+
+    store.discardDraft(8)
+
+    expect(store.activeDocument?.title).toBe('Server Title')
+    expect(store.hasRestoredDraft).toBe(false)
+    expect(store.saveState).toBe('saved')
+    expect(localStorage.getItem('linear-lite.doc-draft.v1:8')).toBeNull()
+  })
 })

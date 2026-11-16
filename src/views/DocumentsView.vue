@@ -333,7 +333,7 @@ async function finishMarkdownImport(requestedProjectId: number, documentIdToOpen
   if (workspaceDisposed || projectId.value !== requestedProjectId || documentIdToOpen == null) return
   clearDocumentSearch()
   try {
-    await store.loadTree(requestedProjectId)
+    await store.loadTree(requestedProjectId, { force: true })
     if (workspaceDisposed || projectId.value !== requestedProjectId) return
     await store.flushSaves()
     await router.push(documentRoute(documentIdToOpen))
@@ -629,11 +629,16 @@ onBeforeUnmount(() => {
           :tree-nodes="store.treeNodes"
           :save-state="store.saveState"
           :conflict-version="store.conflictVersion"
+          :has-restored-draft="store.hasRestoredDraft"
+          :restored-draft-time="store.restoredDraftTime"
           :mention-members="members"
           :mention-documents="store.treeNodes.map((node) => ({ id: node.id, title: node.title, projectId: node.projectId }))"
           :favorite-pending="store.favoritePendingIds.has(store.activeDocument.id)"
           @update-title="store.updateDraft({ title: $event })"
+          @update-content="store.saveContentDraft($event)"
           @commit-title="store.saveNow"
+          @discard-draft="store.discardDraft(store.activeDocument.id)"
+          @dismiss-draft-banner="store.dismissDraftBanner"
           @archive="archiveDocument(store.activeDocument.id)"
           @history="openHistory"
           @reload="store.reloadAfterConflict"

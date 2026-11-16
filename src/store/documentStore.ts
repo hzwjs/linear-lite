@@ -3,6 +3,11 @@ import { ref } from 'vue'
 import { documentApi, getDocumentConflict } from '../services/api/documents'
 import { documentCollaborationApi } from '../services/api/documentCollaboration'
 import { useDocumentFavoriteStore } from './documentFavoriteStore'
+import {
+  clearDocumentDraft,
+  readDocumentDraft,
+  saveDocumentDraft,
+} from '../utils/documentDraftStorage'
 import type {
   DocumentSaveState,
   ProjectDocument,
@@ -37,6 +42,8 @@ export const useDocumentStore = defineStore('documentStore', () => {
   const error = ref<string | null>(null)
   const conflictVersion = ref<number | null>(null)
   const favoritePendingIds = ref(new Set<number>())
+  const hasRestoredDraft = ref(false)
+  const restoredDraftTime = ref<number | null>(null)
 
   let editSequence = 0
   let acknowledgedTitle = ''
@@ -54,6 +61,8 @@ export const useDocumentStore = defineStore('documentStore', () => {
     commitRequested = false
     saveState.value = 'idle'
     conflictVersion.value = null
+    hasRestoredDraft.value = false
+    restoredDraftTime.value = null
   }
 
   function syncTreeNode(document: ProjectDocument) {
@@ -179,9 +188,43 @@ export const useDocumentStore = defineStore('documentStore', () => {
       resetEditorState()
       syncTreeNode(document)
       useDocumentFavoriteStore().syncDocument(document)
-      return document
+
+      const draft = readDocumentDraft(documentId)
+      if (draft && draft.hasUnsavedChanges && draft.title.trim().length > 0 && draft.title !== document.title) {
+        activeDocument.value = { ...document, title: draft.title }
+        saveState.value = 'dirty'
+        hasRestoredDraft.value = true
+        restoredDraftTime.value = draft.savedAt
+      }
+      return activeDocument.value
     } catch (cause) {
       if (sequence === documentLoadSequence) {
+        const draft = readDocumentDraft(documentId)
+        if (draft && draft.title.trim().length > 0) {
+          const fallbackDoc: ProjectDocument = {
+            id: documentId,
+            projectId: draft.projectId ?? loadedTreeProjectId ?? 0,
+            contentFormat: draft.format,
+            title: draft.title,
+            content: draft.content ?? '[]',
+            imageAssets: [],
+            creatorId: 0,
+            lastEditorId: 0,
+            archivedAt: null,
+            createdAt: new Date(draft.savedAt).toISOString(),
+            updatedAt: new Date(draft.savedAt).toISOString(),
+            sortOrder: 0,
+            version: draft.serverVersion,
+            favorited: false,
+          }
+          activeDocument.value = fallbackDoc
+          acknowledgedTitle = draft.title
+          saveState.value = 'dirty'
+          hasRestoredDraft.value = true
+          restoredDraftTime.value = draft.savedAt
+          error.value = null
+          return fallbackDoc
+        }
         error.value = cause instanceof Error ? cause.message : String(cause)
       }
       throw cause
@@ -211,6 +254,35 @@ export const useDocumentStore = defineStore('documentStore', () => {
       return
     }
     saveState.value = 'dirty'
+    const draft = readDocumentDraft(document.id)
+    saveDocumentDraft({
+      documentId: document.id,
+      projectId: document.projectId,
+      format: document.contentFormat,
+      title: nextDocument.title,
+      content: draft?.content,
+      ydocUpdate: draft?.ydocUpdate,
+      serverVersion: document.version,
+      savedAt: Date.now(),
+      hasUnsavedChanges: true,
+    })
+  }
+
+  function saveContentDraft(content: string) {
+    const document = activeDocument.value
+    if (!document) return
+    const draft = readDocumentDraft(document.id)
+    saveDocumentDraft({
+      documentId: document.id,
+      projectId: document.projectId,
+      format: document.contentFormat,
+      title: document.title,
+      content,
+      ydocUpdate: draft?.ydocUpdate,
+      serverVersion: document.version,
+      savedAt: Date.now(),
+      hasUnsavedChanges: true,
+    })
   }
 
   async function performSave(): Promise<void> {
@@ -237,6 +309,21 @@ export const useDocumentStore = defineStore('documentStore', () => {
         saveState.value = 'invalid'
       } else {
         saveState.value = changedDuringRequest ? 'dirty' : 'saved'
+      }
+      if (saveState.value === 'saved') {
+        const draft = readDocumentDraft(submittedId)
+        if (draft) {
+          if (!draft.ydocUpdate) {
+            clearDocumentDraft(submittedId)
+          } else {
+            saveDocumentDraft({
+              ...draft,
+              title: saved.title,
+              serverVersion: saved.version,
+              hasUnsavedChanges: false,
+            })
+          }
+        }
       }
     } catch (cause) {
       if (activeDocument.value?.id !== submittedId) return
@@ -327,7 +414,24 @@ export const useDocumentStore = defineStore('documentStore', () => {
       activeDocument.value = null
       resetEditorState()
     }
-    archivedIds.forEach((id) => useDocumentFavoriteStore().removeDocument(id))
+    archivedIds.forEach((id) => {
+      useDocumentFavoriteStore().removeDocument(id)
+      clearDocumentDraft(id)
+    })
+  }
+
+  function discardDraft(documentId: number) {
+    clearDocumentDraft(documentId)
+    hasRestoredDraft.value = false
+    restoredDraftTime.value = null
+    if (activeDocument.value?.id === documentId) {
+      activeDocument.value = { ...activeDocument.value, title: acknowledgedTitle }
+      saveState.value = 'saved'
+    }
+  }
+
+  function dismissDraftBanner() {
+    hasRestoredDraft.value = false
   }
 
   async function restoreDocument(documentId: number, projectId: number) {
@@ -380,6 +484,16 @@ export const useDocumentStore = defineStore('documentStore', () => {
     refreshingTree.value = false
     activeDocument.value = null
     error.value = null
+    hasRestoredDraft.value = false
+    restoredDraftTime.value = null
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => {
+      if (activeDocument.value && (saveState.value === 'dirty' || saveState.value === 'failed')) {
+        void saveNow()
+      }
+    })
   }
 
   return {
@@ -395,11 +509,16 @@ export const useDocumentStore = defineStore('documentStore', () => {
     error,
     conflictVersion,
     favoritePendingIds,
+    hasRestoredDraft,
+    restoredDraftTime,
     loadTree,
     loadArchive,
     loadDocument,
     createDocument,
     updateDraft,
+    saveContentDraft,
+    discardDraft,
+    dismissDraftBanner,
     saveNow,
     flushSaves,
     reloadAfterConflict,
