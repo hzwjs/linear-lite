@@ -69,6 +69,54 @@ describe('documentTabsStore', () => {
     expect(store.getTabs(1)).toEqual([])
   })
 
+  it('supports pin tab and preserves pinned tabs when closing other or all tabs', () => {
+    const store = useDocumentTabsStore()
+    store.openTab({ id: 10, projectId: 1, title: 'Doc 10', contentFormat: 'BLOCKNOTE' })
+    store.openTab({ id: 20, projectId: 1, title: 'Doc 20', contentFormat: 'BLOCKNOTE' })
+    store.openTab({ id: 30, projectId: 1, title: 'Doc 30', contentFormat: 'BLOCKNOTE' })
+
+    // Pin Doc 10
+    const isPinned = store.togglePinTab(1, 10)
+    expect(isPinned).toBe(true)
+    expect(store.getTabs(1)[0]?.pinned).toBe(true)
+
+    // Close other tabs relative to Doc 30: Doc 10 (pinned) and Doc 30 (target) are preserved
+    store.closeOtherTabs(1, 30)
+    expect(store.getTabs(1).map((t) => t.id)).toEqual([10, 30])
+
+    // Close all tabs: Doc 10 (pinned) is preserved
+    const remainingId = store.closeAllTabs(1)
+    expect(remainingId).toBe(10)
+    expect(store.getTabs(1).map((t) => t.id)).toEqual([10])
+  })
+
+  it('closes unpinned tabs to the right of specified tab', () => {
+    const store = useDocumentTabsStore()
+    store.openTab({ id: 10, projectId: 1, title: 'Doc 10', contentFormat: 'BLOCKNOTE' })
+    store.openTab({ id: 20, projectId: 1, title: 'Doc 20', contentFormat: 'BLOCKNOTE' })
+    store.openTab({ id: 30, projectId: 1, title: 'Doc 30', contentFormat: 'BLOCKNOTE' })
+    store.openTab({ id: 40, projectId: 1, title: 'Doc 40', contentFormat: 'BLOCKNOTE' })
+
+    // Close tabs to right of 20 -> 30 and 40 are closed
+    store.closeTabsToRight(1, 20)
+    expect(store.getTabs(1).map((t) => t.id)).toEqual([10, 20])
+  })
+
+  it('reorders tabs via moveTab', () => {
+    const store = useDocumentTabsStore()
+    store.openTab({ id: 10, projectId: 1, title: 'Doc 10', contentFormat: 'BLOCKNOTE' })
+    store.openTab({ id: 20, projectId: 1, title: 'Doc 20', contentFormat: 'BLOCKNOTE' })
+    store.openTab({ id: 30, projectId: 1, title: 'Doc 30', contentFormat: 'BLOCKNOTE' })
+
+    // Move 30 before 10
+    store.moveTab(1, 30, 10, 'before')
+    expect(store.getTabs(1).map((t) => t.id)).toEqual([30, 10, 20])
+
+    // Move 30 after 20
+    store.moveTab(1, 30, 20, 'after')
+    expect(store.getTabs(1).map((t) => t.id)).toEqual([10, 20, 30])
+  })
+
   it('syncs tab titles with tree nodes', () => {
     const store = useDocumentTabsStore()
     store.openTab({ id: 10, projectId: 1, title: 'Initial Title', contentFormat: 'BLOCKNOTE' })

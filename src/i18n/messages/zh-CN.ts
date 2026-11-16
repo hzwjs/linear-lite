@@ -513,7 +513,7 @@ const zhCN = {
 
     title: '文档', issues: '任务', workspaceNavigation: '项目工作区',
     newRoot: '新建文档', newChild: '新建子文档', untitled: '无标题',
-    tabList: '已打开文档页签', closeTab: '关闭标签页', closeOtherTabs: '关闭其他标签页', closeAllTabs: '关闭所有标签页',
+    tabList: '已打开文档页签', closeTab: '关闭标签页', closeOtherTabs: '关闭其他标签页', closeTabsToRight: '关闭右侧标签页', closeAllTabs: '关闭所有标签页', pinTab: '固定标签页', unpinTab: '取消固定', moreTabs: '全部已打开标签页', unsavedChanges: '有未保存修改',
     markdown: {
       import: '导入 Markdown 文件', requirements: '导入 UTF-8 编码的 .md 文件，单文件上限 5 MiB；支持配套图片和折叠区域。',
       resources: '等待补充图片', resourceHint: '请选择 Markdown 引用的 PNG、JPEG、GIF 图片，或选择包含这些图片的目录。',

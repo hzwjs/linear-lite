@@ -513,7 +513,7 @@ const en = {
 
     title: 'Documents', issues: 'Issues', workspaceNavigation: 'Project workspace',
     newRoot: 'New document', newChild: 'New child document', untitled: 'Untitled',
-    tabList: 'Open document tabs', closeTab: 'Close tab', closeOtherTabs: 'Close other tabs', closeAllTabs: 'Close all tabs',
+    tabList: 'Open document tabs', closeTab: 'Close tab', closeOtherTabs: 'Close other tabs', closeTabsToRight: 'Close tabs to the right', closeAllTabs: 'Close all tabs', pinTab: 'Pin tab', unpinTab: 'Unpin tab', moreTabs: 'All open tabs', unsavedChanges: 'Unsaved changes',
     markdown: {
       import: 'Import Markdown files', requirements: 'Import UTF-8 .md files up to 5 MiB each, with accompanying images and collapsible sections.',
       resources: 'Images needed', resourceHint: 'Choose the referenced PNG, JPEG or GIF images, or the directory containing them.',

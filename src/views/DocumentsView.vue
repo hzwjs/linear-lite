@@ -27,6 +27,32 @@ const projectStore = useProjectStore()
 const authStore = useAuthStore()
 const tabsStore = useDocumentTabsStore()
 const currentProjectTabs = computed(() => tabsStore.getTabs(projectId.value))
+const dirtyDocumentIds = computed<number[]>(() => {
+  const result: number[] = []
+  const userId = authStore.currentUser?.id
+  const activeId = documentId.value
+
+  if (
+    activeId != null &&
+    (store.saveState === 'dirty' ||
+      store.saveState === 'saving' ||
+      store.saveState === 'failed' ||
+      store.titleDraftCached)
+  ) {
+    result.push(activeId)
+  }
+
+  if (userId != null) {
+    for (const tab of currentProjectTabs.value) {
+      if (result.includes(tab.id)) continue
+      const drafts = listDocumentDrafts(userId, tab.id)
+      if (drafts.length > 0) {
+        result.push(tab.id)
+      }
+    }
+  }
+  return result
+})
 const draftCandidates = ref<Array<{ draftId: string; draft: DocumentLocalDraft }>>([])
 function refreshDraftCandidates() {
   const owner = authStore.currentUser?.id
@@ -474,16 +500,88 @@ async function onCloseTab(tabId: number) {
 function onCloseOtherTabs(tabId: number) {
   tabsStore.closeOtherTabs(projectId.value, tabId)
   if (documentId.value !== tabId) {
-    void onSelectTab(tabId)
+    const isCurrentStillOpen = currentProjectTabs.value.some((t) => t.id === documentId.value)
+    if (!isCurrentStillOpen) {
+      void onSelectTab(tabId)
+    }
   }
 }
 
-async function onCloseAllTabs() {
-  tabsStore.closeAllTabs(projectId.value)
-  store.activeDocument = null
-  await store.flushSaves()
-  await router.push(`/projects/${projectId.value}/documents`)
+async function onCloseToRightTabs(tabId: number) {
+  const projectTabs = currentProjectTabs.value
+  const index = projectTabs.findIndex((t) => t.id === tabId)
+  if (index === -1) return
+  const closedTabs = projectTabs.slice(index + 1).filter((t) => !t.pinned)
+  const isActiveInClosed = closedTabs.some((t) => t.id === documentId.value)
+
+  tabsStore.closeTabsToRight(projectId.value, tabId)
+  if (isActiveInClosed) {
+    await store.flushSaves()
+    await router.push(documentRoute(tabId))
+  }
 }
+
+function onTogglePinTab(tabId: number) {
+  tabsStore.togglePinTab(projectId.value, tabId)
+}
+
+function onReorderTabs(sourceId: number, targetId: number, place: 'before' | 'after') {
+  tabsStore.moveTab(projectId.value, sourceId, targetId, place)
+}
+
+async function onCloseAllTabs() {
+  const remainingId = tabsStore.closeAllTabs(projectId.value)
+  await store.flushSaves()
+  if (remainingId != null) {
+    const isCurrentStillOpen = currentProjectTabs.value.some((t) => t.id === documentId.value)
+    if (!isCurrentStillOpen) {
+      await router.push(documentRoute(remainingId))
+    }
+  } else {
+    store.activeDocument = null
+    await router.push(`/projects/${projectId.value}/documents`)
+  }
+}
+
+function onDocumentTabsKeydown(event: KeyboardEvent) {
+  // Alt + W: 关闭当前激活标签页
+  if (
+    event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
+    (event.key === 'w' || event.key === 'W')
+  ) {
+    event.preventDefault()
+    if (documentId.value != null) {
+      void onCloseTab(documentId.value)
+    }
+    return
+  }
+  // Alt + Left / Alt + Right: 轮转切换相邻标签页
+  if (
+    event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
+    (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+  ) {
+    const tabs = currentProjectTabs.value
+    if (tabs.length <= 1 || documentId.value == null) return
+    const currentIndex = tabs.findIndex((t) => t.id === documentId.value)
+    if (currentIndex === -1) return
+    event.preventDefault()
+    const offset = event.key === 'ArrowLeft' ? -1 : 1
+    const nextIndex = (currentIndex + offset + tabs.length) % tabs.length
+    const nextTab = tabs[nextIndex]
+    if (nextTab && nextTab.id !== documentId.value) {
+      void onSelectTab(nextTab.id)
+    }
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onDocumentTabsKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onDocumentTabsKeydown))
 
 watch(
   () => store.activeDocument?.title,
@@ -717,10 +815,14 @@ onBeforeUnmount(() => {
           v-if="!isArticleTab"
           :tabs="currentProjectTabs"
           :active-id="documentId"
+          :dirty-ids="dirtyDocumentIds"
           @select="onSelectTab"
           @close="onCloseTab"
           @close-others="onCloseOtherTabs"
+          @close-to-right="onCloseToRightTabs"
           @close-all="onCloseAllTabs"
+          @toggle-pin="onTogglePinTab"
+          @reorder="onReorderTabs"
         />
 
         <div class="documents-content__body">

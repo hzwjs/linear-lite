@@ -377,4 +377,45 @@ describe('DocumentsView navigation', () => {
     await vi.advanceTimersByTimeAsync(250)
     expect(documentApi.search).toHaveBeenCalledTimes(2)
   })
+
+  it('supports Alt+W shortcut to close active tab and Alt+ArrowRight to cycle tabs', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/projects/:projectId/documents/:documentId', component: DocumentsView }]
+    })
+    await router.push('/projects/7/documents/1')
+    await router.isReady()
+
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const pinia = setupTestPinia()
+    const app = createApp({ template: '<RouterView />' })
+    app.use(pinia)
+    app.use(router)
+    app.use(i18n)
+    app.mount(host)
+    await flushNavigation()
+
+    // 打开第二个文档形成多页签
+    await vi.waitFor(() => expect(host.querySelector('[data-document-tree-id="2"]')).not.toBeNull())
+    ;(host.querySelector('[data-document-tree-id="2"]') as HTMLButtonElement).click()
+    await vi.waitFor(() => expect(router.currentRoute.value.params.documentId).toBe('2'))
+    await flushNavigation()
+    expect(host.querySelectorAll('.document-tab')).toHaveLength(2)
+
+    // 按 Alt + ArrowLeft 切换回文档 1
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, bubbles: true }))
+    await vi.waitFor(() => expect(router.currentRoute.value.params.documentId).toBe('1'))
+    await flushNavigation()
+    expect(host.querySelector('.document-tab--active')?.textContent).toContain('First')
+
+    // 按 Alt + W 关闭当前活动标签（文档 1）
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', altKey: true, bubbles: true }))
+    await vi.waitFor(() => expect(router.currentRoute.value.params.documentId).toBe('2'))
+    await flushNavigation()
+    expect(host.querySelectorAll('.document-tab')).toHaveLength(1)
+    expect(host.querySelector('.document-tab--active')?.textContent).toContain('Second')
+
+    app.unmount()
+  })
 })
