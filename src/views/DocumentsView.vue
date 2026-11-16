@@ -150,9 +150,9 @@ function documentRoute(id: number) {
   return route.query.documentView === 'directory' ? `${path}?documentView=directory` : path
 }
 
-function latestRootDocumentId(): number | null {
+function firstRootDocumentId(): number | null {
   const roots = store.treeNodes.filter((node) => node.parentDocumentId == null)
-  roots.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.id - b.id)
+  roots.sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id)
   return roots[0]?.id ?? null
 }
 
@@ -180,9 +180,9 @@ async function loadWorkspace() {
   if (sequence !== workspaceLoadSequence) return
   members.value = memberList.map((member) => ({ id: member.id, label: member.username }))
   if (requestedDocumentId == null) {
-    const latestId = latestRootDocumentId()
+    const firstId = firstRootDocumentId()
     store.activeDocument = null
-    if (latestId != null) await router.replace(documentRoute(latestId))
+    if (firstId != null) await router.replace(documentRoute(firstId))
     return
   }
   if (routedDocument != null && routedDocument.projectId !== id) {
@@ -199,9 +199,9 @@ async function loadRoutedDocument(sequence: number, id: number, requestedDocumen
   if (sequence !== workspaceLoadSequence) return
   prefetchCollaboration(requestedDocumentId)
   if (requestedDocumentId == null) {
-    const latestId = latestRootDocumentId()
+    const firstId = firstRootDocumentId()
     store.activeDocument = null
-    if (latestId != null) await router.replace(documentRoute(latestId))
+    if (firstId != null) await router.replace(documentRoute(firstId))
     return
   }
   const document = await store.loadDocument(requestedDocumentId)

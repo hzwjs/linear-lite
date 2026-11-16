@@ -112,6 +112,10 @@ describe('DocumentsView navigation', () => {
   })
 
   it('keeps the directory layout after selecting the default document and hides it in an article tab', async () => {
+    vi.mocked(documentApi.listTree).mockResolvedValue([
+      { ...treeNodes[1]!, updatedAt: '2026-07-30T08:00:00' },
+      treeNodes[0]!
+    ])
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
