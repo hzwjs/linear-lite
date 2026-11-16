@@ -6,7 +6,6 @@ import com.linearlite.server.dto.UpdateTaskRequest;
 import com.linearlite.server.entity.Project;
 import com.linearlite.server.entity.Task;
 import com.linearlite.server.entity.TaskFavorite;
-import com.linearlite.server.exception.ConflictOperationException;
 import com.linearlite.server.mapper.ProjectMapper;
 import com.linearlite.server.mapper.TaskDependencyMapper;
 import com.linearlite.server.mapper.TaskExecutionAttemptMapper;
@@ -97,13 +96,12 @@ class TaskCommandServiceTest {
     }
 
     @Test
-    void updateDoneAndProgress100CannotBypassCollaborativeDeliveryGate() {
+    void manualStatusAndProgressCanCompleteTaskWithoutCollaborationDelivery() {
         Task task = new Task(); task.setId(31L); task.setTaskKey("ENG-31"); task.setProjectId(1L);
         task.setStatus("in_progress"); task.setProgressPercent(40); task.setInputRevision(3L);
         when(taskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
         when(taskMapper.selectByIdForUpdate(31L)).thenReturn(task);
-        when(taskDependencyMapper.hasCollaborationParticipation(31L)).thenReturn(true);
-        when(taskExecutionAttemptMapper.selectByTaskId(31L)).thenReturn(List.of());
+        when(taskMapper.selectById(31L)).thenReturn(task);
         var actualStatus = new TaskStatusService(taskMapper, taskActivityService, taskDependencyMapper,
                 taskExecutionAttemptMapper);
         doAnswer(call -> actualStatus.updateState(call.getArgument(0), call.getArgument(1),
@@ -113,9 +111,15 @@ class TaskCommandServiceTest {
 
         UpdateTaskRequest done = new UpdateTaskRequest(); done.setStatus("done");
         UpdateTaskRequest completeProgress = new UpdateTaskRequest(); completeProgress.setProgressPercent(100);
-        assertThrows(ConflictOperationException.class, () -> taskCommandService.update("ENG-31", done, 7L));
-        assertThrows(ConflictOperationException.class, () -> taskCommandService.update("ENG-31", completeProgress, 7L));
-        verify(taskMapper, never()).update(org.mockito.ArgumentMatchers.isNull(), any());
+        taskCommandService.update("ENG-31", done, 7L);
+        taskCommandService.update("ENG-31", completeProgress, 7L);
+        verify(taskMapper, org.mockito.Mockito.times(2)).update(org.mockito.ArgumentMatchers.isNull(), any());
+        verify(taskActivityService, org.mockito.Mockito.times(2)).recordFieldChangeAt(
+                org.mockito.ArgumentMatchers.eq(31L), org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.eq("status"), org.mockito.ArgumentMatchers.eq("in_progress"),
+                org.mockito.ArgumentMatchers.eq("done"), any());
+        verify(taskDependencyMapper, never()).hasCollaborationParticipation(31L);
+        verify(taskExecutionAttemptMapper, never()).selectByTaskId(31L);
     }
 
     @Test

@@ -2,7 +2,6 @@ package com.linearlite.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.linearlite.server.entity.Task;
-import com.linearlite.server.exception.ConflictOperationException;
 import com.linearlite.server.mapper.TaskDependencyMapper;
 import com.linearlite.server.mapper.TaskExecutionAttemptMapper;
 import com.linearlite.server.mapper.TaskMapper;
@@ -43,12 +42,6 @@ public class TaskStatusService {
         boolean progressChanged = progressPercent != oldProgress;
         if (!statusChanged && !progressChanged) {
             return existing;
-        }
-
-        // 任务状态入口与成果入口使用同一事实，避免普通更新绕过协作交付。
-        if (statusChanged && "done".equalsIgnoreCase(status) && requiresDeliveryEvidence(existing.getId())
-                && !hasCompletionEvidence(existing)) {
-            throw new ConflictOperationException("协作任务需要完成交付与停止确认");
         }
 
         LocalDateTime completedAt = existing.getCompletedAt();
