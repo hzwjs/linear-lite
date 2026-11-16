@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import * as Y from 'yjs'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeft, Code2, Download, Eye, History, Loader2, Play, Save, Upload } from 'lucide-vue-next'
@@ -9,15 +10,17 @@ import DocumentHistoryPanel from '../components/documents/DocumentHistoryPanel.v
 import { documentApi } from '../services/api/documents'
 import { documentCollaborationApi, type DocumentCollaborationSession } from '../services/api/documentCollaboration'
 import { useDocumentStore } from '../store/documentStore'
+import { useAuthStore } from '../store/authStore'
 import type { ProjectDocument } from '../types/document'
 import { downloadHtmlDocument, HTML_DOCUMENT_MAX_BYTES, htmlDocumentPath, readHtmlDocumentFile } from '../utils/htmlDocument'
-import { clearDocumentDraft, readDocumentDraft, saveDocumentDraft } from '../utils/documentDraftStorage'
+import { clearDocumentDraft, decodeBase64ToUint8Array, documentDraftId, listDocumentDrafts, readDocumentDraft, saveDocumentDraft, type DocumentLocalDraft } from '../utils/documentDraftStorage'
 import { JWT_STORAGE_KEY, USER_STORAGE_KEY } from '../services/api/constants'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const store = useDocumentStore()
+const auth = useAuthStore()
 const document = ref<ProjectDocument | null>(null)
 const title = ref('')
 const content = ref('')
@@ -38,28 +41,84 @@ const collaborationStatusKey = computed(() => {
   return status.saveState
 })
 const collaborationPrefetch = shallowRef<{ documentId: number; promise: Promise<DocumentCollaborationSession> } | null>(null)
+const collaborationRef = ref<InstanceType<typeof HtmlDocumentCollaboration> | null>(null)
+const draftCandidates = ref<Array<{ draftId: string; draft: DocumentLocalDraft }>>([])
+const selectedDraftId = ref('')
+const showDraftPicker = ref(false)
+const draftPickerError = ref('')
+const draftSource = ref<string | null>(null)
+const selectedDraft = computed(() => draftCandidates.value.find((entry) => entry.draftId === selectedDraftId.value))
+watch(selectedDraftId, () => { draftPickerError.value = ''; draftSource.value = null }, { flush: 'sync' })
+let loadedSession: { ownerId: number; token: string } | null = null
 let fileReadSequence = 0
 let draftRevision = 0
 let createdNavigationPending = false
 let htmlDraftTimer: ReturnType<typeof setTimeout> | null = null
-watch([title, content], ([newTitle, newContent]) => {
-  draftRevision += 1
-  const docId = document.value?.id
-  if (!docId) return
+let applyingDocument = false
+let pendingTitleDraft: { ownerId: number; token: string; request: number; documentId: number; title: string; serverVersion: number } | null = null
+
+function isCurrentSession(ownerId: number, token: string): boolean {
+  return auth.getConsistentAccessToken() === token && auth.currentUser?.id === ownerId
+}
+
+function clearTitleDraft(ownerId: number, documentId: number, token: string) {
+  if (!isCurrentSession(ownerId, token)) return
+  const draft = readDocumentDraft(ownerId, documentId, documentDraftId)
+  if (!draft?.titleDirty) return
+  if (!draft.ydocUpdate) {
+    clearDocumentDraft(ownerId, documentId, documentDraftId)
+    return
+  }
+  const { title: _title, ...bodyDraft } = draft
+  saveDocumentDraft(ownerId, documentDraftId, { ...bodyDraft, titleDirty: false, savedAt: Date.now() })
+}
+
+function cancelPendingTitleDraft() {
   if (htmlDraftTimer != null) clearTimeout(htmlDraftTimer)
-  htmlDraftTimer = setTimeout(() => {
-    saveDocumentDraft({
-      documentId: docId,
-      projectId: projectId.value,
-      format: 'HTML',
-      title: newTitle,
-      content: newContent,
-      serverVersion: document.value?.version ?? 1,
-      savedAt: Date.now(),
-      hasUnsavedChanges: true,
-    })
-  }, 400)
+  htmlDraftTimer = null
+  pendingTitleDraft = null
+}
+
+function flushPendingTitleDraft(): boolean {
+  if (htmlDraftTimer != null) clearTimeout(htmlDraftTimer)
+  htmlDraftTimer = null
+  const pending = pendingTitleDraft
+  if (!pending) return true
+  if (pending.request !== sequence || document.value?.id !== pending.documentId || !isCurrentSession(pending.ownerId, pending.token)) {
+    pendingTitleDraft = null
+    return false
+  }
+  const existing = readDocumentDraft(pending.ownerId, pending.documentId, documentDraftId)
+  const saved = saveDocumentDraft(pending.ownerId, documentDraftId, {
+    documentId: pending.documentId,
+    format: 'HTML',
+    title: pending.title,
+    titleDirty: true,
+    ydocUpdate: existing?.ydocUpdate,
+    ydocEpoch: existing?.ydocEpoch,
+    serverVersion: pending.serverVersion,
+    savedAt: Date.now()
+  })
+  if (saved) pendingTitleDraft = null
+  return saved
+}
+
+watch(title, (newTitle) => {
+  draftRevision += 1
+  cancelPendingTitleDraft()
+  const current = document.value
+  const ownerId = auth.currentUser?.id
+  if (!current || ownerId == null || applyingDocument) return
+  const token = auth.getConsistentAccessToken()
+  if (!token || !isCurrentSession(ownerId, token)) return
+  if (newTitle === current.title) {
+    clearTitleDraft(ownerId, current.id, token)
+    return
+  }
+  pendingTitleDraft = { ownerId, token, request: sequence, documentId: current.id, title: newTitle, serverVersion: current.version }
+  htmlDraftTimer = setTimeout(flushPendingTitleDraft, 400)
 }, { flush: 'sync' })
+watch(content, () => { draftRevision += 1 }, { flush: 'sync' })
 const fileInput = ref<HTMLInputElement | null>(null)
 let sequence = 0
 const projectId = computed(() => Number(route.params.projectId))
@@ -72,19 +131,97 @@ const valid = computed(() => title.value.trim().length > 0 && title.value.trim()
 
 function acceptDocument(value: ProjectDocument, body = value.content) {
   document.value = value
+  applyingDocument = true
   title.value = value.title
+  applyingDocument = false
   content.value = body
   previewContent.value = body
   window.document.title = `${value.title} · Linear Lite`
 }
 
 function acceptCollaborativeContent(body: string) {
+  if (!loadedSession || !isCurrentSession(loadedSession.ownerId, loadedSession.token)) return
   content.value = body
   if (mode.value === 'preview') previewContent.value = body
 }
 
+function acceptCollaborationStatus(status: NonNullable<typeof collaborationStatus.value>) {
+  if (!loadedSession || !isCurrentSession(loadedSession.ownerId, loadedSession.token)) return
+  collaborationStatus.value = status
+}
+
+function closeDraftPicker() {
+  showDraftPicker.value = false
+  selectedDraftId.value = ''
+  draftPickerError.value = ''
+  draftSource.value = null
+}
+
+function refreshDraftCandidates(ownerId: number, documentId: number, token: string) {
+  if (!isCurrentSession(ownerId, token)) return
+  draftCandidates.value = listDocumentDrafts(ownerId, documentId)
+    .filter((entry) => entry.draftId !== documentDraftId && entry.draft.format === 'HTML')
+    .sort((left, right) => right.draft.savedAt - left.draft.savedAt)
+}
+
+function viewDraftSource() {
+  const current = document.value
+  const session = loadedSession
+  if (!current || !session || !isCurrentSession(session.ownerId, session.token)) return
+  const draft = readDocumentDraft(session.ownerId, current.id, selectedDraftId.value)
+  if (JSON.stringify(draft) !== JSON.stringify(selectedDraft.value?.draft)) {
+    refreshDraftCandidates(session.ownerId, current.id, session.token)
+    selectedDraftId.value = ''
+    draftPickerError.value = t('documents.draftChanged')
+    return
+  }
+  if (!draft?.ydocUpdate) return
+  const doc = new Y.Doc()
+  try {
+    Y.applyUpdate(doc, decodeBase64ToUint8Array(draft.ydocUpdate))
+    draftSource.value = doc.getText('html').toString()
+  } catch {
+    draftPickerError.value = t('documents.draftUnreadable')
+  } finally {
+    doc.destroy()
+  }
+}
+
+function restoreSelectedDraft() {
+  const current = document.value
+  const session = loadedSession
+  if (!current || !session || !isCurrentSession(session.ownerId, session.token)) return
+  flushPendingTitleDraft()
+  if (dirty.value || collaborationStatus.value?.saveState !== 'saved' || readDocumentDraft(session.ownerId, current.id, documentDraftId)) {
+    draftPickerError.value = t('documents.draftResolveCurrent')
+    return
+  }
+  const draft = readDocumentDraft(session.ownerId, current.id, selectedDraftId.value)
+  if (!draft || draft.format !== 'HTML') {
+    draftPickerError.value = t('documents.draftUnavailable')
+    return
+  }
+  if (JSON.stringify(draft) !== JSON.stringify(selectedDraft.value?.draft)) {
+    refreshDraftCandidates(session.ownerId, current.id, session.token)
+    selectedDraftId.value = ''
+    draftPickerError.value = t('documents.draftChanged')
+    return
+  }
+  const result = collaborationRef.value?.restoreDraft(draft) ?? 'busy'
+  if (result !== 'restored') {
+    draftPickerError.value = result === 'epoch-mismatch'
+      ? t('documents.draftEpochMismatch')
+      : result === 'invalid' ? t('documents.draftUnreadable') : t('documents.draftSyncing')
+    return
+  }
+  if (draft.titleDirty && draft.title != null) title.value = draft.title
+  closeDraftPicker()
+}
+
 async function load() {
+  flushPendingTitleDraft()
   const request = ++sequence
+  cancelPendingTitleDraft()
   fileReadSequence += 1
   readingFile.value = false
   loading.value = true
@@ -95,8 +232,19 @@ async function load() {
   error.value = ''
   conflict.value = false
   historyOpen.value = false
+  saving.value = false
   collaborationStatus.value = null
   collaborationPrefetch.value = null
+  loadedSession = null
+  draftCandidates.value = []
+  closeDraftPicker()
+  const ownerId = auth.currentUser?.id
+  const token = auth.getConsistentAccessToken()
+  if (ownerId == null || !token || auth.currentUser?.id !== ownerId) {
+    if (request === sequence) loading.value = false
+    return
+  }
+  loadedSession = { ownerId, token }
   if (!Number.isInteger(projectId.value) || projectId.value <= 0) {
     error.value = t('documents.html.invalidRoute')
     loading.value = false
@@ -119,21 +267,17 @@ async function load() {
     void sessionPromise.catch(() => undefined)
     collaborationPrefetch.value = { documentId: id, promise: sessionPromise }
     const value = await documentApi.get(id)
-    if (request !== sequence) return
+    if (request !== sequence || !isCurrentSession(ownerId, token)) return
     if (value.projectId !== projectId.value || value.contentFormat !== 'HTML' || value.archivedAt != null) {
       error.value = t('documents.html.unavailable')
       return
     }
     // Existing document bodies enter the page through the collaboration checkpoint.
     acceptDocument(value, '')
-    const draft = readDocumentDraft(id)
-    if (draft && draft.hasUnsavedChanges && (draft.title !== value.title || (draft.content && draft.content !== value.content))) {
-      acceptDocument(value, draft.content || '')
-      if (draft.title) title.value = draft.title
-    }
+    refreshDraftCandidates(ownerId, id, token)
     mode.value = 'preview'
   } catch {
-    if (request === sequence) error.value = t('documents.html.loadFailed')
+    if (request === sequence && isCurrentSession(ownerId, token)) error.value = t('documents.html.loadFailed')
   } finally {
     if (request === sequence) loading.value = false
   }
@@ -141,6 +285,9 @@ async function load() {
 
 async function save() {
   if (saving.value || readingFile.value || !valid.value || conflict.value) return
+  const ownerId = auth.currentUser?.id
+  const token = auth.getConsistentAccessToken()
+  if (ownerId == null || !token || auth.currentUser?.id !== ownerId) return
   const current = document.value
   if (current != null && title.value.trim() === current.title) return
   fileReadSequence += 1
@@ -161,27 +308,34 @@ async function save() {
       const created = await documentApi.create(projectId.value, {
         parentDocumentId: parentId, title: savedTitle, content: savedContent, contentFormat: 'HTML'
       })
-      if (request !== sequence) return
+      if (request !== sequence || !isCurrentSession(ownerId, token)) return
       acceptDocument(created)
       createdNavigationPending = true
       await router.replace(htmlDocumentPath(created.projectId, created.id))
     } else {
       const saved = await documentCollaborationApi.updateTitle(current.id, current.title, savedTitle)
-      if (request !== sequence) return
+      if (request !== sequence || !isCurrentSession(ownerId, token)) return
       document.value = { ...current, ...saved }
       title.value = saved.title
       window.document.title = `${saved.title} · Linear Lite`
-      clearDocumentDraft(current.id)
+      cancelPendingTitleDraft()
+      const draft = readDocumentDraft(ownerId, current.id, documentDraftId)
+      if (draft?.ydocUpdate) {
+        const { title: _title, ...bodyDraft } = draft
+        saveDocumentDraft(ownerId, documentDraftId, { ...bodyDraft, titleDirty: false, serverVersion: saved.version, savedAt: Date.now() })
+      } else {
+        clearDocumentDraft(ownerId, current.id, documentDraftId)
+      }
     }
     conflict.value = false
     mode.value = 'preview'
   } catch (cause) {
-    if (request !== sequence) return
+    if (request !== sequence || !isCurrentSession(ownerId, token)) return
     conflict.value = cause != null && typeof cause === 'object' && 'response' in cause &&
       (cause as { response?: { status?: unknown } }).response?.status === 409
     error.value = t(conflict.value ? 'documents.html.conflict' : 'documents.html.saveFailed')
   } finally {
-    saving.value = false
+    if (request === sequence) saving.value = false
   }
 }
 
@@ -190,18 +344,21 @@ async function replaceFile(event: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (file == null || saving.value) return
+  const ownerId = auth.currentUser?.id
+  const token = auth.getConsistentAccessToken()
+  if (ownerId == null || !token || auth.currentUser?.id !== ownerId) return
   const request = ++fileReadSequence
   const draftAtRead = draftRevision
   readingFile.value = true
   try {
     const source = await readHtmlDocumentFile(file)
-    if (request !== fileReadSequence || draftAtRead !== draftRevision) return
+    if (request !== fileReadSequence || draftAtRead !== draftRevision || !isCurrentSession(ownerId, token)) return
     content.value = source
     if (document.value == null && title.value.trim().length === 0) title.value = file.name.replace(/\.html?$/i, '')
     mode.value = 'source'
     error.value = ''
   } catch (cause) {
-    if (request === fileReadSequence) error.value = t(cause instanceof Error ? cause.message : 'documents.html.invalidFile')
+    if (request === fileReadSequence && isCurrentSession(ownerId, token)) error.value = t(cause instanceof Error ? cause.message : 'documents.html.invalidFile')
   } finally {
     if (request === fileReadSequence) readingFile.value = false
   }
@@ -230,6 +387,7 @@ async function restored() {
 }
 
 function preventUnsavedExit(event: BeforeUnloadEvent) {
+  flushPendingTitleDraft()
   if (!dirty.value && !saving.value && collaborationStatus.value?.saveState !== 'saving' && collaborationStatus.value?.saveState !== 'offline') return
   event.preventDefault()
   event.returnValue = ''
@@ -244,18 +402,27 @@ function confirmNavigation() {
     createdNavigationPending = false
     return true
   }
-  return saving.value ? false : (!dirty.value && (document.value == null || collaborationStatus.value?.saveState === 'saved')) || window.confirm(t('documents.html.discardChanges'))
+  if (saving.value) return false
+  if (!dirty.value && (document.value == null || collaborationStatus.value?.saveState === 'saved')) return true
+  if (!window.confirm(t('documents.html.discardChanges'))) return false
+  if (dirty.value && document.value && loadedSession) {
+    cancelPendingTitleDraft()
+    clearTitleDraft(loadedSession.ownerId, document.value.id, loadedSession.token)
+  }
+  return true
 }
 onBeforeRouteLeave(confirmNavigation)
 onBeforeRouteUpdate(confirmNavigation)
 onBeforeUnmount(() => {
+  flushPendingTitleDraft()
   sequence += 1
+  loadedSession = null
   fileReadSequence += 1
-  if (htmlDraftTimer != null) clearTimeout(htmlDraftTimer)
+  cancelPendingTitleDraft()
   window.removeEventListener('beforeunload', preventUnsavedExit)
   window.removeEventListener('storage', refreshSession)
 })
-watch(() => [route.params.projectId, route.params.documentId, route.name], load, { immediate: true })
+watch(() => [route.params.projectId, route.params.documentId, route.name, auth.currentUser?.id, auth.jwtToken], load, { immediate: true, flush: 'sync' })
 </script>
 
 <template>
@@ -282,6 +449,31 @@ watch(() => [route.params.projectId, route.params.documentId, route.name], load,
         <button class="html-document__save" type="button" :disabled="!valid || saving || readingFile || conflict || (document != null && !dirty)" @click="save"><Loader2 v-if="saving" aria-hidden="true" /><Save v-else aria-hidden="true" />{{ t(saving ? 'documents.saveState.saving' : 'documents.html.save') }}</button>
       </div>
     </header>
+    <div v-if="document && draftCandidates.length" class="html-document__drafts">
+      <button type="button" @click="showDraftPicker = !showDraftPicker">{{ t('documents.availableDrafts', { count: draftCandidates.length }) }}</button>
+      <section v-if="showDraftPicker" class="html-document__draft-picker" :aria-label="t('documents.draftSelect')">
+        <label>
+          <span>{{ t('documents.draftSelect') }}</span>
+          <select v-model="selectedDraftId">
+            <option value="" disabled>{{ t('documents.draftSelectPlaceholder') }}</option>
+            <option v-for="entry in draftCandidates" :key="entry.draftId" :value="entry.draftId">
+              {{ new Date(entry.draft.savedAt).toLocaleString() }}{{ entry.draft.titleDirty ? ` · ${entry.draft.title}` : '' }}
+            </option>
+          </select>
+        </label>
+        <template v-if="selectedDraft">
+          <p v-if="selectedDraft.draft.titleDirty">{{ t('documents.draftTitles', { current: document.title, draft: selectedDraft.draft.title }) }}</p>
+          <p v-if="selectedDraft.draft.serverVersion !== document.version">{{ t('documents.draftVersionChanged') }}</p>
+          <div class="html-document__draft-actions">
+            <button type="button" @click="restoreSelectedDraft">{{ t('documents.restoreDraft') }}</button>
+            <button v-if="selectedDraft.draft.ydocUpdate" type="button" @click="viewDraftSource">{{ t('documents.draftView') }}</button>
+            <button type="button" @click="closeDraftPicker">{{ t('common.close') }}</button>
+          </div>
+          <textarea v-if="draftSource != null" :value="draftSource" readonly :aria-label="t('documents.draftSource')" />
+        </template>
+        <p v-if="draftPickerError" role="alert">{{ draftPickerError }}</p>
+      </section>
+    </div>
     <div v-if="error" class="html-document__error" role="alert">
       <span>{{ error }}</span>
       <button v-if="conflict || (!document && route.name !== 'html-document-create')" type="button" @click="reload">{{ t('documents.html.reload') }}</button>
@@ -298,6 +490,7 @@ watch(() => [route.params.projectId, route.params.documentId, route.name], load,
       <p class="html-document__hint" id="html-source-hint">{{ t('documents.html.sourceHint') }}</p>
       <div class="html-document__source-label"><span>{{ t('documents.html.source') }}</span>
         <HtmlDocumentCollaboration
+          ref="collaborationRef"
           v-if="document"
           :key="document.id"
           v-show="mode === 'source' && !historyOpen"
@@ -307,7 +500,7 @@ watch(() => [route.params.projectId, route.params.documentId, route.name], load,
           :ariaLabel="t('documents.html.source')"
           :placeholder="t('documents.html.sourcePlaceholder')"
           @content="acceptCollaborativeContent"
-          @status="collaborationStatus = $event"
+          @status="acceptCollaborationStatus"
         />
         <textarea v-else v-model="content" :disabled="saving" aria-describedby="html-source-hint" spellcheck="false" autocapitalize="off" autocomplete="off" :placeholder="t('documents.html.sourcePlaceholder')" />
       </div>
@@ -336,6 +529,13 @@ watch(() => [route.params.projectId, route.params.documentId, route.name], load,
 .html-document__modes button[aria-pressed=true] { background: var(--color-bg-active); color: var(--color-text-primary); }
 .html-document button.html-document__save { background: var(--color-accent); color: var(--color-text-on-accent); }
 .html-document__error { display: flex; align-items: center; justify-content: space-between; gap: var(--html-page-gap); padding: 8px 16px; color: var(--color-danger); background: var(--color-bg-subtle); }
+.html-document__drafts { padding: 8px 16px; border-bottom: 1px solid var(--color-border); }
+.html-document__draft-picker { display: grid; gap: 8px; margin-top: 8px; }
+.html-document__draft-picker label { display: grid; gap: 4px; }
+.html-document__draft-picker select { max-width: 100%; }
+.html-document__draft-picker p { margin: 0; }
+.html-document__draft-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.html-document__draft-picker textarea { min-height: 160px; }
 .html-document__state { display: flex; min-height: 0; flex: 1; align-items: center; justify-content: center; color: var(--color-text-secondary); }
 .html-document__workspace { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .html-document__editor { display: flex; min-height: 0; flex: 1; flex-direction: column; padding: 20px; }

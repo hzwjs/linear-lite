@@ -1,16 +1,21 @@
-import { computed, onBeforeUnmount, readonly, ref, shallowReadonly, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, readonly, ref, shallowReadonly, shallowRef, watch } from 'vue'
+import { isAxiosError } from 'axios'
 import * as Y from 'yjs'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import { YSyncConfig } from 'y-codemirror.next'
 import { ySyncPluginKey } from 'y-prosemirror'
 import { documentCollaborationApi, type DocumentCollaborationRenewal, type DocumentCollaborationSession } from '../services/api/documentCollaboration'
 import { acquireSharedCollaborationSocket } from './sharedCollaborationSocket'
+import { useAuthStore } from '../store/authStore'
 import {
   clearDocumentDraft,
+  createDocumentDraftId,
   decodeBase64ToUint8Array,
+  documentDraftId,
   encodeUint8ArrayToBase64,
   readDocumentDraft,
   saveDocumentDraft,
+  type DocumentLocalDraft,
 } from '../utils/documentDraftStorage'
 
 export type CollaborationConnectionState = 'connecting' | 'connected' | 'offline' | 'error'
@@ -90,6 +95,9 @@ function decodeState(stateBase64: string): Uint8Array {
 }
 
 export function useDocumentCollaboration(documentId: number, contentFormat: 'BLOCKNOTE' | 'HTML') {
+  const auth = useAuthStore()
+  const ownerId = auth.currentUser?.id ?? null
+  const hasOwner = () => ownerId != null && auth.getConsistentAccessToken() != null && auth.currentUser?.id === ownerId
   const ydoc = shallowRef(new Y.Doc())
   const previewDoc = shallowRef<Y.Doc | null>(null)
   const session = shallowRef<DocumentCollaborationSession | null>(null)
@@ -106,6 +114,8 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
   const collaborators = ref<Array<{ id: number; name: string; color: string }>>([])
   const draftRestored = ref(false)
   const isLocallyCached = ref(false)
+  const draftCacheFailed = ref(false)
+  const hasUnsavedBody = computed(() => pendingCounters.value.size > 0 || draftRestored.value)
   const saveState = computed<CollaborationSaveState>(() => {
     if (connectionState.value === 'offline' || connectionState.value === 'error') return 'offline'
     return pendingCounters.value.size > 0 ? 'saving' : 'saved'
@@ -118,28 +128,36 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
   let releaseSocket: (() => void) | null = null
   let generation = 0
 
+  function flushLocalDraft() {
+    if (draftSaveTimer == null) return
+    clearTimeout(draftSaveTimer)
+    draftSaveTimer = null
+    if (disposed || !hasOwner() || ownerId == null) return
+    try {
+      const updateBase64 = encodeUint8ArrayToBase64(Y.encodeStateAsUpdate(ydoc.value))
+      const existing = readDocumentDraft(ownerId, documentId, documentDraftId)
+      if (session.value == null) return
+      const cached = saveDocumentDraft(ownerId, documentDraftId, {
+        documentId,
+        format: contentFormat,
+        title: existing?.title,
+        titleDirty: existing?.titleDirty === true,
+        ydocUpdate: updateBase64,
+        ydocEpoch: session.value.epoch,
+        serverVersion: serverVersion.value,
+        savedAt: Date.now(),
+      })
+      isLocallyCached.value = cached
+      draftCacheFailed.value = !cached
+    } catch {
+      draftCacheFailed.value = true
+    }
+  }
+
   function scheduleLocalDraftSave() {
     if (draftSaveTimer != null) clearTimeout(draftSaveTimer)
-    draftSaveTimer = setTimeout(() => {
-      if (disposed) return
-      try {
-        const update = Y.encodeStateAsUpdate(ydoc.value)
-        const updateBase64 = encodeUint8ArrayToBase64(update)
-        const existing = readDocumentDraft(documentId)
-        saveDocumentDraft({
-          documentId,
-          format: contentFormat,
-          title: existing?.title ?? '',
-          ydocUpdate: updateBase64,
-          serverVersion: serverVersion.value,
-          savedAt: Date.now(),
-          hasUnsavedChanges: true,
-        })
-        isLocallyCached.value = true
-      } catch {
-        /* storage quota or unavailable */
-      }
-    }, 400)
+    isLocallyCached.value = false
+    draftSaveTimer = setTimeout(flushLocalDraft, 400)
   }
 
   function trackLocalEdits(doc: Y.Doc) {
@@ -275,19 +293,25 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
         serverVersion.value = event.version
         commitSeq.value = event.commitSeq
         if (pendingCounters.value.size === 0) {
-          const draft = readDocumentDraft(documentId)
+          if (draftSaveTimer != null) clearTimeout(draftSaveTimer)
+          draftSaveTimer = null
+          if (!hasOwner() || ownerId == null) return
+          const draft = readDocumentDraft(ownerId, documentId, documentDraftId)
           if (draft) {
-            if (!draft.hasUnsavedChanges || !draft.title) {
-              clearDocumentDraft(documentId)
+            if (!draft.titleDirty) {
+              clearDocumentDraft(ownerId, documentId, documentDraftId)
               isLocallyCached.value = false
             } else {
-              saveDocumentDraft({
+              saveDocumentDraft(ownerId, documentDraftId, {
                 ...draft,
                 ydocUpdate: undefined,
+                ydocEpoch: undefined,
                 serverVersion: event.version,
                 savedAt: Date.now(),
               })
             }
+            draftRestored.value = false
+            draftCacheFailed.value = false
           }
         }
       },
@@ -313,9 +337,10 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
   async function start(initialSession?: Promise<DocumentCollaborationSession>) {
     const currentGeneration = ++generation
     try {
+      if (!hasOwner()) throw new Error('Collaboration account is unavailable')
       const current = await (initialSession ?? getSession())
-      if (disposed || currentGeneration !== generation) return
-      if (current.documentId !== documentId || current.contentFormat !== contentFormat) {
+      if (disposed || currentGeneration !== generation || !hasOwner()) return
+      if (current.documentId !== documentId || current.contentFormat !== contentFormat || current.user.id !== ownerId) {
         throw new Error('Collaboration checkpoint does not match the document')
       }
       const state = decodeState(current.stateBase64)
@@ -324,12 +349,18 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
       Y.applyUpdate(ydoc.value, state)
 
       // Restore local draft update if available
-      const draft = readDocumentDraft(documentId)
-      if (draft?.ydocUpdate && draft.hasUnsavedChanges) {
+      const draft = ownerId == null ? null : readDocumentDraft(ownerId, documentId, documentDraftId)
+      if (draft?.ydocUpdate && draft.format === contentFormat && draft.ydocEpoch === current.epoch) {
         try {
           const draftBytes = decodeBase64ToUint8Array(draft.ydocUpdate)
           Y.applyUpdate(preview, draftBytes)
           Y.applyUpdate(ydoc.value, draftBytes)
+          // 恢复内容必须取得本会话的服务端保存确认，才能清除本地正文草稿。
+          const counters = ydoc.value.getMap<number>('session-counters')
+          const counter = (counters.get(current.sessionId) ?? 0) + 1
+          counters.set(current.sessionId, counter)
+          localCounter.value = counter
+          pendingCounters.value = new Map(pendingCounters.value).set(current.sessionId, counter)
           draftRestored.value = true
           isLocallyCached.value = true
         } catch {
@@ -341,10 +372,12 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
       previewDoc.value = preview
       commitSeq.value = current.commitSeq
       await createProvider(current)
-    } catch {
+    } catch (cause) {
       if (currentGeneration === generation && !disposed) {
-        const draft = readDocumentDraft(documentId)
-        if (draft?.ydocUpdate) {
+        // 只有网络错误允许读取本账号草稿；鉴权和服务端错误保留错误状态。
+        const isNetworkError = isAxiosError(cause) && cause.response == null && cause.code !== 'ERR_CANCELED'
+        const draft = isNetworkError && hasOwner() && ownerId != null ? readDocumentDraft(ownerId, documentId, documentDraftId) : null
+        if (draft?.ydocUpdate && draft.format === contentFormat) {
           try {
             const draftBytes = decodeBase64ToUint8Array(draft.ydocUpdate)
             const preview = new Y.Doc()
@@ -364,6 +397,7 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
         releaseSocket?.()
         releaseSocket = null
         connectionState.value = draft?.ydocUpdate ? 'offline' : 'error'
+        if (isAxiosError(cause) && (cause.response?.status === 401 || cause.response?.status === 403)) authFailed.value = true
       }
     }
   }
@@ -373,8 +407,57 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
     previewDoc.value = null
   }
 
+  function restoreDraft(draft: DocumentLocalDraft): 'restored' | 'epoch-mismatch' | 'busy' | 'invalid' {
+    if (!hasOwner() || ownerId == null || draft.documentId !== documentId || draft.format !== contentFormat) return 'invalid'
+    if (pendingCounters.value.size > 0 || draftRestored.value) return 'busy'
+    const currentDraft = readDocumentDraft(ownerId, documentId, documentDraftId)
+    if (currentDraft?.titleDirty || currentDraft?.ydocUpdate) return 'busy'
+    if (!draft.ydocUpdate) return 'restored'
+    const current = session.value
+    if (current == null || !hasSynced.value || epochChanged.value) return 'invalid'
+    if (draft.ydocEpoch !== current.epoch) return 'epoch-mismatch'
+    try {
+      const bytes = decodeBase64ToUint8Array(draft.ydocUpdate)
+      const check = new Y.Doc()
+      try { Y.applyUpdate(check, bytes) } finally { check.destroy() }
+      if (!saveDocumentDraft(ownerId, documentDraftId, draft)) {
+        draftCacheFailed.value = true
+        return 'invalid'
+      }
+      Y.applyUpdate(ydoc.value, bytes)
+      const counters = ydoc.value.getMap<number>('session-counters')
+      const counter = (counters.get(current.sessionId) ?? 0) + 1
+      counters.set(current.sessionId, counter)
+      localCounter.value = counter
+      pendingCounters.value = new Map(pendingCounters.value).set(current.sessionId, counter)
+      draftRestored.value = true
+      isLocallyCached.value = true
+      return 'restored'
+    } catch {
+      return 'invalid'
+    }
+  }
+
   async function restartForEpoch() {
     if (disposed) return
+    flushLocalDraft()
+    if (hasUnsavedBody.value && !isLocallyCached.value) {
+      draftCacheFailed.value = true
+      return
+    }
+    if (hasOwner() && ownerId != null) {
+      const draft = readDocumentDraft(ownerId, documentId, documentDraftId)
+      if (draft?.ydocUpdate) {
+        // 留存旧版本草稿，避免新版本的编辑覆盖尚未同步的正文。
+        let retained = false
+        try { retained = saveDocumentDraft(ownerId, createDocumentDraftId(), draft) } catch { /* unavailable storage identity */ }
+        if (!retained) {
+          draftCacheFailed.value = true
+          return
+        }
+        clearDocumentDraft(ownerId, documentId, documentDraftId)
+      }
+    }
     generation += 1
     provider.value?.destroy()
     provider.value = null
@@ -398,13 +481,17 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
   }
 
   function discardDraft() {
-    clearDocumentDraft(documentId)
+    if (draftSaveTimer != null) clearTimeout(draftSaveTimer)
+    draftSaveTimer = null
+    if (hasOwner() && ownerId != null) clearDocumentDraft(ownerId, documentId, documentDraftId)
     draftRestored.value = false
     isLocallyCached.value = false
+    draftCacheFailed.value = false
     void restartForEpoch()
   }
 
   function dispose() {
+    flushLocalDraft()
     disposed = true
     generation += 1
     if (renewTimer != null) clearTimeout(renewTimer)
@@ -419,7 +506,21 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
     ydoc.value.destroy()
   }
 
-  onBeforeUnmount(dispose)
+  window.addEventListener('beforeunload', flushLocalDraft)
+
+  watch(() => auth.currentUser?.id, () => {
+    if (!hasOwner()) {
+      dispose()
+      hasSynced.value = false
+      authFailed.value = true
+      connectionState.value = 'error'
+    }
+  }, { flush: 'sync' })
+
+  onBeforeUnmount(() => {
+    window.removeEventListener('beforeunload', flushLocalDraft)
+    dispose()
+  })
   return {
     ydoc: shallowReadonly(ydoc),
     previewDoc: shallowReadonly(previewDoc),
@@ -435,6 +536,9 @@ export function useDocumentCollaboration(documentId: number, contentFormat: 'BLO
     collaborators: readonly(collaborators),
     draftRestored: readonly(draftRestored),
     isLocallyCached: readonly(isLocallyCached),
+    draftCacheFailed: readonly(draftCacheFailed),
+    hasUnsavedBody,
+    restoreDraft,
     discardDraft,
     start,
     retirePreview,

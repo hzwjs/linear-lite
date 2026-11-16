@@ -31,8 +31,16 @@ vi.mock('./sharedCollaborationSocket', () => ({
 vi.mock('../services/api/documentCollaboration', () => ({
   documentCollaborationApi: { createSession: vi.fn(), refreshSession: vi.fn() },
 }))
+vi.mock('../store/authStore', async () => {
+  const { reactive } = await import('vue')
+  const auth = reactive({ currentUser: { id: 7, username: 'Ada' } as { id: number; username: string } | null })
+  return { useAuthStore: () => ({ ...auth, get currentUser() { return auth.currentUser }, set currentUser(value) { auth.currentUser = value }, getConsistentAccessToken: () => auth.currentUser ? 'token' : null }) }
+})
 
 import { documentCollaborationApi } from '../services/api/documentCollaboration'
+import { useAuthStore } from '../store/authStore'
+import { documentDraftId } from '../utils/documentDraftStorage'
+const draftKey = "linear-lite.doc-draft.v3:7:19:" + documentDraftId
 
 const makeSession = (epoch: string) => ({
   documentId: 19,
@@ -54,6 +62,7 @@ let state: ReturnType<typeof useDocumentCollaboration> | null = null
 
 beforeEach(() => {
   vi.clearAllMocks()
+  useAuthStore().currentUser = { id: 7, username: 'Ada' }
   mockProviders.splice(0)
   app = null
   state = null
@@ -286,15 +295,16 @@ describe('document collaboration session renewal', () => {
     const updateBase64 = btoa(String.fromCharCode(...update))
 
     localStorage.setItem(
-      'linear-lite.doc-draft.v1:19',
+      draftKey,
       JSON.stringify({
         documentId: 19,
         format: 'BLOCKNOTE',
         title: 'Draft',
         ydocUpdate: updateBase64,
+        ydocEpoch: "1",
         serverVersion: 1,
         savedAt: Date.now(),
-        hasUnsavedChanges: true,
+        titleDirty: true,
       })
     )
 
@@ -313,6 +323,11 @@ describe('document collaboration session renewal', () => {
     const stored = state!.ydoc.value.getXmlFragment('document-store')
     expect(stored.length).toBeGreaterThan(0)
     expect((stored.get(0) as Y.XmlElement).getAttribute('id')).toBe('local-draft-block')
+    const provider = mockProviders[0]!
+    provider.config.onStateless({ payload: JSON.stringify({ event: 'saved', epoch: '1', counters: {}, version: 2, commitSeq: 2 }) })
+    expect(localStorage.getItem(draftKey)).not.toBeNull()
+    provider.config.onStateless({ payload: JSON.stringify({ event: 'saved', epoch: '1', counters: { 'session-1': 1 }, version: 3, commitSeq: 3 }) })
+    expect(JSON.parse(localStorage.getItem(draftKey)!).ydocUpdate).toBeUndefined()
   })
 
   it('falls back to local draft when collaboration session fetch fails offline', async () => {
@@ -328,19 +343,20 @@ describe('document collaboration session renewal', () => {
     const updateBase64 = btoa(String.fromCharCode(...update))
 
     localStorage.setItem(
-      'linear-lite.doc-draft.v1:19',
+      draftKey,
       JSON.stringify({
         documentId: 19,
         format: 'BLOCKNOTE',
         title: 'Draft',
         ydocUpdate: updateBase64,
+        ydocEpoch: "1",
         serverVersion: 1,
         savedAt: Date.now(),
-        hasUnsavedChanges: true,
+        titleDirty: true,
       })
     )
 
-    vi.mocked(documentCollaborationApi.createSession).mockRejectedValue(new Error('Network error'))
+    vi.mocked(documentCollaborationApi.createSession).mockRejectedValue({ isAxiosError: true, code: 'ERR_NETWORK' })
     app = createApp(defineComponent({
       setup() {
         state = useDocumentCollaboration(19, 'BLOCKNOTE')
@@ -356,5 +372,74 @@ describe('document collaboration session renewal', () => {
     const stored = state!.ydoc.value.getXmlFragment('document-store')
     expect(stored.length).toBeGreaterThan(0)
     expect((stored.get(0) as Y.XmlElement).getAttribute('id')).toBe('offline-only-block')
+  })
+
+  it('does not restore the draft when collaboration access is denied', async () => {
+    localStorage.clear()
+    const doc = new Y.Doc()
+    doc.getText('html').insert(0, 'private draft')
+    const update = btoa(String.fromCharCode(...Y.encodeStateAsUpdate(doc)))
+    localStorage.setItem(draftKey, JSON.stringify({
+      documentId: 19, format: 'BLOCKNOTE', title: 'Private', ydocUpdate: update, ydocEpoch: '1',
+      serverVersion: 1, savedAt: Date.now(), titleDirty: true
+    }))
+    vi.mocked(documentCollaborationApi.createSession).mockRejectedValue({ isAxiosError: true, response: { status: 403 } })
+    app = createApp(defineComponent({ setup() { state = useDocumentCollaboration(19, 'BLOCKNOTE'); return () => h('div') } }))
+    app.mount(document.createElement('div'))
+    await state!.start()
+    expect(state!.draftRestored.value).toBe(false)
+    expect(state!.previewDoc.value).toBeNull()
+    expect(state!.authFailed.value).toBe(true)
+  })
+
+  it('persists a pending body update before the page unloads', async () => {
+    localStorage.clear()
+    vi.useFakeTimers()
+    vi.mocked(documentCollaborationApi.createSession).mockResolvedValue(makeSession('1'))
+    app = createApp(defineComponent({ setup() { state = useDocumentCollaboration(19, 'BLOCKNOTE'); return () => h('div') } }))
+    app.mount(document.createElement('div'))
+    await state!.start()
+    mockProviders[0]!.config.onSynced()
+    state!.ydoc.value.transact(() => state!.ydoc.value.getXmlFragment('document-store')
+      .insert(0, [new Y.XmlElement('paragraph')]), ySyncPluginKey)
+    expect(localStorage.getItem(draftKey)).toBeNull()
+    window.dispatchEvent(new Event('beforeunload'))
+    const draft = JSON.parse(localStorage.getItem(draftKey)!)
+    expect(draft.ydocUpdate).toBeTypeOf('string')
+    expect(draft.titleDirty).toBe(false)
+  })
+
+  it('requires matching epoch and preserves the selected source draft', async () => {
+    localStorage.clear()
+    vi.mocked(documentCollaborationApi.createSession).mockResolvedValue(makeSession('1'))
+    app = createApp(defineComponent({ setup() { state = useDocumentCollaboration(19, 'BLOCKNOTE'); return () => h('div') } }))
+    app.mount(document.createElement('div'))
+    await state!.start()
+    mockProviders[0]!.config.onSynced()
+    const doc = new Y.Doc()
+    doc.getXmlFragment('document-store').insert(0, [new Y.XmlElement('paragraph')])
+    const draft = { documentId: 19, format: 'BLOCKNOTE' as const, titleDirty: false,
+      ydocUpdate: btoa(String.fromCharCode(...Y.encodeStateAsUpdate(doc))), ydocEpoch: '2', serverVersion: 1, savedAt: 1 }
+    const sourceKey = 'linear-lite.doc-draft.v3:7:19:other-tab'
+    localStorage.setItem(sourceKey, JSON.stringify(draft))
+    expect(state!.restoreDraft(draft)).toBe('epoch-mismatch')
+    expect(state!.ydoc.value.getXmlFragment('document-store').length).toBe(0)
+    expect(state!.restoreDraft({ ...draft, ydocEpoch: '1' })).toBe('restored')
+    expect(state!.ydoc.value.getXmlFragment('document-store').length).toBe(1)
+    expect(localStorage.getItem(sourceKey)).not.toBeNull()
+  })
+
+  it('disposes the old session when the account changes during a pending request', async () => {
+    let resolve!: (value: ReturnType<typeof makeSession>) => void
+    vi.mocked(documentCollaborationApi.createSession).mockReturnValue(new Promise((done) => { resolve = done }))
+    app = createApp(defineComponent({ setup() { state = useDocumentCollaboration(19, 'BLOCKNOTE'); return () => h('div') } }))
+    app.mount(document.createElement('div'))
+    const pending = state!.start()
+    useAuthStore().currentUser = { id: 8, username: 'Bea' }
+    resolve(makeSession('1'))
+    await pending
+    expect(mockProviders).toHaveLength(0)
+    expect(state!.previewDoc.value).toBeNull()
+    expect(state!.authFailed.value).toBe(true)
   })
 })

@@ -5,6 +5,8 @@ import { documentCollaborationApi } from '../services/api/documentCollaboration'
 import type { DocumentTitleUpdate } from '../services/api/documentCollaboration'
 import type { ProjectDocument, ProjectDocumentTreeNode } from '../types/document'
 import { DOCUMENT_TREE_CACHE_TTL_MS, useDocumentStore } from './documentStore'
+import { useAuthStore } from './authStore'
+import { documentDraftId, readDocumentDraft, saveDocumentDraft } from '../utils/documentDraftStorage'
 
 vi.mock('../services/api/documents', async () => {
   const actual = await vi.importActual<typeof import('../services/api/documents')>('../services/api/documents')
@@ -40,9 +42,17 @@ function treeNode(overrides: Partial<ProjectDocumentTreeNode> = {}): ProjectDocu
   }
 }
 
+function draftEntry(draftId: string, userId = 7) {
+  const draft = readDocumentDraft(userId, 8, draftId)
+  if (!draft) throw new Error('Missing draft fixture')
+  return { draftId, draft }
+}
+
 describe('documentStore title saves', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    useAuthStore().currentUser = { id: 7, username: 'Ada' }
+    vi.spyOn(useAuthStore(), 'getConsistentAccessToken').mockReturnValue('token')
     vi.useFakeTimers()
     vi.mocked(documentApi.update).mockReset()
     vi.mocked(documentCollaborationApi.updateTitle).mockReset()
@@ -99,17 +109,50 @@ describe('documentStore title saves', () => {
     expect(documentCollaborationApi.updateTitle).toHaveBeenCalledTimes(1)
   })
 
-  it('does not commit a draft with an empty title', async () => {
-    vi.mocked(documentCollaborationApi.updateTitle).mockResolvedValue(titleUpdate('   ', 2))
+  it.each(['', '   '])('caches an empty title %j without committing or removing the body', async (title) => {
+    localStorage.clear()
     const store = useDocumentStore()
-    store.activeDocument = document()
+    vi.mocked(documentApi.get).mockResolvedValue(document())
+    await store.loadDocument(8)
+    saveDocumentDraft(7, documentDraftId, {
+      documentId: 8, format: 'BLOCKNOTE', titleDirty: false, ydocUpdate: 'body-update',
+      ydocEpoch: 'epoch-1', serverVersion: 1, savedAt: Date.now()
+    })
 
-    store.updateDraft({ title: '   ' })
+    store.updateDraft({ title })
     await store.saveNow()
 
     expect(documentCollaborationApi.updateTitle).not.toHaveBeenCalled()
     expect(store.saveState).toBe('invalid')
     expect(store.error).toBeNull()
+    expect(readDocumentDraft(7, 8, documentDraftId)).toMatchObject({
+      title, titleDirty: true, ydocUpdate: 'body-update', ydocEpoch: 'epoch-1'
+    })
+  })
+
+  it.each(['', '   '])('restores an empty title %j as invalid and preserves the body', async (title) => {
+    localStorage.clear()
+    const store = useDocumentStore()
+    vi.mocked(documentApi.get).mockResolvedValue(document())
+    await store.loadDocument(8)
+    saveDocumentDraft(7, 'older-tab', {
+      documentId: 8, format: 'BLOCKNOTE', titleDirty: true, title,
+      serverVersion: 1, savedAt: Date.now()
+    })
+    saveDocumentDraft(7, documentDraftId, {
+      documentId: 8, format: 'BLOCKNOTE', titleDirty: false, ydocUpdate: 'body-update',
+      ydocEpoch: 'epoch-1', serverVersion: 1, savedAt: Date.now()
+    })
+
+    expect(store.restoreDraftTitle(draftEntry('older-tab'), 7)).toBe(true)
+    await store.saveNow()
+
+    expect(store.activeDocument?.title).toBe(title)
+    expect(store.saveState).toBe('invalid')
+    expect(documentCollaborationApi.updateTitle).not.toHaveBeenCalled()
+    expect(readDocumentDraft(7, 8, documentDraftId)).toMatchObject({
+      title, titleDirty: true, ydocUpdate: 'body-update', ydocEpoch: 'epoch-1'
+    })
   })
 
   it('does not save when leaving an unchanged document', async () => {
@@ -325,58 +368,137 @@ describe('documentStore title saves', () => {
     await movePromise
   })
 
-  it('restores unsaved title draft when loading document after a refresh in weak network', async () => {
+  it('loads the server title and restores only the selected title draft', async () => {
     localStorage.clear()
     const store = useDocumentStore()
     vi.mocked(documentApi.get).mockResolvedValue(document({ id: 8, title: 'Server Title' }))
 
-    // Simulate an existing draft from before refresh with unsaved title
-    localStorage.setItem(
-      'linear-lite.doc-draft.v1:8',
-      JSON.stringify({
+    saveDocumentDraft(7, 'older-tab', {
         documentId: 8,
         format: 'BLOCKNOTE',
         title: 'Restored Offline Title',
         serverVersion: 1,
         savedAt: Date.now() - 5000,
-        hasUnsavedChanges: true,
+        titleDirty: true,
       })
-    )
+    saveDocumentDraft(7, 'other-tab', {
+      documentId: 8, format: 'BLOCKNOTE', title: 'Other title', titleDirty: true,
+      serverVersion: 1, savedAt: Date.now()
+    })
 
     await store.loadDocument(8)
 
+    expect(store.activeDocument?.title).toBe('Server Title')
+    expect(store.hasRestoredDraft).toBe(false)
+    expect(store.restoreDraftTitle(draftEntry('older-tab'), 7)).toBe(true)
     expect(store.activeDocument?.title).toBe('Restored Offline Title')
     expect(store.saveState).toBe('dirty')
     expect(store.hasRestoredDraft).toBe(true)
     expect(store.restoredDraftTime).toBeTypeOf('number')
+    expect(store.restoredDraftId).toBe('older-tab')
+    expect(readDocumentDraft(7, 8, 'other-tab')?.title).toBe('Other title')
+    expect(readDocumentDraft(7, 8, 'older-tab')?.title).toBe('Restored Offline Title')
+    expect(readDocumentDraft(7, 8, documentDraftId)?.title).toBe('Restored Offline Title')
+    vi.mocked(documentCollaborationApi.updateTitle).mockResolvedValue(titleUpdate('Restored Offline Title', 2))
+    await store.saveNow()
+    expect(documentCollaborationApi.updateTitle).toHaveBeenCalledWith(8, 'Server Title', 'Restored Offline Title')
+    expect(readDocumentDraft(7, 8, 'older-tab')?.title).toBe('Restored Offline Title')
   })
 
-  it('falls back to local draft when loading document fails due to network error', async () => {
+  it('does not fabricate document metadata when the server request fails', async () => {
     localStorage.clear()
     const store = useDocumentStore()
     vi.mocked(documentApi.get).mockRejectedValue(new Error('Network error'))
 
-    localStorage.setItem(
-      'linear-lite.doc-draft.v1:8',
-      JSON.stringify({
+    saveDocumentDraft(7, 'older-tab', {
         documentId: 8,
-        projectId: 3,
         format: 'BLOCKNOTE',
         title: 'Cached Offline Document',
-        content: '[{"type":"paragraph"}]',
         serverVersion: 2,
         savedAt: Date.now() - 10000,
-        hasUnsavedChanges: true,
+        titleDirty: true,
       })
-    )
 
-    const doc = await store.loadDocument(8)
+    await expect(store.loadDocument(8)).rejects.toThrow('Network error')
+    expect(store.activeDocument).toBeNull()
+    expect(store.hasRestoredDraft).toBe(false)
+    expect(store.restoreDraftTitle(draftEntry('older-tab'), 7)).toBe(false)
+    expect(readDocumentDraft(7, 8, 'older-tab')).not.toBeNull()
+  })
 
-    expect(doc?.title).toBe('Cached Offline Document')
-    expect(store.activeDocument?.title).toBe('Cached Offline Document')
-    expect(store.hasRestoredDraft).toBe(true)
-    expect(store.saveState).toBe('dirty')
-    expect(store.error).toBeNull()
+  it('restores the selected snapshot even when its source changes, and rejects another account or document', async () => {
+    localStorage.clear()
+    const store = useDocumentStore()
+    vi.mocked(documentApi.get).mockResolvedValue(document())
+    await store.loadDocument(8)
+    saveDocumentDraft(7, 'older-tab', {
+      documentId: 8, format: 'BLOCKNOTE', title: 'Selected title', titleDirty: true,
+      serverVersion: 1, savedAt: 10
+    })
+    const selected = draftEntry('older-tab')
+    saveDocumentDraft(7, 'older-tab', { ...selected.draft, title: 'Newer title', savedAt: 20 })
+    expect(store.restoreDraftTitle(selected, 8)).toBe(false)
+    expect(store.restoreDraftTitle({ ...selected, draft: { ...selected.draft, documentId: 9 } }, 7)).toBe(false)
+    expect(store.restoreDraftTitle(selected, 7)).toBe(true)
+    expect(store.activeDocument?.title).toBe('Selected title')
+    expect(readDocumentDraft(7, 8, 'older-tab')?.title).toBe('Newer title')
+  })
+
+  it('does not display a cached draft after access is denied or the account changes', async () => {
+    localStorage.clear()
+    const store = useDocumentStore()
+    saveDocumentDraft(7, 'older-tab', {
+      documentId: 8, format: 'BLOCKNOTE', title: 'Private draft', serverVersion: 1,
+      savedAt: Date.now(), titleDirty: true
+    })
+    vi.mocked(documentApi.get).mockRejectedValueOnce({ response: { status: 403 } })
+    await expect(store.loadDocument(8)).rejects.toEqual({ response: { status: 403 } })
+    expect(store.activeDocument).toBeNull()
+    useAuthStore().currentUser = { id: 8, username: 'Bea' }
+    vi.mocked(documentApi.get).mockResolvedValueOnce(document({ title: 'Server Title' }))
+    await store.loadDocument(8)
+    expect(store.activeDocument?.title).toBe('Server Title')
+    expect(store.hasRestoredDraft).toBe(false)
+    expect(store.restoreDraftTitle(draftEntry('older-tab'), 7)).toBe(false)
+  })
+
+  it('discards a document response started under a different account', async () => {
+    let resolve!: (value: ProjectDocument) => void
+    vi.mocked(documentApi.get).mockReturnValueOnce(new Promise((done) => { resolve = done }))
+    const store = useDocumentStore()
+    const loading = store.loadDocument(8)
+    useAuthStore().currentUser = { id: 8, username: 'Bea' }
+    resolve(document())
+    await expect(loading).rejects.toThrow('Document account changed')
+    expect(store.activeDocument).toBeNull()
+  })
+
+  it('preserves an unacknowledged body draft when the title is saved', async () => {
+    localStorage.clear()
+    const store = useDocumentStore()
+    vi.mocked(documentApi.get).mockResolvedValue(document())
+    vi.mocked(documentCollaborationApi.updateTitle).mockResolvedValue(titleUpdate('New title', 2))
+    await store.loadDocument(8)
+    saveDocumentDraft(7, documentDraftId, {
+      documentId: 8, format: 'BLOCKNOTE', titleDirty: false, ydocUpdate: 'body-update',
+      ydocEpoch: 'epoch-1', serverVersion: 1, savedAt: Date.now()
+    })
+    store.updateDraft({ title: 'New title' })
+    await store.saveNow()
+    const draft = readDocumentDraft(7, 8, documentDraftId)
+    expect(draft?.titleDirty).toBe(false)
+    expect(draft?.ydocUpdate).toBe('body-update')
+  })
+
+  it('ignores an archive response from an old account', async () => {
+    let resolve!: (nodes: ProjectDocumentTreeNode[]) => void
+    vi.mocked(documentApi.listArchive).mockReturnValueOnce(new Promise((done) => { resolve = done }))
+    const store = useDocumentStore()
+    const pending = store.loadArchive(3)
+    useAuthStore().currentUser = { id: 8, username: 'Bea' }
+    resolve([treeNode()])
+    await pending
+    expect(store.archivedTreeNodes).toEqual([])
   })
 
   it('discards a restored draft and reverts to acknowledged server title', async () => {
@@ -384,19 +506,17 @@ describe('documentStore title saves', () => {
     const store = useDocumentStore()
     vi.mocked(documentApi.get).mockResolvedValue(document({ id: 8, title: 'Server Title' }))
 
-    localStorage.setItem(
-      'linear-lite.doc-draft.v1:8',
-      JSON.stringify({
+    saveDocumentDraft(7, 'older-tab', {
         documentId: 8,
         format: 'BLOCKNOTE',
         title: 'Unwanted Draft',
         serverVersion: 1,
         savedAt: Date.now(),
-        hasUnsavedChanges: true,
+        titleDirty: true,
       })
-    )
 
     await store.loadDocument(8)
+    expect(store.restoreDraftTitle(draftEntry('older-tab'), 7)).toBe(true)
     expect(store.activeDocument?.title).toBe('Unwanted Draft')
     expect(store.hasRestoredDraft).toBe(true)
 
@@ -405,6 +525,7 @@ describe('documentStore title saves', () => {
     expect(store.activeDocument?.title).toBe('Server Title')
     expect(store.hasRestoredDraft).toBe(false)
     expect(store.saveState).toBe('saved')
-    expect(localStorage.getItem('linear-lite.doc-draft.v1:8')).toBeNull()
+    expect(readDocumentDraft(7, 8, documentDraftId)).toBeNull()
+    expect(readDocumentDraft(7, 8, 'older-tab')?.title).toBe('Unwanted Draft')
   })
 })

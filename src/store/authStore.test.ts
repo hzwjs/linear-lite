@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createPinia, setActivePinia } from 'pinia'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, disposePinia, getActivePinia, setActivePinia } from 'pinia'
 import { useAuthStore } from './authStore'
 import { authApi } from '../services/api/auth'
-import { JWT_STORAGE_KEY, USER_STORAGE_KEY } from '../services/api/constants'
+import { AUTH_SESSION_CHANGED_EVENT, JWT_STORAGE_KEY, USER_STORAGE_KEY } from '../services/api/constants'
 
 vi.mock('../services/api/auth', () => ({
   authApi: {
@@ -10,9 +10,13 @@ vi.mock('../services/api/auth', () => ({
     register: vi.fn(),
     sendRegisterCode: vi.fn(),
     sendPasswordResetCode: vi.fn(),
-    resetPassword: vi.fn()
+    resetPassword: vi.fn(),
+    startDocumentAssetSession: vi.fn().mockResolvedValue(undefined),
+    logout: vi.fn().mockResolvedValue(undefined)
   }
 }))
+
+function tokenFor(id: number) { return `header.${btoa(JSON.stringify({ sub: String(id) }))}.signature` }
 
 describe('authStore', () => {
   beforeEach(() => {
@@ -23,6 +27,11 @@ describe('authStore', () => {
     vi.mocked(authApi.sendRegisterCode).mockReset()
     vi.mocked(authApi.sendPasswordResetCode).mockReset()
     vi.mocked(authApi.resetPassword).mockReset()
+  })
+
+  afterEach(() => {
+    const pinia = getActivePinia()
+    if (pinia) disposePinia(pinia)
   })
 
   it('stores session after email login', async () => {
@@ -76,5 +85,57 @@ describe('authStore', () => {
       password: 'new-secret'
     })
     expect(store.isLoggedIn).toBe(false)
+  })
+
+  it('invalidates the current page when another tab changes the account and preserves the other session', () => {
+    const store = useAuthStore()
+    const firstToken = tokenFor(3), secondToken = tokenFor(4)
+    store.setSession(firstToken, 3, 'alice')
+    const changed = vi.fn()
+    window.addEventListener(AUTH_SESSION_CHANGED_EVENT, changed)
+    localStorage.setItem(JWT_STORAGE_KEY, secondToken)
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify({ id: 4, username: 'bob' }))
+    window.dispatchEvent(new StorageEvent('storage', { key: JWT_STORAGE_KEY, newValue: secondToken }))
+
+    expect(store.currentUser).toBeNull()
+    expect(store.jwtToken).toBeNull()
+    expect(store.sessionInvalidated).toBe(true)
+    expect(changed).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem(JWT_STORAGE_KEY)).toBe(secondToken)
+    store.logout()
+    expect(localStorage.getItem(JWT_STORAGE_KEY)).toBe(secondToken)
+    expect(vi.mocked(authApi.logout)).not.toHaveBeenCalled()
+    window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, changed)
+  })
+
+  it('rejects a half-written account transition before its storage event arrives', () => {
+    const store = useAuthStore()
+    store.setSession(tokenFor(3), 3, 'alice')
+    localStorage.setItem(JWT_STORAGE_KEY, tokenFor(4))
+
+    expect(store.getConsistentAccessToken()).toBeNull()
+    expect(store.currentUser).toBeNull()
+    expect(store.sessionInvalidated).toBe(true)
+    expect(localStorage.getItem(JWT_STORAGE_KEY)).toBe(tokenFor(4))
+  })
+
+  it('rejects a token and user pair belonging to different accounts on startup', () => {
+    localStorage.setItem(JWT_STORAGE_KEY, tokenFor(4))
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify({ id: 3, username: 'alice' }))
+    const store = useAuthStore()
+    expect(store.getConsistentAccessToken()).toBeNull()
+    expect(store.sessionInvalidated).toBe(true)
+  })
+
+  it('permits a new login after the old page session was invalidated', async () => {
+    const store = useAuthStore()
+    store.setSession(tokenFor(3), 3, 'alice')
+    localStorage.setItem(JWT_STORAGE_KEY, tokenFor(4))
+    store.getConsistentAccessToken()
+    vi.mocked(authApi.login).mockResolvedValue({ token: tokenFor(4), userId: 4, username: 'bob' })
+
+    await store.login({ identity: 'bob', password: 'example' })
+    expect(store.getConsistentAccessToken()).toBe(tokenFor(4))
+    expect(store.sessionInvalidated).toBe(false)
   })
 })

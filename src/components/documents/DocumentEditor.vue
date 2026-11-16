@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Archive, Check, Clock3, Copy, Download, FileDown, HardDrive, Loader2, MoreHorizontal, RefreshCw, Star, Trash2, TriangleAlert } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StructuredDocumentEditor from '../StructuredDocumentEditor.vue'
 import DocumentMinimap from './DocumentMinimap.vue'
@@ -10,6 +10,8 @@ import { formatRelativeTime } from '../../utils/beijingTime'
 import { startDocumentPdfExport } from '../../utils/documentPdfExport'
 import { useDocumentCollaboration } from '../../composables/useDocumentCollaboration'
 import type { DocumentCollaborationSession } from '../../services/api/documentCollaboration'
+import * as Y from 'yjs'
+import { decodeBase64ToUint8Array, type DocumentLocalDraft } from '../../utils/documentDraftStorage'
 
 const DOCUMENT_ATTACHMENT_PATH = /^\/api\/project-documents\/(\d+)\/attachments\/(\d+)\/download$/
 
@@ -24,16 +26,22 @@ const props = withDefaults(defineProps<{
   initialSession?: Promise<DocumentCollaborationSession>
   hasRestoredDraft?: boolean
   restoredDraftTime?: number | null
+  titleDraftCached?: boolean
+  titleDraftCacheFailed?: boolean
+  draftCandidates?: Array<{ draftId: string; draft: DocumentLocalDraft }>
+  draftOwnerId?: number | null
 }>(), {
   favoritePending: false,
   hasRestoredDraft: false,
-  restoredDraftTime: null
+  restoredDraftTime: null,
+  titleDraftCached: false,
+  titleDraftCacheFailed: false,
+  draftCandidates: () => []
 })
 
 const emit = defineEmits<{
   updateTitle: [title: string]
   commitTitle: []
-  updateContent: [content: string]
   archive: []
   history: []
   reload: []
@@ -41,10 +49,39 @@ const emit = defineEmits<{
   toggleFavorite: []
   discardDraft: []
   dismissDraftBanner: []
+  restoreDraftTitle: [entry: { draftId: string; draft: DocumentLocalDraft }, ownerId: number]
 }>()
 
 const { t } = useI18n()
 const collaborationState = useDocumentCollaboration(props.document.id, 'BLOCKNOTE')
+const draftSelectionError = ref('')
+const selectedDraftPreview = shallowRef<Y.Doc | null>(null)
+const selectedDraftTitle = ref('')
+function selectDraft(entry: { draftId: string; draft: DocumentLocalDraft }) {
+  const { draft } = entry
+  draftSelectionError.value = ''
+  if (props.saveState !== 'saved' && props.saveState !== 'idle') {
+    draftSelectionError.value = t('documents.draftResolveCurrent')
+    return
+  }
+  const result = collaborationState.restoreDraft(draft)
+  if (result === 'epoch-mismatch') {
+    try {
+      const preview = new Y.Doc()
+      Y.applyUpdate(preview, decodeBase64ToUint8Array(draft.ydocUpdate!))
+      selectedDraftPreview.value?.destroy()
+      selectedDraftPreview.value = preview
+      selectedDraftTitle.value = draft.title ?? ''
+      draftSelectionError.value = t('documents.draftEpochMismatch')
+    } catch { draftSelectionError.value = t('documents.draftRestoreFailed') }
+  } else if (result === 'restored') {
+    selectedDraftPreview.value?.destroy()
+    selectedDraftPreview.value = null
+    if (draft.titleDirty && props.draftOwnerId != null) emit('restoreDraftTitle', entry, props.draftOwnerId)
+  } else {
+    draftSelectionError.value = t(result === 'busy' ? 'documents.draftResolveCurrent' : 'documents.draftRestoreFailed')
+  }
+}
 const collaborationStatusKey = computed(() => {
   if (!collaborationState.hasSynced.value) {
     return collaborationState.connectionState.value === 'connecting' ? 'connecting' : 'connectionLost'
@@ -54,7 +91,8 @@ const collaborationStatusKey = computed(() => {
 const previewOptions = computed(() => {
   const current = collaborationState.session.value
   const preview = collaborationState.previewDoc.value
-  if (!current || !preview) return null
+  if (!preview || (!current && !collaborationState.draftRestored.value)) return null
+  if (!current) return { fragment: preview.getXmlFragment('document-store'), user: { name: '', color: 'transparent' } }
   return {
     fragment: preview.getXmlFragment('document-store'),
     user: { name: current.user.name, color: current.user.color },
@@ -76,9 +114,10 @@ watch(() => props.hasRestoredDraft, (val) => {
   if (val) showDraftBanner.value = true
 })
 const isLocallyCached = computed(() => {
-  return collaborationState.isLocallyCached?.value || props.hasRestoredDraft ||
-    props.saveState === 'failed' || props.saveState === 'dirty' ||
-    collaborationStatusKey.value === 'offline'
+  const titlePending = props.saveState === 'dirty' || props.saveState === 'saving' || props.saveState === 'failed'
+  const bodyPending = collaborationState.hasUnsavedBody.value
+  return (titlePending || bodyPending) && (!titlePending || props.titleDraftCached) &&
+    (!bodyPending || collaborationState.isLocallyCached.value)
 })
 const restoredTimeAgo = computed(() => {
   if (!props.restoredDraftTime) return t('documents.updatedTime.justNow')
@@ -231,6 +270,7 @@ watch(
   { flush: 'post' }
 )
 onBeforeUnmount(() => {
+  selectedDraftPreview.value?.destroy()
   if (relativeTimeTimer != null) clearInterval(relativeTimeTimer)
   window.document.removeEventListener('click', onMoreMenuOutsideClick, true)
   restorePdfExportState?.()
@@ -409,6 +449,9 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
           <HardDrive aria-hidden="true" />
           {{ t('documents.locallyCached') }}
         </span>
+        <span v-if="titleDraftCacheFailed || collaborationState.draftCacheFailed.value" class="document-editor__save-state" role="alert">
+          <TriangleAlert aria-hidden="true" />{{ t('documents.localDraftSaveFailed') }}
+        </span>
         <div class="document-editor__collaborators" :aria-label="t('documents.collaboration.people')">
           <span v-for="person in collaborationState.collaborators.value" :key="person.id" :title="person.name" :style="{ '--collaborator-color': person.color }">
             {{ person.name.slice(0, 1).toUpperCase() }}
@@ -443,6 +486,20 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
       </div>
     </header>
 
+    <details v-if="draftCandidates.length" class="document-editor__conflict">
+      <summary>{{ t('documents.availableDrafts', { count: draftCandidates.length }) }}</summary>
+      <div v-for="item in draftCandidates" :key="item.draftId">
+        <span>{{ new Date(item.draft.savedAt).toLocaleString() }} · {{ item.draft.title || document.title }}</span>
+        <button type="button" @click="selectDraft(item)">{{ t('documents.restoreDraft') }}</button>
+      </div>
+      <p v-if="draftSelectionError" role="alert">{{ draftSelectionError }}</p>
+      <div v-if="selectedDraftPreview">
+        <strong>{{ selectedDraftTitle }}</strong>
+        <StructuredDocumentEditor :document-id="document.id" :image-assets="document.imageAssets" model-value="" readonly
+          :collaboration="{ fragment: selectedDraftPreview.getXmlFragment('document-store'), user: { name: '', color: 'transparent' } }"
+          :placeholder="t('documents.bodyPlaceholder')" />
+      </div>
+    </details>
     <div v-if="hasRestoredDraft && showDraftBanner" class="document-editor__conflict document-editor__draft-banner" role="status">
       <Clock3 aria-hidden="true" />
       <div>
@@ -535,12 +592,11 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
               paste-file-as-link
               :file-upload-failed-text="$t('documents.attachmentUploadFailed')"
               model-value=""
-              :readonly="saveState === 'conflict' || collaborationState.authFailed.value"
+              :readonly="saveState === 'conflict' || collaborationState.authFailed.value || collaborationState.epochChanged.value"
               :collaboration="collaborationOptions"
               :placeholder="t('documents.bodyPlaceholder')"
               :mention-members="mentionMembers"
               :mention-documents="mentionDocuments"
-              @update:model-value="emit('updateContent', $event)"
               @ready="onLiveReady"
             />
           </div>

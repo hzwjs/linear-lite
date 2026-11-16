@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { notificationsApi, type InAppNotificationDto } from '../services/api/notifications'
-import { JWT_STORAGE_KEY } from '../services/api/constants'
 import { useAuthStore } from './authStore'
 
 function streamUrl(token: string): string {
@@ -42,7 +41,7 @@ export const useNotificationStore = defineStore('notificationStore', () => {
 
   function scheduleReconnect() {
     clearReconnectSchedule()
-    const token = localStorage.getItem(JWT_STORAGE_KEY)
+    const token = authStore.getConsistentAccessToken()
     if (!token) return
     const delay = reconnectBackoffMs
     reconnectBackoffMs = Math.min(reconnectBackoffMs * 2, SSE_RECONNECT_CAP_MS)
@@ -55,7 +54,7 @@ export const useNotificationStore = defineStore('notificationStore', () => {
   function connectStream() {
     clearReconnectSchedule()
     closeEventSourceOnly()
-    const token = localStorage.getItem(JWT_STORAGE_KEY)
+    const token = authStore.getConsistentAccessToken()
     if (!token) return
     try {
       const es = new EventSource(streamUrl(token))

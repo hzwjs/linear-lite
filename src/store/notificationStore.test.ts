@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { JWT_STORAGE_KEY } from '../services/api/constants'
+import { JWT_STORAGE_KEY, USER_STORAGE_KEY } from '../services/api/constants'
 import { useAuthStore } from './authStore'
 import { useNotificationStore } from './notificationStore'
 
@@ -10,6 +10,11 @@ vi.mock('../services/api/notifications', () => ({
     list: vi.fn().mockResolvedValue([])
   }
 }))
+vi.mock('../services/api/auth', () => ({
+  authApi: { startDocumentAssetSession: vi.fn().mockResolvedValue(undefined), logout: vi.fn().mockResolvedValue(undefined) }
+}))
+
+function tokenFor(id: number) { return `header.${btoa(JSON.stringify({ sub: String(id) }))}.signature` }
 
 const SSE_RECONNECT_INITIAL_MS = 1000
 
@@ -33,7 +38,8 @@ class MockEventSource {
 describe('notificationStore SSE', () => {
   beforeEach(() => {
     localStorage.clear()
-    localStorage.setItem(JWT_STORAGE_KEY, 'jwt-test')
+    localStorage.setItem(JWT_STORAGE_KEY, tokenFor(1))
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify({ id: 1, username: 'tester' }))
     vi.useFakeTimers({ shouldAdvanceTime: true })
     instances = []
     vi.stubGlobal('EventSource', MockEventSource)
@@ -59,7 +65,7 @@ describe('notificationStore SSE', () => {
   it('cancels pending reconnect on logout', async () => {
     setActivePinia(createPinia())
     const auth = useAuthStore()
-    auth.setSession('jwt-test', 1, 'tester')
+    auth.setSession(tokenFor(1), 1, 'tester')
     useNotificationStore()
     await Promise.resolve()
     await Promise.resolve()
@@ -69,5 +75,16 @@ describe('notificationStore SSE', () => {
     auth.logout()
     await vi.advanceTimersByTimeAsync(120_000)
     expect(instances.length).toBe(1)
+  })
+
+  it('does not reconnect using another account token before the storage event', async () => {
+    const notifications = useNotificationStore()
+    await Promise.resolve()
+    expect(instances).toHaveLength(1)
+    localStorage.setItem(JWT_STORAGE_KEY, tokenFor(2))
+    notifications.connectStream()
+    expect(instances).toHaveLength(1)
+    expect(instances[0]!.close).toHaveBeenCalled()
+    expect(useAuthStore().currentUser).toBeNull()
   })
 })

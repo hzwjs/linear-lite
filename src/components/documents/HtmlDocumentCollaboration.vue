@@ -12,6 +12,7 @@ const emit = defineEmits<{
 }>()
 
 const collaboration = useDocumentCollaboration(props.documentId, 'HTML')
+defineExpose({ restoreDraft: collaboration.restoreDraft })
 const currentText = computed(() => collaboration.ydoc.value.getText('html'))
 const previewText = computed(() => collaboration.previewDoc.value?.getText('html') ?? null)
 const previewAwareness = shallowRef<Awareness | null>(null)
@@ -88,7 +89,7 @@ onBeforeUnmount(() => {
       :awareness="collaboration.provider.value.awareness!"
       :ariaLabel="ariaLabel"
       :placeholder="placeholder"
-      :disabled="collaboration.authFailed.value"
+      :disabled="collaboration.authFailed.value || collaboration.epochChanged.value"
       @change="emit('content', $event)"
       @ready="onLiveReady"
     />

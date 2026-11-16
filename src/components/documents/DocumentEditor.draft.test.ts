@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import DocumentEditor from './DocumentEditor.vue'
 
 const discardDraftMock = vi.fn()
+const restoreDraftMock = vi.fn(() => 'restored')
+const mockOffline = vi.hoisted(() => ({ enabled: false }))
 
 vi.mock('../../composables/useDocumentCollaboration', async () => {
   const vue = await vi.importActual<typeof import('vue')>('vue')
@@ -11,9 +13,9 @@ vi.mock('../../composables/useDocumentCollaboration', async () => {
   return {
     useDocumentCollaboration: () => ({
       ydoc: vue.shallowRef(new Y.Doc()),
-      previewDoc: vue.shallowRef(null),
-      session: vue.shallowRef({ user: { name: 'Ada', color: '#123456' }, sessionId: 'session-1', epoch: 'epoch-1' }),
-      provider: vue.shallowRef({ awareness: undefined }),
+      previewDoc: vue.shallowRef(mockOffline.enabled ? new Y.Doc() : null),
+      session: vue.shallowRef(mockOffline.enabled ? null : { user: { name: 'Ada', color: '#123456' }, sessionId: 'session-1', epoch: 'epoch-1' }),
+      provider: vue.shallowRef(mockOffline.enabled ? null : { awareness: undefined }),
       hasSynced: vue.ref(true),
       authFailed: vue.ref(false),
       saveState: vue.ref('saved'),
@@ -22,9 +24,12 @@ vi.mock('../../composables/useDocumentCollaboration', async () => {
       serverVersion: vue.ref(1),
       commitSeq: vue.ref(0),
       epochChanged: vue.ref(false),
-      draftRestored: vue.ref(false),
+      draftRestored: vue.ref(mockOffline.enabled),
       isLocallyCached: vue.ref(true),
+      hasUnsavedBody: vue.ref(true),
+      draftCacheFailed: vue.ref(false),
       discardDraft: discardDraftMock,
+      restoreDraft: restoreDraftMock,
       start: vi.fn(),
       restartForEpoch: vi.fn(),
       retirePreview: vi.fn(),
@@ -74,9 +79,11 @@ const treeNodes = [{
 
 describe('DocumentEditor local cache and draft restoration', () => {
   beforeEach(() => {
+    mockOffline.enabled = false
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
     document.body.innerHTML = ''
     discardDraftMock.mockClear()
+    restoreDraftMock.mockClear()
   })
 
   afterEach(() => {
@@ -177,5 +184,22 @@ describe('DocumentEditor local cache and draft restoration', () => {
     const badge = host.querySelector('.document-editor__save-state--cached')
     expect(badge).not.toBeNull()
     expect(badge?.textContent).toContain('Cached locally')
+  })
+
+  it('renders the recovered body as a read-only preview when the session is offline', async () => {
+    mockOffline.enabled = true
+    const { host } = renderEditor()
+    await nextTick()
+    expect(host.querySelector('[data-testid="document-body"]')).not.toBeNull()
+  })
+
+  it('restores the selected snapshot and sends the same snapshot and owner to the title store', async () => {
+    const entry = { draftId: 'other', draft: { documentId: 1, format: 'BLOCKNOTE', titleDirty: true, title: 'Draft', serverVersion: 1, savedAt: 1 } }
+    const onRestoreDraftTitle = vi.fn()
+    const { host } = renderEditor({ draftCandidates: [entry], draftOwnerId: 7, onRestoreDraftTitle })
+    await nextTick()
+    host.querySelector<HTMLButtonElement>('details.document-editor__conflict button')?.click()
+    expect(restoreDraftMock).toHaveBeenCalledWith(entry.draft)
+    expect(onRestoreDraftTitle).toHaveBeenCalledWith(entry, 7)
   })
 })

@@ -1,13 +1,16 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { documentApi, getDocumentConflict } from '../services/api/documents'
 import { documentCollaborationApi } from '../services/api/documentCollaboration'
 import { useDocumentFavoriteStore } from './documentFavoriteStore'
+import { useAuthStore } from './authStore'
 import {
   clearDocumentDraft,
+  documentDraftId,
   readDocumentDraft,
   saveDocumentDraft,
 } from '../utils/documentDraftStorage'
+import type { DocumentDraftEntry } from '../utils/documentDraftStorage'
 import type {
   DocumentSaveState,
   ProjectDocument,
@@ -30,6 +33,7 @@ function treeSnapshotsEqual(current: ProjectDocumentTreeNode[], incoming: Projec
 }
 
 export const useDocumentStore = defineStore('documentStore', () => {
+  const auth = useAuthStore()
   const treeNodes = ref<ProjectDocumentTreeNode[]>([])
   const archivedTreeNodes = ref<ProjectDocumentTreeNode[]>([])
   const activeDocument = ref<ProjectDocument | null>(null)
@@ -44,6 +48,9 @@ export const useDocumentStore = defineStore('documentStore', () => {
   const favoritePendingIds = ref(new Set<number>())
   const hasRestoredDraft = ref(false)
   const restoredDraftTime = ref<number | null>(null)
+  const restoredDraftId = ref<string | null>(null)
+  const titleDraftCached = ref(false)
+  const titleDraftCacheFailed = ref(false)
 
   let editSequence = 0
   let acknowledgedTitle = ''
@@ -52,9 +59,32 @@ export const useDocumentStore = defineStore('documentStore', () => {
   let treeLoadSequence = 0
   let visibleTreeLoadSequence = 0
   let documentLoadSequence = 0
+  let accountSequence = 0
+  let documentOwnerId: number | null = null
   let loadedTreeProjectId: number | null = null
   let treeLoadedAt = 0
   const treeLoadPromises = new Map<number, Promise<ProjectDocumentTreeNode[]>>()
+  const hasOwner = (ownerId: number | null) => ownerId != null &&
+    auth.getConsistentAccessToken() != null && auth.currentUser?.id === ownerId
+
+  watch(() => auth.currentUser?.id, () => {
+    accountSequence += 1
+    documentLoadSequence += 1
+    treeLoadSequence += 1
+    visibleTreeLoadSequence += 1
+    documentOwnerId = null
+    activeSavePromise = null
+    activeDocument.value = null
+    treeNodes.value = []
+    archivedTreeNodes.value = []
+    loadedTreeProjectId = null
+    treeLoadedAt = 0
+    treeLoadPromises.clear()
+    loadingDocument.value = false
+    loadingTree.value = false
+    refreshingTree.value = false
+    resetEditorState()
+  }, { flush: 'sync' })
 
   function resetEditorState() {
     editSequence = 0
@@ -63,6 +93,9 @@ export const useDocumentStore = defineStore('documentStore', () => {
     conflictVersion.value = null
     hasRestoredDraft.value = false
     restoredDraftTime.value = null
+    restoredDraftId.value = null
+    titleDraftCached.value = false
+    titleDraftCacheFailed.value = false
   }
 
   function syncTreeNode(document: ProjectDocument) {
@@ -170,61 +203,36 @@ export const useDocumentStore = defineStore('documentStore', () => {
   }
 
   async function loadArchive(projectId: number) {
-    archivedTreeNodes.value = await documentApi.listArchive(projectId)
+    const ownerSequence = accountSequence
+    const archive = await documentApi.listArchive(projectId)
+    if (ownerSequence === accountSequence) archivedTreeNodes.value = archive
   }
 
   async function loadDocument(documentId: number) {
     const sequence = ++documentLoadSequence
+    const ownerId = auth.getConsistentAccessToken() != null ? auth.currentUser?.id ?? null : null
+    const ownerSequence = accountSequence
+    documentOwnerId = null
     // 路由已切换时立即撤下旧正文，禁止在新请求期间显示另一文档的数据。
     activeDocument.value = null
     resetEditorState()
     loadingDocument.value = true
     error.value = null
     try {
+      if (ownerId == null) throw new Error('Document account is unavailable')
       const document = await documentApi.get(documentId)
+      if (ownerSequence !== accountSequence || !hasOwner(ownerId)) throw new Error('Document account changed')
       if (sequence !== documentLoadSequence) return document
+      documentOwnerId = ownerId
       activeDocument.value = document
       acknowledgedTitle = document.title
       resetEditorState()
       syncTreeNode(document)
       useDocumentFavoriteStore().syncDocument(document)
 
-      const draft = readDocumentDraft(documentId)
-      if (draft && draft.hasUnsavedChanges && draft.title.trim().length > 0 && draft.title !== document.title) {
-        activeDocument.value = { ...document, title: draft.title }
-        saveState.value = 'dirty'
-        hasRestoredDraft.value = true
-        restoredDraftTime.value = draft.savedAt
-      }
       return activeDocument.value
     } catch (cause) {
       if (sequence === documentLoadSequence) {
-        const draft = readDocumentDraft(documentId)
-        if (draft && draft.title.trim().length > 0) {
-          const fallbackDoc: ProjectDocument = {
-            id: documentId,
-            projectId: draft.projectId ?? loadedTreeProjectId ?? 0,
-            contentFormat: draft.format,
-            title: draft.title,
-            content: draft.content ?? '[]',
-            imageAssets: [],
-            creatorId: 0,
-            lastEditorId: 0,
-            archivedAt: null,
-            createdAt: new Date(draft.savedAt).toISOString(),
-            updatedAt: new Date(draft.savedAt).toISOString(),
-            sortOrder: 0,
-            version: draft.serverVersion,
-            favorited: false,
-          }
-          activeDocument.value = fallbackDoc
-          acknowledgedTitle = draft.title
-          saveState.value = 'dirty'
-          hasRestoredDraft.value = true
-          restoredDraftTime.value = draft.savedAt
-          error.value = null
-          return fallbackDoc
-        }
         error.value = cause instanceof Error ? cause.message : String(cause)
       }
       throw cause
@@ -239,7 +247,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
     return document
   }
 
-  function updateDraft(patch: { title?: string; content?: string }) {
+  function updateDraft(patch: { title?: string }) {
     const document = activeDocument.value
     if (!document || saveState.value === 'conflict') return
     const titleChanged = patch.title !== undefined && patch.title !== document.title
@@ -251,38 +259,37 @@ export const useDocumentStore = defineStore('documentStore', () => {
       // 空标题在前端拦截，避免提交必填校验错误。
       saveState.value = 'invalid'
       error.value = null
-      return
+    } else {
+      saveState.value = 'dirty'
     }
-    saveState.value = 'dirty'
-    const draft = readDocumentDraft(document.id)
-    saveDocumentDraft({
+    const ownerId = documentOwnerId
+    if (!hasOwner(ownerId) || ownerId == null) return
+    const draft = readDocumentDraft(ownerId, document.id, documentDraftId)
+    const cached = saveDocumentDraft(ownerId, documentDraftId, {
+      ...draft,
       documentId: document.id,
-      projectId: document.projectId,
       format: document.contentFormat,
       title: nextDocument.title,
-      content: draft?.content,
+      titleDirty: true,
       ydocUpdate: draft?.ydocUpdate,
       serverVersion: document.version,
       savedAt: Date.now(),
-      hasUnsavedChanges: true,
     })
+    titleDraftCached.value = cached
+    titleDraftCacheFailed.value = !cached
   }
 
-  function saveContentDraft(content: string) {
+  function restoreDraftTitle(entry: DocumentDraftEntry, ownerId: number): boolean {
     const document = activeDocument.value
-    if (!document) return
-    const draft = readDocumentDraft(document.id)
-    saveDocumentDraft({
-      documentId: document.id,
-      projectId: document.projectId,
-      format: document.contentFormat,
-      title: document.title,
-      content,
-      ydocUpdate: draft?.ydocUpdate,
-      serverVersion: document.version,
-      savedAt: Date.now(),
-      hasUnsavedChanges: true,
-    })
+    if (!document || documentOwnerId !== ownerId || !hasOwner(ownerId) || saveState.value === 'conflict') return false
+    const source = entry.draft
+    if (source.documentId !== document.id || source.format !== document.contentFormat) return false
+    if (source.titleDirty && source.title == null) return false
+    if (source.titleDirty && source.title !== document.title) updateDraft({ title: source.title })
+    restoredDraftId.value = entry.draftId
+    restoredDraftTime.value = source.savedAt
+    hasRestoredDraft.value = source.titleDirty
+    return true
   }
 
   async function performSave(): Promise<void> {
@@ -290,15 +297,18 @@ export const useDocumentStore = defineStore('documentStore', () => {
     if (!document || saveState.value === 'conflict' || saveState.value === 'invalid' ||
       saveState.value === 'idle' || saveState.value === 'saved') return
     const submittedId = document.id
+    const ownerId = documentOwnerId
+    if (!hasOwner(ownerId)) return
+    const ownerSequence = accountSequence
     const submittedSequence = editSequence
     const expectedTitle = acknowledgedTitle
     const submittedTitle = document.title
     saveState.value = 'saving'
     try {
       const saved = await documentCollaborationApi.updateTitle(submittedId, expectedTitle, submittedTitle)
-      acknowledgedTitle = saved.title
       const current = activeDocument.value
-      if (current?.id !== submittedId) return
+      if (current?.id !== submittedId || ownerSequence !== accountSequence || !hasOwner(ownerId)) return
+      acknowledgedTitle = saved.title
       const changedDuringRequest = editSequence !== submittedSequence
       activeDocument.value = changedDuringRequest
         ? { ...current, title: current.title, version: saved.version, updatedAt: saved.updatedAt, lastEditorId: saved.lastEditorId }
@@ -310,23 +320,25 @@ export const useDocumentStore = defineStore('documentStore', () => {
       } else {
         saveState.value = changedDuringRequest ? 'dirty' : 'saved'
       }
-      if (saveState.value === 'saved') {
-        const draft = readDocumentDraft(submittedId)
+      if (saveState.value === 'saved' && ownerId != null) {
+        const draft = readDocumentDraft(ownerId, submittedId, documentDraftId)
         if (draft) {
           if (!draft.ydocUpdate) {
-            clearDocumentDraft(submittedId)
+            clearDocumentDraft(ownerId, submittedId, documentDraftId)
           } else {
-            saveDocumentDraft({
+            saveDocumentDraft(ownerId, documentDraftId, {
               ...draft,
-              title: saved.title,
+              title: undefined,
+              titleDirty: false,
               serverVersion: saved.version,
-              hasUnsavedChanges: false,
             })
           }
         }
+        titleDraftCached.value = false
+        titleDraftCacheFailed.value = false
       }
     } catch (cause) {
-      if (activeDocument.value?.id !== submittedId) return
+      if (activeDocument.value?.id !== submittedId || ownerSequence !== accountSequence || !hasOwner(ownerId)) return
       if (cause != null && typeof cause === 'object' && 'response' in cause &&
         (cause as { response?: { status?: unknown } }).response?.status === 409) {
         const conflict = getDocumentConflict(cause)
@@ -343,16 +355,18 @@ export const useDocumentStore = defineStore('documentStore', () => {
   function saveNow(): Promise<void> {
     commitRequested = true
     if (activeSavePromise) return activeSavePromise
-    activeSavePromise = drainSaveRequests().finally(() => {
-      activeSavePromise = null
+    const current = drainSaveRequests(accountSequence).finally(() => {
+      if (activeSavePromise === current) activeSavePromise = null
     })
-    return activeSavePromise
+    activeSavePromise = current
+    return current
   }
 
-  async function drainSaveRequests() {
-    while (commitRequested) {
+  async function drainSaveRequests(ownerSequence: number) {
+    while (commitRequested && ownerSequence === accountSequence) {
       commitRequested = false
       await performSave()
+      if (ownerSequence !== accountSequence) return
       if (saveState.value !== 'dirty') {
         commitRequested = false
         return
@@ -416,14 +430,21 @@ export const useDocumentStore = defineStore('documentStore', () => {
     }
     archivedIds.forEach((id) => {
       useDocumentFavoriteStore().removeDocument(id)
-      clearDocumentDraft(id)
+      if (hasOwner(documentOwnerId) && documentOwnerId != null) clearDocumentDraft(documentOwnerId, id, documentDraftId)
     })
   }
 
   function discardDraft(documentId: number) {
-    clearDocumentDraft(documentId)
+    if (hasOwner(documentOwnerId) && documentOwnerId != null) {
+      const draft = readDocumentDraft(documentOwnerId, documentId, documentDraftId)
+      if (draft?.ydocUpdate) saveDocumentDraft(documentOwnerId, documentDraftId, { ...draft, title: undefined, titleDirty: false })
+      else clearDocumentDraft(documentOwnerId, documentId, documentDraftId)
+    }
     hasRestoredDraft.value = false
     restoredDraftTime.value = null
+    restoredDraftId.value = null
+    titleDraftCached.value = false
+    titleDraftCacheFailed.value = false
     if (activeDocument.value?.id === documentId) {
       activeDocument.value = { ...activeDocument.value, title: acknowledgedTitle }
       saveState.value = 'saved'
@@ -511,12 +532,15 @@ export const useDocumentStore = defineStore('documentStore', () => {
     favoritePendingIds,
     hasRestoredDraft,
     restoredDraftTime,
+    restoredDraftId,
     loadTree,
     loadArchive,
     loadDocument,
     createDocument,
     updateDraft,
-    saveContentDraft,
+    restoreDraftTitle,
+    titleDraftCached,
+    titleDraftCacheFailed,
     discardDraft,
     dismissDraftBanner,
     saveNow,

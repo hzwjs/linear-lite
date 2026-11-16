@@ -13,6 +13,8 @@ import { documentCollaborationApi, type DocumentCollaborationSession } from '../
 import { projectApi } from '../services/api/project'
 import { useDocumentStore } from '../store/documentStore'
 import { useProjectStore } from '../store/projectStore'
+import { useAuthStore } from '../store/authStore'
+import { documentDraftId, listDocumentDrafts, type DocumentLocalDraft } from '../utils/documentDraftStorage'
 import type { ProjectContentSearchResult } from '../types/search'
 
 const route = useRoute()
@@ -20,6 +22,16 @@ const router = useRouter()
 const { t } = useI18n()
 const store = useDocumentStore()
 const projectStore = useProjectStore()
+const authStore = useAuthStore()
+const draftCandidates = ref<Array<{ draftId: string; draft: DocumentLocalDraft }>>([])
+function refreshDraftCandidates() {
+  const owner = authStore.currentUser?.id
+  const active = store.activeDocument
+  draftCandidates.value = owner && active && authStore.getConsistentAccessToken()
+    ? listDocumentDrafts(owner, active.id).filter(item => item.draftId !== documentDraftId)
+    : []
+}
+watch(() => [store.activeDocument?.id, authStore.currentUser?.id], refreshDraftCandidates, { immediate: true })
 
 const documentSearchQuery = ref('')
 const documentSearchResults = ref<ProjectContentSearchResult[]>([])
@@ -70,6 +82,7 @@ const DOCUMENT_SEARCH_DEBOUNCE_MS = 250
 
 function refreshAfterTabFocus() {
   void store.loadTree(projectId.value).catch(() => undefined)
+  refreshDraftCandidates()
 }
 onMounted(() => window.addEventListener('focus', refreshAfterTabFocus))
 onBeforeUnmount(() => window.removeEventListener('focus', refreshAfterTabFocus))
@@ -631,14 +644,18 @@ onBeforeUnmount(() => {
           :conflict-version="store.conflictVersion"
           :has-restored-draft="store.hasRestoredDraft"
           :restored-draft-time="store.restoredDraftTime"
+          :title-draft-cached="store.titleDraftCached"
+          :title-draft-cache-failed="store.titleDraftCacheFailed"
+          :draft-candidates="draftCandidates"
+          :draft-owner-id="authStore.currentUser?.id"
           :mention-members="members"
           :mention-documents="store.treeNodes.map((node) => ({ id: node.id, title: node.title, projectId: node.projectId }))"
           :favorite-pending="store.favoritePendingIds.has(store.activeDocument.id)"
           @update-title="store.updateDraft({ title: $event })"
-          @update-content="store.saveContentDraft($event)"
           @commit-title="store.saveNow"
           @discard-draft="store.discardDraft(store.activeDocument.id)"
           @dismiss-draft-banner="store.dismissDraftBanner"
+          @restore-draft-title="store.restoreDraftTitle"
           @archive="archiveDocument(store.activeDocument.id)"
           @history="openHistory"
           @reload="store.reloadAfterConflict"

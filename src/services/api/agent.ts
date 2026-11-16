@@ -1,6 +1,7 @@
 import { api, unwrap } from './index'
 import type { ApiResponse } from './types'
-import { JWT_STORAGE_KEY } from './constants'
+import { getActivePinia } from 'pinia'
+import { useAuthStore } from '../../store/authStore'
 
 export interface AgentTaskStatus {
   executionId: string | null
@@ -90,7 +91,8 @@ export type PiSettingsRequest =
 export type ConversationDisplayBlock = SessionDisplayBlock | RuntimeDisplayBlock
 
 function sessionStreamUrl(taskKey: string, executionId: string): string {
-  const token = localStorage.getItem(JWT_STORAGE_KEY)
+  const pinia = getActivePinia()
+  const token = pinia == null ? null : useAuthStore(pinia).getConsistentAccessToken()
   if (!token) throw new Error('缺少登录凭证')
   const base = api.defaults.baseURL ?? '/api'
   const url = new URL(

@@ -12,6 +12,7 @@ vi.mock('../../composables/useDocumentCollaboration', async () => {
     provider: vue.shallowRef({ awareness: undefined }), hasSynced: vue.ref(true), authFailed: vue.ref(false),
     saveState: vue.ref('saved'), connectionState: vue.ref('connected'), collaborators: vue.ref([]),
     serverVersion: vue.ref(1), commitSeq: vue.ref(0), epochChanged: vue.ref(false),
+    draftRestored: vue.ref(false), isLocallyCached: vue.ref(false), hasUnsavedBody: vue.ref(false), draftCacheFailed: vue.ref(false),
     start: vi.fn(), restartForEpoch: vi.fn(), retirePreview: vi.fn(),
   }) }
 })
