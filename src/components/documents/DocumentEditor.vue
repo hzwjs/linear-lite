@@ -539,7 +539,7 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
 
 <style scoped>
 .document-editor {
-  --document-page-horizontal-inset: clamp(40px, 6vw, 96px);
+  --document-page-horizontal-inset: max(clamp(40px, 6vw, 96px), calc((100cqw - 1100px) / 2));
   container: document-editor / inline-size;
   position: relative;
   display: flex;
@@ -642,7 +642,7 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
 .document-editor__conflict button svg { width: 14px; height: 14px; }
 
 .document-editor__page {
-  /* 宽屏使用可用空间，阅读边距通过响应式内缩控制，避免滚动条后形成孤立空白区。 */
+  /* 阅读区域居中，滚动容器保留整页宽度供导航和编辑操作使用。 */
   width: 100%;
   min-height: 0;
   flex: 1;
@@ -683,6 +683,7 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
   position: relative;
 }
 .document-editor__surface { position: relative; }
+.document-editor__body :deep(.tableWrapper) { max-width: 100%; overflow-x: auto; }
 .document-editor__live-pending { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
 .document-attachment-overlay {
   position: absolute;

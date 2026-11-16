@@ -8,7 +8,7 @@ describe('DocumentEditor long-form layout', () => {
     expect(source).toMatch(/\.document-editor__page\s*\{[^}]*min-height: 0/s)
     expect(source).toMatch(/\.document-editor__page\s*\{[^}]*flex: 1/s)
     expect(source).toMatch(/\.document-editor__page\s*\{[^}]*overflow-y: auto/s)
-    expect(source).toContain('--document-page-horizontal-inset: clamp(40px, 6vw, 96px)')
+    expect(source).toContain('--document-page-horizontal-inset: max(clamp(40px, 6vw, 96px), calc((100cqw - 1100px) / 2))')
     expect(source).toContain('padding: 56px var(--document-page-horizontal-inset) 120px')
   })
 
