@@ -13,6 +13,7 @@ import { useFavoriteStore } from '../store/favoriteStore'
 import { useProjectStore } from '../store/projectStore'
 import { useAssigneeStore } from '../store/assigneeStore'
 import { userIdFromAssigneeKey } from '../utils/assigneeKey'
+import { useDefaultAssigneeToSelf } from '../composables/useDefaultAssigneeToSelf'
 import { useIssuePanelStore } from '../store/issuePanelStore'
 import { useRouter } from 'vue-router'
 import { projectApi } from '../services/api/project'
@@ -476,7 +477,12 @@ const subIssueFormTitle = ref('')
 const subIssueFormDescription = ref('')
 const subIssueFormStatus = ref<Status>('backlog')
 const subIssueFormPriority = ref<Priority>('medium')
-const subIssueFormAssigneeKey = ref('')
+/** 新建子任务的负责人默认为当前操作用户 */
+const {
+  assigneeKey: subIssueFormAssigneeKey,
+  pickAssignee: pickSubIssueAssignee,
+  resetAssigneeToDefault: resetSubIssueAssigneeToDefault
+} = useDefaultAssigneeToSelf(() => assignees.value)
 const subIssueFormPlannedStartDate = ref('')
 const subIssueFormDueDate = ref('')
 const subIssueSaving = ref(false)
@@ -825,7 +831,7 @@ function openSubIssueForm() {
   subIssueFormDescription.value = ''
   subIssueFormStatus.value = 'todo'
   subIssueFormPriority.value = props.task?.priority ?? 'medium'
-  subIssueFormAssigneeKey.value = ''
+  resetSubIssueAssigneeToDefault()
   subIssueFormPlannedStartDate.value = ''
   subIssueFormDueDate.value = ''
   nextTick(() => subIssueTitleInputRef.value?.focus())
@@ -2200,7 +2206,8 @@ async function toggleDescriptionFullscreen() {
                       trigger-class="linear-inline-trigger"
                     />
                     <AssigneeSelect
-                      v-model="subIssueFormAssigneeKey"
+                      :model-value="subIssueFormAssigneeKey"
+                      @update:model-value="pickSubIssueAssignee"
                       :assignees="assignees"
                       :placeholder="t('common.unassigned')"
                       :aria-label="t('common.assignee')"

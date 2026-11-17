@@ -5,6 +5,7 @@ import { useTaskStore } from '../store/taskStore'
 import { useProjectStore } from '../store/projectStore'
 import type { Priority, Status } from '../types/domain'
 import { useAssigneeStore } from '../store/assigneeStore'
+import { useDefaultAssigneeToSelf } from '../composables/useDefaultAssigneeToSelf'
 import { parseDateInputValue, todayDateInputValue } from '../utils/taskDate'
 import { randomClientId } from '../utils/clientId'
 import { attachmentsApi } from '../services/api/attachments'
@@ -57,7 +58,6 @@ const description = ref('')
 const descriptionUploadState = ref({ hasPending: false, hasFailed: false })
 const status = ref<Status>('todo')
 const priority = ref<Priority>('medium')
-const assigneeKey = ref('')
 const plannedStartDate = ref('')
 const dueDate = ref('')
 type ComposerLabel = { id?: number; name: string }
@@ -69,6 +69,8 @@ const assignees = computed(() => {
   const projectId = projectStore.activeProjectId
   return projectId == null ? [] : assigneeStore.optionsByProject[projectId] ?? []
 })
+/** 新建任务的负责人默认为当前操作用户 */
+const { assigneeKey, pickAssignee, resetAssigneeToDefault } = useDefaultAssigneeToSelf(() => assignees.value)
 const descriptionEditorRef = ref<InstanceType<typeof BlockNoteEditorWrapper> | null>(null)
 const composerAttachmentInputRef = ref<HTMLInputElement | null>(null)
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024
@@ -139,7 +141,7 @@ function resetForm() {
   description.value = ''
   status.value = props.defaultStatus ?? 'todo'
   priority.value = 'medium'
-  assigneeKey.value = ''
+  resetAssigneeToDefault()
   plannedStartDate.value = todayDateInputValue()
   dueDate.value = ''
   labels.value = []
@@ -406,7 +408,8 @@ async function handleCreate() {
             <AssigneeSelect
               class="composer-property composer-property--assignee"
               id="composer-assignee"
-              v-model="assigneeKey"
+              :model-value="assigneeKey"
+              @update:model-value="pickAssignee"
               :assignees="assignees"
               :placeholder="t('common.unassigned')"
               :aria-label="t('common.assignee')"
