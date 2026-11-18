@@ -247,11 +247,7 @@ function selectProject(id: number) {
 }
 
 function openProjectDocuments(id: number) {
-  projectStore.setActiveProject(id)
-  const targetPath = `/projects/${id}/documents`
-  if (route.path !== targetPath) {
-    void router.push(targetPath)
-  }
+  window.open(`/projects/${id}/documents?documentView=directory`, '_blank', 'noopener,noreferrer')
 }
 
 async function reorderProjects(projectIds: number[]) {

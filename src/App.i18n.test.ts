@@ -68,12 +68,12 @@ describe('shell translations', () => {
     expect(handler).not.toContain('taskStore.fetchTasks()')
   })
 
-  it('opens the project documents entry in the content area for the selected project', () => {
+  it('opens the project documents entry in a new tab without changing the current project', () => {
     const handler = appSource.match(/function openProjectDocuments\([\s\S]*?\n\}/)?.[0]
 
     expect(handler).toBeDefined()
-    expect(handler).toContain('projectStore.setActiveProject(id)')
-    expect(handler).toContain('router.push(targetPath)')
-    expect(handler).not.toContain('window.open')
+    expect(handler).toContain("window.open(`/projects/${id}/documents?documentView=directory`, '_blank', 'noopener,noreferrer')")
+    expect(handler).not.toContain('setActiveProject')
+    expect(handler).not.toContain('router.push')
   })
 })
