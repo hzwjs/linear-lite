@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  clearAllDocumentDrafts,
   clearDocumentDraft,
   createDocumentDraftId,
   decodeBase64ToUint8Array,
@@ -137,5 +138,16 @@ describe('documentDraftStorage', () => {
 
   it('generates a distinct id for each page instance', () => {
     expect(createDocumentDraftId()).not.toBe(createDocumentDraftId())
+  })
+
+  it('persists optional contentSnapshot and clears all drafts while respecting excludeDraftId', () => {
+    const withSnapshot = draft({ contentSnapshot: '[{"type":"paragraph"}]' })
+    expect(saveDocumentDraft(7, 'tab-keep', withSnapshot)).toBe(true)
+    expect(saveDocumentDraft(7, 'tab-old-1', draft({ savedAt: 1 }))).toBe(true)
+    expect(saveDocumentDraft(7, 'tab-old-2', draft({ savedAt: 2 }))).toBe(true)
+    expect(readDocumentDraft(7, 42, 'tab-keep')?.contentSnapshot).toBe('[{"type":"paragraph"}]')
+
+    clearAllDocumentDrafts(7, 42, { excludeDraftId: 'tab-keep' })
+    expect(listDocumentDrafts(7, 42).map((entry) => entry.draftId)).toEqual(['tab-keep'])
   })
 })

@@ -21,7 +21,7 @@ export function readConfig(): CollaborationConfig {
     internalKey,
     blocknoteMaxBytes: numberFromEnvironment('COLLABORATION_BLOCKNOTE_MAX_BYTES', 10 * 1024 * 1024, 1, 100 * 1024 * 1024),
     htmlMaxBytes: numberFromEnvironment('COLLABORATION_HTML_MAX_BYTES', 5 * 1024 * 1024, 1, 100 * 1024 * 1024),
-    requestTimeoutMs: numberFromEnvironment('COLLABORATION_JAVA_TIMEOUT_MS', 5000, 100, 60000),
-    persistenceDebounceMs: numberFromEnvironment('COLLABORATION_PERSISTENCE_DEBOUNCE_MS', 250, 0, 10000),
+    requestTimeoutMs: numberFromEnvironment('COLLABORATION_JAVA_TIMEOUT_MS', 15000, 100, 60000),
+    persistenceDebounceMs: numberFromEnvironment('COLLABORATION_PERSISTENCE_DEBOUNCE_MS', 1000, 0, 10000),
   }
 }

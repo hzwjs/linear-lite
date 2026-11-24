@@ -97,13 +97,51 @@ class DocumentRevisionSnapshotServiceTest {
     }
 
     @Test
-    void titleVersionUsesBodyProjectionFromCollaborationSnapshot() {
+    void successiveAutomaticSavesLeaveOnlyTheDueSnapshotAndTheIdleSnapshot() {
+        DocumentRevisionSnapshotService service = new DocumentRevisionSnapshotService(revisionMapper);
+        when(revisionMapper.isActiveSnapshotDue(12L)).thenReturn(false, false, true, false);
+        ProjectDocument document = document(12L, 2L, "标题", 7L);
+        service.captureIfDue(document, 7L, "[2]");
+        document.setVersion(3L);
+        service.captureIfDue(document, 7L, "[3]");
+        verify(revisionMapper, never()).insert(any(ProjectDocumentRevision.class));
+
+        document.setVersion(4L);
+        service.captureIfDue(document, 7L, "[4]");
+        document.setVersion(5L);
+        service.captureIfDue(document, 7L, "[5]");
+        service.captureIfChanged(document, 7L, "[5]");
+
+        var captor = ArgumentCaptor.forClass(ProjectDocumentRevision.class);
+        verify(revisionMapper, org.mockito.Mockito.times(2)).insert(captor.capture());
+        assertEquals(java.util.List.of(4L, 5L), captor.getAllValues().stream()
+                .map(ProjectDocumentRevision::getVersion).toList());
+    }
+
+    @Test
+    void unchangedContentAndTitleDoNotCreateAnotherSnapshotAtAnIdleBoundary() {
+        DocumentRevisionSnapshotService service = new DocumentRevisionSnapshotService(revisionMapper);
+        ProjectDocument document = document(12L, 6L, "标题", 7L);
+        ProjectDocumentRevision previous = revision(12L, 5L, LocalDateTime.now());
+        previous.setTitle("标题");
+        previous.setContentFormat("BLOCKNOTE");
+        previous.setContent("[]");
+        when(revisionMapper.selectOne(any())).thenReturn(previous);
+
+        service.captureIfChanged(document, 7L, "[]");
+
+        verify(revisionMapper, never()).insert(any(ProjectDocumentRevision.class));
+    }
+
+    @Test
+    void dueTitleVersionUsesBodyProjectionFromCollaborationSnapshot() {
         ProjectDocument document = document(12L, 3L, "新标题", 7L);
         String snapshotContent = "[{\"type\":\"paragraph\",\"content\":\"当前正文\"}]";
         when(revisionMapper.selectOne(any())).thenReturn(null);
+        when(revisionMapper.isActiveSnapshotDue(12L)).thenReturn(true);
 
         DocumentRevisionSnapshotService service = new DocumentRevisionSnapshotService(revisionMapper);
-        service.captureTitleVersion(document, 7L, snapshotContent);
+        service.captureIfDue(document, 7L, snapshotContent);
 
         ArgumentCaptor<ProjectDocumentRevision> captor = ArgumentCaptor.forClass(ProjectDocumentRevision.class);
         verify(revisionMapper).insert(captor.capture());

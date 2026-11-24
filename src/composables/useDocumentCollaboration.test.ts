@@ -1,4 +1,4 @@
-import { createApp, defineComponent, h, type App } from 'vue'
+import { createApp, defineComponent, h, watch, type App } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import { YSyncConfig } from 'y-codemirror.next'
@@ -24,9 +24,11 @@ const { mockProviders, MockProvider } = vi.hoisted(() => {
   return { mockProviders, MockProvider }
 })
 
+const resetSharedSocketMock = vi.hoisted(() => vi.fn())
 vi.mock('@hocuspocus/provider', () => ({ HocuspocusProvider: MockProvider }))
 vi.mock('./sharedCollaborationSocket', () => ({
   acquireSharedCollaborationSocket: vi.fn(() => ({ socket: {}, release: vi.fn() })),
+  resetSharedCollaborationSocket: resetSharedSocketMock,
 }))
 vi.mock('../services/api/documentCollaboration', () => ({
   documentCollaborationApi: { createSession: vi.fn(), refreshSession: vi.fn() },
@@ -191,6 +193,86 @@ describe('document collaboration epoch lifecycle', () => {
     expect(mockProviders).toHaveLength(2)
     expect(mockProviders[1]?.config.name).toBe('doc:19:epoch:2')
     expect(state!.epochChanged.value).toBe(false)
+  })
+
+  it.each(['onAuthenticationFailed', 'onClose'])('recovers from an obsolete room %s and retains its unsaved draft', async (event) => {
+    localStorage.clear()
+    const first = makeSession('1')
+    const second = makeSession('2')
+    vi.mocked(documentCollaborationApi.createSession).mockReset()
+      .mockResolvedValueOnce(first).mockResolvedValueOnce(second)
+    vi.mocked(documentCollaborationApi.refreshSession).mockReset().mockResolvedValue({
+      sessionId: first.sessionId, epoch: second.epoch, roomToken: second.roomToken, expiresAt: second.expiresAt,
+    })
+    app = createApp(defineComponent({
+      setup() {
+        state = useDocumentCollaboration(19, 'BLOCKNOTE')
+        watch(state.epochChanged, changed => { if (changed) void state!.restartForEpoch() })
+        return () => h('div')
+      },
+    }))
+    app.mount(document.createElement('div'))
+    await state!.start()
+    const oldProvider = mockProviders[0]!
+    oldProvider.config.onSynced()
+    state!.ydoc.value.transact(() => {
+      const paragraph = new Y.XmlElement('paragraph')
+      paragraph.setAttribute('id', 'unsaved-old-room')
+      state!.ydoc.value.getXmlFragment('document-store').insert(0, [paragraph])
+    }, ySyncPluginKey)
+    oldProvider.config[event]()
+    oldProvider.config[event]()
+
+    await vi.waitFor(() => expect(mockProviders).toHaveLength(2))
+    expect(documentCollaborationApi.refreshSession).toHaveBeenCalledTimes(1)
+    expect(state!.session.value?.epoch).toBe('2')
+    expect(state!.ydoc.value.getXmlFragment('document-store').length).toBe(0)
+    const storedKeys = Object.keys(localStorage).filter(key => key.startsWith('linear-lite.doc-draft.v3:7:19:'))
+    expect(storedKeys).toHaveLength(1)
+    const savedDraft = JSON.parse(localStorage.getItem(storedKeys[0]!)!)
+    expect(savedDraft.ydocEpoch).toBe('1')
+    const savedDoc = new Y.Doc()
+    Y.applyUpdate(savedDoc, Uint8Array.from(atob(savedDraft.ydocUpdate), char => char.charCodeAt(0)))
+    expect((savedDoc.getXmlFragment('document-store').get(0) as Y.XmlElement).getAttribute('id')).toBe('unsaved-old-room')
+    savedDoc.destroy()
+    mockProviders[1]!.config.onSynced()
+    expect(state!.connectionState.value).toBe('connected')
+    expect(state!.restoreDraft(savedDraft)).toBe('epoch-mismatch')
+  })
+
+  it.each(['onAuthenticationFailed', 'onClose'])('keeps the current room on %s when its epoch is unchanged', async (event) => {
+    const first = makeSession('1')
+    vi.mocked(documentCollaborationApi.createSession).mockReset().mockResolvedValue(first)
+    vi.mocked(documentCollaborationApi.refreshSession).mockReset().mockResolvedValue({
+      sessionId: first.sessionId, epoch: first.epoch, roomToken: first.roomToken, expiresAt: first.expiresAt,
+    })
+    app = createApp(defineComponent({ setup() { state = useDocumentCollaboration(19, 'BLOCKNOTE'); return () => h('div') } }))
+    app.mount(document.createElement('div'))
+    await state!.start()
+    mockProviders[0]!.config[event]()
+    await vi.waitFor(() => expect(documentCollaborationApi.refreshSession).toHaveBeenCalledOnce())
+    await Promise.resolve()
+    expect(state!.authFailed.value).toBe(event === 'onAuthenticationFailed')
+    expect(state!.epochChanged.value).toBe(false)
+    expect(mockProviders).toHaveLength(1)
+  })
+
+  it.each(['onAuthenticationFailed', 'onClose'])('ignores a stale %s check after the room syncs', async (event) => {
+    const first = makeSession('1')
+    vi.mocked(documentCollaborationApi.createSession).mockReset().mockResolvedValue(first)
+    let resolve!: (value: { sessionId: string; epoch: string; roomToken: string; expiresAt: string }) => void
+    vi.mocked(documentCollaborationApi.refreshSession).mockReset().mockReturnValue(new Promise(done => { resolve = done }))
+    app = createApp(defineComponent({ setup() { state = useDocumentCollaboration(19, 'BLOCKNOTE'); return () => h('div') } }))
+    app.mount(document.createElement('div'))
+    await state!.start()
+    mockProviders[0]!.config[event]()
+    mockProviders[0]!.config.onSynced()
+    resolve({ sessionId: first.sessionId, epoch: '2', roomToken: 'stale', expiresAt: first.expiresAt })
+    await vi.waitFor(() => expect(state!.connectionState.value).toBe('connected'))
+    await Promise.resolve()
+    expect(state!.epochChanged.value).toBe(false)
+    expect(state!.authFailed.value).toBe(false)
+    expect(mockProviders).toHaveLength(1)
   })
 
   it('shows saved state only after a session counter acknowledgement', async () => {
@@ -441,5 +523,144 @@ describe('document collaboration session renewal', () => {
     expect(mockProviders).toHaveLength(0)
     expect(state!.previewDoc.value).toBeNull()
     expect(state!.authFailed.value).toBe(true)
+  })
+
+  it('reports connecting instead of saved while reconnecting before synced', async () => {
+    localStorage.clear()
+    vi.mocked(documentCollaborationApi.createSession).mockResolvedValue(makeSession('1'))
+    app = createApp(defineComponent({ setup() { state = useDocumentCollaboration(19, 'BLOCKNOTE'); return () => h('div') } }))
+    app.mount(document.createElement('div'))
+    await state!.start()
+    expect(state!.saveState.value).toBe('connecting')
+    mockProviders[0]!.config.onSynced()
+    expect(state!.saveState.value).toBe('saved')
+    mockProviders[0]!.config.onOpen()
+    expect(state!.saveState.value).toBe('connecting')
+    mockProviders[0]!.config.onSynced()
+    expect(state!.saveState.value).toBe('saved')
+  })
+
+  it('automatically prunes redundant same-epoch orphan drafts after sync and deletes restored source drafts once saved', async () => {
+    localStorage.clear()
+    const base = new Y.Doc()
+    base.getText('html').insert(0, '<p>synced</p>')
+    const baseBase64 = btoa(String.fromCharCode(...Y.encodeStateAsUpdate(base)))
+    const extra = new Y.Doc()
+    extra.getText('html').insert(0, '<p>from-orphan</p>')
+    const extraBase64 = btoa(String.fromCharCode(...Y.encodeStateAsUpdate(extra)))
+    base.destroy()
+    extra.destroy()
+
+    const redundantKey = 'linear-lite.doc-draft.v3:7:19:redundant-tab'
+    const sourceKey = 'linear-lite.doc-draft.v3:7:19:source-tab'
+    localStorage.setItem(redundantKey, JSON.stringify({
+      documentId: 19, format: 'HTML', titleDirty: false, ydocUpdate: baseBase64, ydocEpoch: '1', serverVersion: 1, savedAt: 1,
+    }))
+    const sourceDraft = {
+      documentId: 19, format: 'HTML' as const, titleDirty: false, ydocUpdate: extraBase64, ydocEpoch: '1', serverVersion: 1, savedAt: 2,
+    }
+    localStorage.setItem(sourceKey, JSON.stringify(sourceDraft))
+
+    const onDraftsChanged = vi.fn()
+    vi.mocked(documentCollaborationApi.createSession).mockResolvedValue({
+      ...makeSession('1'),
+      contentFormat: 'HTML',
+      stateBase64: baseBase64,
+    })
+    app = createApp(defineComponent({
+      setup() {
+        state = useDocumentCollaboration(19, 'HTML', { onDraftsChanged })
+        return () => h('div')
+      },
+    }))
+    app.mount(document.createElement('div'))
+    await state!.start()
+    mockProviders[0]!.config.onSynced()
+
+    // 与当前服务端正文完全一致的冗余草稿被自动清理，含新内容的草稿保留。
+    expect(localStorage.getItem(redundantKey)).toBeNull()
+    expect(localStorage.getItem(sourceKey)).not.toBeNull()
+
+    // 恢复源草稿并在收到 saved 确认后自动删除源草稿。
+    expect(state!.restoreDraft(sourceDraft, { sourceDraftId: 'source-tab' })).toBe('restored')
+    expect(localStorage.getItem(sourceKey)).not.toBeNull()
+    mockProviders[0]!.config.onStateless({
+      payload: JSON.stringify({ event: 'saved', epoch: '1', counters: { 'session-1': 1 }, version: 2, commitSeq: 2 }),
+    })
+    expect(localStorage.getItem(sourceKey)).toBeNull()
+    expect(onDraftsChanged).toHaveBeenCalled()
+  })
+
+  it('supports cross-epoch HTML draft override when force is true', async () => {
+    localStorage.clear()
+    const oldDoc = new Y.Doc()
+    oldDoc.getText('html').insert(0, '<p>Old Epoch HTML</p>')
+    const oldBase64 = btoa(String.fromCharCode(...Y.encodeStateAsUpdate(oldDoc)))
+    oldDoc.destroy()
+
+    vi.mocked(documentCollaborationApi.createSession).mockResolvedValue({ ...makeSession('2'), contentFormat: 'HTML' })
+    app = createApp(defineComponent({ setup() { state = useDocumentCollaboration(19, 'HTML'); return () => h('div') } }))
+    app.mount(document.createElement('div'))
+    await state!.start()
+    mockProviders[0]!.config.onSynced()
+
+    const draft = {
+      documentId: 19, format: 'HTML' as const, titleDirty: false, ydocUpdate: oldBase64, ydocEpoch: '1', serverVersion: 1, savedAt: 1,
+    }
+    expect(state!.restoreDraft(draft)).toBe('epoch-mismatch')
+    expect(state!.restoreDraft(draft, { sourceDraftId: 'old-tab', force: true })).toBe('restored')
+    expect(state!.ydoc.value.getText('html').toString()).toBe('<p>Old Epoch HTML</p>')
+  })
+
+  it('retries token renewal with exponential backoff instead of abandoning renewal on transient failure', async () => {
+    vi.useFakeTimers()
+    const initial = { ...makeSession('1'), expiresAt: new Date(Date.now() + 61_000).toISOString() }
+    const renewed = { sessionId: initial.sessionId, epoch: '1', roomToken: 'token-recovered', expiresAt: new Date(Date.now() + 600_000).toISOString() }
+    vi.mocked(documentCollaborationApi.createSession).mockResolvedValue(initial)
+    vi.mocked(documentCollaborationApi.refreshSession)
+      .mockRejectedValueOnce(new Error('temporary network outage'))
+      .mockResolvedValueOnce(renewed)
+
+    app = createApp(defineComponent({ setup() { state = useDocumentCollaboration(19, 'BLOCKNOTE'); return () => h('div') } }))
+    app.mount(document.createElement('div'))
+    await state!.start()
+    mockProviders[0]!.config.onSynced()
+
+    await vi.advanceTimersByTimeAsync(1_100)
+    expect(documentCollaborationApi.refreshSession).toHaveBeenCalledTimes(1)
+    expect(state!.connectionState.value).toBe('offline')
+
+    // 指数退避 5s 后自动重试成功，不断链。
+    await vi.advanceTimersByTimeAsync(5_100)
+    expect(documentCollaborationApi.refreshSession).toHaveBeenCalledTimes(2)
+    expect(state!.session.value?.roomToken).toBe('token-recovered')
+  })
+
+  it('preserves unsaved edits and resets shared transport on explicit reconnect', async () => {
+    localStorage.clear()
+    const first = makeSession('1')
+    const second = { ...makeSession('1'), sessionId: 'session-1-reconnected', roomToken: 'token-reconnected' }
+    vi.mocked(documentCollaborationApi.createSession)
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(second)
+
+    app = createApp(defineComponent({ setup() { state = useDocumentCollaboration(19, 'BLOCKNOTE'); return () => h('div') } }))
+    app.mount(document.createElement('div'))
+    await state!.start()
+    mockProviders[0]!.config.onSynced()
+
+    state!.ydoc.value.transact(() => {
+      const p = new Y.XmlElement('paragraph')
+      p.setAttribute('id', 'survives-reconnect')
+      state!.ydoc.value.getXmlFragment('document-store').insert(0, [p])
+    }, ySyncPluginKey)
+    mockProviders[0]!.config.onAuthenticationFailed()
+    expect(state!.authFailed.value).toBe(true)
+
+    await state!.reconnect({ resetTransport: true })
+    expect(resetSharedSocketMock).toHaveBeenCalledWith(first.websocketUrl, first.user.id)
+    expect(state!.authFailed.value).toBe(false)
+    expect(mockProviders).toHaveLength(2)
+    expect((state!.ydoc.value.getXmlFragment('document-store').get(0) as Y.XmlElement).getAttribute('id')).toBe('survives-reconnect')
   })
 })

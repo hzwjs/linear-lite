@@ -200,6 +200,6 @@ class DocumentImageOrphanCleanupServiceTest {
 
     private void stubContent(String content) {
         when(collaborationService.getSnapshot(11L, true)).thenReturn(
-                new CollaborationNodeClient.SnapshotResponse("epoch", 1L, "BLOCKNOTE", content));
+                new CollaborationNodeClient.SnapshotResponse("epoch", 1L, 1L, "BLOCKNOTE", content));
     }
 }

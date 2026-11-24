@@ -402,7 +402,33 @@ describe('documentStore title saves', () => {
     vi.mocked(documentCollaborationApi.updateTitle).mockResolvedValue(titleUpdate('Restored Offline Title', 2))
     await store.saveNow()
     expect(documentCollaborationApi.updateTitle).toHaveBeenCalledWith(8, 'Server Title', 'Restored Offline Title')
-    expect(readDocumentDraft(7, 8, 'older-tab')?.title).toBe('Restored Offline Title')
+    // 纯标题源草稿在保存落盘后自动清理，避免残留孤儿草稿；其他无关草稿不受影响。
+    expect(readDocumentDraft(7, 8, 'older-tab')).toBeNull()
+    expect(readDocumentDraft(7, 8, 'other-tab')?.title).toBe('Other title')
+  })
+
+  it('auto-saves a dirty title after the debounce window and auto-commits restored draft titles', async () => {
+    localStorage.clear()
+    vi.mocked(documentApi.get).mockResolvedValue(document({ id: 8, title: 'Initial' }))
+    vi.mocked(documentCollaborationApi.updateTitle)
+      .mockResolvedValueOnce(titleUpdate('Typed Title', 2))
+      .mockResolvedValueOnce(titleUpdate('Restored Title', 3))
+    const store = useDocumentStore()
+    await store.loadDocument(8)
+
+    store.updateDraft({ title: 'Typed Title' })
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(documentCollaborationApi.updateTitle).toHaveBeenNthCalledWith(1, 8, 'Initial', 'Typed Title')
+    expect(store.saveState).toBe('saved')
+
+    saveDocumentDraft(7, 'from-old-tab', {
+      documentId: 8, format: 'BLOCKNOTE', title: 'Restored Title', titleDirty: true, serverVersion: 2, savedAt: Date.now(),
+    })
+    expect(store.restoreDraftTitle(draftEntry('from-old-tab'), 7)).toBe(true)
+    await vi.advanceTimersByTimeAsync(60)
+    expect(documentCollaborationApi.updateTitle).toHaveBeenNthCalledWith(2, 8, 'Typed Title', 'Restored Title')
+    expect(store.saveState).toBe('saved')
+    expect(readDocumentDraft(7, 8, 'from-old-tab')).toBeNull()
   })
 
   it('does not fabricate document metadata when the server request fails', async () => {

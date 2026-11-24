@@ -52,9 +52,11 @@ export const useDocumentStore = defineStore('documentStore', () => {
   const titleDraftCached = ref(false)
   const titleDraftCacheFailed = ref(false)
 
+  const TITLE_AUTO_SAVE_DEBOUNCE_MS = 1500
   let editSequence = 0
   let acknowledgedTitle = ''
   let activeSavePromise: Promise<void> | null = null
+  let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
   let commitRequested = false
   let treeLoadSequence = 0
   let visibleTreeLoadSequence = 0
@@ -66,6 +68,21 @@ export const useDocumentStore = defineStore('documentStore', () => {
   const treeLoadPromises = new Map<number, Promise<ProjectDocumentTreeNode[]>>()
   const hasOwner = (ownerId: number | null) => ownerId != null &&
     auth.getConsistentAccessToken() != null && auth.currentUser?.id === ownerId
+
+  function cancelAutoSave() {
+    if (autoSaveTimer != null) {
+      clearTimeout(autoSaveTimer)
+      autoSaveTimer = null
+    }
+  }
+
+  function scheduleAutoSave(delayMs = TITLE_AUTO_SAVE_DEBOUNCE_MS) {
+    cancelAutoSave()
+    autoSaveTimer = setTimeout(() => {
+      autoSaveTimer = null
+      if (saveState.value === 'dirty') void saveNow()
+    }, delayMs)
+  }
 
   watch(() => auth.currentUser?.id, () => {
     accountSequence += 1
@@ -87,6 +104,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
   }, { flush: 'sync' })
 
   function resetEditorState() {
+    cancelAutoSave()
     editSequence = 0
     commitRequested = false
     saveState.value = 'idle'
@@ -257,10 +275,12 @@ export const useDocumentStore = defineStore('documentStore', () => {
     editSequence += 1
     if (nextDocument.title.trim().length === 0) {
       // 空标题在前端拦截，避免提交必填校验错误。
+      cancelAutoSave()
       saveState.value = 'invalid'
       error.value = null
     } else {
       saveState.value = 'dirty'
+      scheduleAutoSave()
     }
     const ownerId = documentOwnerId
     if (!hasOwner(ownerId) || ownerId == null) return
@@ -285,7 +305,10 @@ export const useDocumentStore = defineStore('documentStore', () => {
     const source = entry.draft
     if (source.documentId !== document.id || source.format !== document.contentFormat) return false
     if (source.titleDirty && source.title == null) return false
-    if (source.titleDirty && source.title !== document.title) updateDraft({ title: source.title })
+    if (source.titleDirty && source.title !== document.title) {
+      updateDraft({ title: source.title })
+      if (saveState.value === 'dirty') scheduleAutoSave(50)
+    }
     restoredDraftId.value = entry.draftId
     restoredDraftTime.value = source.savedAt
     hasRestoredDraft.value = source.titleDirty
@@ -334,6 +357,23 @@ export const useDocumentStore = defineStore('documentStore', () => {
             })
           }
         }
+        const sourceId = restoredDraftId.value
+        if (sourceId && sourceId !== documentDraftId) {
+          const sourceDraft = readDocumentDraft(ownerId, submittedId, sourceId)
+          if (sourceDraft) {
+            if (!sourceDraft.ydocUpdate) {
+              clearDocumentDraft(ownerId, submittedId, sourceId)
+            } else if (sourceDraft.titleDirty) {
+              saveDocumentDraft(ownerId, sourceId, {
+                ...sourceDraft,
+                title: undefined,
+                titleDirty: false,
+                serverVersion: saved.version,
+              })
+            }
+          }
+          restoredDraftId.value = null
+        }
         titleDraftCached.value = false
         titleDraftCacheFailed.value = false
       }
@@ -351,8 +391,9 @@ export const useDocumentStore = defineStore('documentStore', () => {
     }
   }
 
-  // 标题仅在输入框失焦或导航提交时保存；输入停顿不会提交草稿。
+  // 标题支持停顿防抖自动保存，失焦、回车或切换文档时立即取消防抖并提交。
   function saveNow(): Promise<void> {
+    cancelAutoSave()
     commitRequested = true
     if (activeSavePromise) return activeSavePromise
     const current = drainSaveRequests(accountSequence).finally(() => {
@@ -435,6 +476,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
   }
 
   function discardDraft(documentId: number) {
+    cancelAutoSave()
     if (hasOwner(documentOwnerId) && documentOwnerId != null) {
       const draft = readDocumentDraft(documentOwnerId, documentId, documentDraftId)
       if (draft?.ydocUpdate) saveDocumentDraft(documentOwnerId, documentDraftId, { ...draft, title: undefined, titleDirty: false })
@@ -491,6 +533,7 @@ export const useDocumentStore = defineStore('documentStore', () => {
   }
 
   function clear() {
+    cancelAutoSave()
     treeLoadSequence += 1
     visibleTreeLoadSequence += 1
     documentLoadSequence += 1

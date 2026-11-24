@@ -124,7 +124,7 @@ class ProjectContentSemanticIndexQueueServiceTest {
             ProjectContentSearchMapper contents, ProjectContentSearchIndex semantic) {
         DocumentCollaborationService collaboration = mock(DocumentCollaborationService.class);
         when(collaboration.getSnapshot(any(), eq(true))).thenReturn(
-                new CollaborationNodeClient.SnapshotResponse("epoch", 1L, "BLOCKNOTE", "[]"));
+                new CollaborationNodeClient.SnapshotResponse("epoch", 1L, 1L, "BLOCKNOTE", "[]"));
         return new ProjectContentSemanticIndexQueueService(properties, jobs, contents, semantic, collaboration);
     }
 

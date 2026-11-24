@@ -71,16 +71,20 @@ class McpDocumentPatchServiceTest {
         when(documentMapper.selectById(15L)).thenReturn(document(5L));
         when(operationMapper.selectForUpdate(15L, 7L, "op-1")).thenReturn(null);
         when(collaborationService.getSnapshot(15L, true)).thenReturn(new CollaborationNodeClient.SnapshotResponse(
-                "epoch-1", 5L, "BLOCKNOTE", "[]"));
+                "epoch-1", 5L, 1L, "BLOCKNOTE", "[]"));
         when(nodeClient.command(org.mockito.ArgumentMatchers.eq(15L), any(CollaborationNodeClient.CommandRequest.class)))
                 .thenReturn(new CollaborationNodeClient.CommandResponse(
                         "epoch-1", 2L, 6L, "BLOCKNOTE", changed, "标题"));
-        when(revisionMapper.selectOne(any())).thenReturn(null);
+        var revision = new com.linearlite.server.entity.ProjectDocumentRevision();
+        revision.setId(91L);
+        revision.setVersion(6L);
+        when(revisionMapper.selectOne(any())).thenReturn(revision);
 
         var result = service.patch(15L, 5L, "op-1", "hash", "标题", 7L,
                 (content, id) -> changed);
 
         assertEquals(6L, result.path("version").asLong());
+        assertEquals(91L, result.path("revisionId").asLong());
         assertEquals(true, result.path("changed").asBoolean());
         verify(collaborationService).validateReplacement(15L, "BLOCKNOTE", changed, 7L);
         verify(nodeClient).command(org.mockito.ArgumentMatchers.eq(15L), any(CollaborationNodeClient.CommandRequest.class));
@@ -92,7 +96,7 @@ class McpDocumentPatchServiceTest {
         when(documentMapper.selectById(15L)).thenReturn(document(5L));
         when(operationMapper.selectForUpdate(15L, 7L, "op-1")).thenReturn(null);
         when(collaborationService.getSnapshot(15L, true)).thenReturn(new CollaborationNodeClient.SnapshotResponse(
-                "epoch-1", 5L, "BLOCKNOTE", "[]"));
+                "epoch-1", 5L, 1L, "BLOCKNOTE", "[]"));
         when(revisionMapper.selectOne(any())).thenReturn(null);
 
         var result = service.patch(15L, 5L, "op-1", "hash", null, 7L, (content, id) -> "[ ]");

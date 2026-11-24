@@ -18,6 +18,38 @@ const config: CollaborationConfig = {
 }
 
 describe('save acknowledgement', () => {
+  it('forces a revision for an explicit replacement even if the scheduled store saved the same state', async () => {
+    const node = new CollaborationNode(config)
+    const document = new Y.Doc() as Y.Doc & { broadcastStateless(payload: string): void }
+    document.getText('html').insert(0, '<p>Already persisted</p>')
+    document.broadcastStateless = () => {}
+    const runtime = {
+      documentId: 737,
+      epoch: 'epoch-737',
+      roomName: 'doc:737:epoch:epoch-737',
+      contentFormat: 'HTML' as const,
+      commitSeq: 1,
+      version: 1,
+      stateBase64: Buffer.from(Y.encodeStateAsUpdate(document)).toString('base64'),
+      lastEditorId: 7,
+    }
+    const internal = node as unknown as {
+      persistDocument(
+        document: Y.Doc, roomRuntime: typeof runtime, transitionId?: string, forceRevision?: boolean,
+      ): Promise<{ commitSeq: number; version: number }>
+    }
+    const stored: Array<{ forceRevision: boolean; content: string }> = []
+    node.java.storeState = async ({ forceRevision, content }) => {
+      stored.push({ forceRevision, content })
+      return { commitSeq: 2, version: 2 }
+    }
+
+    assert.deepEqual(await internal.persistDocument(document, runtime), { commitSeq: 1, version: 1 })
+    assert.deepEqual(await internal.persistDocument(document, runtime, undefined, true), { commitSeq: 2, version: 2 })
+    assert.deepEqual(stored, [{ forceRevision: true, content: '<p>Already persisted</p>' }])
+    document.destroy()
+  })
+
   it('broadcasts the persisted session counter instead of Yjs client clocks', async () => {
     const node = new CollaborationNode(config)
     const document = new Y.Doc() as Y.Doc & { broadcastStateless(payload: string): void }
@@ -383,3 +415,259 @@ describe('collaboration transition fence', () => {
     document.destroy()
   })
 })
+
+describe('409 self-healing, unload hygiene, and on-demand validation', () => {
+  it('reconciles idempotently when storeState times out or returns 409 after DB already committed identical state', async () => {
+    const node = new CollaborationNode(config)
+    const documentId = 801
+    const room = roomName(documentId, 'ep1')
+    const document = new Y.Doc() as Y.Doc & { broadcastStateless(payload: string): void }
+    document.getText('html').insert(0, '<p>committed-despite-timeout</p>')
+    const broadcasts: string[] = []
+    document.broadcastStateless = (payload) => broadcasts.push(payload)
+    const stateBase64 = Buffer.from(Y.encodeStateAsUpdate(document)).toString('base64')
+    const runtime = {
+      documentId,
+      epoch: 'ep1',
+      roomName: room,
+      contentFormat: 'HTML' as const,
+      commitSeq: 3,
+      version: 5,
+      stateBase64: '',
+      persistedCounters: {},
+      lastEditorId: 7,
+      validationState: new Y.Doc(),
+    }
+    const internals = node as unknown as {
+      persistDocument(
+        doc: Y.Doc, rt: typeof runtime, transitionId?: string | null, forceRevision?: boolean,
+        options?: { swallowUnrecoverable?: boolean },
+      ): Promise<{ commitSeq: number; version: number }>
+      runtime: Map<string, typeof runtime>
+    }
+    internals.runtime.set(room, runtime)
+
+    node.java.storeState = async () => {
+      const abortErr = new Error('This operation was aborted')
+      abortErr.name = 'AbortError'
+      throw abortErr
+    }
+    node.java.loadState = async () => ({
+      stateBase64,
+      commitSeq: 4,
+      version: 6,
+      contentFormat: 'HTML',
+    })
+
+    const saved = await internals.persistDocument(document, runtime, undefined, false, { swallowUnrecoverable: true })
+    assert.deepEqual(saved, { commitSeq: 4, version: 6 })
+    assert.equal(runtime.commitSeq, 4)
+    assert.equal(runtime.version, 6)
+    assert.equal(internals.runtime.has(room), true)
+    assert.equal(broadcasts.length, 1)
+    assert.equal(JSON.parse(broadcasts[0]!).event, 'saved')
+    runtime.validationState.destroy()
+    document.destroy()
+  })
+
+  it('merges canonical CRDT state and retries once on same-epoch 409 conflict without losing edits', async () => {
+    const node = new CollaborationNode(config)
+    const documentId = 802
+    const room = roomName(documentId, 'ep1')
+
+    // 共同基线
+    const base = new Y.Doc()
+    base.getText('html').insert(0, '<p>base</p>')
+    const baseBytes = Y.encodeStateAsUpdate(base)
+
+    // 房间中已有本地新增编辑
+    const document = new Y.Doc() as Y.Doc & { broadcastStateless(payload: string): void }
+    Y.applyUpdate(document, baseBytes)
+    document.getText('html').insert(document.getText('html').length, '<p>local</p>')
+    const broadcasts: string[] = []
+    document.broadcastStateless = (payload) => broadcasts.push(payload)
+
+    // DB 中有另一次并发提交
+    const remote = new Y.Doc()
+    Y.applyUpdate(remote, baseBytes)
+    remote.getText('html').insert(0, '<p>remote</p>')
+    const canonicalBase64 = Buffer.from(Y.encodeStateAsUpdate(remote)).toString('base64')
+    base.destroy()
+    remote.destroy()
+
+    const runtime = {
+      documentId,
+      epoch: 'ep1',
+      roomName: room,
+      contentFormat: 'HTML' as const,
+      commitSeq: 1,
+      version: 1,
+      stateBase64: Buffer.from(baseBytes).toString('base64'),
+      persistedCounters: {},
+      lastEditorId: 7,
+      validationState: new Y.Doc(),
+    }
+    const internals = node as unknown as {
+      persistDocument(
+        doc: Y.Doc, rt: typeof runtime, transitionId?: string | null, forceRevision?: boolean,
+        options?: { swallowUnrecoverable?: boolean },
+      ): Promise<{ commitSeq: number; version: number }>
+      runtime: Map<string, typeof runtime>
+    }
+    internals.runtime.set(room, runtime)
+
+    const attempts: Array<{ expectedCommitSeq: number; content: string }> = []
+    node.java.storeState = async (input) => {
+      attempts.push({ expectedCommitSeq: input.expectedCommitSeq, content: input.content })
+      if (attempts.length === 1) {
+        throw Object.assign(new Error('conflict'), { status: 409 })
+      }
+      return { commitSeq: 3, version: 3 }
+    }
+    node.java.loadState = async () => ({
+      stateBase64: canonicalBase64,
+      commitSeq: 2,
+      version: 2,
+      contentFormat: 'HTML',
+    })
+
+    const saved = await internals.persistDocument(document, runtime, undefined, false, { swallowUnrecoverable: true })
+    assert.deepEqual(saved, { commitSeq: 3, version: 3 })
+    assert.equal(attempts.length, 2)
+    assert.equal(attempts[0]!.expectedCommitSeq, 1)
+    assert.equal(attempts[1]!.expectedCommitSeq, 2)
+    assert.ok(attempts[1]!.content.includes('<p>remote</p>'))
+    assert.ok(attempts[1]!.content.includes('<p>local</p>'))
+    assert.equal(internals.runtime.has(room), true)
+    assert.equal(broadcasts.length, 1)
+    assert.equal(JSON.parse(broadcasts[0]!).event, 'saved')
+    runtime.validationState.destroy()
+    document.destroy()
+  })
+
+  it('evicts stale room and does not re-throw from onStoreDocument when epoch is retired', async () => {
+    const node = new CollaborationNode(config)
+    const documentId = 803
+    const room = roomName(documentId, 'ep-old')
+    const document = new Y.Doc() as Y.Doc & { broadcastStateless(payload: string): void }
+    document.getText('html').insert(0, '<p>stale</p>')
+    const broadcasts: string[] = []
+    document.broadcastStateless = (payload) => broadcasts.push(payload)
+
+    const runtime = {
+      documentId,
+      epoch: 'ep-old',
+      roomName: room,
+      contentFormat: 'HTML' as const,
+      commitSeq: 1,
+      version: 1,
+      stateBase64: '',
+      persistedCounters: {},
+      lastEditorId: 7,
+      validationState: new Y.Doc(),
+    }
+    const internals = node as unknown as {
+      persistDocument(
+        doc: Y.Doc, rt: typeof runtime, transitionId?: string | null, forceRevision?: boolean,
+        options?: { swallowUnrecoverable?: boolean },
+      ): Promise<{ commitSeq: number; version: number }>
+      runtime: Map<string, typeof runtime>
+    }
+    internals.runtime.set(room, runtime)
+
+    let closedRoom = ''
+    node.httpServer.hocuspocus.closeConnections = (name?: string) => { closedRoom = name ?? '' }
+    node.java.storeState = async () => { throw Object.assign(new Error('conflict'), { status: 409 }) }
+    node.java.loadState = async () => { throw Object.assign(new Error('epoch retired'), { status: 409 }) }
+
+    // swallowUnrecoverable: true 模拟 onStoreDocument 调用，绝不抛错以免 Hocuspocus 永久滞留僵尸文档
+    await assert.doesNotReject(() =>
+      internals.persistDocument(document, runtime, undefined, false, { swallowUnrecoverable: true }),
+    )
+    assert.equal(closedRoom, room)
+    assert.equal(internals.runtime.has(room), false)
+    assert.equal(broadcasts.some((p) => JSON.parse(p).event === 'epochChanged'), true)
+    document.destroy()
+  })
+
+  it('cleans up runtime unconditionally on afterUnloadDocument to prevent memory leaks', async () => {
+    const node = new CollaborationNode(config)
+    const room = roomName(804, 'ep1')
+    const snapshot = new Y.Doc()
+    const stateBase64 = Buffer.from(Y.encodeStateAsUpdate(snapshot)).toString('base64')
+    snapshot.destroy()
+
+    const internals = node as unknown as {
+      getOrCreateRuntime(state: {
+        documentId: number; epoch: string; roomName: string; contentFormat: 'HTML'; commitSeq: number; version: number
+      }, base64: string): unknown
+      runtime: Map<string, unknown>
+    }
+    internals.getOrCreateRuntime({
+      documentId: 804, epoch: 'ep1', roomName: room, contentFormat: 'HTML', commitSeq: 1, version: 1,
+    }, stateBase64)
+    assert.equal(internals.runtime.has(room), true)
+
+    await node.httpServer.hocuspocus.hooks('afterUnloadDocument', {
+      documentName: room,
+      instance: node.httpServer.hocuspocus,
+    })
+    assert.equal(internals.runtime.has(room), false)
+  })
+
+  it('skips Java validateUpdate for plain text edits and only validates newly added imageAssetIds once', async () => {
+    const node = new CollaborationNode(config)
+    const documentId = 805
+    const room = roomName(documentId, 'ep1')
+    const initialDoc = new Y.Doc()
+    const stateBase64 = Buffer.from(Y.encodeStateAsUpdate(initialDoc)).toString('base64')
+    initialDoc.destroy()
+
+    const internals = node as unknown as {
+      getOrCreateRuntime(state: {
+        documentId: number; epoch: string; roomName: string; contentFormat: 'HTML'; commitSeq: number; version: number
+      }, base64: string): { validationState: Y.Doc }
+      runtime: Map<string, { validationState: Y.Doc }>
+    }
+    internals.getOrCreateRuntime({
+      documentId, epoch: 'ep1', roomName: room, contentFormat: 'HTML', commitSeq: 1, version: 1,
+    }, stateBase64)
+
+    let validateCalls = 0
+    node.java.validateUpdate = async () => { validateCalls += 1 }
+
+    const deltaDoc = new Y.Doc()
+    deltaDoc.getText('html').insert(0, '<p>plain typing</p>')
+    const payload = Y.encodeStateAsUpdate(deltaDoc)
+    deltaDoc.destroy()
+
+    await node.httpServer.hocuspocus.hooks('beforeSync', {
+      documentName: room,
+      type: 2, // y-protocols messageYjsUpdate
+      payload,
+      context: { userId: 7 },
+    } as never)
+    assert.equal(validateCalls, 0)
+    await node.destroy()
+  })
+
+  it('exposes GET /internal/collaboration/health with room and memory metrics', async () => {
+    const node = new CollaborationNode({ ...config, port: 0 })
+    await node.listen()
+    try {
+      const address = node.httpServer.httpServer.address() as AddressInfo
+      const response = await fetch(`http://127.0.0.1:${address.port}/internal/collaboration/health`, {
+        headers: { 'X-Collaboration-Internal-Key': config.internalKey },
+      })
+      assert.equal(response.status, 200)
+      const body = await response.json() as { ok: boolean; activeDocuments: number; runtimeCount: number; memoryRssBytes: number }
+      assert.equal(body.ok, true)
+      assert.equal(body.activeDocuments, 0)
+      assert.equal(body.runtimeCount, 0)
+      assert.ok(body.memoryRssBytes > 0)
+    } finally {
+      await node.destroy()
+    }
+  })
+})
+

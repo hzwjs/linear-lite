@@ -73,10 +73,88 @@ class DocumentCollaborationServiceTest {
         when(documentMapper.updateVersionAndEditorIfMatches(11L, 3L, 4L, 7L)).thenReturn(1);
 
         service.commitState(11L, new com.linearlite.server.dto.DocumentCollaborationDtos.UpdateStateRequest(
-                "epoch-current", 8L, "AQ==", "[]", "BLOCKNOTE", 7L, java.util.Map.of(), null));
+                "epoch-current", 8L, "AQ==", "[]", "BLOCKNOTE", 7L, java.util.Map.of(), null, false));
 
+        verify(revisionSnapshots).captureIfDue(document, 7L, "[]");
         verify(eventPublisher).publishEvent(new CollaborationDocumentChangedEvent(4L,
                 java.util.List.of(new CollaborationDocumentChangedEvent.Change(11L, 4L, true)), 7L));
+    }
+
+    @Test
+    void explicitReplacementForcesARevisionAtItsCommittedVersion() {
+        ProjectDocument document = document(false);
+        ProjectDocumentCollabState state = state("epoch-current", 8L);
+        when(documentMapper.selectById(11L)).thenReturn(document);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(document);
+        when(stateMapper.selectByDocumentIdForUpdate(11L)).thenReturn(state);
+        when(stateMapper.updateStateIfMatches(11L, "epoch-current", 8L, state, null)).thenReturn(1);
+        when(documentMapper.updateVersionAndEditorIfMatches(11L, 3L, 4L, 7L)).thenReturn(1);
+
+        service.commitState(11L, new com.linearlite.server.dto.DocumentCollaborationDtos.UpdateStateRequest(
+                "epoch-current", 8L, "AQ==", "[]", "BLOCKNOTE", 7L, java.util.Map.of(), null, true));
+
+        verify(revisionSnapshots).captureForced(document, 7L, "[]");
+    }
+
+    @Test
+    void restoringCapturesBothProjectionsAroundTheEpochChange() {
+        ProjectDocument document = document(false);
+        ProjectDocument restored = document(false);
+        restored.setVersion(4L);
+        ProjectDocumentCollabState state = state("epoch-current", 8L);
+        when(documentMapper.selectById(11L)).thenReturn(document, restored);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(document);
+        when(stateMapper.selectByDocumentIdForUpdate(11L)).thenReturn(state);
+        when(documentMapper.updateCollaborationRestoreIfVersionMatches(11L, 3L, 4L, 7L, "恢复标题"))
+                .thenReturn(1);
+
+        var result = service.restoreEpoch(11L, new com.linearlite.server.dto.DocumentCollaborationDtos.RestoreEpochRequest(
+                "epoch-current", 8L, 3L, "AQ==", "[]", "BLOCKNOTE", 7L, "operation", "恢复标题",
+                "[{\"type\":\"paragraph\"}]"));
+
+        assertNotEquals("epoch-current", result.epoch());
+        assertEquals(1L, result.commitSeq());
+        var calls = org.mockito.Mockito.inOrder(revisionSnapshots, stateMapper);
+        calls.verify(revisionSnapshots).captureBeforeRestore(document, "[{\"type\":\"paragraph\"}]");
+        calls.verify(stateMapper).updateById(state);
+        calls.verify(revisionSnapshots).captureForced(restored, 7L, "[]");
+    }
+
+    @Test
+    void idleWorkerCapturesOnlyTheStillCurrentCommittedSnapshot() {
+        ProjectDocument candidate = document(false);
+        ProjectDocument current = document(false);
+        ProjectDocumentCollabState state = state("epoch-current", 8L);
+        when(revisionSnapshots.findIdleCandidates()).thenReturn(java.util.List.of(candidate));
+        when(stateMapper.selectById(11L)).thenReturn(state);
+        when(nodeClient.snapshot(11L, "epoch-current", true)).thenReturn(
+                new CollaborationNodeClient.SnapshotResponse("epoch-current", 3L, 8L, "BLOCKNOTE", "[]"));
+        when(transactionManager.getTransaction(any()))
+                .thenReturn(new org.springframework.transaction.support.SimpleTransactionStatus());
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(current);
+        when(stateMapper.selectByDocumentIdForUpdate(11L)).thenReturn(state);
+        when(documentMapper.selectUpdatedBeforeIdle(11L)).thenReturn(true);
+
+        service.captureIdleRevisions();
+        current.setVersion(4L);
+        service.captureIdleRevisions();
+
+        verify(revisionSnapshots).captureIfChanged(current, current.getLastEditorId(), "[]");
+    }
+
+    @Test
+    void restoreRejectsAConcurrentTitleChangeEvenWithTheSameCommitSequence() {
+        ProjectDocument document = document(false);
+        ProjectDocumentCollabState state = state("epoch-current", 8L);
+        when(documentMapper.selectById(11L)).thenReturn(document);
+        when(documentMapper.selectByIdForUpdate(11L)).thenReturn(document);
+        when(stateMapper.selectByDocumentIdForUpdate(11L)).thenReturn(state);
+
+        assertThrows(DocumentVersionConflictException.class, () -> service.restoreEpoch(11L,
+                new com.linearlite.server.dto.DocumentCollaborationDtos.RestoreEpochRequest(
+                        "epoch-current", 8L, 2L, "AQ==", "[]", "BLOCKNOTE", 7L, "operation", "恢复标题", "[]")));
+
+        verifyNoInteractions(revisionSnapshots);
     }
 
     @Test
@@ -259,7 +337,7 @@ class DocumentCollaborationServiceTest {
         when(stateMapper.selectByDocumentIdForUpdate(11L)).thenReturn(state);
         when(nodeClient.snapshot(11L, "epoch-current", true)).thenReturn(
                 new CollaborationNodeClient.SnapshotResponse(
-                        "epoch-current", 2L, "BLOCKNOTE", "[]"));
+                        "epoch-current", 2L, 1L, "BLOCKNOTE", "[]"));
 
         DocumentVersionConflictException conflict = assertThrows(DocumentVersionConflictException.class,
                 () -> service.updateTitle(11L, "文档", "新标题", 7L));

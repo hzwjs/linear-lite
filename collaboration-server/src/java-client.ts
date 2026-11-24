@@ -34,6 +34,7 @@ export class JavaCollaborationClient {
     editorId: number
     counters: Record<string, number>
     transitionId?: string
+    forceRevision: boolean
   }): Promise<{ commitSeq: number; version: number }> {
     return this.put(`/internal/collaboration/documents/${input.documentId}/state?epoch=${encodeURIComponent(input.epoch)}`, input)
   }
@@ -49,9 +50,11 @@ export class JavaCollaborationClient {
   async restoreEpoch(documentId: number, input: {
     expectedEpoch: string
     expectedCommitSeq: number
+    expectedVersion: number
     contentFormat: ContentFormat
     stateBase64: string
     content: string
+    previousContent: string
     editorId: number
     operationId: string
     title?: string

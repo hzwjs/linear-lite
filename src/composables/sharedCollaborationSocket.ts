@@ -19,6 +19,13 @@ export function destroySharedCollaborationSocket() {
   shared = null
 }
 
+export function resetSharedCollaborationSocket(websocketUrl: string, userId: number) {
+  const key = `${userId}:${websocketUrl}`
+  if (shared != null && shared.key === key) {
+    destroySharedCollaborationSocket()
+  }
+}
+
 if (typeof window !== 'undefined') {
   window.addEventListener(AUTH_SESSION_CHANGED_EVENT, destroySharedCollaborationSocket)
   window.addEventListener('storage', (event) => {

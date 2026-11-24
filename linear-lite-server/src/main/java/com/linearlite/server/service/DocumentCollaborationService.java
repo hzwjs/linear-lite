@@ -23,6 +23,8 @@ import com.linearlite.server.mapper.UserMapper;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -47,6 +49,7 @@ import static com.linearlite.server.dto.DocumentCollaborationDtos.*;
 
 @Service
 public class DocumentCollaborationService {
+    private static final Logger log = LoggerFactory.getLogger(DocumentCollaborationService.class);
     private static final long ROOM_TOKEN_TTL_SECONDS = 15 * 60L;
     private static final String TOKEN_PURPOSE = "document-collaboration-room";
     private static final List<String> USER_COLORS = List.of(
@@ -464,7 +467,11 @@ public class DocumentCollaborationService {
             throwVersionConflict(documentId);
         }
         ProjectDocument saved = documentMapper.selectById(documentId);
-        revisionSnapshots.captureForced(saved, request.editorId(), request.content());
+        if (request.forceRevision()) {
+            revisionSnapshots.captureForced(saved, request.editorId(), request.content());
+        } else {
+            revisionSnapshots.captureIfDue(saved, request.editorId(), request.content());
+        }
         eventPublisher.publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.DOCUMENT, documentId));
         eventPublisher.publishEvent(new CollaborationDocumentChangedEvent(document.getProjectId(),
@@ -475,7 +482,9 @@ public class DocumentCollaborationService {
     @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public EpochRestored restoreEpoch(Long documentId, RestoreEpochRequest request) {
         if (request == null || request.expectedEpoch() == null || request.expectedCommitSeq() == null
-                || request.stateBase64() == null || request.content() == null || request.editorId() == null
+                || request.expectedVersion() == null
+                || request.stateBase64() == null || request.content() == null || request.previousContent() == null
+                || request.editorId() == null
                 || request.operationId() == null || request.operationId().isBlank()
                 || request.title() == null || request.title().isBlank()) {
             throw new IllegalArgumentException("epoch 恢复参数不完整");
@@ -486,12 +495,16 @@ public class DocumentCollaborationService {
         ProjectDocumentCollabState state = stateMapper.selectByDocumentIdForUpdate(documentId);
         requireCurrentEpochAndSequence(documentId, state, request.expectedEpoch(), request.expectedCommitSeq());
         requireNoTransitionFence(state);
+        if (!Objects.equals(document.getVersion(), request.expectedVersion())) {
+            throw new DocumentVersionConflictException(document.getVersion());
+        }
         if (!document.getContentFormat().equals(request.contentFormat())) {
             throw new IllegalArgumentException("协作正文类型与文档类型不一致");
         }
         String restoredTitle = requireTitle(request.title());
         validateContent(documentId, request.contentFormat(), request.content());
         byte[] stateBinary = decodeState(request.stateBase64());
+        revisionSnapshots.captureBeforeRestore(document, request.previousContent());
         String nextEpoch = UUID.randomUUID().toString();
         state.setEpoch(nextEpoch);
         state.setCommitSeq(1L);
@@ -553,7 +566,7 @@ public class DocumentCollaborationService {
             throw new ConflictOperationException("文档标题已被其他编辑者更新");
         }
         ProjectDocument saved = documentMapper.selectById(documentId);
-        revisionSnapshots.captureTitleVersion(saved, editorId, snapshot.content());
+        revisionSnapshots.captureIfDue(saved, editorId, snapshot.content());
         eventPublisher.publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.DOCUMENT, documentId));
         eventPublisher.publishEvent(new CollaborationDocumentChangedEvent(projectId,
@@ -567,6 +580,36 @@ public class DocumentCollaborationService {
                     }
                 });
         return saved;
+    }
+
+    @Scheduled(fixedDelayString = "${app.document-revision.idle-worker-delay-millis:60000}")
+    public void captureIdleRevisions() {
+        for (ProjectDocument candidate : revisionSnapshots.findIdleCandidates()) {
+            try {
+                captureIdleRevision(candidate);
+            } catch (RuntimeException e) {
+                log.warn("文档 {} 的空闲版本留档失败", candidate.getId(), e);
+            }
+        }
+    }
+
+    private void captureIdleRevision(ProjectDocument candidate) {
+        Long id = candidate.getId();
+        // 房间快照可能触发提交，须在持有数据库锁之前获取。
+        CollaborationNodeClient.SnapshotResponse snapshot = getSnapshot(id, true);
+        if (!Objects.equals(candidate.getVersion(), snapshot.version())) return;
+        transactionTemplate.executeWithoutResult(status -> {
+            documentMapper.lockProjectDocumentMutations(candidate.getProjectId());
+            ProjectDocument current = documentMapper.selectByIdForUpdate(id);
+            ProjectDocumentCollabState state = stateMapper.selectByDocumentIdForUpdate(id);
+            if (current == null || current.getArchivedAt() != null || state == null
+                    || state.getTransitionId() != null
+                    || !Objects.equals(current.getVersion(), snapshot.version())
+                    || !Objects.equals(state.getEpoch(), snapshot.epoch())
+                    || !Objects.equals(state.getCommitSeq(), snapshot.commitSeq())
+                    || !Boolean.TRUE.equals(documentMapper.selectUpdatedBeforeIdle(id))) return;
+            revisionSnapshots.captureIfChanged(current, current.getLastEditorId(), snapshot.content());
+        });
     }
 
     @Transactional(rollbackFor = Exception.class)

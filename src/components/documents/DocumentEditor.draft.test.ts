@@ -5,7 +5,13 @@ import DocumentEditor from './DocumentEditor.vue'
 
 const discardDraftMock = vi.fn()
 const restoreDraftMock = vi.fn(() => 'restored')
-const mockOffline = vi.hoisted(() => ({ enabled: false }))
+const reconnectMock = vi.fn().mockResolvedValue(undefined)
+const mockOffline = vi.hoisted(() => ({
+  enabled: false,
+  authFailed: false,
+  hasUnsavedBody: true,
+  epochChanged: null as null | { value: boolean },
+}))
 
 vi.mock('../../composables/useDocumentCollaboration', async () => {
   const vue = await vi.importActual<typeof import('vue')>('vue')
@@ -17,21 +23,22 @@ vi.mock('../../composables/useDocumentCollaboration', async () => {
       session: vue.shallowRef(mockOffline.enabled ? null : { user: { name: 'Ada', color: '#123456' }, sessionId: 'session-1', epoch: 'epoch-1' }),
       provider: vue.shallowRef(mockOffline.enabled ? null : { awareness: undefined }),
       hasSynced: vue.ref(true),
-      authFailed: vue.ref(false),
+      authFailed: vue.ref(mockOffline.authFailed),
       saveState: vue.ref('saved'),
-      connectionState: vue.ref('connected'),
+      connectionState: vue.ref(mockOffline.authFailed ? 'error' : 'connected'),
       collaborators: vue.ref([]),
       serverVersion: vue.ref(1),
       commitSeq: vue.ref(0),
-      epochChanged: vue.ref(false),
+      epochChanged: mockOffline.epochChanged = vue.ref(false),
       draftRestored: vue.ref(mockOffline.enabled),
       isLocallyCached: vue.ref(true),
-      hasUnsavedBody: vue.ref(true),
+      hasUnsavedBody: vue.ref(mockOffline.hasUnsavedBody),
       draftCacheFailed: vue.ref(false),
       discardDraft: discardDraftMock,
       restoreDraft: restoreDraftMock,
+      reconnect: reconnectMock,
       start: vi.fn(),
-      restartForEpoch: vi.fn(),
+      restartForEpoch: vi.fn().mockResolvedValue(undefined),
       retirePreview: vi.fn(),
     }),
   }
@@ -80,10 +87,13 @@ const treeNodes = [{
 describe('DocumentEditor local cache and draft restoration', () => {
   beforeEach(() => {
     mockOffline.enabled = false
+    mockOffline.authFailed = false
+    mockOffline.hasUnsavedBody = true
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
     document.body.innerHTML = ''
     discardDraftMock.mockClear()
     restoreDraftMock.mockClear()
+    reconnectMock.mockClear()
   })
 
   afterEach(() => {
@@ -194,12 +204,46 @@ describe('DocumentEditor local cache and draft restoration', () => {
   })
 
   it('restores the selected snapshot and sends the same snapshot and owner to the title store', async () => {
-    const entry = { draftId: 'other', draft: { documentId: 1, format: 'BLOCKNOTE', titleDirty: true, title: 'Draft', serverVersion: 1, savedAt: 1 } }
+    mockOffline.hasUnsavedBody = false
+    const entry = { draftId: 'other', draft: { documentId: 1, format: 'BLOCKNOTE' as const, titleDirty: true, title: 'Draft', serverVersion: 1, savedAt: 1 } }
     const onRestoreDraftTitle = vi.fn()
     const { host } = renderEditor({ draftCandidates: [entry], draftOwnerId: 7, onRestoreDraftTitle })
     await nextTick()
     host.querySelector<HTMLButtonElement>('details.document-editor__conflict button')?.click()
-    expect(restoreDraftMock).toHaveBeenCalledWith(entry.draft)
+    expect(restoreDraftMock).toHaveBeenCalledWith(entry.draft, { sourceDraftId: 'other', force: false })
     expect(onRestoreDraftTitle).toHaveBeenCalledWith(entry, 7)
+  })
+
+  it('allows deleting an individual draft and emits draftsChanged', async () => {
+    localStorage.clear()
+    const entry = { draftId: 'orphan-1', draft: { documentId: 1, format: 'BLOCKNOTE' as const, titleDirty: true, title: 'Orphan', serverVersion: 1, savedAt: 1 } }
+    localStorage.setItem('linear-lite.doc-draft.v3:7:1:orphan-1', JSON.stringify(entry.draft))
+    const onDraftsChanged = vi.fn()
+    const { host } = renderEditor({ draftCandidates: [entry], draftOwnerId: 7, onDraftsChanged })
+    await nextTick()
+    host.querySelector<HTMLButtonElement>('.document-editor__draft-delete-btn')?.click()
+    expect(localStorage.getItem('linear-lite.doc-draft.v3:7:1:orphan-1')).toBeNull()
+    expect(onDraftsChanged).toHaveBeenCalledOnce()
+  })
+
+  it('renders a collaboration recovery banner with reconnect button when authFailed is true', async () => {
+    mockOffline.authFailed = true
+    const { host } = renderEditor()
+    await nextTick()
+    const banner = host.querySelector('.document-editor__collaboration-alert')
+    expect(banner).not.toBeNull()
+    const reconnectBtn = banner?.querySelector<HTMLButtonElement>('button')
+    reconnectBtn?.click()
+    await nextTick()
+    expect(reconnectMock).toHaveBeenCalledWith({ resetTransport: true })
+  })
+
+  it('notifies the document view to reload retained drafts after a room change', async () => {
+    const onDraftsChanged = vi.fn()
+    renderEditor({ onDraftsChanged })
+    mockOffline.epochChanged!.value = true
+    await nextTick()
+    await Promise.resolve()
+    expect(onDraftsChanged).toHaveBeenCalledOnce()
   })
 })

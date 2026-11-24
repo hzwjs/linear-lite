@@ -883,6 +883,7 @@ onBeforeUnmount(() => {
             @discard-draft="store.discardDraft(store.activeDocument.id)"
             @dismiss-draft-banner="store.dismissDraftBanner"
             @restore-draft-title="store.restoreDraftTitle"
+            @drafts-changed="refreshDraftCandidates"
             @archive="archiveDocument(store.activeDocument.id)"
             @history="openHistory"
             @reload="store.reloadAfterConflict"

@@ -11,7 +11,13 @@ import { startDocumentPdfExport } from '../../utils/documentPdfExport'
 import { useDocumentCollaboration } from '../../composables/useDocumentCollaboration'
 import type { DocumentCollaborationSession } from '../../services/api/documentCollaboration'
 import * as Y from 'yjs'
-import { decodeBase64ToUint8Array, type DocumentLocalDraft } from '../../utils/documentDraftStorage'
+import {
+  clearAllDocumentDrafts,
+  clearDocumentDraft,
+  decodeBase64ToUint8Array,
+  documentDraftId,
+  type DocumentLocalDraft,
+} from '../../utils/documentDraftStorage'
 
 const DOCUMENT_ATTACHMENT_PATH = /^\/api\/project-documents\/(\d+)\/attachments\/(\d+)\/download$/
 
@@ -50,43 +56,141 @@ const emit = defineEmits<{
   discardDraft: []
   dismissDraftBanner: []
   restoreDraftTitle: [entry: { draftId: string; draft: DocumentLocalDraft }, ownerId: number]
+  draftsChanged: []
 }>()
 
 const { t } = useI18n()
-const collaborationState = useDocumentCollaboration(props.document.id, 'BLOCKNOTE')
+const bodyEditorRef = ref<InstanceType<typeof StructuredDocumentEditor> | null>(null)
+const draftPreviewEditorRef = ref<InstanceType<typeof StructuredDocumentEditor> | null>(null)
+const collaborationState = useDocumentCollaboration(props.document.id, 'BLOCKNOTE', {
+  getContentSnapshot: () => bodyEditorRef.value?.getSerializedContent(),
+  onDraftsChanged: () => emit('draftsChanged'),
+})
 const draftSelectionError = ref('')
 const selectedDraftPreview = shallowRef<Y.Doc | null>(null)
 const selectedDraftTitle = ref('')
+const selectedCrossEpochEntry = ref<{ draftId: string; draft: DocumentLocalDraft } | null>(null)
+const reconnecting = ref(false)
+
+function clearDraftPreview() {
+  selectedDraftPreview.value?.destroy()
+  selectedDraftPreview.value = null
+  selectedDraftTitle.value = ''
+  selectedCrossEpochEntry.value = null
+}
+
 function selectDraft(entry: { draftId: string; draft: DocumentLocalDraft }) {
   const { draft } = entry
   draftSelectionError.value = ''
-  if (props.saveState !== 'saved' && props.saveState !== 'idle') {
-    draftSelectionError.value = t('documents.draftResolveCurrent')
-    return
+  const hasCurrentChanges = (props.saveState !== 'saved' && props.saveState !== 'idle') ||
+    collaborationState.hasUnsavedBody.value
+  let force = false
+  if (hasCurrentChanges) {
+    if (!window.confirm(t('documents.draftOverwriteConfirm'))) return
+    force = true
   }
-  const result = collaborationState.restoreDraft(draft)
+  const result = collaborationState.restoreDraft(draft, {
+    sourceDraftId: entry.draftId,
+    force,
+  })
   if (result === 'epoch-mismatch') {
     try {
       const preview = new Y.Doc()
       Y.applyUpdate(preview, decodeBase64ToUint8Array(draft.ydocUpdate!))
-      selectedDraftPreview.value?.destroy()
+      clearDraftPreview()
       selectedDraftPreview.value = preview
       selectedDraftTitle.value = draft.title ?? ''
+      selectedCrossEpochEntry.value = entry
       draftSelectionError.value = t('documents.draftEpochMismatch')
     } catch { draftSelectionError.value = t('documents.draftRestoreFailed') }
   } else if (result === 'restored') {
-    selectedDraftPreview.value?.destroy()
-    selectedDraftPreview.value = null
+    clearDraftPreview()
     if (draft.titleDirty && props.draftOwnerId != null) emit('restoreDraftTitle', entry, props.draftOwnerId)
+    emit('draftsChanged')
   } else {
     draftSelectionError.value = t(result === 'busy' ? 'documents.draftResolveCurrent' : 'documents.draftRestoreFailed')
   }
 }
+
+function applyCrossEpochDraft() {
+  const entry = selectedCrossEpochEntry.value
+  if (!entry) return
+  if (!window.confirm(t('documents.draftCrossEpochConfirm'))) return
+  draftSelectionError.value = ''
+  const snapshot = entry.draft.contentSnapshot ?? draftPreviewEditorRef.value?.getSerializedContent()
+  if (!snapshot) {
+    draftSelectionError.value = t('documents.draftRestoreFailed')
+    return
+  }
+  const result = collaborationState.restoreDraft(
+    { ...entry.draft, contentSnapshot: snapshot },
+    {
+      sourceDraftId: entry.draftId,
+      force: true,
+      applyCrossEpochContent: (json) => bodyEditorRef.value?.replaceSerializedContent(json) ?? false,
+    },
+  )
+  if (result === 'restored') {
+    clearDraftPreview()
+    if (entry.draft.titleDirty && props.draftOwnerId != null) emit('restoreDraftTitle', entry, props.draftOwnerId)
+    emit('draftsChanged')
+  } else {
+    draftSelectionError.value = t('documents.draftRestoreFailed')
+  }
+}
+
+function deleteDraft(entry: { draftId: string; draft: DocumentLocalDraft }) {
+  if (props.draftOwnerId == null) return
+  clearDocumentDraft(props.draftOwnerId, props.document.id, entry.draftId)
+  if (selectedCrossEpochEntry.value?.draftId === entry.draftId) clearDraftPreview()
+  draftSelectionError.value = ''
+  emit('draftsChanged')
+}
+
+function clearAllDrafts() {
+  if (props.draftOwnerId == null) return
+  if (!window.confirm(t('documents.clearAllDraftsConfirm'))) return
+  clearAllDocumentDrafts(props.draftOwnerId, props.document.id, { excludeDraftId: documentDraftId })
+  clearDraftPreview()
+  draftSelectionError.value = ''
+  emit('draftsChanged')
+}
+
+async function handleReconnect() {
+  if (reconnecting.value) return
+  reconnecting.value = true
+  liveReady.value = false
+  try {
+    await collaborationState.reconnect?.({ resetTransport: true })
+  } finally {
+    reconnecting.value = false
+  }
+}
+
 const collaborationStatusKey = computed(() => {
+  if (collaborationState.authFailed.value || collaborationState.connectionState.value === 'error') return 'connectionLost'
   if (!collaborationState.hasSynced.value) {
     return collaborationState.connectionState.value === 'connecting' ? 'connecting' : 'connectionLost'
   }
   return collaborationState.saveState.value
+})
+const collaborationDisconnected = computed(() =>
+  collaborationState.authFailed.value ||
+  collaborationState.connectionState.value === 'error' ||
+  (!collaborationState.hasSynced.value && collaborationState.connectionState.value === 'offline')
+)
+const unifiedStatus = computed<{ icon: 'loader' | 'alert' | 'check'; label: string }>(() => {
+  if (props.saveState === 'conflict') return { icon: 'alert', label: t('documents.saveState.conflict') }
+  if (collaborationDisconnected.value) return { icon: 'alert', label: t('documents.collaboration.connectionLost') }
+  if (props.saveState === 'invalid') return { icon: 'alert', label: t('documents.saveState.invalid') }
+  if (props.saveState === 'failed') return { icon: 'alert', label: t('documents.saveState.failed') }
+  if (collaborationStatusKey.value === 'offline') return { icon: 'alert', label: t('documents.collaboration.offline') }
+  if (reconnecting.value) return { icon: 'loader', label: t('documents.collaboration.reconnecting') }
+  if (collaborationStatusKey.value === 'connecting') return { icon: 'loader', label: t('documents.collaboration.connecting') }
+  if (props.saveState === 'saving' || props.saveState === 'dirty' || collaborationStatusKey.value === 'saving') {
+    return { icon: 'loader', label: t('documents.collaboration.saving') }
+  }
+  return { icon: 'check', label: t('documents.collaboration.saved') }
 })
 const previewOptions = computed(() => {
   const current = collaborationState.session.value
@@ -150,7 +254,6 @@ async function onLiveReady() {
 const copied = ref(false)
 const exportingPdf = ref(false)
 const moreOpen = ref(false)
-const bodyEditorRef = ref<InstanceType<typeof StructuredDocumentEditor> | null>(null)
 const moreMenuRef = ref<HTMLElement | null>(null)
 const documentPageRef = ref<HTMLElement | null>(null)
 const documentBodyRef = ref<HTMLElement | null>(null)
@@ -256,7 +359,7 @@ onMounted(async () => {
 watch(collaborationState.epochChanged, (changed) => {
   if (changed) {
     liveReady.value = false
-    void collaborationState.restartForEpoch()
+    void collaborationState.restartForEpoch().then(() => emit('draftsChanged'))
   }
 })
 watch(
@@ -293,7 +396,9 @@ const breadcrumbs = computed(() => {
   return path
 })
 
-const saveLabel = computed(() => t(`documents.saveState.${props.saveState}`))
+watch(() => props.saveState, (next, prev) => {
+  if (next === 'saved' && prev !== 'saved') emit('draftsChanged')
+})
 const lastEditor = computed(() => props.mentionMembers.find((member) => member.id === props.document.lastEditorId))
 
 function relativeUpdatedTime(updatedAt: string) {
@@ -434,16 +539,10 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
       </div>
       <div class="document-editor__actions">
         <span class="document-editor__save-state" role="status" aria-live="polite">
-          <Loader2 v-if="saveState === 'saving'" class="spin" aria-hidden="true" />
-          <TriangleAlert v-else-if="saveState === 'conflict' || saveState === 'invalid' || saveState === 'failed'" aria-hidden="true" />
-          <Check v-else-if="saveState === 'saved'" aria-hidden="true" />
-          {{ saveLabel }}
-        </span>
-        <span class="document-editor__save-state" role="status" aria-live="polite">
-          <Loader2 v-if="collaborationStatusKey === 'connecting' || collaborationStatusKey === 'saving'" class="spin" aria-hidden="true" />
-          <TriangleAlert v-else-if="collaborationStatusKey === 'offline' || collaborationStatusKey === 'connectionLost'" aria-hidden="true" />
+          <Loader2 v-if="unifiedStatus.icon === 'loader'" class="spin" aria-hidden="true" />
+          <TriangleAlert v-else-if="unifiedStatus.icon === 'alert'" aria-hidden="true" />
           <Check v-else aria-hidden="true" />
-          {{ t(`documents.collaboration.${collaborationStatusKey}`) }}
+          {{ unifiedStatus.label }}
         </span>
         <span v-if="isLocallyCached" class="document-editor__save-state document-editor__save-state--cached" :title="t('documents.locallyCachedTooltip')" role="status">
           <HardDrive aria-hidden="true" />
@@ -486,20 +585,56 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
       </div>
     </header>
 
-    <details v-if="draftCandidates.length" class="document-editor__conflict">
-      <summary>{{ t('documents.availableDrafts', { count: draftCandidates.length }) }}</summary>
-      <div v-for="item in draftCandidates" :key="item.draftId">
+    <details v-if="draftCandidates.length" class="document-editor__conflict document-editor__drafts-panel">
+      <summary class="document-editor__drafts-summary">
+        <span>{{ t('documents.availableDrafts', { count: draftCandidates.length }) }}</span>
+        <button v-if="draftCandidates.length > 1" type="button" class="document-editor__draft-clear-all" @click.stop.prevent="clearAllDrafts">
+          {{ t('documents.clearAllDrafts') }}
+        </button>
+      </summary>
+      <div v-for="item in draftCandidates" :key="item.draftId" class="document-editor__draft-item">
         <span>{{ new Date(item.draft.savedAt).toLocaleString() }} · {{ item.draft.title || document.title }}</span>
-        <button type="button" @click="selectDraft(item)">{{ t('documents.restoreDraft') }}</button>
+        <div class="document-editor__draft-item-actions">
+          <button type="button" @click="selectDraft(item)">{{ t('documents.restoreDraft') }}</button>
+          <button type="button" class="document-editor__draft-delete-btn" @click="deleteDraft(item)">
+            <Trash2 aria-hidden="true" />{{ t('documents.deleteDraft') }}
+          </button>
+        </div>
       </div>
       <p v-if="draftSelectionError" role="alert">{{ draftSelectionError }}</p>
-      <div v-if="selectedDraftPreview">
-        <strong>{{ selectedDraftTitle }}</strong>
-        <StructuredDocumentEditor :document-id="document.id" :image-assets="document.imageAssets" model-value="" readonly
+      <div v-if="selectedDraftPreview" class="document-editor__draft-preview">
+        <div class="document-editor__draft-preview-bar">
+          <strong>{{ selectedDraftTitle || document.title }}</strong>
+          <button v-if="selectedCrossEpochEntry" type="button" class="document-editor__draft-apply-btn" @click="applyCrossEpochDraft">
+            {{ t('documents.draftApplyCrossEpoch') }}
+          </button>
+        </div>
+        <StructuredDocumentEditor
+          ref="draftPreviewEditorRef"
+          :document-id="document.id"
+          :image-assets="document.imageAssets"
+          model-value=""
+          readonly
           :collaboration="{ fragment: selectedDraftPreview.getXmlFragment('document-store'), user: { name: '', color: 'transparent' } }"
-          :placeholder="t('documents.bodyPlaceholder')" />
+          :placeholder="t('documents.bodyPlaceholder')"
+        />
       </div>
     </details>
+    <div v-if="collaborationDisconnected" class="document-editor__conflict document-editor__collaboration-alert" role="alert">
+      <TriangleAlert aria-hidden="true" />
+      <div>
+        <strong>{{ t('documents.collaboration.disconnectedTitle') }}</strong>
+        <p>{{ t('documents.collaboration.disconnectedDescription') }}</p>
+      </div>
+      <button type="button" :disabled="reconnecting" @click="handleReconnect">
+        <Loader2 v-if="reconnecting" class="spin" aria-hidden="true" />
+        <RefreshCw v-else aria-hidden="true" />
+        {{ t(reconnecting ? 'documents.collaboration.reconnecting' : 'documents.collaboration.reconnect') }}
+      </button>
+      <button type="button" @click="emit('reload')">
+        <RefreshCw aria-hidden="true" />{{ t('documents.reloadServerVersion') }}
+      </button>
+    </div>
     <div v-if="hasRestoredDraft && showDraftBanner" class="document-editor__conflict document-editor__draft-banner" role="status">
       <Clock3 aria-hidden="true" />
       <div>
@@ -749,6 +884,13 @@ async function handleDocumentAttachmentDownload(documentId: number, attachmentId
 .document-editor__draft-banner > svg { color: var(--color-accent); }
 .document-editor__draft-keep-btn { background: var(--color-accent) !important; color: #fff !important; border-color: var(--color-accent) !important; padding: 4px 10px; }
 .document-editor__draft-keep-btn:hover { opacity: 0.9; }
+.document-editor__drafts-panel { display: block; }
+.document-editor__drafts-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; font-weight: var(--font-weight-medium); }
+.document-editor__draft-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--color-border-subtle); font-size: var(--font-size-caption); }
+.document-editor__draft-item-actions { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.document-editor__draft-preview { margin-top: 10px; padding: 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg-base); }
+.document-editor__draft-preview-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.document-editor__draft-apply-btn { background: var(--color-accent) !important; color: #fff !important; border-color: var(--color-accent) !important; padding: 4px 10px; }
 
 .document-editor__page {
   /* 阅读区域居中，滚动容器保留整页宽度供导航和编辑操作使用。 */

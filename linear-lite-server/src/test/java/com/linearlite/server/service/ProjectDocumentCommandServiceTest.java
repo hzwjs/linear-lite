@@ -126,7 +126,7 @@ class ProjectDocumentCommandServiceTest {
         ProjectDocument current = document(11L, 4L, 1L);
         when(documentMapper.selectById(11L)).thenReturn(current);
         when(collaborationService.getSnapshot(11L, true)).thenReturn(new CollaborationNodeClient.SnapshotResponse(
-                "epoch-1", 1L, "BLOCKNOTE", "[]"));
+                "epoch-1", 1L, 1L, "BLOCKNOTE", "[]"));
         when(queryService.getDocument(11L, 7L)).thenReturn(null);
 
         service.update(11L, new UpdateProjectDocumentRequest(1L, "标题", "[{\"type\":\"paragraph\"}]",

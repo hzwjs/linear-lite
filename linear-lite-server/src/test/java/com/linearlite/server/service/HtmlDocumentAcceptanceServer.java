@@ -157,7 +157,7 @@ public class HtmlDocumentAcceptanceServer {
         when(service.getSnapshot(anyLong(), anyBoolean())).thenAnswer(call -> {
             Long id = call.getArgument(0);
             ProjectDocument row = rows.get(id);
-            return new CollaborationNodeClient.SnapshotResponse(collaborationEpochs.get(id), row.getVersion(),
+            return new CollaborationNodeClient.SnapshotResponse(collaborationEpochs.get(id), row.getVersion(), 1L,
                     row.getContentFormat(), collaborationContents.get(id));
         });
         return service;

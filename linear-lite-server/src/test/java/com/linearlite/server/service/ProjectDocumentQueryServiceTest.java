@@ -108,7 +108,7 @@ class ProjectDocumentQueryServiceTest {
         ProjectDocument document = new ProjectDocument();
         document.setId(11L); document.setProjectId(7L); document.setVersion(3L); document.setContentFormat("HTML");
         when(collaborationService.getSnapshot(11L, true)).thenReturn(
-                new CollaborationNodeClient.SnapshotResponse("epoch", 4L, "HTML", "<p>new content</p>"));
+                new CollaborationNodeClient.SnapshotResponse("epoch", 4L, 1L, "HTML", "<p>new content</p>"));
         var response = service.toResponse(document, false);
         assertEquals(4L, response.version());
         assertEquals("<p>new content</p>", response.content());

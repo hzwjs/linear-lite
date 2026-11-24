@@ -837,6 +837,7 @@ export interface EditorApi {
   insertMention: (userId: string, label: string) => void
   removeAttachmentLink: (href: string) => boolean
   getSerializedContent: () => string
+  replaceSerializedContent: (json: string) => boolean
 }
 
 export interface BlockNoteCollaboration {
@@ -1319,6 +1320,16 @@ export default function BlockNoteEditorReact(props: BlockNoteEditorReactProps) {
         extractMentionIdsFromBlocks(editor.document as unknown as AnyBlock[]),
       removeAttachmentLink: (href: string) => removeAttachmentLinkFromDocument(editor, href),
       getSerializedContent: () => JSON.stringify(editor.document),
+      replaceSerializedContent: (json: string) => {
+        try {
+          const parsed: unknown = JSON.parse(json)
+          if (!Array.isArray(parsed) || parsed.length === 0) return false
+          editor.replaceBlocks(editor.document, parsed as PartialBlock[])
+          return true
+        } catch {
+          return false
+        }
+      },
       insertMention: (userId: string, label: string) => {
         editor.focus()
         editor.insertInlineContent(

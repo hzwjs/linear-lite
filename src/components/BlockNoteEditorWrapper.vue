@@ -149,13 +149,17 @@ function getSerializedContent(): string {
   return editorApi.value?.getSerializedContent() ?? '[]'
 }
 
+function replaceSerializedContent(json: string): boolean {
+  return editorApi.value?.replaceSerializedContent(json) ?? false
+}
+
 function handleSurfaceClick() {
   // Suppress if user just finished a drag-select
   if (window.getSelection()?.toString()) return
   focusAppend()
 }
 
-defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmentLink, getSerializedContent })
+defineExpose({ focus, getMentionedUserIdsFromDoc, insertMention, removeAttachmentLink, getSerializedContent, replaceSerializedContent })
 </script>
 
 <template>

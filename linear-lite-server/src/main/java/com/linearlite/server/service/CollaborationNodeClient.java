@@ -74,7 +74,7 @@ public class CollaborationNodeClient {
     public record EncodeRequest(String contentFormat, String content) { }
     public record EncodeResponse(String stateBase64, String stateSha256, String content, Long contentBytes,
                                  List<Long> imageAssetIds) { }
-    public record SnapshotResponse(String epoch, Long version, String contentFormat, String content) { }
+    public record SnapshotResponse(String epoch, Long version, Long commitSeq, String contentFormat, String content) { }
     public record CommandRequest(String operationId, Long actorId, String epoch, Long expectedVersion,
                                  String type, String contentFormat, String content, String title) { }
     public record CommandResponse(String epoch, Long commitSeq, Long version, String contentFormat,

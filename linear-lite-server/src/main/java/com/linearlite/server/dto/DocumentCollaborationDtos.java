@@ -23,11 +23,11 @@ public final class DocumentCollaborationDtos {
                                         Long contentBytes) { }
     public record UpdateStateRequest(String epoch, Long expectedCommitSeq, String stateBase64,
                                      String content, String contentFormat, Long editorId,
-                                     Map<String, Long> counters, String transitionId) { }
+                                     Map<String, Long> counters, String transitionId, boolean forceRevision) { }
     public record StateCommitted(Long commitSeq, Long version) { }
-    public record RestoreEpochRequest(String expectedEpoch, Long expectedCommitSeq,
+    public record RestoreEpochRequest(String expectedEpoch, Long expectedCommitSeq, Long expectedVersion,
                                       String stateBase64, String content, String contentFormat,
-                                      Long editorId, String operationId, String title) { }
+                                      Long editorId, String operationId, String title, String previousContent) { }
     public record EpochRestored(String epoch, Long commitSeq, Long version) { }
     public record TitleUpdateRequest(String expectedTitle, String title) { }
     public record ArchiveTransitionDocument(Long documentId, String epoch, String nextEpoch,

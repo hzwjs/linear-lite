@@ -3,17 +3,18 @@ import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import * as Y from 'yjs'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Code2, Download, Eye, History, Loader2, Play, Save, Upload } from 'lucide-vue-next'
+import { ArrowLeft, Code2, Download, Eye, History, Loader2, Play, RefreshCw, Save, Trash2, Upload } from 'lucide-vue-next'
 import HtmlDocumentPreview from '../components/documents/HtmlDocumentPreview.vue'
 import HtmlDocumentCollaboration from '../components/documents/HtmlDocumentCollaboration.vue'
 import DocumentHistoryPanel from '../components/documents/DocumentHistoryPanel.vue'
 import { documentApi } from '../services/api/documents'
 import { documentCollaborationApi, type DocumentCollaborationSession } from '../services/api/documentCollaboration'
+import type { CollaborationSaveState } from '../composables/useDocumentCollaboration'
 import { useDocumentStore } from '../store/documentStore'
 import { useAuthStore } from '../store/authStore'
 import type { ProjectDocument } from '../types/document'
 import { downloadHtmlDocument, HTML_DOCUMENT_MAX_BYTES, htmlDocumentPath, readHtmlDocumentFile } from '../utils/htmlDocument'
-import { clearDocumentDraft, decodeBase64ToUint8Array, documentDraftId, listDocumentDrafts, readDocumentDraft, saveDocumentDraft, type DocumentLocalDraft } from '../utils/documentDraftStorage'
+import { clearAllDocumentDrafts, clearDocumentDraft, decodeBase64ToUint8Array, documentDraftId, listDocumentDrafts, readDocumentDraft, saveDocumentDraft, type DocumentLocalDraft } from '../utils/documentDraftStorage'
 import { JWT_STORAGE_KEY, USER_STORAGE_KEY } from '../services/api/constants'
 
 const route = useRoute()
@@ -33,10 +34,19 @@ const error = ref('')
 const conflict = ref(false)
 const historyOpen = ref(false)
 const readingFile = ref(false)
-const collaborationStatus = ref<{ saveState: 'saved' | 'saving' | 'offline'; connectionState: string; hasSynced: boolean; collaborators: Array<{ id: number; name: string; color: string }>; version: number; commitSeq: number } | null>(null)
+const collaborationStatus = ref<{ saveState: CollaborationSaveState; connectionState: string; hasSynced: boolean; authFailed?: boolean; collaborators: Array<{ id: number; name: string; color: string }>; version: number; commitSeq: number } | null>(null)
+const reconnecting = ref(false)
+const collaborationDisconnected = computed(() => {
+  const status = collaborationStatus.value
+  if (status == null) return false
+  return status.authFailed === true ||
+    status.connectionState === 'error' ||
+    (!status.hasSynced && status.connectionState === 'offline')
+})
 const collaborationStatusKey = computed(() => {
   const status = collaborationStatus.value
   if (status == null) return 'connecting'
+  if (status.authFailed || status.connectionState === 'error') return 'connectionLost'
   if (!status.hasSynced) return status.connectionState === 'connecting' ? 'connecting' : 'connectionLost'
   return status.saveState
 })
@@ -50,6 +60,7 @@ const draftSource = ref<string | null>(null)
 const selectedDraft = computed(() => draftCandidates.value.find((entry) => entry.draftId === selectedDraftId.value))
 watch(selectedDraftId, () => { draftPickerError.value = ''; draftSource.value = null }, { flush: 'sync' })
 let loadedSession: { ownerId: number; token: string } | null = null
+let restoredTitleSourceDraftId: string | null = null
 let fileReadSequence = 0
 let draftRevision = 0
 let createdNavigationPending = false
@@ -164,6 +175,12 @@ function refreshDraftCandidates(ownerId: number, documentId: number, token: stri
     .sort((left, right) => right.draft.savedAt - left.draft.savedAt)
 }
 
+function refreshCollaborationDrafts() {
+  const current = document.value
+  const session = loadedSession
+  if (current && session) refreshDraftCandidates(session.ownerId, current.id, session.token)
+}
+
 function viewDraftSource() {
   const current = document.value
   const session = loadedSession
@@ -187,16 +204,23 @@ function viewDraftSource() {
   }
 }
 
-function restoreSelectedDraft() {
+function restoreSelectedDraft(forceCrossEpoch = false) {
   const current = document.value
   const session = loadedSession
   if (!current || !session || !isCurrentSession(session.ownerId, session.token)) return
   flushPendingTitleDraft()
-  if (dirty.value || collaborationStatus.value?.saveState !== 'saved' || readDocumentDraft(session.ownerId, current.id, documentDraftId)) {
-    draftPickerError.value = t('documents.draftResolveCurrent')
-    return
+  const hasCurrentChanges = dirty.value || collaborationStatus.value?.saveState !== 'saved' ||
+    Boolean(readDocumentDraft(session.ownerId, current.id, documentDraftId))
+  let force = forceCrossEpoch
+  if (hasCurrentChanges && !force) {
+    if (!window.confirm(t('documents.draftOverwriteConfirm'))) {
+      draftPickerError.value = t('documents.draftResolveCurrent')
+      return
+    }
+    force = true
   }
-  const draft = readDocumentDraft(session.ownerId, current.id, selectedDraftId.value)
+  const sourceDraftId = selectedDraftId.value
+  const draft = readDocumentDraft(session.ownerId, current.id, sourceDraftId)
   if (!draft || draft.format !== 'HTML') {
     draftPickerError.value = t('documents.draftUnavailable')
     return
@@ -207,15 +231,60 @@ function restoreSelectedDraft() {
     draftPickerError.value = t('documents.draftChanged')
     return
   }
-  const result = collaborationRef.value?.restoreDraft(draft) ?? 'busy'
+  const result = collaborationRef.value?.restoreDraft(draft, { sourceDraftId, force }) ?? 'busy'
+  if (result === 'epoch-mismatch' && !forceCrossEpoch) {
+    viewDraftSource()
+    draftPickerError.value = t('documents.draftEpochMismatch')
+    return
+  }
   if (result !== 'restored') {
     draftPickerError.value = result === 'epoch-mismatch'
       ? t('documents.draftEpochMismatch')
       : result === 'invalid' ? t('documents.draftUnreadable') : t('documents.draftSyncing')
     return
   }
-  if (draft.titleDirty && draft.title != null) title.value = draft.title
+  if (draft.titleDirty && draft.title != null) {
+    title.value = draft.title
+    restoredTitleSourceDraftId = sourceDraftId !== documentDraftId ? sourceDraftId : null
+  }
   closeDraftPicker()
+}
+
+function applyCrossEpochHtmlDraft() {
+  if (!window.confirm(t('documents.draftCrossEpochConfirm'))) return
+  restoreSelectedDraft(true)
+}
+
+function deleteSelectedDraft() {
+  const current = document.value
+  const session = loadedSession
+  if (!current || !session || !isCurrentSession(session.ownerId, session.token) || !selectedDraftId.value) return
+  clearDocumentDraft(session.ownerId, current.id, selectedDraftId.value)
+  selectedDraftId.value = ''
+  draftSource.value = null
+  draftPickerError.value = ''
+  refreshDraftCandidates(session.ownerId, current.id, session.token)
+  if (draftCandidates.value.length === 0) closeDraftPicker()
+}
+
+function clearAllHtmlDrafts() {
+  const current = document.value
+  const session = loadedSession
+  if (!current || !session || !isCurrentSession(session.ownerId, session.token)) return
+  if (!window.confirm(t('documents.clearAllDraftsConfirm'))) return
+  clearAllDocumentDrafts(session.ownerId, current.id, { excludeDraftId: documentDraftId })
+  refreshDraftCandidates(session.ownerId, current.id, session.token)
+  closeDraftPicker()
+}
+
+async function reconnectCollaboration() {
+  if (reconnecting.value) return
+  reconnecting.value = true
+  try {
+    await collaborationRef.value?.reconnect()
+  } finally {
+    reconnecting.value = false
+  }
 }
 
 async function load() {
@@ -325,6 +394,19 @@ async function save() {
         saveDocumentDraft(ownerId, documentDraftId, { ...bodyDraft, titleDirty: false, serverVersion: saved.version, savedAt: Date.now() })
       } else {
         clearDocumentDraft(ownerId, current.id, documentDraftId)
+      }
+      if (restoredTitleSourceDraftId && restoredTitleSourceDraftId !== documentDraftId) {
+        const sourceDraft = readDocumentDraft(ownerId, current.id, restoredTitleSourceDraftId)
+        if (sourceDraft) {
+          if (!sourceDraft.ydocUpdate) {
+            clearDocumentDraft(ownerId, current.id, restoredTitleSourceDraftId)
+          } else if (sourceDraft.titleDirty) {
+            const { title: _sourceTitle, ...sourceBody } = sourceDraft
+            saveDocumentDraft(ownerId, restoredTitleSourceDraftId, { ...sourceBody, titleDirty: false, serverVersion: saved.version, savedAt: Date.now() })
+          }
+        }
+        restoredTitleSourceDraftId = null
+        refreshDraftCandidates(ownerId, current.id, token)
       }
     }
     conflict.value = false
@@ -465,14 +547,27 @@ watch(() => [route.params.projectId, route.params.documentId, route.name, auth.c
           <p v-if="selectedDraft.draft.titleDirty">{{ t('documents.draftTitles', { current: document.title, draft: selectedDraft.draft.title }) }}</p>
           <p v-if="selectedDraft.draft.serverVersion !== document.version">{{ t('documents.draftVersionChanged') }}</p>
           <div class="html-document__draft-actions">
-            <button type="button" @click="restoreSelectedDraft">{{ t('documents.restoreDraft') }}</button>
+            <button type="button" @click="restoreSelectedDraft()">{{ t('documents.restoreDraft') }}</button>
             <button v-if="selectedDraft.draft.ydocUpdate" type="button" @click="viewDraftSource">{{ t('documents.draftView') }}</button>
+            <button v-if="draftSource != null && draftPickerError === t('documents.draftEpochMismatch')" type="button" @click="applyCrossEpochHtmlDraft">{{ t('documents.draftApplyCrossEpoch') }}</button>
+            <button type="button" @click="deleteSelectedDraft"><Trash2 aria-hidden="true" />{{ t('documents.deleteDraft') }}</button>
+            <button v-if="draftCandidates.length > 1" type="button" @click="clearAllHtmlDrafts">{{ t('documents.clearAllDrafts') }}</button>
             <button type="button" @click="closeDraftPicker">{{ t('common.close') }}</button>
           </div>
           <textarea v-if="draftSource != null" :value="draftSource" readonly :aria-label="t('documents.draftSource')" />
         </template>
         <p v-if="draftPickerError" role="alert">{{ draftPickerError }}</p>
       </section>
+    </div>
+    <div v-if="document && collaborationDisconnected" class="html-document__error" role="alert">
+      <span>{{ t('documents.collaboration.disconnectedTitle') }} — {{ t('documents.collaboration.disconnectedDescription') }}</span>
+      <div class="html-document__actions">
+        <button type="button" :disabled="reconnecting" @click="reconnectCollaboration">
+          <Loader2 v-if="reconnecting" aria-hidden="true" /><RefreshCw v-else aria-hidden="true" />
+          {{ t(reconnecting ? 'documents.collaboration.reconnecting' : 'documents.collaboration.reconnect') }}
+        </button>
+        <button type="button" @click="reload">{{ t('documents.html.reload') }}</button>
+      </div>
     </div>
     <div v-if="error" class="html-document__error" role="alert">
       <span>{{ error }}</span>
@@ -501,6 +596,7 @@ watch(() => [route.params.projectId, route.params.documentId, route.name, auth.c
           :placeholder="t('documents.html.sourcePlaceholder')"
           @content="acceptCollaborativeContent"
           @status="acceptCollaborationStatus"
+          @drafts-changed="refreshCollaborationDrafts"
         />
         <textarea v-else v-model="content" :disabled="saving" aria-describedby="html-source-hint" spellcheck="false" autocapitalize="off" autocomplete="off" :placeholder="t('documents.html.sourcePlaceholder')" />
       </div>

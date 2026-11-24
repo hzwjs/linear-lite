@@ -1,18 +1,25 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { Awareness } from 'y-protocols/awareness'
-import { useDocumentCollaboration } from '../../composables/useDocumentCollaboration'
+import { useDocumentCollaboration, type CollaborationSaveState } from '../../composables/useDocumentCollaboration'
 import type { DocumentCollaborationSession } from '../../services/api/documentCollaboration'
 import CollaborativeHtmlSource from './CollaborativeHtmlSource.vue'
 
 const props = defineProps<{ documentId: number; visible: boolean; ariaLabel: string; placeholder: string; initialSession?: Promise<DocumentCollaborationSession> }>()
 const emit = defineEmits<{
   content: [content: string]
-  status: [status: { saveState: 'saved' | 'saving' | 'offline'; connectionState: string; hasSynced: boolean; collaborators: Array<{ id: number; name: string; color: string }>; version: number; commitSeq: number }]
+  draftsChanged: []
+  status: [status: { saveState: CollaborationSaveState; connectionState: string; hasSynced: boolean; authFailed: boolean; collaborators: Array<{ id: number; name: string; color: string }>; version: number; commitSeq: number }]
 }>()
 
-const collaboration = useDocumentCollaboration(props.documentId, 'HTML')
-defineExpose({ restoreDraft: collaboration.restoreDraft })
+const collaboration = useDocumentCollaboration(props.documentId, 'HTML', {
+  onDraftsChanged: () => emit('draftsChanged'),
+})
+async function reconnect() {
+  liveReady.value = false
+  await collaboration.reconnect({ resetTransport: true })
+}
+defineExpose({ restoreDraft: collaboration.restoreDraft, reconnect })
 const currentText = computed(() => collaboration.ydoc.value.getText('html'))
 const previewText = computed(() => collaboration.previewDoc.value?.getText('html') ?? null)
 const previewAwareness = shallowRef<Awareness | null>(null)
@@ -52,12 +59,12 @@ watch(() => collaboration.ydoc.value, observeText)
 watch(collaboration.epochChanged, (changed) => {
   if (changed) {
     liveReady.value = false
-    void collaboration.restartForEpoch()
+    void collaboration.restartForEpoch().then(() => emit('draftsChanged'))
   }
 })
 watch(
-  [collaboration.saveState, collaboration.connectionState, collaboration.hasSynced, collaboration.collaborators, collaboration.serverVersion, collaboration.commitSeq],
-  ([saveState, connectionState, hasSynced, collaborators, version, seq]) => emit('status', { saveState, connectionState, hasSynced, collaborators: [...collaborators], version, commitSeq: seq }),
+  [collaboration.saveState, collaboration.connectionState, collaboration.hasSynced, collaboration.authFailed, collaboration.collaborators, collaboration.serverVersion, collaboration.commitSeq],
+  ([saveState, connectionState, hasSynced, authFailed, collaborators, version, seq]) => emit('status', { saveState, connectionState, hasSynced, authFailed, collaborators: [...collaborators], version, commitSeq: seq }),
   { immediate: true }
 )
 onMounted(() => {

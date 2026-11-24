@@ -7,6 +7,7 @@ import com.linearlite.server.mapper.ProjectDocumentRevisionMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Objects;
 
 /** Stores immutable projections of committed Yjs versions for history and recovery. */
@@ -23,21 +24,52 @@ public class DocumentRevisionSnapshotService {
         return capture(document, editorId, content);
     }
 
-    /** Each durable collaboration commit gets one projection so every expectedVersion remains restorable. */
+    /** Explicit edits and restores create a revision at the committed version. */
     @Transactional(rollbackFor = Exception.class)
     public Long captureForced(ProjectDocument document, Long editorId, String content) {
         return capture(document, editorId, content);
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public Long captureTitleVersion(ProjectDocument document, Long editorId, String content) {
-        return capture(document, editorId, content);
+    public void captureIfDue(ProjectDocument document, Long editorId, String content) {
+        if (revisionMapper.isActiveSnapshotDue(document.getId())) {
+            captureIfChanged(document, editorId, content);
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void captureIfChanged(ProjectDocument document, Long editorId, String content) {
+        ProjectDocumentRevision latest = revisionMapper.selectOne(new LambdaQueryWrapper<ProjectDocumentRevision>()
+                .eq(ProjectDocumentRevision::getDocumentId, document.getId())
+                .orderByDesc(ProjectDocumentRevision::getVersion)
+                .last("LIMIT 1"));
+        if (latest != null && Objects.equals(latest.getTitle(), document.getTitle())
+                && Objects.equals(latest.getContent(), content)
+                && Objects.equals(latest.getContentFormat(), document.getContentFormat())) {
+            return;
+        }
+        capture(document, editorId, content);
+    }
+
+    public List<ProjectDocument> findIdleCandidates() {
+        return revisionMapper.selectDocumentsNeedingIdleRevision();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void captureBeforeRestore(ProjectDocument document, String content) {
+        if (findForVersion(document) == null) {
+            insert(document, document.getLastEditorId(), content);
+        }
+    }
+
+    private ProjectDocumentRevision findForVersion(ProjectDocument document) {
+        return revisionMapper.selectOne(new LambdaQueryWrapper<ProjectDocumentRevision>()
+                .eq(ProjectDocumentRevision::getDocumentId, document.getId())
+                .eq(ProjectDocumentRevision::getVersion, document.getVersion()));
     }
 
     private Long capture(ProjectDocument document, Long editorId, String content) {
-        ProjectDocumentRevision existing = revisionMapper.selectOne(new LambdaQueryWrapper<ProjectDocumentRevision>()
-                .eq(ProjectDocumentRevision::getDocumentId, document.getId())
-                .eq(ProjectDocumentRevision::getVersion, document.getVersion()));
+        ProjectDocumentRevision existing = findForVersion(document);
         if (existing != null) {
             if (!Objects.equals(existing.getTitle(), document.getTitle())
                     || !Objects.equals(existing.getContent(), content)
@@ -46,6 +78,10 @@ public class DocumentRevisionSnapshotService {
             }
             return existing.getId();
         }
+        return insert(document, editorId, content);
+    }
+
+    private Long insert(ProjectDocument document, Long editorId, String content) {
         ProjectDocumentRevision revision = new ProjectDocumentRevision();
         revision.setDocumentId(document.getId());
         revision.setVersion(document.getVersion());

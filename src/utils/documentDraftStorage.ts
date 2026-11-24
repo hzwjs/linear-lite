@@ -5,6 +5,8 @@ export interface DocumentLocalDraft {
   title?: string
   ydocUpdate?: string
   ydocEpoch?: string
+  /** 纯内容投影（HTML 源码或 BlockNote JSON），用于跨 epoch 恢复。 */
+  contentSnapshot?: string
   serverVersion: number
   savedAt: number
 }
@@ -15,6 +17,7 @@ export interface DocumentDraftEntry {
 }
 
 const STORAGE_PREFIX = 'linear-lite.doc-draft.v3:'
+const TAB_DRAFT_ID_SESSION_KEY = 'linear-lite.doc-draft.tab-id'
 
 function isValidUserId(userId: number): boolean {
   return Number.isSafeInteger(userId) && userId > 0
@@ -38,8 +41,23 @@ export function createDocumentDraftId(): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
-// 每个页面实例使用独立标识；刷新或复制标签页不会覆写原草稿。
-export const documentDraftId = createDocumentDraftId()
+function resolveTabDraftId(): string {
+  if (typeof window !== 'undefined') {
+    try {
+      const existing = window.sessionStorage.getItem(TAB_DRAFT_ID_SESSION_KEY)
+      if (existing && isValidDraftId(existing)) return existing
+      const created = createDocumentDraftId()
+      window.sessionStorage.setItem(TAB_DRAFT_ID_SESSION_KEY, created)
+      return created
+    } catch {
+      // sessionStorage 在隐私模式或受限环境下不可用时退回内存随机 ID。
+    }
+  }
+  return createDocumentDraftId()
+}
+
+// 每个浏览器标签页使用 sessionStorage 持久化的稳定标识：同页签刷新复用槽位，避免产生孤儿草稿；新开标签页自动隔离。
+export const documentDraftId = resolveTabDraftId()
 
 function isValidDraft(value: unknown, documentId: number): value is DocumentLocalDraft {
   if (typeof value !== 'object' || value == null) return false
@@ -49,6 +67,7 @@ function isValidDraft(value: unknown, documentId: number): value is DocumentLoca
       typeof draft.titleDirty !== 'boolean' ||
       (draft.titleDirty && typeof draft.title !== 'string') ||
       (draft.title !== undefined && typeof draft.title !== 'string') ||
+      (draft.contentSnapshot !== undefined && typeof draft.contentSnapshot !== 'string') ||
       typeof draft.serverVersion !== 'number' || !Number.isFinite(draft.serverVersion) ||
       typeof draft.savedAt !== 'number' || !Number.isFinite(draft.savedAt)) return false
   const hasUpdate = draft.ydocUpdate !== undefined
@@ -118,6 +137,24 @@ export function clearDocumentDraft(userId: number, documentId: number, draftId: 
   if (!isValidUserId(userId) || !isValidDraftId(draftId) || typeof window === 'undefined') return
   try {
     window.localStorage.removeItem(getStorageKey(userId, documentId, draftId))
+  } catch {
+    // Storage may be unavailable in private browsing.
+  }
+}
+
+export function clearAllDocumentDrafts(userId: number, documentId: number, options?: { excludeDraftId?: string }): void {
+  if (!isValidUserId(userId) || typeof window === 'undefined') return
+  try {
+    const prefix = getStoragePrefix(userId, documentId)
+    const keys: string[] = []
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i)
+      if (key == null || !key.startsWith(prefix)) continue
+      const draftId = key.slice(prefix.length)
+      if (options?.excludeDraftId && draftId === options.excludeDraftId) continue
+      keys.push(key)
+    }
+    for (const key of keys) window.localStorage.removeItem(key)
   } catch {
     // Storage may be unavailable in private browsing.
   }

@@ -133,7 +133,11 @@ function getSerializedContent(): string {
   return editorRef.value?.getSerializedContent() ?? '[]'
 }
 
-defineExpose({ focus, removeAttachmentLink, getSerializedContent })
+function replaceSerializedContent(json: string): boolean {
+  return editorRef.value?.replaceSerializedContent(json) ?? false
+}
+
+defineExpose({ focus, removeAttachmentLink, getSerializedContent, replaceSerializedContent })
 </script>
 
 <template>

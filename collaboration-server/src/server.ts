@@ -13,7 +13,8 @@ type RoomRuntime = RoomState & {
   persistedCounters: Record<string, number>
   lastEditorId: number
   validationState: Y.Doc
-  persistenceBlocked?: boolean
+  validatedImageAssetIds?: Set<number>
+  retired?: boolean
 }
 
 type TransitionFence = {
@@ -63,7 +64,7 @@ export class CollaborationNode {
       onAuthenticate: async ({ documentName, token }) => {
         await this.reconcileRoomFence(documentName)
         this.assertRoomNotFenced(documentName)
-        if (this.runtime.get(documentName)?.persistenceBlocked) {
+        if (this.runtime.get(documentName)?.retired) {
           throw new Error('Collaboration room is refreshing after a state conflict')
         }
         const context = await this.java.authorize(token, documentName)
@@ -98,7 +99,7 @@ export class CollaborationNode {
           commitSeq: stored.commitSeq,
           version: stored.version,
         }
-        const runtime = this.getOrCreateRuntime(state, stored.stateBase64)
+        const runtime = this.getOrCreateRuntime(state, stored.stateBase64, true)
         const binary = Buffer.from(stored.stateBase64, 'base64')
         runtime.stateBase64 = stored.stateBase64
         return new Uint8Array(binary)
@@ -119,7 +120,7 @@ export class CollaborationNode {
         this.enterInFlight(documentId)
         try {
           const runtime = this.requireRuntime(documentName)
-          if (runtime.persistenceBlocked) throw this.httpError(409, 'ROOM_REFRESH_REQUIRED')
+          if (runtime.retired) throw this.httpError(409, 'ROOM_REFRESH_REQUIRED')
           runtime.lastEditorId = context.userId
         } catch (error) {
           this.leaveInFlight(documentId)
@@ -133,6 +134,7 @@ export class CollaborationNode {
         if (!isDocumentUpdateSyncType(type)) return
         const runtime = this.requireRuntime(documentName)
         await this.validationQueues.run(documentName, async () => {
+          if (runtime.retired) throw this.httpError(409, 'ROOM_REFRESH_REQUIRED')
           const candidate = new Y.Doc()
           try {
             Y.applyUpdate(candidate, Y.encodeStateAsUpdate(runtime.validationState))
@@ -140,14 +142,20 @@ export class CollaborationNode {
             const candidateState = Y.encodeStateAsUpdate(candidate)
             const projection = materializeAndInspect(runtime.contentFormat, candidateState)
             this.assertContentSize(runtime.contentFormat, projection.contentBytes)
-            await this.java.validateUpdate({
-              documentId: runtime.documentId,
-              epoch: runtime.epoch,
-              userId: context.userId,
-              imageAssetIds: projection.imageAssetIds,
-              contentFormat: runtime.contentFormat,
-              contentBytes: projection.contentBytes,
-            })
+            // 仅当本次编辑引入尚未校验过的新图片资源时才同步请求 Java，避免普通打字频繁 HTTP 往返导致超时与 409。
+            const validated = runtime.validatedImageAssetIds ?? (runtime.validatedImageAssetIds = new Set<number>())
+            const unvalidatedAssetIds = projection.imageAssetIds.filter((id) => !validated.has(id))
+            if (unvalidatedAssetIds.length > 0) {
+              await this.java.validateUpdate({
+                documentId: runtime.documentId,
+                epoch: runtime.epoch,
+                userId: context.userId,
+                imageAssetIds: unvalidatedAssetIds,
+                contentFormat: runtime.contentFormat,
+                contentBytes: projection.contentBytes,
+              })
+              for (const id of unvalidatedAssetIds) validated.add(id)
+            }
             runtime.validationState.destroy()
             runtime.validationState = candidate
           } catch (error) {
@@ -157,17 +165,19 @@ export class CollaborationNode {
         })
       },
       onStoreDocument: async ({ document, documentName, lastContext }) => {
-        const runtime = this.requireRuntime(documentName)
-        if (runtime.persistenceBlocked) throw this.httpError(409, 'ROOM_REFRESH_REQUIRED')
+        const runtime = this.runtime.get(documentName)
+        if (!runtime || runtime.retired) {
+          // 房间已废弃：关闭残余连接并正常返回，让 Hocuspocus 按契约执行 unloadDocument，绝不留在内存形成僵尸房间。
+          this.httpServer.hocuspocus.closeConnections(documentName)
+          this.destroyRuntime(documentName)
+          this.scheduleForceUnload(document, documentName)
+          return
+        }
         if (lastContext?.userId) runtime.lastEditorId = lastContext.userId
-        await this.persistDocument(document, runtime)
+        await this.persistDocument(document, runtime, undefined, false, { swallowUnrecoverable: true })
       },
       afterUnloadDocument: async ({ documentName }) => {
-        const runtime = this.runtime.get(documentName)
-        if (runtime?.persistenceBlocked) {
-          runtime.validationState.destroy()
-          this.runtime.delete(documentName)
-        }
+        this.destroyRuntime(documentName)
       },
     })
     this.installHttpRequestHandler()
@@ -178,12 +188,37 @@ export class CollaborationNode {
   }
 
   async destroy(): Promise<void> {
-    await this.httpServer.destroy()
-    for (const runtime of this.runtime.values()) runtime.validationState.destroy()
-    this.runtime.clear()
+    for (const name of this.httpServer.hocuspocus.documents.keys()) {
+      try { this.httpServer.hocuspocus.closeConnections(name) } catch { /* ignore during shutdown */ }
+    }
+    let shutdownTimer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        this.httpServer.destroy(),
+        new Promise<void>((resolve) => {
+          shutdownTimer = setTimeout(resolve, 4000)
+          shutdownTimer.unref?.()
+        }),
+      ])
+    } finally {
+      if (shutdownTimer) clearTimeout(shutdownTimer)
+      for (const runtime of this.runtime.values()) runtime.validationState.destroy()
+      this.runtime.clear()
+    }
   }
 
   private async handleInternalRequest(request: IncomingMessage, response: ServerResponse, url: URL, instance: Server<DocumentRoomContext>['hocuspocus']): Promise<void> {
+    if (request.method === 'GET' && url.pathname === '/internal/collaboration/health') {
+      this.respond(response, 200, {
+        ok: true,
+        activeDocuments: instance.documents.size,
+        runtimeCount: this.runtime.size,
+        activeTransitions: this.transitionFences.size,
+        memoryRssBytes: process.memoryUsage().rss,
+        uptimeSeconds: Math.floor(process.uptime()),
+      })
+      return
+    }
     if (request.method === 'POST' && url.pathname === '/internal/collaboration/encode') {
       const input = await this.readJson<EncodeInput>(request)
       this.respond(response, 200, this.encodeResponse(input))
@@ -308,7 +343,8 @@ export class CollaborationNode {
           await this.flushScheduledStore(name, instance)
           await this.persistDocument(document, runtime)
         }
-        const projection = materializeAndInspect(runtime.contentFormat, Y.encodeStateAsUpdate(document))
+        const state = flush ? Buffer.from(runtime.stateBase64, 'base64') : Y.encodeStateAsUpdate(document)
+        const projection = materializeAndInspect(runtime.contentFormat, state)
         return {
           documentId,
           epoch,
@@ -403,13 +439,12 @@ export class CollaborationNode {
         if (!fence || fence.transitionId !== input.transitionId) return
         if (input.status === 'FINALIZED') {
           const oldRoom = roomName(item.documentId, fence.epoch)
-          this.runtime.get(oldRoom)?.validationState.destroy()
-          this.runtime.delete(oldRoom)
+          this.destroyRuntime(oldRoom)
         } else {
           const oldRoom = roomName(item.documentId, fence.epoch)
           const document = this.httpServer.hocuspocus.documents.get(oldRoom)
           const runtime = this.runtime.get(oldRoom)
-          if (document && runtime && !runtime.persistenceBlocked) {
+          if (document && runtime && !runtime.retired) {
             await this.persistDocument(document, runtime, null)
           }
         }
@@ -474,26 +509,31 @@ export class CollaborationNode {
         })
         runtime.lastEditorId = command.actorId
         if (command.type === 'restore') {
+          const previous = materializeAndInspect(runtime.contentFormat, Buffer.from(runtime.stateBase64, 'base64'))
           const next = await this.java.restoreEpoch(documentId, {
             expectedEpoch: runtime.epoch,
             expectedCommitSeq: runtime.commitSeq,
+            expectedVersion: command.expectedVersion,
             contentFormat: runtime.contentFormat,
             stateBase64: Buffer.from(binary).toString('base64'),
             content: projection.content,
+            previousContent: previous.content,
             editorId: command.actorId,
             operationId: command.operationId,
             title: command.title,
           })
           document.broadcastStateless(JSON.stringify({ event: 'epochChanged', epoch: next.epoch }))
-          runtime.persistenceBlocked = true
+          runtime.retired = true
           instance.closeConnections(name)
           return { epoch: next.epoch, commitSeq: next.commitSeq, version: next.version, contentFormat: command.contentFormat, content: projection.content, title: command.title }
         }
         await connection.transact((target) => this.replaceDocumentContents(target, command.contentFormat, binary, command.content))
-        const persisted = await this.persistDocument(document, runtime)
+        const persisted = await this.persistDocument(document, runtime, undefined, true)
+        this.syncValidationState(runtime, Buffer.from(runtime.stateBase64, 'base64'), projection.imageAssetIds)
         return { epoch: runtime.epoch, commitSeq: persisted.commitSeq, version: persisted.version, contentFormat: runtime.contentFormat, content: projection.content }
       } finally {
         await connection.disconnect({ unloadImmediately: command.type === 'restore' })
+        if (command.type === 'restore') this.destroyRuntime(name)
       }
     })
   }
@@ -510,18 +550,33 @@ export class CollaborationNode {
     Y.applyUpdate(document, binary)
   }
 
-  private async persistDocument(document: Document, runtime: RoomRuntime, requestedTransitionId?: string | null): Promise<{ commitSeq: number; version: number }> {
+  private async persistDocument(
+    document: Document,
+    runtime: RoomRuntime,
+    requestedTransitionId?: string | null,
+    forceRevision = false,
+    options: { swallowUnrecoverable?: boolean } = {},
+  ): Promise<{ commitSeq: number; version: number }> {
     return this.persistenceQueues.run(runtime.roomName, async () => {
-      if (runtime.persistenceBlocked) throw this.httpError(409, 'ROOM_REFRESH_REQUIRED')
+      if (runtime.retired) {
+        if (options.swallowUnrecoverable) {
+          this.evictStaleRoom(document, runtime, 'retired-before-persist')
+          return { commitSeq: runtime.commitSeq, version: runtime.version }
+        }
+        throw this.httpError(409, 'ROOM_REFRESH_REQUIRED')
+      }
       const transitionId = requestedTransitionId === undefined
         ? this.transitionFences.get(runtime.documentId)?.transitionId
         : requestedTransitionId ?? undefined
       const state = Y.encodeStateAsUpdate(document)
       const counters = this.counters(document)
       const stateBase64 = Buffer.from(state).toString('base64')
-      if (stateBase64 === runtime.stateBase64 && !transitionId) return { commitSeq: runtime.commitSeq, version: runtime.version }
+      if (stateBase64 === runtime.stateBase64 && !transitionId && !forceRevision) {
+        return { commitSeq: runtime.commitSeq, version: runtime.version }
+      }
       const projection = materializeAndInspect(runtime.contentFormat, state)
       this.assertContentSize(runtime.contentFormat, projection.contentBytes)
+      const startedAt = Date.now()
       try {
         const saved = await this.java.storeState({
           documentId: runtime.documentId,
@@ -533,33 +588,107 @@ export class CollaborationNode {
           editorId: runtime.lastEditorId,
           counters,
           transitionId,
+          forceRevision,
         })
         return this.recordPersisted(document, runtime, stateBase64, saved, counters)
       } catch (error) {
         if (this.isTransitionConflict(error)) throw error
-        let transitionCanonical: Awaited<ReturnType<JavaCollaborationClient['loadState']>> | undefined
-        if (transitionId) {
+        const status = (error as { status?: number })?.status
+        const isAbort = this.isAbortOrTimeoutError(error)
+        if (status !== 409 && !isAbort) throw error
+
+        // 一级自愈：拉取权威状态做无条件幂等对账（覆盖超时已落盘和 409 重复提交）。
+        let canonical: Awaited<ReturnType<JavaCollaborationClient['loadState']>> | undefined
+        try {
+          canonical = await this.java.loadState(runtime.documentId, runtime.epoch, transitionId)
+        } catch (readError) {
+          if (this.isTransitionConflict(readError)) throw readError
+          const readStatus = (readError as { status?: number })?.status
+          if (readStatus === 404 || readStatus === 409) {
+            // epoch 已变更或文档已归档：彻底驱逐旧房间，永不滞留僵尸房间。
+            this.evictStaleRoom(document, runtime, `load-state-${readStatus}`)
+            if (options.swallowUnrecoverable) return { commitSeq: runtime.commitSeq, version: runtime.version }
+          }
+          throw error
+        }
+
+        if (canonical.stateBase64 === stateBase64) {
+          console.info(JSON.stringify({
+            event: 'collab_reconcile',
+            outcome: 'idempotent_hit',
+            documentId: runtime.documentId,
+            epoch: runtime.epoch,
+            commitSeq: canonical.commitSeq,
+            durationMs: Date.now() - startedAt,
+          }))
+          return this.recordPersisted(document, runtime, stateBase64, {
+            commitSeq: canonical.commitSeq,
+            version: canonical.version,
+          }, counters)
+        }
+
+        // 超时但 DB commitSeq 根本没前进：说明上次提交未生效，交给调用方或下一次防抖正常重试。
+        if (isAbort && canonical.commitSeq === runtime.commitSeq) {
+          throw error
+        }
+
+        // 二级自愈：同 epoch 下 DB 被其他提交推进，利用 Yjs CRDT 无损合并后以最新 commitSeq 重试一次。
+        if (!transitionId) {
           try {
-            const canonical = await this.java.loadState(runtime.documentId, runtime.epoch, transitionId)
-            if (canonical.stateBase64 === stateBase64) {
-              return this.recordPersisted(document, runtime, stateBase64, {
-                commitSeq: canonical.commitSeq,
-                version: canonical.version,
-              }, counters)
-            }
-            transitionCanonical = canonical
-          } catch (readError) {
-            if (this.isTransitionConflict(readError)) throw readError
+            const canonicalBytes = Buffer.from(canonical.stateBase64, 'base64')
+            Y.applyUpdate(document, canonicalBytes, 'server-reconcile')
+            runtime.commitSeq = canonical.commitSeq
+            runtime.version = canonical.version
+            runtime.contentFormat = canonical.contentFormat
+            runtime.stateBase64 = canonical.stateBase64
+
+            const mergedState = Y.encodeStateAsUpdate(document)
+            const mergedBase64 = Buffer.from(mergedState).toString('base64')
+            const mergedCounters = this.counters(document)
+            const mergedProjection = materializeAndInspect(runtime.contentFormat, mergedState)
+            this.assertContentSize(runtime.contentFormat, mergedProjection.contentBytes)
+            this.syncValidationState(runtime, mergedState, mergedProjection.imageAssetIds)
+
+            const retried = await this.java.storeState({
+              documentId: runtime.documentId,
+              epoch: runtime.epoch,
+              contentFormat: runtime.contentFormat,
+              expectedCommitSeq: canonical.commitSeq,
+              stateBase64: mergedBase64,
+              content: mergedProjection.content,
+              editorId: runtime.lastEditorId,
+              counters: mergedCounters,
+              transitionId,
+              forceRevision,
+            })
+            console.info(JSON.stringify({
+              event: 'collab_reconcile',
+              outcome: 'crdt_merged_retry_ok',
+              documentId: runtime.documentId,
+              epoch: runtime.epoch,
+              commitSeq: retried.commitSeq,
+              durationMs: Date.now() - startedAt,
+            }))
+            return this.recordPersisted(document, runtime, mergedBase64, retried, mergedCounters)
+          } catch (retryError) {
+            if (this.isTransitionConflict(retryError)) throw retryError
+            console.warn(JSON.stringify({
+              event: 'collab_reconcile',
+              outcome: 'crdt_merge_retry_failed',
+              documentId: runtime.documentId,
+              epoch: runtime.epoch,
+              commitSeq: canonical.commitSeq,
+              durationMs: Date.now() - startedAt,
+              error: retryError instanceof Error ? retryError.message : String(retryError),
+            }))
           }
         }
-        if ((error as { status?: number }).status !== 409) throw error
-        const canonical = transitionCanonical ?? await this.java.loadState(runtime.documentId, runtime.epoch)
-        runtime.commitSeq = canonical.commitSeq
-        runtime.version = canonical.version
-        runtime.contentFormat = canonical.contentFormat
-        runtime.stateBase64 = canonical.stateBase64
-        runtime.persistenceBlocked = true
-        this.httpServer.hocuspocus.closeConnections(runtime.roomName)
+
+        // 三级兜底：不可恢复冲突 -> 广播刷新、断开连接、销毁 runtime 并强制卸载房间。
+        this.evictStaleRoom(document, runtime, 'unrecoverable-conflict')
+        if (options.swallowUnrecoverable) {
+          return { commitSeq: canonical.commitSeq, version: canonical.version }
+        }
         throw error
       }
     })
@@ -644,22 +773,89 @@ export class CollaborationNode {
     return Object.fromEntries(document.getMap<number>('session-counters').entries())
   }
 
-  private getOrCreateRuntime(state: RoomState, stateBase64: string): RoomRuntime {
+  private isAbortOrTimeoutError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false
+    const name = (error as { name?: string }).name
+    return name === 'AbortError' || name === 'TimeoutError'
+  }
+
+  private evictStaleRoom(document: Document, runtime: RoomRuntime, reason: string): void {
+    runtime.retired = true
+    console.warn(JSON.stringify({
+      event: 'collab_room_evicted',
+      reason,
+      documentId: runtime.documentId,
+      epoch: runtime.epoch,
+      commitSeq: runtime.commitSeq,
+    }))
+    try {
+      document.broadcastStateless(JSON.stringify({ event: 'epochChanged', epoch: '' }))
+    } catch { /* ignore broadcast failure while evicting */ }
+    try {
+      this.httpServer.hocuspocus.closeConnections(runtime.roomName)
+    } catch { /* ignore */ }
+    this.destroyRuntime(runtime.roomName)
+    this.scheduleForceUnload(document, runtime.roomName)
+  }
+
+  private scheduleForceUnload(document: Document, room: string): void {
+    const timer = setTimeout(() => {
+      const hocuspocus = this.httpServer.hocuspocus
+      if (hocuspocus.documents.get(room) !== document) return
+      try { hocuspocus.closeConnections(room) } catch { /* ignore */ }
+      void hocuspocus.unloadDocument(document).catch(() => undefined)
+    }, 50)
+    timer.unref?.()
+  }
+
+  private destroyRuntime(room: string): void {
+    const existing = this.runtime.get(room)
+    if (!existing) return
+    existing.retired = true
+    existing.validationState?.destroy()
+    this.runtime.delete(room)
+  }
+
+  private syncValidationState(runtime: RoomRuntime, state: Uint8Array, validatedAssetIds?: number[]): void {
+    const next = new Y.Doc()
+    Y.applyUpdate(next, state)
+    runtime.validationState?.destroy()
+    runtime.validationState = next
+    if (validatedAssetIds) {
+      const validated = runtime.validatedImageAssetIds ?? (runtime.validatedImageAssetIds = new Set<number>())
+      for (const id of validatedAssetIds) validated.add(id)
+    }
+  }
+
+  private getOrCreateRuntime(state: RoomState, stateBase64: string, reset = false): RoomRuntime {
     const existing = this.runtime.get(state.roomName)
-    if (existing) {
+    if (existing && !reset && !existing.retired) {
       existing.commitSeq = state.commitSeq
       existing.version = state.version
       existing.contentFormat = state.contentFormat
       return existing
     }
+    if (existing) this.destroyRuntime(state.roomName)
+    const stateBytes = Buffer.from(stateBase64, 'base64')
     const validationState = new Y.Doc()
-    Y.applyUpdate(validationState, Buffer.from(stateBase64, 'base64'))
+    Y.applyUpdate(validationState, stateBytes)
+    const validatedImageAssetIds = new Set<number>()
+    if (state.contentFormat === 'BLOCKNOTE' && stateBytes.length > 0) {
+      try {
+        for (const id of materializeAndInspect('BLOCKNOTE', stateBytes).imageAssetIds) {
+          validatedImageAssetIds.add(id)
+        }
+      } catch {
+        // Defer validation if initial bytes are empty/non-blocknote.
+      }
+    }
     const runtime: RoomRuntime = {
       ...state,
       stateBase64,
       persistedCounters: this.counters(validationState),
       lastEditorId: 0,
       validationState,
+      validatedImageAssetIds,
     }
     this.runtime.set(state.roomName, runtime)
     return runtime

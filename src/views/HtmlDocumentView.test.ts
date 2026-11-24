@@ -17,7 +17,7 @@ vi.mock('../components/documents/DocumentHistoryPanel.vue', () => ({ default: { 
 vi.mock('../components/documents/HtmlDocumentCollaboration.vue', () => ({ default: {
   props: ['documentId', 'visible', 'ariaLabel', 'placeholder', 'initialSession'], emits: ['content', 'status'],
   template: '<textarea class="collab-source" :placeholder="placeholder" @input="$emit(\'content\', $event.target.value)" />',
-  methods: { restoreDraft(draft: DocumentLocalDraft) { return restoreDraft(draft) } },
+  methods: { restoreDraft(draft: DocumentLocalDraft, options?: unknown) { return restoreDraft(draft, options) } },
   async mounted() {
     const session = await (this.initialSession ?? documentCollaborationApi.createSession(this.documentId))
     const doc = new Y.Doc()
@@ -109,7 +109,7 @@ describe('HTML document source and publishing', () => {
     button(host, 'Restore draft').click(); await flush()
     expect((host.querySelector('input:not([type=file])') as HTMLInputElement).value).toBe('Restored title')
     expect(host.querySelector('.preview-stub')?.textContent).toBe(htmlDocument().content)
-    expect(restoreDraft).toHaveBeenCalledWith(expect.objectContaining({ title: 'Restored title' }))
+    expect(restoreDraft).toHaveBeenCalledWith(expect.objectContaining({ title: 'Restored title' }), { sourceDraftId: 'second', force: false })
     expect(readDocumentDraft(7, 81, 'first')?.title).toBe('First title')
     expect(readDocumentDraft(7, 81, 'second')?.title).toBe('Restored title')
   })
@@ -193,7 +193,8 @@ describe('HTML document source and publishing', () => {
     button(host, 'Save').click(); await flush()
     expect(readDocumentDraft(7, 81, documentDraftId)).toMatchObject({ titleDirty: false, ydocUpdate: update, ydocEpoch: 'epoch-1', serverVersion: 2 })
     expect(readDocumentDraft(7, 81, documentDraftId)?.title).toBeUndefined()
-    expect(readDocumentDraft(7, 81, 'source')?.title).toBe('Changed title')
+    // 源草稿包含未确认正文，标题落盘后清除其 titleDirty 但保留正文更新，直到正文保存确认后再清理。
+    expect(readDocumentDraft(7, 81, 'source')).toMatchObject({ titleDirty: false, ydocUpdate: update, ydocEpoch: 'epoch-1' })
   })
 
   it('clears a reverted title while retaining the Yjs draft', async () => {
