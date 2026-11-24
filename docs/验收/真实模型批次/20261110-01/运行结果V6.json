@@ -1,9 +1,0 @@
-{
-  "startedAt": "2026-11-10T06:32:32.864Z",
-  "finishedAt": "2026-11-10T06:34:12.445Z",
-  "outcome": {
-    "state": "DECISION_REQUIRED",
-    "reason": "任务 2841 无法完成：命令读取前置文件时发生 sandbox-exec: sandbox_apply: Operation not permitted（退出码 71），host_action read_file 遭拒；无法核对两项前置文件内容，未修改文件。已记录阻塞检查点。"
-  },
-  "eventCount": 224
-}

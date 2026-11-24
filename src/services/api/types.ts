@@ -22,8 +22,7 @@ export interface ApiTask {
   assigneeName?: string | null
   dueDate?: string | null
   plannedStartDate?: string | null
-  progressPercent: number
-  inputRevision: number
+  progressPercent?: number | null
   completedAt?: string | null
   createdAt: string
   updatedAt: string
@@ -171,14 +170,4 @@ export interface TaskAttachment {
   contentType?: string | null
   url: string
   createdAt: string
-}
-
-/** 前置采用与当前选定材料核验的来源状态。 */
-export interface PrerequisiteReviewStatus {
-  sourceTaskId: number
-  sourceAttemptId: number
-  sourceInputRevision: number
-  adoptionRequired: boolean
-  materialStatus: 'REVIEW_REQUIRED' | 'PENDING_CONFIRMATION' | 'CURRENT' | 'NOT_APPLICABLE'
-  reason: string
 }

@@ -44,11 +44,6 @@ const router = createRouter({
       component: () => import('../views/ProjectSettingsView.vue')
     },
     {
-      path: '/projects/:projectId/collaboration',
-      name: 'project-collaboration',
-      component: () => import('../views/CollaborationExecutionView.vue')
-    },
-    {
       path: '/tasks/:taskId',
       name: 'task-detail-legacy',
       component: () => import('../views/BoardView.vue')

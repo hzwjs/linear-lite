@@ -1,8 +1,6 @@
 package com.linearlite.server.security;
 
 import com.linearlite.server.config.McpOAuthProperties;
-import com.linearlite.server.service.HostDeviceAuthorizationService;
-import com.linearlite.server.exception.ForbiddenOperationException;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
@@ -38,21 +36,18 @@ public final class McpOAuthRefreshTokenAuthenticationProvider implements Authent
     private final OAuth2TokenGenerator<? extends OAuth2Token> tokenGenerator;
     private final McpOAuthProperties properties;
     private final TransactionTemplate transactionTemplate;
-    private final HostDeviceAuthorizationService hostAuthorizations;
 
     public McpOAuthRefreshTokenAuthenticationProvider(
             OAuth2AuthorizationService authorizationService,
             McpOAuthRefreshTokenStore refreshTokenStore,
             OAuth2TokenGenerator<? extends OAuth2Token> tokenGenerator,
             McpOAuthProperties properties,
-            TransactionTemplate transactionTemplate,
-            HostDeviceAuthorizationService hostAuthorizations) {
+            TransactionTemplate transactionTemplate) {
         this.authorizationService = authorizationService;
         this.refreshTokenStore = refreshTokenStore;
         this.tokenGenerator = tokenGenerator;
         this.properties = properties;
         this.transactionTemplate = transactionTemplate;
-        this.hostAuthorizations = hostAuthorizations;
     }
 
     @Override
@@ -67,8 +62,7 @@ public final class McpOAuthRefreshTokenAuthenticationProvider implements Authent
             throw new OAuth2AuthenticationException(OAuth2ErrorCodes.UNAUTHORIZED_CLIENT);
         }
         Object requestedResource = tokenRequest.getAdditionalParameters().get("resource");
-        if (!(requestedResource instanceof String resource)
-                || !properties.getResource().equals(resource) && !OAuthResourcePolicy.hostResource(properties).equals(resource)) {
+        if (!properties.getResource().equals(requestedResource)) {
             throw new OAuth2AuthenticationException(new OAuth2Error(
                     "invalid_target", "The requested resource does not match Linear Lite MCP.", null));
         }
@@ -79,7 +73,7 @@ public final class McpOAuthRefreshTokenAuthenticationProvider implements Authent
             McpOAuthRefreshTokenStore.Rotation rotation = refreshTokenStore.rotate(
                     tokenRequest.getRefreshToken(),
                     client.getId(),
-                    resource,
+                    properties.getResource(),
                     tokenRequest.getScopes(),
                     now,
                     ttl);
@@ -101,26 +95,10 @@ public final class McpOAuthRefreshTokenAuthenticationProvider implements Authent
             if (!authorizedScopes.containsAll(rotation.scopes())) {
                 throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_SCOPE);
             }
-            try {
-                if (!resource.equals(OAuthResourcePolicy.resourceFor(authorizedScopes, properties))
-                        || !resource.equals(OAuthResourcePolicy.resourceFor(rotation.scopes(), properties))) {
-                    throw new OAuth2AuthenticationException("invalid_target");
-                }
-            } catch (IllegalArgumentException exception) {
-                throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_SCOPE);
-            }
             Authentication userPrincipal = authorization.getAttribute(java.security.Principal.class.getName());
             if (userPrincipal == null
                     || !(userPrincipal.getPrincipal() instanceof LinearLiteUserDetails)) {
                 throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
-            }
-            if (OAuthResourcePolicy.isHost(authorizedScopes)) {
-                try {
-                    hostAuthorizations.requireActiveAuthorization(authorization.getId(),
-                            ((LinearLiteUserDetails) userPrincipal.getPrincipal()).getUserId());
-                } catch (ForbiddenOperationException exception) {
-                    throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
-                }
             }
 
             DefaultOAuth2TokenContext tokenContext = DefaultOAuth2TokenContext.builder()

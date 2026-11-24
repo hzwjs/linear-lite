@@ -66,7 +66,6 @@ const emit = defineEmits<{
   createInStatus: [status?: Status]
   addSubIssue: [task: Task]
   bulkStatusChange: [taskIds: string[], status: Status]
-  startCollaboration: [taskIds: string[]]
 }>()
 
 const subtaskExpanded = defineModel<Record<string, boolean>>('subtaskExpanded', { default: () => ({}) })
@@ -1061,9 +1060,6 @@ async function copyTaskKey(e: MouseEvent, taskId: string) {
             </button>
             <button type="button" class="bulk-bar-pill bulk-action-btn" @click="bulkCommandsOpen = true">
               <span class="bulk-kbd">⌘</span> <span class="bulk-text">{{ t('taskList.bulk.actions') }}</span>
-            </button>
-            <button v-if="projectId != null" type="button" class="bulk-bar-pill bulk-action-btn" @click="emit('startCollaboration', [...selectedTaskIds])">
-              <span class="bulk-text">{{ t('collaborationBatch.start') }}</span>
             </button>
           </div>
         </div>

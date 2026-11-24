@@ -50,8 +50,7 @@ const EmptyStub = defineComponent({
   }
 })
 
-async function mountList(groups: TaskGroup[], grouped: boolean, expandGroupsOnEntry = true, selectedTaskId: string | null = null,
-  onStartCollaboration?: (taskIds: string[]) => void) {
+async function mountList(groups: TaskGroup[], grouped: boolean, expandGroupsOnEntry = true, selectedTaskId: string | null = null) {
   const host = document.createElement('div')
   document.body.appendChild(host)
   const app = createApp(TaskListView, {
@@ -62,8 +61,7 @@ async function mountList(groups: TaskGroup[], grouped: boolean, expandGroupsOnEn
     users: [],
     visibleProperties: ['status'],
     selectedTaskId,
-    openingTaskId: null,
-    onStartCollaboration,
+    openingTaskId: null
   })
   app.use(createPinia())
   app.use(i18n)
@@ -100,20 +98,6 @@ describe('TaskListView active-list interactions', () => {
     if (originalScrollIntoView) HTMLElement.prototype.scrollIntoView = originalScrollIntoView
     else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView
     vi.restoreAllMocks()
-  })
-
-  it('starts collaboration from the existing multi-selection using task keys', async () => {
-    const onStart = vi.fn()
-    const view = await mountList([makeGroup('todo', [makeTask('ENG-1'), makeTask('ENG-2')])], false, true, null, onStart)
-    try {
-      const boxes = view.host.querySelectorAll<HTMLInputElement>('.task-row-checkbox')
-      boxes[0]!.click(); boxes[1]!.click(); await nextTick()
-      const start = [...document.querySelectorAll<HTMLButtonElement>('.bulk-action-bar button')]
-        .find(button => button.textContent?.includes('启动协作批次'))
-      expect(start).toBeTruthy()
-      start!.click()
-      expect(onStart).toHaveBeenCalledWith(['ENG-1', 'ENG-2'])
-    } finally { view.unmount() }
   })
 
   it('renders every group row without group headings in the flat list', async () => {

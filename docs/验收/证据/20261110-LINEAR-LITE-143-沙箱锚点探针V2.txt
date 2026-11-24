@@ -1,3 +1,0 @@
-root-confirmed
-WRITE_EPERM
-{"outsideFile":false}

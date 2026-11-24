@@ -1,8 +1,0 @@
-{
-  "platform": "darwin",
-  "ordinaryProjectWriteAllowed": true,
-  "directPrivateReadDenied": true,
-  "privateHardlinkReadAllowed": true,
-  "lateHardlinkWriteAllowed": true,
-  "outsideSentinelChanged": true
-}

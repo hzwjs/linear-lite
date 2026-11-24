@@ -59,7 +59,6 @@ const emit = defineEmits<{
   'create-project': []
   'select-project': [projectId: number]
   'open-project-documents': [projectId: number]
-  'open-project-collaboration': [projectId: number]
   'open-project-settings': [projectId: number]
 }>()
 
@@ -226,10 +225,6 @@ function selectCompactProject(projectId: number) {
 function isProjectDocumentsRoute(projectId: number): boolean {
   const documentRoot = `/projects/${projectId}/documents`
   return props.routePath === documentRoot || props.routePath.startsWith(`${documentRoot}/`)
-}
-
-function isProjectCollaborationRoute(projectId: number): boolean {
-  return props.routePath === `/projects/${projectId}/collaboration`
 }
 
 function isProjectTasksRoute(projectId: number): boolean {
@@ -489,14 +484,6 @@ onUnmounted(() => {
         @click="openCompactDocuments(activeProject.id)"
       >
         <FileText class="sidebar-nav__rail-icon" aria-hidden="true" />
-      </button>
-
-      <button v-if="activeProject != null" type="button" class="sidebar-nav__rail-item"
-        :class="{ 'sidebar-nav__rail-item--active': isProjectCollaborationRoute(activeProject.id) }"
-        :aria-label="t('collaborationBatch.title')" :data-tooltip="t('collaborationBatch.title')"
-        :aria-current="isProjectCollaborationRoute(activeProject.id) ? 'page' : undefined"
-        data-testid="sidebar-rail-collaboration" @click="emit('open-project-collaboration', activeProject.id)">
-        <Bot class="sidebar-nav__rail-icon" aria-hidden="true" />
       </button>
 
       <div class="sidebar-nav__rail-group">
@@ -793,14 +780,6 @@ onUnmounted(() => {
               >
                 <FileText class="sidebar-nav__icon sidebar-nav__project-child-icon" aria-hidden="true" />
                 <span class="sidebar-nav__item-label">{{ t('sidebar.documents') }}</span>
-              </button>
-              <button type="button" class="sidebar-nav__project-child"
-                :class="{ 'sidebar-nav__project-child--active': isProjectCollaborationRoute(project.id) }"
-                :aria-current="isProjectCollaborationRoute(project.id) ? 'page' : undefined"
-                :data-testid="`sidebar-project-collaboration-${project.id}`"
-                @click="emit('open-project-collaboration', project.id)">
-                <Bot class="sidebar-nav__icon sidebar-nav__project-child-icon" aria-hidden="true" />
-                <span class="sidebar-nav__item-label">{{ t('collaborationBatch.title') }}</span>
               </button>
             </div>
           </div>

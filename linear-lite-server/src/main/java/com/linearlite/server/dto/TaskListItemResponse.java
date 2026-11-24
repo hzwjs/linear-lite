@@ -21,7 +21,6 @@ public class TaskListItemResponse implements AssigneeService.TaskProjectAssignee
     private LocalDate dueDate;
     private LocalDate plannedStartDate;
     private Integer progressPercent;
-    private Long inputRevision;
     private LocalDateTime completedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -45,7 +44,6 @@ public class TaskListItemResponse implements AssigneeService.TaskProjectAssignee
         item.setDueDate(task.getDueDate());
         item.setPlannedStartDate(task.getPlannedStartDate());
         item.setProgressPercent(task.getProgressPercent());
-        item.setInputRevision(task.getInputRevision());
         item.setCompletedAt(task.getCompletedAt());
         item.setCreatedAt(task.getCreatedAt());
         item.setUpdatedAt(task.getUpdatedAt());
@@ -159,9 +157,6 @@ public class TaskListItemResponse implements AssigneeService.TaskProjectAssignee
     public void setProgressPercent(Integer progressPercent) {
         this.progressPercent = progressPercent;
     }
-
-    public Long getInputRevision() { return inputRevision; }
-    public void setInputRevision(Long inputRevision) { this.inputRevision = inputRevision; }
 
     public LocalDateTime getCompletedAt() {
         return completedAt;

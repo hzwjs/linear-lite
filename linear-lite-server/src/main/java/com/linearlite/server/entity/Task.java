@@ -11,7 +11,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
-@TableName(value = "tasks", autoResultMap = true)
+@TableName("tasks")
 public class Task implements AssigneeService.TaskProjectAssignee {
 
     @TableId(type = IdType.AUTO)
@@ -35,7 +35,6 @@ public class Task implements AssigneeService.TaskProjectAssignee {
     private LocalDate plannedStartDate;
     /** 完成进度 0–100 */
     private Integer progressPercent;
-    private Long inputRevision;
     private LocalDateTime completedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -163,14 +162,6 @@ public class Task implements AssigneeService.TaskProjectAssignee {
 
     public void setProgressPercent(Integer progressPercent) {
         this.progressPercent = progressPercent;
-    }
-
-    public Long getInputRevision() {
-        return inputRevision;
-    }
-
-    public void setInputRevision(Long inputRevision) {
-        this.inputRevision = inputRevision;
     }
 
     public LocalDateTime getCompletedAt() {

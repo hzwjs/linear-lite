@@ -101,9 +101,6 @@ import {
 } from 'lucide-vue-next'
 import TaskRowStatusPicker from './TaskRowStatusPicker.vue'
 import PiConversationPanel from './pi/PiConversationPanel.vue'
-import TaskCollaborationSettings from './TaskCollaborationSettings.vue'
-import type { TaskCollaborationState } from '../services/api/taskCollaboration'
-import type { CollaborationStatusObservation } from '../store/taskStore'
 
 const props = withDefaults(
   defineProps<{
@@ -135,39 +132,6 @@ const assigneeStore = useAssigneeStore()
 const issuePanelStore = useIssuePanelStore()
 const router = useRouter()
 const { t } = useI18n()
-let syncingCollaborationInputs = false
-
-function applyCollaborationSnapshots(taskKey: string, apply: () => void) {
-  if (props.mode !== 'edit' || props.task?.id !== taskKey) return
-  const unchangedCompletion = formStatus.value === props.task.status
-    && formProgressPercent.value === clampTaskProgress(props.task.progressPercent ?? 0)
-  syncingCollaborationInputs = true
-  apply()
-  const current = store.currentTask
-  if (unchangedCompletion && current?.id === taskKey) {
-    formStatus.value = current.status
-    formProgressPercent.value = clampTaskProgress(current.progressPercent ?? 0)
-  }
-  void nextTick(() => { syncingCollaborationInputs = false })
-}
-
-function captureCollaborationObservation(): CollaborationStatusObservation | null {
-  const task = props.task
-  if (props.mode !== 'edit' || !task || formStatus.value !== task.status
-    || formProgressPercent.value !== clampTaskProgress(task.progressPercent ?? 0)) return null
-  return store.captureCollaborationStatusObservation(task.id)
-}
-
-function onCollaborationObserved(taskKey: string, marker: CollaborationStatusObservation, state: TaskCollaborationState) {
-  if (props.mode !== 'edit' || props.task !== marker.task || props.task.id !== taskKey
-    || formStatus.value !== marker.task.status
-    || formProgressPercent.value !== clampTaskProgress(marker.task.progressPercent ?? 0)) return
-  applyCollaborationSnapshots(taskKey, () => store.applyCollaborationStatusObservation(marker, {
-    inputRevision: state.inputRevision, status: state.status, progressPercent: state.progressPercent,
-    completedAt: state.completedAt === null ? undefined : new Date(state.completedAt).getTime(),
-    updatedAt: new Date(state.updatedAt).getTime(),
-  }))
-}
 
 const formTitle = ref('')
 const formDescription = ref('')
@@ -1345,7 +1309,6 @@ watch(
   () => props.task,
   (nextTask, prevTask) => {
     const taskChanged = nextTask?.id !== prevTask?.id
-    if (!taskChanged && syncingCollaborationInputs) return
     if (justSavedTaskId.value !== null && props.task?.id === justSavedTaskId.value) {
       return
     }
@@ -2010,13 +1973,6 @@ async function toggleDescriptionFullscreen() {
               </div>
             </section>
           </div>
-        </section>
-
-        <section v-if="mode === 'edit' && task?.projectId != null" class="content-section subdued linear-section">
-          <TaskCollaborationSettings :task-key="task.id" :project-id="task.projectId"
-            :task-numeric-id="task.numericId"
-            :input-revision="task.inputRevision" :capture-observation="captureCollaborationObservation"
-            @observed="onCollaborationObserved" />
         </section>
 
         <section v-if="mode === 'edit' && task" class="content-section subdued linear-section task-attachments-section">

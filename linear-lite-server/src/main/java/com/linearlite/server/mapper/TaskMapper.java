@@ -7,9 +7,6 @@ import com.linearlite.server.dto.DirectChildCompletion;
 import com.linearlite.server.entity.Task;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
-import org.apache.ibatis.annotations.Result;
-import org.apache.ibatis.annotations.ResultMap;
-import org.apache.ibatis.annotations.Results;
 import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
@@ -48,9 +45,6 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.due_date,
               t.planned_start_date,
               t.progress_percent,
-
-              t.input_revision,
-
               t.completed_at,
               t.created_at,
               t.updated_at
@@ -89,9 +83,6 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.due_date,
               t.planned_start_date,
               t.progress_percent,
-
-              t.input_revision,
-
               t.completed_at,
               t.created_at,
               t.updated_at
@@ -123,9 +114,6 @@ public interface TaskMapper extends BaseMapper<Task> {
               t.title AS title,
               t.status AS status,
               t.progress_percent AS progressPercent,
-
-              t.input_revision AS inputRevision,
-
               t.assignee_key AS assigneeKey,
               t.updated_at AS updatedAt
             FROM tasks t

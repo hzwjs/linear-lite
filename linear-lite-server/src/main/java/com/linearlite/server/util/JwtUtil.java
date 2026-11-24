@@ -4,8 +4,9 @@ import com.linearlite.server.config.JwtProperties;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.security.Keys;
+import io.jsonwebtoken.security.SignatureException;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -50,15 +51,9 @@ public class JwtUtil {
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
-        } catch (ExpiredJwtException e) {
-            throw new TokenExpiredException();
-        } catch (JwtException | IllegalArgumentException e) {
-            throw new IllegalArgumentException("无效的 Token");
+        } catch (ExpiredJwtException | MalformedJwtException | SignatureException | IllegalArgumentException e) {
+            throw new IllegalArgumentException("无效或过期的 Token: " + e.getMessage());
         }
-    }
-
-    public static final class TokenExpiredException extends IllegalArgumentException {
-        public TokenExpiredException() { super("Token 已过期"); }
     }
 
     public Long getUserIdFromClaims(Claims claims) {

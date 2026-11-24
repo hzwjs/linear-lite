@@ -310,10 +310,6 @@ public class DocumentCollaborationService {
             documentIds.forEach(id -> eventPublisher.publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                     ProjectContentType.DOCUMENT, id)));
         }
-        List<CollaborationDocumentChangedEvent.Change> changes = context.documents().stream()
-                .map(document -> new CollaborationDocumentChangedEvent.Change(document.getId(), document.getVersion(),
-                        !"archive".equals(operation))).toList();
-        eventPublisher.publishEvent(new CollaborationDocumentChangedEvent(context.transition().getProjectId(), changes, null));
         return transitionState(transitionId);
     }
 
@@ -474,8 +470,6 @@ public class DocumentCollaborationService {
         }
         eventPublisher.publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.DOCUMENT, documentId));
-        eventPublisher.publishEvent(new CollaborationDocumentChangedEvent(document.getProjectId(),
-                List.of(new CollaborationDocumentChangedEvent.Change(documentId, nextVersion, true)), request.editorId()));
         return new StateCommitted(request.expectedCommitSeq() + 1, nextVersion);
     }
 
@@ -519,8 +513,6 @@ public class DocumentCollaborationService {
         revisionSnapshots.captureForced(saved, request.editorId(), request.content());
         eventPublisher.publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.DOCUMENT, documentId));
-        eventPublisher.publishEvent(new CollaborationDocumentChangedEvent(document.getProjectId(),
-                List.of(new CollaborationDocumentChangedEvent.Change(documentId, nextVersion, true)), request.editorId()));
         return new EpochRestored(nextEpoch, 1L, nextVersion);
     }
 
@@ -569,8 +561,6 @@ public class DocumentCollaborationService {
         revisionSnapshots.captureIfDue(saved, editorId, snapshot.content());
         eventPublisher.publishEvent(new ProjectContentSemanticIndexRequestedEvent(
                 ProjectContentType.DOCUMENT, documentId));
-        eventPublisher.publishEvent(new CollaborationDocumentChangedEvent(projectId,
-                List.of(new CollaborationDocumentChangedEvent.Change(documentId, nextVersion, true)), editorId));
         org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
                 new org.springframework.transaction.support.TransactionSynchronization() {
                     @Override public void afterCommit() {

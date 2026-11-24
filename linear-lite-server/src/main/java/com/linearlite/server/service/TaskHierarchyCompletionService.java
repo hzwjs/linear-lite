@@ -75,11 +75,6 @@ public class TaskHierarchyCompletionService {
         if (!isAutoCompletable(parent.getStatus())) {
             return new ParentEvaluation(false, null, null);
         }
-        // 已拆分的协作父任务以拆分交付为证据，由子任务汇总完成。
-        if (taskStatusService.requiresDeliveryEvidence(parent.getId())
-                && !taskStatusService.hasCompletionEvidence(parent.getId())) {
-            return new ParentEvaluation(false, null, null);
-        }
         Task completed = taskStatusService.updateState(parent.getId(), "done", 100, actorUserId, occurredAt);
         TaskStateChange change = new TaskStateChange(
                 completed.getId(), completed.getTaskKey(), completed.getStatus(), completed.getProgressPercent(),

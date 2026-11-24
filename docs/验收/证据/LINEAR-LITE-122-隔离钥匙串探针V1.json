@@ -1,9 +1,0 @@
-{
-  "modelCalls": 0,
-  "threadStarts": 0,
-  "isolatedFixture": true,
-  "controlReadable": true,
-  "readOnlyExitCode": 44,
-  "readOnlyCouldReadFixture": false,
-  "rpcError": false
-}

@@ -76,8 +76,6 @@ class DocumentCollaborationServiceTest {
                 "epoch-current", 8L, "AQ==", "[]", "BLOCKNOTE", 7L, java.util.Map.of(), null, false));
 
         verify(revisionSnapshots).captureIfDue(document, 7L, "[]");
-        verify(eventPublisher).publishEvent(new CollaborationDocumentChangedEvent(4L,
-                java.util.List.of(new CollaborationDocumentChangedEvent.Change(11L, 4L, true)), 7L));
     }
 
     @Test

@@ -95,39 +95,6 @@ class TaskHierarchyCompletionServiceTest {
                 org.mockito.ArgumentMatchers.any());
     }
 
-    @Test
-    void collaborativeParentIsNotCompletedByChildTerminalStates() {
-        Task parent = task(2L, "ENG-2", "in_progress", 1L);
-        when(taskMapper.selectByIdForUpdate(2L)).thenReturn(parent);
-        when(taskMapper.selectDirectChildCompletion(2L)).thenReturn(completion(2, 2));
-        when(taskStatusService.requiresDeliveryEvidence(2L)).thenReturn(true);
-        var changes = new TaskHierarchyCompletionService(taskMapper, taskStatusService)
-                .completeEligibleParentChain(2L, 7L, LocalDateTime.now());
-        assertEquals(0, changes.size());
-        verify(taskStatusService, never()).updateState(
-                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyLong(),
-                org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
-    void splitCollaborativeParentIsCompletedWhenChildrenFinish() {
-        LocalDateTime occurredAt = LocalDateTime.of(2026, 7, 28, 12, 0);
-        Task parent = task(2L, "ENG-2", "in_progress", null);
-        Task completedParent = task(2L, "ENG-2", "done", null);
-        completedParent.setProgressPercent(100);
-        completedParent.setCompletedAt(occurredAt);
-        when(taskMapper.selectByIdForUpdate(2L)).thenReturn(parent);
-        when(taskMapper.selectDirectChildCompletion(2L)).thenReturn(completion(2, 2));
-        when(taskStatusService.requiresDeliveryEvidence(2L)).thenReturn(true);
-        when(taskStatusService.hasCompletionEvidence(2L)).thenReturn(true);
-        when(taskStatusService.updateState(2L, "done", 100, 7L, occurredAt)).thenReturn(completedParent);
-
-        var changes = new TaskHierarchyCompletionService(taskMapper, taskStatusService)
-                .completeEligibleParentChain(2L, 7L, occurredAt);
-        assertEquals(java.util.List.of("ENG-2"), changes.stream().map(c -> c.taskKey()).toList());
-    }
-
     private static Task task(Long id, String key, String status, Long parentId) {
         Task task = new Task();
         task.setId(id);

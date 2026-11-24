@@ -65,7 +65,6 @@ class ProjectLifecycleServiceTest {
     @Mock private DocumentCollaborationService collaborationService;
     @Mock private CollaborationNodeClient nodeClient;
     @Mock private PlatformTransactionManager transactionManager;
-    @Mock private TaskCollaborationInputService taskCollaborationInputService;
 
     private ProjectLifecycleService service;
 
@@ -77,35 +76,7 @@ class ProjectLifecycleServiceTest {
                 mentionMapper, notificationMapper, activityMapper, favoriteMapper, attachmentMapper,
                 labelService, labelMapper, invitationMapper, memberMapper, emailPreferenceMapper,
                 gitLabRepositoryMapper,
-                null, null, taskSeqMapper, eventPublisher, collaborationService, nodeClient, transactionManager,
-                taskCollaborationInputService);
-    }
-
-    @Test
-    void projectDeleteCommitsStopIntentBeforeReturningConflict() {
-        var transaction = new org.springframework.transaction.support.SimpleTransactionStatus();
-        when(transactionManager.getTransaction(any())).thenReturn(transaction);
-        when(taskCollaborationInputService.requestProjectStop(3L, 7L)).thenReturn(true);
-
-        assertThrows(com.linearlite.server.exception.ConflictOperationException.class,
-                () -> service.deleteProject(3L, 7L));
-
-        verify(transactionManager).commit(transaction);
-        org.mockito.Mockito.verifyNoInteractions(documentMapper);
-    }
-
-    @Test
-    void projectDeleteTemplatesReadCommittedAndStopUsesIndependentTransaction() {
-        var deleteTemplate = (org.springframework.transaction.support.TransactionTemplate)
-                org.springframework.test.util.ReflectionTestUtils.getField(service, "transactionTemplate");
-        var stopTemplate = (org.springframework.transaction.support.TransactionTemplate)
-                org.springframework.test.util.ReflectionTestUtils.getField(service, "stopTransactionTemplate");
-        org.junit.jupiter.api.Assertions.assertEquals(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED,
-                deleteTemplate.getIsolationLevel());
-        org.junit.jupiter.api.Assertions.assertEquals(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED,
-                stopTemplate.getIsolationLevel());
-        org.junit.jupiter.api.Assertions.assertEquals(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW,
-                stopTemplate.getPropagationBehavior());
+                null, null, taskSeqMapper, eventPublisher, collaborationService, nodeClient, transactionManager);
     }
 
     @Test

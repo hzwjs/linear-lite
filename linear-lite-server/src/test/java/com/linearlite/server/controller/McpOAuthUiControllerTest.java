@@ -7,8 +7,6 @@ import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
-import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
-import com.linearlite.server.security.OAuthResourcePolicy;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -69,24 +67,6 @@ class McpOAuthUiControllerTest {
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertFalse(response.getBody().contains("<form"));
-    }
-
-    @Test
-    void consentShowsEscapedRegisteredDeviceIdentity() {
-        RegisteredClient client = RegisteredClient.withId("internal-host").clientId("host")
-                .clientName("Host").clientAuthenticationMethod(ClientAuthenticationMethod.NONE)
-                .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-                .redirectUri("http://127.0.0.1:1234/callback")
-                .scope(OAuthResourcePolicy.HOST_SCOPE)
-                .clientSettings(ClientSettings.builder().requireProofKey(true)
-                        .setting(OAuthResourcePolicy.DEVICE_ID_SETTING, "<device>")
-                        .setting(OAuthResourcePolicy.DEVICE_NAME_SETTING, "<Mac>").build()).build();
-        when(clients.findByClientId("host")).thenReturn(client);
-        var response = controller.consent("host", "state", OAuthResourcePolicy.HOST_SCOPE, () -> "user");
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertTrue(response.getBody().contains("&lt;device&gt;"));
-        assertTrue(response.getBody().contains("&lt;Mac&gt;"));
-        assertFalse(response.getBody().contains("<Mac>"));
     }
 
     private static RegisteredClient registeredClient(String clientId, String clientName) {

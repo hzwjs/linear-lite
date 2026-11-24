@@ -18,24 +18,6 @@ import { invalidateTaskDetailSnapshot } from '../utils/taskDetailPreload'
 
 const TASK_SNAPSHOT_PREFIX = 'linear-lite:tasks:v2:'
 
-export interface CollaborationTaskSnapshot {
-  inputRevision: number
-  status: Status
-  progressPercent: number
-  completedAt: number | null | undefined
-  updatedAt: number
-}
-
-export interface CollaborationStatusObservation {
-  taskKey: string
-  task: Task
-  row: Task | undefined
-  cached: Task | undefined
-  lane: object | undefined
-  ackBase: Task | null | undefined
-  inputRevision: number
-}
-
 function taskSnapshotKey(projectId: number): string {
   return `${TASK_SNAPSHOT_PREFIX}${projectId}`
 }
@@ -643,51 +625,6 @@ export const useTaskStore = defineStore('taskStore', () => {
     upsertTaskRow(id, next)
   }
 
-  function captureCollaborationStatusObservation(id: string): CollaborationStatusObservation | null {
-    const lane = saveLanes.get(id)
-    const task = currentTask.value
-    if (currentTaskId.value !== id || !task || task.inputRevision === undefined
-      || lane?.inFlightPromise || lane?.inFlightPatch || lane?.pendingPatch || lane?.hasUnsavedFailure) return null
-    const index = getTaskIndexById(id)
-    return { taskKey: id, task, row: index === -1 ? undefined : tasks.value[index],
-      cached: taskByKeyCache.value[id], lane, ackBase: lane?.ackBase, inputRevision: task.inputRevision }
-  }
-
-  function applyCollaborationStatusObservation(marker: CollaborationStatusObservation,
-    fields: CollaborationTaskSnapshot): boolean {
-    const id = marker.taskKey
-    const lane = saveLanes.get(id)
-    const index = getTaskIndexById(id)
-    const row = index === -1 ? undefined : tasks.value[index]
-    const cached = taskByKeyCache.value[id]
-    if (currentTaskId.value !== id || currentTask.value !== marker.task || row !== marker.row || cached !== marker.cached
-      || lane !== marker.lane || lane?.ackBase !== marker.ackBase || marker.task.inputRevision !== marker.inputRevision
-      || lane?.inFlightPromise || lane?.inFlightPatch || lane?.pendingPatch || lane?.hasUnsavedFailure
-      || fields.inputRevision < marker.inputRevision || fields.updatedAt < marker.task.updatedAt) return false
-    if (fields.inputRevision === marker.inputRevision && fields.updatedAt === marker.task.updatedAt
-      && fields.status === marker.task.status && fields.progressPercent === marker.task.progressPercent
-      && fields.completedAt === marker.task.completedAt) return true
-    if (lane?.ackBase) lane.ackBase = { ...lane.ackBase, ...fields }
-    if (row) upsertTaskRow(id, { ...row, ...fields })
-    else if (cached) {
-      cacheTask({ ...cached, ...fields })
-      if (cached.projectId !== undefined) {
-        const snapshot = getProjectSnapshot(cached.projectId)
-        if (snapshot) {
-          let changed = false
-          const updated = snapshot.map(task => {
-            if (task.id !== id || task.inputRevision !== marker.inputRevision || task.status !== marker.task.status
-              || task.progressPercent !== marker.task.progressPercent || task.completedAt !== marker.task.completedAt) return task
-            changed = true
-            return { ...task, ...fields }
-          })
-          if (changed) rememberProjectTasks(cached.projectId, updated)
-        }
-      }
-    }
-    return true
-  }
-
   async function pumpTaskLane(id: string): Promise<void> {
     const lane = getOrCreateLane(id)
     if (lane.inFlightPromise != null || lane.pendingPatch == null || lane.ackBase == null) return
@@ -932,8 +869,6 @@ export const useTaskStore = defineStore('taskStore', () => {
     fetchSubIssues,
     createTask,
     applyLocalTaskPatch,
-    captureCollaborationStatusObservation,
-    applyCollaborationStatusObservation,
     enqueueTaskUpdate,
     updateTask,
     flushTask,

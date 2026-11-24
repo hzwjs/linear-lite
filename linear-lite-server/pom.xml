@@ -147,18 +147,6 @@
                             <workingDirectory>${project.basedir}/..</workingDirectory>
                         </configuration>
                     </execution>
-                    <execution>
-                        <id>verify-host-installer</id>
-                        <phase>generate-resources</phase>
-                        <goals><goal>exec</goal></goals>
-                        <configuration>
-                            <executable>node</executable>
-                            <arguments>
-                                <argument>codex-host/install/verify-distribution.mjs</argument>
-                            </arguments>
-                            <workingDirectory>${project.basedir}/..</workingDirectory>
-                        </configuration>
-                    </execution>
                 </executions>
             </plugin>
             <plugin>
@@ -166,24 +154,6 @@
                 <artifactId>maven-resources-plugin</artifactId>
                 <version>3.3.1</version>
                 <executions>
-                    <execution>
-                        <id>copy-host-installer</id>
-                        <phase>process-resources</phase>
-                        <goals><goal>copy-resources</goal></goals>
-                        <configuration>
-                            <outputDirectory>${project.build.outputDirectory}/host-distribution</outputDirectory>
-                            <resources>
-                                <resource>
-                                    <directory>../docs/交付产物</directory>
-                                    <filtering>false</filtering>
-                                    <includes>
-                                        <include>Linear-Lite协作宿主-macOS-arm64-V3.1.5.dmg</include>
-                                        <include>Linear-Lite协作宿主-macOS-arm64-V3.1.5.dmg.json</include>
-                                    </includes>
-                                </resource>
-                            </resources>
-                        </configuration>
-                    </execution>
                     <execution>
                         <id>copy-frontend</id>
                         <phase>process-resources</phase>

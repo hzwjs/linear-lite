@@ -3,7 +3,6 @@ package com.linearlite.server.filter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linearlite.server.config.McpOAuthProperties;
-import com.linearlite.server.security.OAuthResourcePolicy;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -14,9 +13,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 50)
@@ -47,31 +43,12 @@ public class McpOAuthResourceParameterFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
-        String resource = request.getParameter("resource");
-        String[] resourceValues = request.getParameterValues("resource");
-        boolean valid = resourceValues != null && resourceValues.length == 1
-                && (properties.getResource().equals(resource) || OAuthResourcePolicy.hostResource(properties).equals(resource));
-        if (valid && "/oauth2/authorize".equals(request.getRequestURI())) {
-            String scope = request.getParameter("scope");
-            Set<String> scopes = scope == null ? Set.of() : Arrays.stream(scope.trim().split("\\s+"))
-                    .filter(value -> !value.isEmpty()).collect(Collectors.toSet());
-            try {
-                if (!scopes.isEmpty()) valid = resource.equals(OAuthResourcePolicy.resourceFor(scopes, properties));
-                else if (resource.equals(OAuthResourcePolicy.hostResource(properties))) valid = false;
-                if (OAuthResourcePolicy.isHost(scopes)) {
-                    String[] methods = request.getParameterValues("code_challenge_method");
-                    valid = valid && methods != null && methods.length == 1 && "S256".equals(methods[0]);
-                }
-            } catch (IllegalArgumentException exception) {
-                valid = false;
-            }
-        }
-        if (!valid) {
+        if (!properties.getResource().equals(request.getParameter("resource"))) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             response.setContentType("application/json;charset=UTF-8");
             ObjectNode error = objectMapper.createObjectNode();
             error.put("error", "invalid_target");
-            error.put("error_description", "The requested resource, scope or PKCE method is invalid.");
+            error.put("error_description", "The requested resource does not match Linear Lite MCP.");
             response.getWriter().write(objectMapper.writeValueAsString(error));
             return;
         }

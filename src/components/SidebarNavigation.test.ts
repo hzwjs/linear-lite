@@ -172,7 +172,6 @@ describe('SidebarNavigation', () => {
       'sidebar-rail-agent-connections',
       'sidebar-rail-tasks',
       'sidebar-rail-documents',
-      'sidebar-rail-collaboration',
       'sidebar-rail-projects'
     ])
     expect(host.querySelector('.sidebar-nav__rail-item[title]')).toBeNull()
@@ -450,10 +449,9 @@ describe('SidebarNavigation', () => {
     host.remove()
   })
 
-  it('expands the active project and exposes task, document and collaboration navigation', async () => {
+  it('expands only the active project and exposes task and document child navigation', async () => {
     const onSelectProject = vi.fn()
     const onOpenProjectDocuments = vi.fn()
-    const onOpenProjectCollaboration = vi.fn()
     const host = document.createElement('div')
     document.body.appendChild(host)
 
@@ -471,8 +469,7 @@ describe('SidebarNavigation', () => {
       routeTaskId: null,
       activeProjectId: 1,
       onSelectProject,
-      onOpenProjectDocuments,
-      onOpenProjectCollaboration
+      onOpenProjectDocuments
     })
     app.use(i18n)
     app.mount(host)
@@ -481,7 +478,6 @@ describe('SidebarNavigation', () => {
     const project = host.querySelector('[data-testid="sidebar-project-1"]') as HTMLElement
     const tasks = host.querySelector('[data-testid="sidebar-project-tasks-1"]') as HTMLButtonElement
     const documents = host.querySelector('[data-testid="sidebar-project-documents-1"]') as HTMLButtonElement
-    const collaboration = host.querySelector('[data-testid="sidebar-project-collaboration-1"]') as HTMLButtonElement
 
     expect(project.classList.contains('sidebar-nav__item--active')).toBe(false)
     expect(project.querySelector('.sidebar-nav__item-main')?.getAttribute('aria-expanded')).toBe('true')
@@ -495,10 +491,8 @@ describe('SidebarNavigation', () => {
 
     tasks.click()
     documents.click()
-    collaboration.click()
     expect(onSelectProject).toHaveBeenCalledWith(1)
     expect(onOpenProjectDocuments).toHaveBeenCalledWith(1)
-    expect(onOpenProjectCollaboration).toHaveBeenCalledWith(1)
 
     app.unmount()
     host.remove()
